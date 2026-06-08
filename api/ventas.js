@@ -9,15 +9,15 @@ export default async function handler(req, res) {
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 25000);
+    const timeout = setTimeout(() => controller.abort(), 28000);
 
-    const response = await fetch(
-      'https://api.contifico.com/sistema/api/v1/documento/?tipo_documento=FAC',
-      {
-        headers: { 'Authorization': API_KEY, 'Accept': 'application/json' },
-        signal: controller.signal
-      }
-    );
+    // Pedir solo los últimos 100 documentos con offset=0
+    const url = 'https://api.contifico.com/sistema/api/v1/documento/?tipo_documento=FAC&offset=0&limit=100';
+
+    const response = await fetch(url, {
+      headers: { 'Authorization': API_KEY, 'Accept': 'application/json' },
+      signal: controller.signal
+    });
     clearTimeout(timeout);
 
     const text = await response.text();
