@@ -6,93 +6,84 @@ const https = require('https');
 const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.CONTIFICO_API_KEY || '';
 
+// Cache en memoria
+let cache = { documentos: [], ultima_sync: null, sincronizando: false };
+
 function fetchContifico(url) {
   return new Promise((resolve, reject) => {
-    const options = {
+    const req = https.request(url, {
       method: 'GET',
       headers: { 'Authorization': API_KEY, 'Accept': 'application/json' }
-    };
-    const req = https.request(url, options, (res) => {
+    }, (res) => {
       let data = '';
       res.on('data', chunk => data += chunk);
       res.on('end', () => resolve({ status: res.statusCode, body: data }));
     });
     req.on('error', reject);
-    req.setTimeout(55000, () => { req.destroy(); reject(new Error('Timeout de Contifico')); });
+    req.setTimeout(60000, () => { req.destroy(); reject(new Error('Timeout')); });
     req.end();
   });
 }
 
-const MIME = {
-  '.html': 'text/html',
-  '.js': 'application/javascript',
-  '.css': 'text/css',
-  '.json': 'application/json',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.ico': 'image/x-icon'
-};
+async function sincronizar() {
+  if (cache.sincronizando) return;
+  cache.sincronizando = true;
+  console.log('Sincronizando con Contifico...');
+  try {
+    const now = new Date();
+    const y = String(now.getFullYear()).slice(-2);
+    const url = `https://api.contifico.com/sistema/api/v1/documento/?tipo_documento=FAC&fecha_inicio=01/01/${y}&fecha_fin=${String(now.getDate()).padStart(2,'0')}/${String(now.getMonth()+1).padStart(2,'0')}/${y}`;
+    const r = await fetchContifico(url);
+    const data = JSON.parse(r.body);
+    const docs = Array.isArray(data) ? data : (data.results || data.data || []);
+    cache.documentos = docs.map(doc => ({
+      fecha: doc.fecha_emision || '',
+      vendedor: doc.vendedor_nombre || doc.vendedor || 'Sin vendedor',
+      cliente: doc.cliente_razon_social || doc.razon_social || '',
+      provincia: doc.provincia || '',
+      total: parseFloat((doc.total || '0').toString().replace(',', '.')),
+      estado: doc.estado || '',
+      detalles: (doc.detalles || []).map(d => ({
+        producto: d.producto_nombre || d.nombre || '',
+        marca: d.adicional3 || d.marca || '',
+        cantidad: parseFloat((d.cantidad || '0').toString().replace(',', '.')),
+        total: parseFloat((d.base_gravable || '0').toString().replace(',', '.'))
+      }))
+    }));
+    cache.ultima_sync = new Date().toISOString();
+    console.log(`Sincronizado: ${cache.documentos.length} documentos`);
+  } catch(e) {
+    console.error('Error sync:', e.message);
+  }
+  cache.sincronizando = false;
+}
+
+// Sincronizar al arrancar y cada hora
+sincronizar();
+setInterval(sincronizar, 60 * 60 * 1000);
+
+const MIME = { '.html':'text/html', '.js':'application/javascript', '.css':'text/css', '.json':'application/json' };
 
 const server = http.createServer(async (req, res) => {
   const urlPath = req.url.split('?')[0];
-
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
   if (req.method === 'OPTIONS') { res.writeHead(200); res.end(); return; }
 
   if (urlPath === '/api/ventas') {
-    if (!API_KEY) {
-      res.writeHead(500, {'Content-Type': 'application/json'});
-      res.end(JSON.stringify({ error: 'API Key no configurada' }));
-      return;
-    }
-    try {
-      // Obtener fecha actual y filtrar por año actual
-      const now = new Date();
-      const year = String(now.getFullYear()).slice(-2);
-      const fechaInicio = `01/01/${year}`;
-      const fechaFin = `${String(now.getDate()).padStart(2,'0')}/${String(now.getMonth()+1).padStart(2,'0')}/${year}`;
-      
-      const url = `https://api.contifico.com/sistema/api/v1/documento/?tipo_documento=FAC&fecha_inicio=${fechaInicio}&fecha_fin=${fechaFin}`;
-      console.log('Fetching:', url);
-      
-      const r = await fetchContifico(url);
-      console.log('Status:', r.status, 'Body length:', r.body.length);
+    res.writeHead(200, {'Content-Type': 'application/json'});
+    res.end(JSON.stringify({
+      total: cache.documentos.length,
+      documentos: cache.documentos,
+      ultima_sync: cache.ultima_sync,
+      sincronizando: cache.sincronizando
+    }));
+    return;
+  }
 
-      let data;
-      try { data = JSON.parse(r.body); } catch(e) {
-        res.writeHead(500, {'Content-Type': 'application/json'});
-        res.end(JSON.stringify({ error: 'JSON inválido', raw: r.body.substring(0, 300) }));
-        return;
-      }
-
-      const docs = Array.isArray(data) ? data : (data.results || data.data || []);
-      console.log('Documentos encontrados:', docs.length);
-
-      const procesados = docs.map(doc => ({
-        fecha: doc.fecha_emision || '',
-        vendedor: doc.vendedor_nombre || doc.vendedor || 'Sin vendedor',
-        cliente: doc.cliente_razon_social || doc.razon_social || '',
-        provincia: doc.provincia || '',
-        total: parseFloat((doc.total || '0').toString().replace(',', '.')),
-        estado: doc.estado || '',
-        detalles: (doc.detalles || []).map(d => ({
-          producto: d.producto_nombre || d.nombre || '',
-          marca: d.adicional3 || d.marca || '',
-          cantidad: parseFloat((d.cantidad || '0').toString().replace(',', '.')),
-          total: parseFloat((d.base_gravable || '0').toString().replace(',', '.'))
-        }))
-      }));
-
-      res.writeHead(200, {'Content-Type': 'application/json'});
-      res.end(JSON.stringify({ total: procesados.length, documentos: procesados }));
-    } catch(e) {
-      console.error('Error:', e.message);
-      res.writeHead(500, {'Content-Type': 'application/json'});
-      res.end(JSON.stringify({ error: e.message }));
-    }
+  if (urlPath === '/api/sync') {
+    sincronizar(); // dispara sync en background
+    res.writeHead(200, {'Content-Type': 'application/json'});
+    res.end(JSON.stringify({ msg: 'Sincronización iniciada', ultima_sync: cache.ultima_sync }));
     return;
   }
 
@@ -100,7 +91,7 @@ const server = http.createServer(async (req, res) => {
     try {
       const r = await fetchContifico('https://api.contifico.com/sistema/api/v1/marca/');
       res.writeHead(200, {'Content-Type': 'application/json'});
-      res.end(JSON.stringify({ key: API_KEY.substring(0,8)+'...', status: r.status, resp: r.body.substring(0, 300) }));
+      res.end(JSON.stringify({ key: API_KEY.substring(0,8)+'...', status: r.status, resp: r.body.substring(0,300), cache_docs: cache.documentos.length, ultima_sync: cache.ultima_sync }));
     } catch(e) {
       res.writeHead(200, {'Content-Type': 'application/json'});
       res.end(JSON.stringify({ error: e.message }));
@@ -109,31 +100,17 @@ const server = http.createServer(async (req, res) => {
   }
 
   // Static files
-  let filePath;
-  if (urlPath === '/' || urlPath === '') {
-    filePath = path.join(__dirname, 'index.html');
-  } else if (urlPath === '/login') {
-    filePath = path.join(__dirname, 'public', 'login.html');
-  } else {
-    filePath = path.join(__dirname, urlPath);
-  }
+  let filePath = urlPath === '/' ? path.join(__dirname, 'index.html')
+    : urlPath === '/login' ? path.join(__dirname, 'public', 'login.html')
+    : path.join(__dirname, urlPath);
 
   if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
-    const ext = path.extname(filePath);
-    res.writeHead(200, {'Content-Type': MIME[ext] || 'text/plain'});
+    res.writeHead(200, {'Content-Type': MIME[path.extname(filePath)] || 'text/plain'});
     fs.createReadStream(filePath).pipe(res);
   } else {
-    const index = path.join(__dirname, 'index.html');
-    if (fs.existsSync(index)) {
-      res.writeHead(200, {'Content-Type': 'text/html'});
-      fs.createReadStream(index).pipe(res);
-    } else {
-      res.writeHead(404);
-      res.end('Not found');
-    }
+    res.writeHead(200, {'Content-Type': 'text/html'});
+    fs.createReadStream(path.join(__dirname, 'index.html')).pipe(res);
   }
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Cosétika Dashboard running on port ${PORT}`);
-});
+server.listen(PORT, '0.0.0.0', () => console.log(`Cosétika Dashboard running on port ${PORT}`));
