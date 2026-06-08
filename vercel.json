@@ -1,7 +1,13 @@
 {
   "functions": {
-    "api/*.js": {
-      "maxDuration": 60
+    "api/ventas.js": {
+      "maxDuration": 15
+    },
+    "api/clientes.js": {
+      "maxDuration": 15
+    },
+    "api/productos.js": {
+      "maxDuration": 15
     }
   },
   "rewrites": [
