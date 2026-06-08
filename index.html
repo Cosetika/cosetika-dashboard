@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Cosétika — Panel de Ventas</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.44.0/tabler-icons.min.css"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --brown: #A0684A;
+      --brown-dark: #1a0e08;
+      --brown-light: rgba(160,104,74,0.12);
+      --bg: #f4f1ee;
+      --card: #ffffff;
+      --text: #1a1a1a;
+      --text-muted: #6b6b6b;
+      --border: rgba(0,0,0,0.08);
+      --success: #3B6D11;
+      --warn: #BA7517;
+    }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+    /* HEADER */
+    .header { background: var(--brown-dark); padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid var(--brown); }
+    .logo-area { display: flex; align-items: center; gap: 10px; }
+    .logo-circle { width: 40px; height: 40px; background: var(--brown); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 19px; font-weight: 700; color: white; font-style: italic; font-family: Georgia, serif; flex-shrink: 0; }
+    .logo-text .name { font-size: 17px; font-weight: 500; letter-spacing: 2px; color: white; }
+    .logo-text .slogan { font-size: 9px; color: #fff; letter-spacing: 1px; }
+    .header-right { display: flex; align-items: center; gap: 8px; }
+    .badge { background: rgba(160,104,74,0.25); border: 1px solid var(--brown); color: #c9a07a; font-size: 11px; padding: 3px 10px; border-radius: 20px; }
+    .icon-btn-hdr { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2); color: white; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 15px; text-decoration: none; transition: background 0.2s; }
+    .icon-btn-hdr:hover { background: var(--brown); }
+
+    /* TOP TABS */
+    .top-tabs { display: flex; background: white; border-bottom: 1px solid var(--border); overflow-x: auto; scrollbar-width: none; }
+    .top-tabs::-webkit-scrollbar { display: none; }
+    .top-tab { padding: 9px 16px; font-size: 11px; font-weight: 500; color: var(--text-muted); cursor: pointer; border-bottom: 3px solid transparent; white-space: nowrap; transition: all 0.2s; }
+    .top-tab:hover { color: var(--text); background: #faf9f8; }
+    .top-tab.active { color: var(--brown); border-bottom-color: var(--brown); background: #faf9f8; }
+
+    /* MODULES */
+    .modules-bar { display: grid; grid-template-columns: repeat(5,1fr); background: white; border-bottom: 1px solid var(--border); }
+    .mod-item { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 10px 4px; cursor: pointer; border-bottom: 3px solid transparent; color: var(--text-muted); font-size: 11px; font-weight: 500; transition: all 0.2s; }
+    .mod-item:hover { background: #faf9f8; color: var(--text); }
+    .mod-item.active { border-bottom-color: var(--brown); color: var(--brown); }
+    .mod-item i { font-size: 20px; }
+
+    /* BODY */
+    .body { display: grid; grid-template-columns: 170px 1fr; min-height: calc(100vh - 148px); }
+    .sidebar { background: white; border-right: 1px solid var(--border); padding: 14px 10px; overflow-y: auto; }
+    .sidebar-title { font-size: 10px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+    .vend-item { display: flex; align-items: center; gap: 7px; padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 12px; color: var(--text); margin-bottom: 1px; transition: background 0.15s; }
+    .vend-item:hover { background: #faf9f8; }
+    .vend-item.active { background: var(--brown-light); color: var(--brown); font-weight: 500; }
+    .vend-item input[type=checkbox] { accent-color: var(--brown); width: 12px; height: 12px; flex-shrink: 0; }
+
+    .marca-mini { margin-top: 16px; }
+    .marca-row { margin-bottom: 8px; }
+    .marca-hdr { display: flex; justify-content: space-between; font-size: 10px; margin-bottom: 3px; }
+    .marca-name { color: var(--text-muted); }
+    .marca-val { color: var(--brown); font-weight: 600; }
+    .marca-track { height: 5px; background: #f0ede9; border-radius: 2px; }
+    .marca-fill { height: 100%; border-radius: 2px; }
+
+    /* MAIN */
+    .main { padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
+    .card { background: white; border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
+    .card-title { font-size: 10px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; display: flex; align-items: center; gap: 6px; }
+    .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .kpi-row { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; }
+    .mini-kpi { background: #faf9f8; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+    .mini-kpi-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; }
+    .mini-kpi-val { font-size: 17px; font-weight: 600; color: var(--text); margin-top: 2px; }
+    .mini-kpi-delta { font-size: 10px; color: var(--success); margin-top: 1px; }
+
+    /* BARS */
+    .hbar-row { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; cursor: pointer; border-radius: 5px; padding: 3px 5px; transition: background 0.15s; }
+    .hbar-row:hover { background: #faf9f8; }
+    .hbar-row.selected { background: var(--brown-light); }
+    .hbar-label { font-size: 11px; color: var(--text); width: 120px; text-align: right; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .hbar-track { flex: 1; height: 14px; background: #f0ede9; border-radius: 3px; }
+    .hbar-fill { height: 100%; border-radius: 3px; background: #5a8fa3; transition: width 0.4s; }
+    .hbar-fill.sel { background: var(--brown); }
+    .hbar-val { font-size: 11px; color: var(--text-muted); min-width: 42px; }
+
+    .prod-row { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; }
+    .prod-name { font-size: 11px; color: var(--text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .prod-bar { width: 55px; height: 9px; background: #f0ede9; border-radius: 2px; flex-shrink: 0; }
+    .prod-fill { height: 100%; border-radius: 2px; background: #7ab3c4; }
+    .prod-qty { font-size: 11px; color: var(--text-muted); min-width: 20px; text-align: right; }
+
+    .freq-row { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
+    .freq-label { font-size: 10px; color: var(--text-muted); width: 46px; text-align: right; flex-shrink: 0; }
+    .freq-track { flex: 1; height: 18px; background: #f0ede9; border-radius: 3px; overflow: hidden; }
+    .freq-fill { height: 100%; border-radius: 3px; background: var(--brown); display: flex; align-items: center; padding-left: 7px; transition: width 0.4s; }
+    .freq-fill span { font-size: 10px; color: white; font-weight: 600; white-space: nowrap; }
+    .freq-count { font-size: 10px; color: var(--text-muted); min-width: 55px; }
+
+    /* BREADCRUMB */
+    .breadcrumb { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); }
+    .crumb-link { color: var(--brown); cursor: pointer; }
+    .crumb-link:hover { text-decoration: underline; }
+    .crumb-sep { color: var(--border); }
+
+    /* CLIENT HEADER */
+    .client-header { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--brown-light); border: 1px solid rgba(160,104,74,0.25); border-radius: 8px; }
+    .client-avatar { width: 36px; height: 36px; border-radius: 50%; background: rgba(160,104,74,0.2); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; color: var(--brown); flex-shrink: 0; }
+    .client-name { font-size: 14px; font-weight: 600; color: var(--text); }
+    .client-sub { font-size: 11px; color: var(--text-muted); }
+    .back-btn { margin-left: auto; background: none; border: 1px solid var(--brown); color: var(--brown); font-size: 11px; padding: 5px 12px; border-radius: 20px; cursor: pointer; display: flex; align-items: center; gap: 4px; }
+    .back-btn:hover { background: var(--brown-light); }
+
+    /* LOADING / ERROR */
+    .loader { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px 20px; gap: 12px; color: var(--text-muted); }
+    .loader i { font-size: 36px; color: var(--brown); animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .error-box { background: #fff5f5; border: 1px solid #fca5a5; border-radius: 8px; padding: 16px; color: #991b1b; font-size: 13px; }
+    .error-box strong { display: block; margin-bottom: 4px; }
+
+    /* PILL */
+    .pill { font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 500; }
+    .pill-green { background: #dcfce7; color: #166534; }
+    .pill-warn { background: #fef3c7; color: #92400e; }
+
+    /* ADMIN MODAL */
+    .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 200; align-items: center; justify-content: center; }
+    .overlay.open { display: flex; }
+    .modal { background: white; border-radius: 12px; width: 520px; max-height: 85vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.2); }
+    .modal-hdr { background: var(--brown-dark); padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; border-radius: 12px 12px 0 0; }
+    .modal-title { color: white; font-size: 14px; font-weight: 500; display: flex; align-items: center; gap: 8px; }
+    .modal-close { color: #c9a07a; cursor: pointer; background: none; border: none; font-size: 20px; line-height: 1; }
+    .modal-body { padding: 18px; }
+    .modal-section { margin-bottom: 22px; }
+    .modal-section-title { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+    .user-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+    .user-avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--brown-light); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: var(--brown); flex-shrink: 0; }
+    .user-info { flex: 1; }
+    .user-name { font-size: 12px; font-weight: 500; color: var(--text); }
+    .user-email { font-size: 10px; color: var(--text-muted); }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .form-group { display: flex; flex-direction: column; gap: 4px; }
+    .form-group.full { grid-column: 1/-1; }
+    .form-label { font-size: 11px; color: var(--text-muted); font-weight: 500; }
+    input, select { padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 12px; color: var(--text); background: white; width: 100%; outline: none; }
+    input:focus, select:focus { border-color: var(--brown); }
+    .btn-primary { background: var(--brown); color: white; border: none; padding: 8px 16px; border-radius: 6px; font-size: 12px; cursor: pointer; font-weight: 500; display: flex; align-items: center; gap: 6px; }
+    .btn-primary:hover { background: #8a5840; }
+    .perm-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 6px; }
+    .perm-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text); background: #faf9f8; border: 1px solid var(--border); border-radius: 5px; padding: 6px 8px; cursor: pointer; }
+    .perm-item input { width: auto; }
+    .sync-info { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 10px 12px; font-size: 11px; color: #166534; display: flex; align-items: center; gap: 8px; }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo-area">
+    <div class="logo-circle">C</div>
+    <div class="logo-text">
+      <div class="name">COSÉTIKA</div>
+      <div class="slogan">Innovación Europea en Belleza</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="badge" id="fecha-badge">Cargando...</div>
+    <div class="icon-btn-hdr" onclick="toggleAdmin()" title="Administración">
+      <i class="ti ti-settings"></i>
+    </div>
+  </div>
+</div>
+
+<div class="top-tabs">
+  <div class="top-tab active" onclick="setTopTab(this,'ventas-clientes')">Panel cliente venta y frecuencia</div>
+  <div class="top-tab" onclick="setTopTab(this,'marca-total')">marca.venta.total</div>
+  <div class="top-tab" onclick="setTopTab(this,'cli-frec')">Cli.frec</div>
+  <div class="top-tab" onclick="setTopTab(this,'venta-productos')">Venta.Productos</div>
+</div>
+
+<div class="modules-bar">
+  <div class="mod-item active" onclick="setMod(this,'ventas')"><i class="ti ti-chart-bar"></i>Ventas</div>
+  <div class="mod-item" onclick="setMod(this,'inventarios')"><i class="ti ti-package"></i>Inventarios</div>
+  <div class="mod-item" onclick="setMod(this,'clientes')"><i class="ti ti-building"></i>Clientes</div>
+  <div class="mod-item" onclick="setMod(this,'visitas')"><i class="ti ti-map-pin"></i>Visitas</div>
+  <div class="mod-item" onclick="setMod(this,'reportes')"><i class="ti ti-file-analytics"></i>Reportes</div>
+</div>
+
+<div class="body">
+  <div class="sidebar">
+    <div class="sidebar-title">Vendedor</div>
+    <div id="vendedores-list">
+      <div class="loader" style="padding:20px 0">
+        <i class="ti ti-refresh"></i>
+        <span style="font-size:11px">Cargando...</span>
+      </div>
+    </div>
+    <div class="marca-mini" id="marcas-sidebar" style="display:none">
+      <div class="sidebar-title" style="margin-top:4px">Marca</div>
+      <div id="marcas-list"></div>
+    </div>
+  </div>
+  <div class="main" id="main-content">
+    <div class="loader">
+      <i class="ti ti-refresh"></i>
+      <p>Conectando con Contifico...</p>
+      <span style="font-size:11px">Obteniendo datos de ventas</span>
+    </div>
+  </div>
+</div>
+
+<!-- ADMIN MODAL -->
+<div class="overlay" id="adminOverlay">
+  <div class="modal">
+    <div class="modal-hdr">
+      <div class="modal-title"><i class="ti ti-settings"></i> Panel de administración — Cosétika</div>
+      <button class="modal-close" onclick="toggleAdmin()"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-section">
+        <div class="modal-section-title"><i class="ti ti-database"></i> Conexión Contifico</div>
+        <div class="sync-info" id="sync-status">
+          <i class="ti ti-circle-check"></i>
+          <span>Conectado — datos sincronizados en tiempo real</span>
+        </div>
+      </div>
+      <div class="modal-section">
+        <div class="modal-section-title"><i class="ti ti-users"></i> Usuarios del sistema</div>
+        <div class="user-row">
+          <div class="user-avatar">AD</div>
+          <div class="user-info"><div class="user-name">Administrador</div><div class="user-email">admin@cosetika.com</div></div>
+          <span class="pill" style="background:#dbeafe;color:#1e40af">Admin</span>
+        </div>
+        <div id="usuarios-sistema"></div>
+      </div>
+      <div class="modal-section">
+        <div class="modal-section-title"><i class="ti ti-user-plus"></i> Agregar usuario</div>
+        <div style="background:#faf9f8;border-radius:8px;padding:14px;">
+          <div class="form-grid">
+            <div class="form-group"><div class="form-label">Nombre completo</div><input type="text" placeholder="Ej: Ana Torres" id="new-nombre"/></div>
+            <div class="form-group"><div class="form-label">Correo electrónico</div><input type="email" placeholder="ana@cosetika.com" id="new-email"/></div>
+            <div class="form-group"><div class="form-label">Contraseña</div><input type="password" placeholder="••••••••" id="new-pass"/></div>
+            <div class="form-group"><div class="form-label">Rol</div>
+              <select id="new-rol">
+                <option>Vendedor</option>
+                <option>Supervisor</option>
+                <option>Administrador</option>
+              </select>
+            </div>
+            <div class="form-group full">
+              <div class="form-label" style="margin-bottom:6px">Módulos con acceso</div>
+              <div class="perm-grid">
+                <label class="perm-item"><input type="checkbox" checked/> Ventas</label>
+                <label class="perm-item"><input type="checkbox"/> Inventarios</label>
+                <label class="perm-item"><input type="checkbox"/> Clientes</label>
+                <label class="perm-item"><input type="checkbox"/> Visitas</label>
+                <label class="perm-item"><input type="checkbox"/> Reportes</label>
+              </div>
+            </div>
+          </div>
+          <div style="margin-top:12px;display:flex;justify-content:flex-end;">
+            <button class="btn-primary" onclick="agregarUsuario()"><i class="ti ti-user-plus"></i> Crear usuario</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── Estado global ───────────────────────────────────────────────
+let allDocumentos = [];
+let vendedores    = [];
+let selectedVend  = null;
+let selectedCliente = null;
+
+// ─── Fecha badge ──────────────────────────────────────────────────
+const now = new Date();
+document.getElementById('fecha-badge').textContent =
+  now.toLocaleDateString('es-EC', { month: 'long', year: 'numeric' });
+
+// ─── Helpers ──────────────────────────────────────────────────────
+const fmt = n => '$' + Number(n).toLocaleString('es-EC', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const pct = (v, max) => max ? Math.round((v / max) * 100) : 0;
+
+// ─── Fetch ventas desde nuestra API (que llama a Contifico) ───────
+async function fetchVentas() {
+  const fechaFin   = now.toLocaleDateString('es-EC').split('/').reverse().join('/').replace(/\//g, '/');
+  const hace6meses = new Date(now); hace6meses.setMonth(now.getMonth() - 6);
+  try {
+    const res = await fetch(`/api/ventas?tipo=FAC`);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error + (data.detalle ? ': ' + data.detalle : ''));
+    // Contifico devuelve array o { results: [] }
+    return Array.isArray(data) ? data : (data.results || data.data || []);
+  } catch (e) {
+    throw e;
+  }
+}
+
+// ─── Procesar documentos → vendedores + clientes ──────────────────
+function procesarDatos(docs) {
+  const mapVend = {};
+  docs.forEach(doc => {
+    const vend   = doc.vendedor || doc.vendedor_nombre || 'Sin vendedor';
+    const cli    = doc.cliente_razon_social || doc.razon_social || doc.cliente || 'Cliente';
+    const total  = parseFloat(doc.total || 0);
+    const fecha  = doc.fecha_emision || doc.fecha || '';
+    const detalles = doc.detalles || [];
+
+    if (!mapVend[vend]) mapVend[vend] = { nombre: vend, total: 0, clientes: {}, facturas: 0 };
+    mapVend[vend].total    += total;
+    mapVend[vend].facturas += 1;
+
+    if (!mapVend[vend].clientes[cli]) mapVend[vend].clientes[cli] = { nombre: cli, total: 0, compras: [], productos: {} };
+    mapVend[vend].clientes[cli].total += total;
+    mapVend[vend].clientes[cli].compras.push({ fecha, total, detalles });
+
+    detalles.forEach(d => {
+      const prod = d.producto_nombre || d.nombre || d.descripcion || 'Producto';
+      const qty  = parseFloat(d.cantidad || 0);
+      if (!mapVend[vend].clientes[cli].productos[prod]) mapVend[vend].clientes[cli].productos[prod] = 0;
+      mapVend[vend].clientes[cli].productos[prod] += qty;
+    });
+  });
+
+  return Object.values(mapVend).sort((a, b) => b.total - a.total);
+}
+
+// ─── Render sidebar vendedores ────────────────────────────────────
+function renderSidebar(vendedores) {
+  const list = document.getElementById('vendedores-list');
+  list.innerHTML = vendedores.map((v, i) => `
+    <div class="vend-item ${i === 0 ? 'active' : ''}" onclick="selVendedor(this, ${i})">
+      <input type="checkbox" ${i === 0 ? 'checked' : ''}/>
+      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${v.nombre}</span>
+    </div>
+  `).join('');
+
+  // Marcas (por ahora suma todo)
+  const totalGeneral = vendedores.reduce((a, v) => a + v.total, 0);
+  renderMarcasSidebar(totalGeneral);
+}
+
+function renderMarcasSidebar(total) {
+  // Cuando tengamos data real por marca la separamos; por ahora mostramos total
+  document.getElementById('marcas-sidebar').style.display = 'block';
+  document.getElementById('marcas-list').innerHTML = `
+    <div class="marca-row">
+      <div class="marca-hdr"><span class="marca-name">Total</span><span class="marca-val">${fmt(total)}</span></div>
+      <div class="marca-track"><div class="marca-fill" style="width:100%;background:#A0684A"></div></div>
+    </div>
+  `;
+}
+
+// ─── Seleccionar vendedor ─────────────────────────────────────────
+function selVendedor(el, idx) {
+  document.querySelectorAll('.vend-item').forEach(v => { v.classList.remove('active'); v.querySelector('input').checked = false; });
+  el.classList.add('active');
+  el.querySelector('input').checked = true;
+  selectedVend    = idx;
+  selectedCliente = null;
+  renderVendedor(vendedores[idx]);
+}
+
+// ─── Vista vendedor ───────────────────────────────────────────────
+function renderVendedor(v) {
+  const clientes = Object.values(v.clientes).sort((a, b) => b.total - a.total);
+  const maxTotal = clientes[0]?.total || 1;
+  const ticketProm = v.facturas ? fmt(v.total / v.facturas) : '$0';
+
+  document.getElementById('main-content').innerHTML = `
+    <div class="breadcrumb">
+      <i class="ti ti-user" style="font-size:12px;color:var(--brown)"></i>
+      <span style="font-weight:500;color:#1a1a1a">${v.nombre}</span>
+    </div>
+    <div class="kpi-row">
+      <div class="mini-kpi"><div class="mini-kpi-label">Total ventas</div><div class="mini-kpi-val">${fmt(v.total)}</div><div class="mini-kpi-delta">período actual</div></div>
+      <div class="mini-kpi"><div class="mini-kpi-label">Clientes</div><div class="mini-kpi-val">${clientes.length}</div><div class="mini-kpi-delta">activos</div></div>
+      <div class="mini-kpi"><div class="mini-kpi-label">Facturas</div><div class="mini-kpi-val">${v.facturas}</div><div class="mini-kpi-delta">emitidas</div></div>
+      <div class="mini-kpi"><div class="mini-kpi-label">Ticket promedio</div><div class="mini-kpi-val">${ticketProm}</div><div class="mini-kpi-delta">por factura</div></div>
+    </div>
+    <div class="card">
+      <div class="card-title"><i class="ti ti-users"></i> Monto por cliente — haz clic para ver detalle</div>
+      <div>
+        ${clientes.map((c, i) => `
+          <div class="hbar-row" onclick="selCliente(${selectedVend}, '${encodeURIComponent(c.nombre)}')">
+            <span class="hbar-label" title="${c.nombre}">${c.nombre}</span>
+            <div class="hbar-track"><div class="hbar-fill" style="width:${pct(c.total, maxTotal)}%"></div></div>
+            <span class="hbar-val">${fmt(c.total)}</span>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+}
+
+// ─── Seleccionar cliente → drill-down ────────────────────────────
+function selCliente(vendIdx, cliNombreEnc) {
+  const cliNombre = decodeURIComponent(cliNombreEnc);
+  const v = vendedores[vendIdx];
+  const c = v.clientes[cliNombre];
+  if (!c) return;
+
+  // Productos ordenados por cantidad
+  const prods = Object.entries(c.productos).sort((a, b) => b[1] - a[1]);
+  const maxProd = prods[0]?.[1] || 1;
+
+  // Frecuencia por mes
+  const mapMes = {};
+  c.compras.forEach(comp => {
+    if (!comp.fecha) return;
+    const [d, m, y] = comp.fecha.split('/');
+    const key = `${y}-${m}`;
+    const label = new Date(y, m - 1).toLocaleDateString('es-EC', { month: 'short', year: '2-digit' });
+    if (!mapMes[key]) mapMes[key] = { label, total: 0, compras: 0 };
+    mapMes[key].total   += comp.total;
+    mapMes[key].compras += 1;
+  });
+  const meses = Object.entries(mapMes).sort((a, b) => a[0].localeCompare(b[0])).map(([,v]) => v);
+  const maxMes = meses.reduce((mx, m) => Math.max(mx, m.total), 1);
+
+  const iniciales = cliNombre.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase();
+
+  document.getElementById('main-content').innerHTML = `
+    <div class="breadcrumb">
+      <span class="crumb-link" onclick="renderVendedor(vendedores[${vendIdx}])">
+        <i class="ti ti-user" style="font-size:12px"></i> ${v.nombre}
+      </span>
+      <span class="crumb-sep"> › </span>
+      <span style="color:#1a1a1a;font-weight:500">${cliNombre}</span>
+    </div>
+
+    <div class="client-header">
+      <div class="client-avatar">${iniciales}</div>
+      <div>
+        <div class="client-name">${cliNombre}</div>
+        <div class="client-sub">Total acumulado: <strong style="color:var(--brown)">${fmt(c.total)}</strong> · ${c.compras.length} facturas · Vendedora: ${v.nombre}</div>
+      </div>
+      <button class="back-btn" onclick="renderVendedor(vendedores[${vendIdx}])">
+        <i class="ti ti-arrow-left"></i> Volver
+      </button>
+    </div>
+
+    <div class="row2">
+      <div class="card">
+        <div class="card-title"><i class="ti ti-package"></i> Productos comprados — cantidad</div>
+        ${prods.length ? prods.map(([nombre, qty]) => `
+          <div class="prod-row">
+            <span class="prod-name" title="${nombre}">${nombre}</span>
+            <div class="prod-bar"><div class="prod-fill" style="width:${pct(qty, maxProd)}%"></div></div>
+            <span class="prod-qty">${qty}</span>
+          </div>
+        `).join('') : '<p style="font-size:12px;color:var(--text-muted)">Sin detalle de productos en esta factura</p>'}
+      </div>
+
+      <div class="card">
+        <div class="card-title"><i class="ti ti-calendar-stats"></i> Frecuencia de compras por mes</div>
+        ${meses.length ? meses.map(m => `
+          <div class="freq-row">
+            <span class="freq-label">${m.label}</span>
+            <div class="freq-track">
+              <div class="freq-fill" style="width:${pct(m.total, maxMes)}%;min-width:${m.total > 0 ? '40px' : '0'}">
+                <span>${fmt(m.total)}</span>
+              </div>
+            </div>
+            <span class="freq-count">${m.compras} compra${m.compras > 1 ? 's' : ''}</span>
+          </div>
+        `).join('') : '<p style="font-size:12px;color:var(--text-muted)">Sin historial de compras registrado</p>'}
+        <div style="margin-top:10px;font-size:11px;color:var(--text-muted);">
+          Total: <strong>${c.compras.length}</strong> facturas ·
+          Acumulado: <strong style="color:var(--brown)">${fmt(c.total)}</strong>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// ─── Tabs y módulos ───────────────────────────────────────────────
+function setTopTab(el, view) {
+  document.querySelectorAll('.top-tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+}
+function setMod(el, mod) {
+  document.querySelectorAll('.mod-item').forEach(m => m.classList.remove('active'));
+  el.classList.add('active');
+}
+
+// ─── Admin modal ──────────────────────────────────────────────────
+function toggleAdmin() {
+  document.getElementById('adminOverlay').classList.toggle('open');
+}
+document.getElementById('adminOverlay').addEventListener('click', e => {
+  if (e.target === e.currentTarget) toggleAdmin();
+});
+function agregarUsuario() {
+  const nombre = document.getElementById('new-nombre').value;
+  if (!nombre) return alert('Ingresa el nombre del usuario');
+  const lista = document.getElementById('usuarios-sistema');
+  const iniciales = nombre.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase();
+  const email = document.getElementById('new-email').value;
+  const rol = document.getElementById('new-rol').value;
+  lista.innerHTML += `
+    <div class="user-row">
+      <div class="user-avatar">${iniciales}</div>
+      <div class="user-info"><div class="user-name">${nombre}</div><div class="user-email">${email}</div></div>
+      <span class="pill pill-green">${rol}</span>
+    </div>
+  `;
+  document.getElementById('new-nombre').value = '';
+  document.getElementById('new-email').value = '';
+  document.getElementById('new-pass').value = '';
+}
+
+// ─── INIT ─────────────────────────────────────────────────────────
+async function init() {
+  try {
+    const docs = await fetchVentas();
+    allDocumentos = docs;
+    vendedores = procesarDatos(docs);
+
+    if (vendedores.length === 0) {
+      document.getElementById('main-content').innerHTML = `
+        <div class="error-box">
+          <strong>Sin datos</strong>
+          La API de Contifico respondió correctamente pero no hay facturas en el período. Verifica las fechas o el tipo de documento.
+        </div>`;
+      return;
+    }
+
+    renderSidebar(vendedores);
+    selectedVend = 0;
+    renderVendedor(vendedores[0]);
+
+  } catch (err) {
+    document.getElementById('main-content').innerHTML = `
+      <div class="error-box">
+        <strong>Error al conectar con Contifico</strong>
+        ${err.message}
+        <br/><br/>
+        <span style="font-size:11px">Verifica que tu API Key esté configurada en Vercel → Settings → Environment Variables → <code>CONTIFICO_API_KEY</code></span>
+      </div>`;
+    document.getElementById('vendedores-list').innerHTML = `<p style="font-size:11px;color:#991b1b;padding:8px">Error de conexión</p>`;
+    document.getElementById('sync-status').innerHTML = `<i class="ti ti-alert-circle" style="color:#991b1b"></i><span style="color:#991b1b">Sin conexión — revisa el API Key</span>`;
+  }
+}
+
+init();
+</script>
+</body>
+</html>
