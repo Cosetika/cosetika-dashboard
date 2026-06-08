@@ -164,6 +164,7 @@
   </div>
   <div class="header-right">
     <div class="badge" id="fecha-badge">Cargando...</div>
+    <div class="icon-btn-hdr" onclick="logout()" title="Cerrar sesión" style="font-size:13px">Salir</div>
     <div class="icon-btn-hdr" onclick="toggleAdmin()" title="Administración">
       <i class="ti ti-settings"></i>
     </div>
@@ -284,13 +285,24 @@ const pct = (v, max) => max ? Math.round((v / max) * 100) : 0;
 
 // ─── Fetch ventas desde nuestra API (que llama a Contifico) ───────
 async function fetchVentas() {
-  const fechaFin   = now.toLocaleDateString('es-EC').split('/').reverse().join('/').replace(/\//g, '/');
-  const hace6meses = new Date(now); hace6meses.setMonth(now.getMonth() - 6);
   try {
-    const res = await fetch(`/api/ventas?tipo=FAC`);
+    // Obtener key desde nuestro backend seguro
+    const cfgRes = await fetch('/api/ventas');
+    const cfg = await cfgRes.json();
+    if (!cfg.key) throw new Error('API Key no configurada en Vercel');
+    
+    // Llamar directo a Contifico desde el navegador (evita timeout de Vercel)
+    const res = await fetch(
+      cfg.base + '/documento/?tipo_documento=FAC&offset=0&limit=100',
+      { headers: { 'Authorization': cfg.key, 'Accept': 'application/json' } }
+    );
+    
+    if (!res.ok) {
+      const txt = await res.text();
+      throw new Error('Contifico error ' + res.status + ': ' + txt.substring(0, 100));
+    }
+    
     const data = await res.json();
-    if (data.error) throw new Error(data.error + (data.detalle ? ': ' + data.detalle : ''));
-    // Contifico devuelve array o { results: [] }
     return Array.isArray(data) ? data : (data.results || data.data || []);
   } catch (e) {
     throw e;
@@ -541,6 +553,13 @@ async function init() {
       </div>`;
     document.getElementById('vendedores-list').innerHTML = `<p style="font-size:11px;color:#991b1b;padding:8px">Error de conexión</p>`;
     document.getElementById('sync-status').innerHTML = `<i class="ti ti-alert-circle" style="color:#991b1b"></i><span style="color:#991b1b">Sin conexión — revisa el API Key</span>`;
+  }
+}
+
+function logout() {
+  if(confirm("¿Deseas cerrar sesión?")) {
+    sessionStorage.clear();
+    window.location.href = "/login";
   }
 }
 
