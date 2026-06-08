@@ -9,7 +9,6 @@
     *{box-sizing:border-box;margin:0;padding:0}
     :root{--brown:#A0684A;--brown-dark:#1a0e08;--bl:rgba(160,104,74,0.12);--bg:#f4f1ee;--card:#fff;--text:#1a1a1a;--muted:#6b6b6b;--border:rgba(0,0,0,0.08)}
     body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
-    
     .header{background:var(--brown-dark);padding:12px 20px;display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid var(--brown)}
     .logo{display:flex;align-items:center;gap:10px}
     .logo-c{width:40px;height:40px;background:var(--brown);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:19px;font-weight:700;color:#fff;font-style:italic;font-family:Georgia,serif}
@@ -19,17 +18,14 @@
     .badge{background:rgba(160,104,74,0.25);border:1px solid var(--brown);color:#c9a07a;font-size:11px;padding:3px 10px;border-radius:20px}
     .icon-btn{background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.2);color:#fff;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:15px;transition:background 0.2s}
     .icon-btn:hover{background:var(--brown)}
-
     .top-tabs{display:flex;background:#fff;border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:none}
     .top-tabs::-webkit-scrollbar{display:none}
     .ttab{padding:9px 16px;font-size:11px;font-weight:500;color:var(--muted);cursor:pointer;border-bottom:3px solid transparent;white-space:nowrap}
     .ttab.active{color:var(--brown);border-bottom-color:var(--brown);background:#faf9f8}
-
     .mods{display:grid;grid-template-columns:repeat(5,1fr);background:#fff;border-bottom:1px solid var(--border)}
     .mod{display:flex;flex-direction:column;align-items:center;gap:3px;padding:10px 4px;cursor:pointer;border-bottom:3px solid transparent;color:var(--muted);font-size:11px;font-weight:500}
     .mod.active{border-bottom-color:var(--brown);color:var(--brown)}
     .mod i{font-size:20px}
-
     .body{display:grid;grid-template-columns:170px 1fr;min-height:calc(100vh - 148px)}
     .sidebar{background:#fff;border-right:1px solid var(--border);padding:12px 10px;overflow-y:auto}
     .sb-title{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px}
@@ -37,7 +33,6 @@
     .vend-item:hover{background:#faf9f8}
     .vend-item.active{background:var(--bl);color:var(--brown);font-weight:500}
     .vend-item input{accent-color:var(--brown);width:12px;height:12px;flex-shrink:0}
-
     .marca-sec{margin-top:14px}
     .marca-row{margin-bottom:7px}
     .marca-hdr{display:flex;justify-content:space-between;font-size:10px;margin-bottom:2px}
@@ -45,7 +40,6 @@
     .marca-val{color:var(--brown);font-weight:600}
     .marca-track{height:5px;background:#f0ede9;border-radius:2px}
     .marca-fill{height:100%;border-radius:2px}
-
     .main{padding:12px 14px;display:flex;flex-direction:column;gap:12px;overflow-y:auto}
     .card{background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px}
     .card-title{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;display:flex;align-items:center;gap:5px}
@@ -55,55 +49,47 @@
     .kpi-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px}
     .kpi-val{font-size:17px;font-weight:600;color:var(--text);margin-top:2px}
     .kpi-sub{font-size:10px;color:#3B6D11;margin-top:1px}
-
     .hbar{display:flex;align-items:center;gap:6px;margin-bottom:5px;cursor:pointer;border-radius:5px;padding:2px 4px;transition:background 0.15s}
     .hbar:hover{background:#faf9f8}
     .hbar.sel{background:var(--bl)}
     .hbar-lbl{font-size:11px;color:var(--text);width:130px;text-align:right;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .hbar-track{flex:1;height:14px;background:#f0ede9;border-radius:3px}
     .hbar-fill{height:100%;border-radius:3px;background:#5a8fa3;transition:width 0.4s}
-    .hbar-fill.sel{background:var(--brown)}
-    .hbar-val{font-size:11px;color:var(--muted);min-width:50px;text-align:right}
-
+    .hbar-fill.brown{background:var(--brown)}
+    .hbar-val{font-size:11px;color:var(--muted);min-width:60px;text-align:right}
     .prod-row{display:flex;align-items:center;gap:6px;margin-bottom:5px}
     .prod-name{font-size:11px;color:var(--text);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .prod-bar{width:55px;height:9px;background:#f0ede9;border-radius:2px;flex-shrink:0}
     .prod-fill{height:100%;border-radius:2px;background:#7ab3c4}
     .prod-qty{font-size:11px;color:var(--muted);min-width:30px;text-align:right}
-
     .freq-row{display:flex;align-items:center;gap:8px;margin-bottom:5px}
     .freq-lbl{font-size:10px;color:var(--muted);width:36px;text-align:right;flex-shrink:0}
     .freq-track{flex:1;height:18px;background:#f0ede9;border-radius:3px;overflow:hidden}
     .freq-fill{height:100%;border-radius:3px;background:var(--brown);display:flex;align-items:center;padding-left:7px;transition:width 0.4s;min-width:0}
     .freq-fill span{font-size:10px;color:#fff;font-weight:600;white-space:nowrap}
     .freq-count{font-size:10px;color:var(--muted);min-width:55px}
-
     .breadcrumb{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
     .crumb{color:var(--brown);cursor:pointer}
     .crumb:hover{text-decoration:underline}
-
     .cli-header{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--bl);border:1px solid rgba(160,104,74,0.25);border-radius:8px}
     .cli-avatar{width:36px;height:36px;border-radius:50%;background:rgba(160,104,74,0.2);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;color:var(--brown);flex-shrink:0}
     .cli-name{font-size:14px;font-weight:600;color:var(--text)}
     .cli-sub{font-size:11px;color:var(--muted)}
     .back-btn{margin-left:auto;background:none;border:1px solid var(--brown);color:var(--brown);font-size:11px;padding:5px 12px;border-radius:20px;cursor:pointer;display:flex;align-items:center;gap:4px}
     .back-btn:hover{background:var(--bl)}
-
-    .mes-names{1:'Ene',2:'Feb',3:'Mar',4:'Abr',5:'May',6:'Jun',7:'Jul',8:'Ago',9:'Sep',10:'Oct',11:'Nov',12:'Dic'}
-    .pill{font-size:10px;padding:2px 8px;border-radius:10px;font-weight:500}
-    .pill-ok{background:#dcfce7;color:#166534}
-    .pill-warn{background:#fef3c7;color:#92400e}
-
     .loader{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px;gap:12px;color:var(--muted)}
     .loader i{font-size:36px;color:var(--brown);animation:spin 1s linear infinite}
     @keyframes spin{to{transform:rotate(360deg)}}
-
-    @media(max-width:600px){
-      .body{grid-template-columns:1fr}
-      .sidebar{display:none}
-      .kpi-row{grid-template-columns:repeat(2,1fr)}
-      .row2{grid-template-columns:1fr}
-    }
+    .vend-card{background:#fff;border:1px solid var(--border);border-radius:10px;padding:12px 16px;cursor:pointer;transition:all 0.2s;display:flex;align-items:center;gap:12px}
+    .vend-card:hover{border-color:var(--brown);background:var(--bl)}
+    .vend-avatar{width:40px;height:40px;border-radius:50%;background:var(--bl);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:600;color:var(--brown);flex-shrink:0}
+    .vend-card-info{flex:1}
+    .vend-card-name{font-size:13px;font-weight:500;color:var(--text)}
+    .vend-card-sub{font-size:11px;color:var(--muted)}
+    .vend-card-total{font-size:15px;font-weight:600;color:var(--brown)}
+    .progress-mini{height:4px;background:#f0ede9;border-radius:2px;margin-top:6px}
+    .progress-mini-fill{height:100%;border-radius:2px;background:var(--brown)}
+    @media(max-width:600px){.body{grid-template-columns:1fr}.sidebar{display:none}.kpi-row{grid-template-columns:repeat(2,1fr)}.row2{grid-template-columns:1fr}}
   </style>
 </head>
 <body>
@@ -117,7 +103,7 @@
     </div>
   </div>
   <div class="hdr-right">
-    <div class="badge" id="badge-periodo">Ene–May 2026</div>
+    <div class="badge">Ene–May 2026</div>
     <div class="icon-btn" title="Administración" onclick="alert('Panel admin próximamente')"><i class="ti ti-settings"></i></div>
   </div>
 </div>
@@ -150,57 +136,69 @@
 </div>
 
 <script>
-const MESES = {1:'Ene',2:'Feb',3:'Mar',4:'Abr',5:'May',6:'Jun',7:'Jul',8:'Ago',9:'Sep',10:'Oct',11:'Nov',12:'Dic'};
-const fmt = n => '$'+Number(n).toLocaleString('es-EC',{minimumFractionDigits:2,maximumFractionDigits:2});
-const pct = (v,mx) => mx ? Math.round((v/mx)*100) : 0;
+const MESES={1:'Ene',2:'Feb',3:'Mar',4:'Abr',5:'May',6:'Jun',7:'Jul',8:'Ago',9:'Sep',10:'Oct',11:'Nov',12:'Dic'};
+const fmt=n=>'$'+Number(n).toLocaleString('es-EC',{minimumFractionDigits:2,maximumFractionDigits:2});
+const pct=(v,mx)=>mx?Math.round((v/mx)*100):0;
 
-let DATA = {};
-let vendActual = null;
+let DATA={};
+let vendActual=null;
 
 async function cargarData(){
-  document.getElementById('main').innerHTML = '<div class="loader"><i class="ti ti-refresh"></i><p>Cargando data...</p></div>';
-  try {
-    const r = await fetch('/data.json');
-    DATA = await r.json();
+  document.getElementById('main').innerHTML='<div class="loader"><i class="ti ti-refresh"></i><p>Cargando data...</p></div>';
+  try{
+    const r=await fetch('/data.json');
+    DATA=await r.json();
     initVendedoras();
-  } catch(e){
-    document.getElementById('main').innerHTML = '<div class="loader"><p>Error cargando datos: '+e.message+'</p></div>';
+  }catch(e){
+    document.getElementById('main').innerHTML='<div class="loader"><p>Error: '+e.message+'</p></div>';
   }
 }
 
 function initVendedoras(){
-  const vendedoras = Object.keys(DATA);
-  const list = document.getElementById('vend-list');
-  list.innerHTML = vendedoras.map((v,i) => `
-    <div class="vend-item ${i===0?'active':''}" onclick="selVendedor(this,'${v.replace(/'/g,"\\'")}')">
-      <input type="checkbox" ${i===0?'checked':''}/>
-      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${v}</span>
+  const vendedoras=Object.keys(DATA);
+  const list=document.getElementById('vend-list');
+  list.innerHTML=`
+    <div class="vend-item active" onclick="selVendedorTodo(this)">
+      <input type="checkbox" checked/>
+      <span>(Todo)</span>
     </div>
-  `).join('');
-  vendActual = vendedoras[0];
-  renderVendedor(vendActual);
+  `+vendedoras.map(v=>`
+    <div class="vend-item" onclick="selVendedor(this,'${v.replace(/'/g,"\\'")}')">
+      <input type="checkbox"/>
+      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${v}</span>
+    </div>`).join('');
+  renderTodos();
 }
 
-function selVendedor(el, nombre){
+function selVendedorTodo(el){
   document.querySelectorAll('.vend-item').forEach(v=>{v.classList.remove('active');v.querySelector('input').checked=false});
   el.classList.add('active');
   el.querySelector('input').checked=true;
-  vendActual = nombre;
+  vendActual=null;
+  renderTodos();
+}
+
+function selVendedor(el,nombre){
+  document.querySelectorAll('.vend-item').forEach(v=>{v.classList.remove('active');v.querySelector('input').checked=false});
+  el.classList.add('active');
+  el.querySelector('input').checked=true;
+  vendActual=nombre;
   renderVendedor(nombre);
 }
 
-function renderVendedor(nombre){
-  const clientes = DATA[nombre] || [];
-  const totalVend = clientes.reduce((a,c)=>a+c.total,0);
-  const maxTotal = clientes[0]?.total || 1;
+function renderTodos(){
+  const vendedoras=Object.keys(DATA);
+  const totalGlobal=vendedoras.reduce((a,v)=>a+DATA[v].reduce((b,c)=>b+c.total,0),0);
+  const totalClientes=vendedoras.reduce((a,v)=>a+DATA[v].length,0);
+  const totalFacturas=vendedoras.reduce((a,v)=>a+DATA[v].reduce((b,c)=>b+c.num_compras,0),0);
 
-  // Marcas del vendedor
-  const marcas = {};
-  clientes.forEach(c => c.marcas.forEach(m => {
-    marcas[m.marca] = (marcas[m.marca]||0) + m.total;
-  }));
-  const maxMarca = Math.max(...Object.values(marcas), 1);
-  document.getElementById('marcas-sb').innerHTML = Object.entries(marcas)
+  // Marcas globales
+  const marcas={};
+  vendedoras.forEach(v=>DATA[v].forEach(c=>c.marcas.forEach(m=>{
+    marcas[m.marca]=(marcas[m.marca]||0)+m.total;
+  })));
+  const maxMarca=Math.max(...Object.values(marcas),1);
+  document.getElementById('marcas-sb').innerHTML=Object.entries(marcas)
     .sort((a,b)=>b[1]-a[1])
     .map(([m,t])=>`
       <div class="marca-row">
@@ -208,8 +206,94 @@ function renderVendedor(nombre){
         <div class="marca-track"><div class="marca-fill" style="width:${pct(t,maxMarca)}%;background:var(--brown)"></div></div>
       </div>`).join('');
 
-  document.getElementById('main').innerHTML = `
-    <div class="breadcrumb"><i class="ti ti-user" style="font-size:12px;color:var(--brown)"></i><span style="font-weight:500">${nombre}</span></div>
+  // Ranking vendedoras
+  const ranking=vendedoras.map(v=>({
+    nombre:v,
+    total:DATA[v].reduce((a,c)=>a+c.total,0),
+    clientes:DATA[v].length,
+    facturas:DATA[v].reduce((a,c)=>a+c.num_compras,0)
+  })).sort((a,b)=>b.total-a.total);
+  const maxVend=ranking[0]?.total||1;
+
+  document.getElementById('main').innerHTML=`
+    <div class="breadcrumb"><i class="ti ti-chart-bar" style="font-size:12px;color:var(--brown)"></i><span style="font-weight:500">Resumen general — Todas las vendedoras</span></div>
+
+    <div class="kpi-row">
+      <div class="kpi"><div class="kpi-label">Ventas totales</div><div class="kpi-val">${fmt(totalGlobal)}</div><div class="kpi-sub">Ene–May 2026</div></div>
+      <div class="kpi"><div class="kpi-label">Vendedoras</div><div class="kpi-val">${vendedoras.length}</div><div class="kpi-sub">activas</div></div>
+      <div class="kpi"><div class="kpi-label">Clientes</div><div class="kpi-val">${totalClientes}</div><div class="kpi-sub">únicos</div></div>
+      <div class="kpi"><div class="kpi-label">Facturas</div><div class="kpi-val">${totalFacturas}</div><div class="kpi-sub">emitidas</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><i class="ti ti-award"></i> Ranking de vendedoras — haz clic para ver detalle</div>
+      ${ranking.map(v=>`
+        <div class="hbar" onclick="selVendedorPorNombre('${v.nombre.replace(/'/g,"\\'")}')">
+          <span class="hbar-lbl" title="${v.nombre}">${v.nombre}</span>
+          <div class="hbar-track"><div class="hbar-fill brown" style="width:${pct(v.total,maxVend)}%"></div></div>
+          <span class="hbar-val">${fmt(v.total)}</span>
+        </div>`).join('')}
+    </div>
+
+    <div class="row2">
+      <div class="card">
+        <div class="card-title"><i class="ti ti-users"></i> Clientes por vendedora</div>
+        ${ranking.map(v=>`
+          <div class="hbar" onclick="selVendedorPorNombre('${v.nombre.replace(/'/g,"\\'")}')">
+            <span class="hbar-lbl">${v.nombre}</span>
+            <div class="hbar-track"><div class="hbar-fill" style="width:${pct(v.clientes,ranking[0].clientes)}%"></div></div>
+            <span class="hbar-val">${v.clientes} cli.</span>
+          </div>`).join('')}
+      </div>
+      <div class="card">
+        <div class="card-title"><i class="ti ti-receipt"></i> Facturas por vendedora</div>
+        ${ranking.map(v=>`
+          <div class="hbar" onclick="selVendedorPorNombre('${v.nombre.replace(/'/g,"\\'")}')">
+            <span class="hbar-lbl">${v.nombre}</span>
+            <div class="hbar-track"><div class="hbar-fill" style="width:${pct(v.facturas,ranking[0].facturas)}%"></div></div>
+            <span class="hbar-val">${v.facturas} fact.</span>
+          </div>`).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function selVendedorPorNombre(nombre){
+  const items=document.querySelectorAll('.vend-item');
+  items.forEach(el=>{
+    el.classList.remove('active');
+    el.querySelector('input').checked=false;
+    if(el.textContent.trim()===nombre){
+      el.classList.add('active');
+      el.querySelector('input').checked=true;
+    }
+  });
+  vendActual=nombre;
+  renderVendedor(nombre);
+}
+
+function renderVendedor(nombre){
+  const clientes=DATA[nombre]||[];
+  const totalVend=clientes.reduce((a,c)=>a+c.total,0);
+  const maxTotal=clientes[0]?.total||1;
+
+  const marcas={};
+  clientes.forEach(c=>c.marcas.forEach(m=>{marcas[m.marca]=(marcas[m.marca]||0)+m.total;}));
+  const maxMarca=Math.max(...Object.values(marcas),1);
+  document.getElementById('marcas-sb').innerHTML=Object.entries(marcas)
+    .sort((a,b)=>b[1]-a[1])
+    .map(([m,t])=>`
+      <div class="marca-row">
+        <div class="marca-hdr"><span class="marca-name">${m}</span><span class="marca-val">${fmt(t)}</span></div>
+        <div class="marca-track"><div class="marca-fill" style="width:${pct(t,maxMarca)}%;background:var(--brown)"></div></div>
+      </div>`).join('');
+
+  document.getElementById('main').innerHTML=`
+    <div class="breadcrumb">
+      <span class="crumb" onclick="selVendedorTodo(document.querySelector('.vend-item'))"><i class="ti ti-home" style="font-size:12px"></i> Inicio</span>
+      <span style="color:var(--border)"> › </span>
+      <span style="font-weight:500">${nombre}</span>
+    </div>
     <div class="kpi-row">
       <div class="kpi"><div class="kpi-label">Total ventas</div><div class="kpi-val">${fmt(totalVend)}</div><div class="kpi-sub">Ene–May 2026</div></div>
       <div class="kpi"><div class="kpi-label">Clientes</div><div class="kpi-val">${clientes.length}</div><div class="kpi-sub">activos</div></div>
@@ -225,74 +309,59 @@ function renderVendedor(nombre){
           <span class="hbar-val">${fmt(c.total)}</span>
         </div>`).join('')}
       </div>
-    </div>
-  `;
+    </div>`;
 }
 
 function selCliente(nombre){
-  const clientes = DATA[vendActual] || [];
-  const c = clientes.find(x=>x.nombre===nombre);
-  if(!c) return;
-
-  const maxProd = c.productos[0]?.cantidad || 1;
-  const maxFreq = Math.max(...c.frecuencia.map(f=>f.total),1);
-  const iniciales = nombre.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase();
-
-  // Marcas de la cliente
-  const maxMarcaCli = Math.max(...c.marcas.map(m=>m.total),1);
-  document.getElementById('marcas-sb').innerHTML = c.marcas
-    .sort((a,b)=>b.total-a.total)
-    .map(m=>`
-      <div class="marca-row">
-        <div class="marca-hdr"><span class="marca-name">${m.marca}</span><span class="marca-val">${fmt(m.total)}</span></div>
-        <div class="marca-track"><div class="marca-fill" style="width:${pct(m.total,maxMarcaCli)}%;background:var(--brown)"></div></div>
-      </div>`).join('');
-
-  document.getElementById('main').innerHTML = `
+  const clientes=DATA[vendActual]||[];
+  const c=clientes.find(x=>x.nombre===nombre);
+  if(!c)return;
+  const maxProd=c.productos[0]?.cantidad||1;
+  const maxFreq=Math.max(...c.frecuencia.map(f=>f.total),1);
+  const iniciales=nombre.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase();
+  const maxMarcaCli=Math.max(...c.marcas.map(m=>m.total),1);
+  document.getElementById('marcas-sb').innerHTML=c.marcas.sort((a,b)=>b.total-a.total).map(m=>`
+    <div class="marca-row">
+      <div class="marca-hdr"><span class="marca-name">${m.marca}</span><span class="marca-val">${fmt(m.total)}</span></div>
+      <div class="marca-track"><div class="marca-fill" style="width:${pct(m.total,maxMarcaCli)}%;background:var(--brown)"></div></div>
+    </div>`).join('');
+  document.getElementById('main').innerHTML=`
     <div class="breadcrumb">
-      <span class="crumb" onclick="renderVendedor('${vendActual.replace(/'/g,"\\'")}')"><i class="ti ti-user" style="font-size:12px"></i> ${vendActual}</span>
+      <span class="crumb" onclick="selVendedorTodo(document.querySelector('.vend-item'))"><i class="ti ti-home" style="font-size:12px"></i> Inicio</span>
+      <span style="color:var(--border)"> › </span>
+      <span class="crumb" onclick="renderVendedor('${vendActual.replace(/'/g,"\\'")}'">${vendActual}</span>
       <span style="color:var(--border)"> › </span>
       <span style="font-weight:500">${nombre}</span>
     </div>
-
     <div class="cli-header">
       <div class="cli-avatar">${iniciales}</div>
       <div>
         <div class="cli-name">${nombre}</div>
-        <div class="cli-sub">Total acumulado: <strong style="color:var(--brown)">${fmt(c.total)}</strong> · ${c.num_compras} facturas · Vendedora: ${vendActual}</div>
+        <div class="cli-sub">Total: <strong style="color:var(--brown)">${fmt(c.total)}</strong> · ${c.num_compras} facturas · Vendedora: ${vendActual}</div>
       </div>
       <button class="back-btn" onclick="renderVendedor('${vendActual.replace(/'/g,"\\'")}')"><i class="ti ti-arrow-left"></i> Volver</button>
     </div>
-
     <div class="row2">
       <div class="card">
         <div class="card-title"><i class="ti ti-package"></i> Productos comprados — cantidad</div>
-        ${c.productos.length ? c.productos.map(p=>`
+        ${c.productos.length?c.productos.map(p=>`
           <div class="prod-row">
             <span class="prod-name" title="${p.nombre}">${p.nombre}</span>
             <div class="prod-bar"><div class="prod-fill" style="width:${pct(p.cantidad,maxProd)}%"></div></div>
             <span class="prod-qty">${p.cantidad}</span>
-          </div>`).join('') : '<p style="font-size:12px;color:var(--muted)">Sin productos registrados</p>'}
+          </div>`).join(''):'<p style="font-size:12px;color:var(--muted)">Sin productos</p>'}
       </div>
-
       <div class="card">
         <div class="card-title"><i class="ti ti-calendar-stats"></i> Frecuencia de compras por mes</div>
-        ${c.frecuencia.length ? c.frecuencia.map(f=>`
+        ${c.frecuencia.length?c.frecuencia.map(f=>`
           <div class="freq-row">
             <span class="freq-lbl">${MESES[f.mes]||f.mes}</span>
-            <div class="freq-track">
-              <div class="freq-fill" style="width:${pct(f.total,maxFreq)}%;min-width:${f.total>0?'40px':'0'}">
-                <span>${fmt(f.total)}</span>
-              </div>
-            </div>
+            <div class="freq-track"><div class="freq-fill" style="width:${pct(f.total,maxFreq)}%;min-width:${f.total>0?'40px':'0'}"><span>${fmt(f.total)}</span></div></div>
             <span class="freq-count">${f.compras} compra${f.compras>1?'s':''}</span>
-          </div>`).join('') : '<p style="font-size:12px;color:var(--muted)">Sin historial</p>'}
-        <div style="margin-top:8px;font-size:11px;color:var(--muted)">
-          Total: <strong>${c.num_compras}</strong> facturas · Acumulado: <strong style="color:var(--brown)">${fmt(c.total)}</strong>
-        </div>
+          </div>`).join(''):'<p style="font-size:12px;color:var(--muted)">Sin historial</p>'}
+        <div style="margin-top:8px;font-size:11px;color:var(--muted)">Total: <strong>${c.num_compras}</strong> facturas · <strong style="color:var(--brown)">${fmt(c.total)}</strong></div>
       </div>
-    </div>
-  `;
+    </div>`;
 }
 
 cargarData();
