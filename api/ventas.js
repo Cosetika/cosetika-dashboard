@@ -8,38 +8,29 @@ export default async function handler(req, res) {
   if (!API_KEY) return res.status(500).json({ error: 'Sin API Key' });
 
   try {
-    // Solo 10 documentos para probar velocidad
-    const url = 'https://api.contifico.com/sistema/api/v1/documento/?tipo_documento=FAC&offset=0&limit=10';
+    // Probar endpoint de personas (clientes) que debería ser más rápido
+    const url = 'https://api.contifico.com/sistema/api/v1/persona/?tipo=CLI&offset=0&limit=10';
     
     const response = await fetch(url, {
       headers: { 'Authorization': API_KEY, 'Accept': 'application/json' }
     });
 
-    if (!response.ok) {
-      const txt = await response.text();
-      return res.status(200).json({ total: 0, documentos: [], debug: { status: response.status, msg: txt.substring(0,200) } });
+    const txt = await response.text();
+    let data;
+    try { data = JSON.parse(txt); } catch(e) {
+      return res.status(200).json({ debug: 'JSON inválido', raw: txt.substring(0,200) });
     }
 
-    const data = await response.json();
-    const documentos = Array.isArray(data) ? data : (data.results || data.data || []);
+    // Convertir personas a formato de vendedores para el dashboard
+    const items = Array.isArray(data) ? data : (data.results || data.data || []);
+    
+    return res.status(200).json({ 
+      total: items.length, 
+      items,
+      msg: 'Conexión exitosa con Contifico'
+    });
 
-    const procesados = documentos.map(doc => ({
-      fecha: doc.fecha_emision || '',
-      vendedor: doc.vendedor_nombre || doc.vendedor || 'Sin vendedor',
-      cliente: doc.cliente_razon_social || doc.razon_social || '',
-      provincia: doc.provincia || '',
-      total: parseFloat((doc.total || '0').toString().replace(',', '.')),
-      estado: doc.estado || '',
-      detalles: (doc.detalles || []).map(d => ({
-        producto: d.producto_nombre || d.nombre || '',
-        marca: d.adicional3 || d.marca || '',
-        cantidad: parseFloat((d.cantidad || '0').toString().replace(',', '.')),
-        total: parseFloat((d.base_gravable || '0').toString().replace(',', '.'))
-      }))
-    }));
-
-    return res.status(200).json({ total: procesados.length, documentos: procesados });
   } catch(err) {
-    return res.status(200).json({ total: 0, documentos: [], debug: { error: err.message } });
+    return res.status(200).json({ error: err.message });
   }
 }
