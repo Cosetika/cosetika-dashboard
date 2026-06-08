@@ -5,28 +5,25 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   const API_KEY = process.env.CONTIFICO_API_KEY;
-  
-  if (!API_KEY) {
-    return res.status(500).json({ error: 'API Key no configurada' });
-  }
+  if (!API_KEY) return res.status(500).json({ error: 'API Key no configurada' });
 
   try {
-    const url = 'https://api.contifico.com/sistema/api/v1/documento/?tipo_documento=FAC&offset=0&limit=50';
-    
+    // Fechas del mes actual
+    const now = new Date();
+    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+    const pad = n => String(n).padStart(2, '0');
+    const fechaInicio = `${pad(firstDay.getDate())}/${pad(firstDay.getMonth()+1)}/${String(firstDay.getFullYear()).slice(-2)}`;
+    const fechaFin = `${pad(now.getDate())}/${pad(now.getMonth()+1)}/${String(now.getFullYear()).slice(-2)}`;
+
+    const url = `https://api.contifico.com/sistema/api/v1/documento/?tipo_documento=FAC&fecha_inicio=${fechaInicio}&fecha_fin=${fechaFin}`;
+
     const response = await fetch(url, {
-      headers: { 
-        'Authorization': API_KEY,
-        'Accept': 'application/json'
-      }
+      headers: { 'Authorization': API_KEY, 'Accept': 'application/json' }
     });
 
     if (!response.ok) {
       const txt = await response.text();
-      return res.status(200).json({ 
-        total: 0, 
-        documentos: [],
-        debug: { status: response.status, msg: txt.substring(0, 200) }
-      });
+      return res.status(200).json({ total: 0, documentos: [], debug: { status: response.status, url, msg: txt.substring(0,200) } });
     }
 
     const data = await response.json();
