@@ -18,14 +18,14 @@ function fetchContifico(url) {
       res.on('end', () => resolve({ status: res.statusCode, body: data }));
     });
     req.on('error', reject);
-    req.setTimeout(25000, () => { req.destroy(); reject(new Error('Timeout')); });
+    req.setTimeout(55000, () => { req.destroy(); reject(new Error('Timeout de Contifico')); });
     req.end();
   });
 }
 
 const MIME = {
   '.html': 'text/html',
-  '.js': 'application/javascript', 
+  '.js': 'application/javascript',
   '.css': 'text/css',
   '.json': 'application/json',
   '.png': 'image/png',
@@ -35,14 +35,13 @@ const MIME = {
 
 const server = http.createServer(async (req, res) => {
   const urlPath = req.url.split('?')[0];
-  
+
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') { res.writeHead(200); res.end(); return; }
 
-  // API routes
   if (urlPath === '/api/ventas') {
     if (!API_KEY) {
       res.writeHead(500, {'Content-Type': 'application/json'});
@@ -50,16 +49,28 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     try {
-      const r = await fetchContifico(
-        'https://api.contifico.com/sistema/api/v1/documento/?tipo_documento=FAC&offset=0&limit=100'
-      );
+      // Obtener fecha actual y filtrar por año actual
+      const now = new Date();
+      const year = String(now.getFullYear()).slice(-2);
+      const fechaInicio = `01/01/${year}`;
+      const fechaFin = `${String(now.getDate()).padStart(2,'0')}/${String(now.getMonth()+1).padStart(2,'0')}/${year}`;
+      
+      const url = `https://api.contifico.com/sistema/api/v1/documento/?tipo_documento=FAC&fecha_inicio=${fechaInicio}&fecha_fin=${fechaFin}`;
+      console.log('Fetching:', url);
+      
+      const r = await fetchContifico(url);
+      console.log('Status:', r.status, 'Body length:', r.body.length);
+
       let data;
       try { data = JSON.parse(r.body); } catch(e) {
         res.writeHead(500, {'Content-Type': 'application/json'});
-        res.end(JSON.stringify({ error: 'JSON inválido', raw: r.body.substring(0, 200) }));
+        res.end(JSON.stringify({ error: 'JSON inválido', raw: r.body.substring(0, 300) }));
         return;
       }
+
       const docs = Array.isArray(data) ? data : (data.results || data.data || []);
+      console.log('Documentos encontrados:', docs.length);
+
       const procesados = docs.map(doc => ({
         fecha: doc.fecha_emision || '',
         vendedor: doc.vendedor_nombre || doc.vendedor || 'Sin vendedor',
@@ -74,9 +85,11 @@ const server = http.createServer(async (req, res) => {
           total: parseFloat((d.base_gravable || '0').toString().replace(',', '.'))
         }))
       }));
+
       res.writeHead(200, {'Content-Type': 'application/json'});
       res.end(JSON.stringify({ total: procesados.length, documentos: procesados }));
     } catch(e) {
+      console.error('Error:', e.message);
       res.writeHead(500, {'Content-Type': 'application/json'});
       res.end(JSON.stringify({ error: e.message }));
     }
@@ -110,7 +123,6 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, {'Content-Type': MIME[ext] || 'text/plain'});
     fs.createReadStream(filePath).pipe(res);
   } else {
-    // SPA fallback - serve index.html
     const index = path.join(__dirname, 'index.html');
     if (fs.existsSync(index)) {
       res.writeHead(200, {'Content-Type': 'text/html'});
