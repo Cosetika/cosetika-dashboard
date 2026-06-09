@@ -410,19 +410,120 @@ function selCliente(nombre){
     </div>`;
 }
 
-function renderProvincias(){
+function renderProvincias(provSeleccionada){
   const vendedoras=vendActual ? [vendActual] : Object.keys(DATA);
   const provincias={};
   vendedoras.forEach(v=>{
     DATA[v].forEach(c=>{
-      // Buscar provincia en los datos (si la tenemos)
+      const prov=c.provincia&&c.provincia!=='nan'&&c.provincia?c.provincia:'SIN PROVINCIA';
+      if(!provincias[prov]) provincias[prov]=[];
+      provincias[prov].push({...c, vendedor:v});
     });
   });
+  const provOrdenadas=Object.entries(provincias)
+    .map(([nombre,clientes])=>({nombre,clientes:clientes.sort((a,b)=>b.total-a.total),total:clientes.reduce((a,c)=>a+c.total,0),num_clientes:clientes.length}))
+    .sort((a,b)=>b.total-a.total);
+
+  if(!provSeleccionada){
+    const maxProv=provOrdenadas[0]?.total||1;
+    const totalGlobal=provOrdenadas.reduce((a,p)=>a+p.total,0);
+    document.getElementById('main').innerHTML=`
+      <div class="breadcrumb"><span class="crumb" onclick="renderHome()"><i class="ti ti-home" style="font-size:12px"></i> Inicio</span><span> › </span><span style="font-weight:500">Clientes por Provincia</span></div>
+      <div class="kpi-row">
+        <div class="kpi"><div class="kpi-label">Provincias</div><div class="kpi-val">${provOrdenadas.length}</div><div class="kpi-sub">con ventas</div></div>
+        <div class="kpi"><div class="kpi-label">Total ventas</div><div class="kpi-val">${fmt(totalGlobal)}</div><div class="kpi-sub">Ene–May 2026</div></div>
+        <div class="kpi"><div class="kpi-label">Clientes</div><div class="kpi-val">${provOrdenadas.reduce((a,p)=>a+p.num_clientes,0)}</div><div class="kpi-sub">total</div></div>
+        <div class="kpi"><div class="kpi-label">Prov. líder</div><div class="kpi-val" style="font-size:13px">${provOrdenadas[0]?.nombre||''}</div><div class="kpi-sub">${fmt(provOrdenadas[0]?.total||0)}</div></div>
+      </div>
+      <div class="card">
+        <div class="card-title"><i class="ti ti-map-pin"></i> Ventas por provincia — haz clic para ver clientes</div>
+        ${provOrdenadas.map(p=>`
+          <div class="hbar" onclick="renderProvincias('${p.nombre.replace(/'/g,"\\'")}')">
+            <span class="hbar-lbl" title="${p.nombre}">${p.nombre}</span>
+            <div class="hbar-track"><div class="hbar-fill brown" style="width:${pct(p.total,maxProv)}%"></div></div>
+            <span class="hbar-val">${fmt(p.total)}</span>
+          </div>`).join('')}
+      </div>`;
+  } else {
+    const provData=provincias[provSeleccionada]||[];
+    const maxCli=provData[0]?.total||1;
+    const totalProv=provData.reduce((a,c)=>a+c.total,0);
+    document.getElementById('main').innerHTML=`
+      <div class="breadcrumb">
+        <span class="crumb" onclick="renderHome()"><i class="ti ti-home" style="font-size:12px"></i> Inicio</span>
+        <span> › </span>
+        <span class="crumb" onclick="renderProvincias()">Provincias</span>
+        <span> › </span>
+        <span style="font-weight:500">${provSeleccionada}</span>
+      </div>
+      <div class="kpi-row">
+        <div class="kpi"><div class="kpi-label">Total ventas</div><div class="kpi-val">${fmt(totalProv)}</div><div class="kpi-sub">${provSeleccionada}</div></div>
+        <div class="kpi"><div class="kpi-label">Clientes</div><div class="kpi-val">${provData.length}</div><div class="kpi-sub">en esta provincia</div></div>
+        <div class="kpi"><div class="kpi-label">Facturas</div><div class="kpi-val">${provData.reduce((a,c)=>a+c.num_compras,0)}</div><div class="kpi-sub">emitidas</div></div>
+        <div class="kpi"><div class="kpi-label">Ticket prom.</div><div class="kpi-val">${fmt(totalProv/Math.max(provData.reduce((a,c)=>a+c.num_compras,0),1))}</div><div class="kpi-sub">por factura</div></div>
+      </div>
+      <div class="card">
+        <div class="card-title"><i class="ti ti-users"></i> Clientes en ${provSeleccionada} — haz clic para ver detalle</div>
+        ${provData.map(c=>`
+          <div class="hbar" onclick="selClienteProvincia('${c.nombre.replace(/'/g,"\\'").replace(/"/g,'\\"')}','${provSeleccionada.replace(/'/g,"\\'")}')">
+            <span class="hbar-lbl" title="${c.nombre}">${c.nombre}</span>
+            <div class="hbar-track"><div class="hbar-fill" style="width:${pct(c.total,maxCli)}%"></div></div>
+            <span class="hbar-val">${fmt(c.total)}</span>
+          </div>`).join('')}
+      </div>`;
+  }
+}
+
+function selClienteProvincia(nombre, provincia){
+  const vendedoras=vendActual ? [vendActual] : Object.keys(DATA);
+  let c=null, vendNombre='';
+  for(const v of vendedoras){
+    const found=DATA[v].find(x=>x.nombre===nombre);
+    if(found){c=found;vendNombre=v;break;}
+  }
+  if(!c) return;
+  const maxProd=c.productos[0]?.cantidad||1;
+  const maxFreq=Math.max(...c.frecuencia.map(f=>f.total),1);
+  const iniciales=nombre.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase();
+  renderMarcasSidebar(Object.fromEntries(c.marcas.map(m=>[m.marca,m.total])));
   document.getElementById('main').innerHTML=`
-    <div class="coming">
-      <i class="ti ti-map"></i>
-      <p>Clientes por Provincia</p>
-      <span style="font-size:12px">Próximamente — agregando datos de provincia</span>
+    <div class="breadcrumb">
+      <span class="crumb" onclick="renderHome()"><i class="ti ti-home" style="font-size:12px"></i> Inicio</span>
+      <span> › </span>
+      <span class="crumb" onclick="renderProvincias()">Provincias</span>
+      <span> › </span>
+      <span class="crumb" onclick="renderProvincias('${provincia.replace(/'/g,"\\'")}'">${provincia}</span>
+      <span> › </span>
+      <span style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${nombre}</span>
+    </div>
+    <div class="cli-header">
+      <div class="cli-avatar">${iniciales}</div>
+      <div style="flex:1;min-width:0">
+        <div class="cli-name" title="${nombre}">${nombre}</div>
+        <div class="cli-sub">Total: <strong style="color:var(--brown)">${fmt(c.total)}</strong> · ${c.num_compras} facturas · ${vendNombre}</div>
+      </div>
+      <button class="back-btn" onclick="renderProvincias('${provincia.replace(/'/g,"\\'")}')"><i class="ti ti-arrow-left"></i> Volver</button>
+    </div>
+    <div class="row2">
+      <div class="card">
+        <div class="card-title"><i class="ti ti-package"></i> Productos — cantidad</div>
+        ${c.productos.length?c.productos.map(p=>`
+          <div class="prod-row">
+            <span class="prod-name" title="${p.nombre}">${p.nombre}</span>
+            <div class="prod-bar"><div class="prod-fill" style="width:${pct(p.cantidad,maxProd)}%"></div></div>
+            <span class="prod-qty">${p.cantidad}</span>
+          </div>`).join(''):'<p style="font-size:12px;color:var(--muted)">Sin productos</p>'}
+      </div>
+      <div class="card">
+        <div class="card-title"><i class="ti ti-calendar-stats"></i> Frecuencia por mes</div>
+        ${c.frecuencia.length?c.frecuencia.map(f=>`
+          <div class="freq-row">
+            <span class="freq-lbl">${MESES[f.mes]||f.mes}</span>
+            <div class="freq-track"><div class="freq-fill" style="width:${pct(f.total,maxFreq)}%;min-width:${f.total>0?'36px':'0'}"><span>${fmt(f.total)}</span></div></div>
+            <span class="freq-count">${f.compras} compra${f.compras>1?'s':''}</span>
+          </div>`).join(''):'<p style="font-size:12px;color:var(--muted)">Sin historial</p>'}
+        <div style="margin-top:8px;font-size:11px;color:var(--muted)">Total: <strong>${c.num_compras}</strong> facturas · <strong style="color:var(--brown)">${fmt(c.total)}</strong></div>
+      </div>
     </div>`;
 }
 
