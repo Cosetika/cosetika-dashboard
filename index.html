@@ -119,7 +119,7 @@
     </div>
   </div>
   <div class="hdr-right">
-    <div class="badge" id="badge-periodo">Ene–May 2026</div>
+    <div class="badge" id="badge-periodo">Ene–Jun 2026</div>
     <div class="icon-btn" title="Administración" onclick="alert('Panel admin próximamente')"><i class="ti ti-settings"></i></div>
   </div>
 </div>
@@ -584,12 +584,57 @@ async function cargarData(){
   try{
     const r=await fetch('/data.json');
     DATA=await r.json();
-    // Excluir Fernando
     EXCLUIR.forEach(e=>delete DATA[e]);
+
+    // Cargar ventas de hoy desde API v2
+    try {
+      const hoy = await fetch('/api/ventas-hoy');
+      const dataHoy = await hoy.json();
+      if(dataHoy.total > 0) {
+        mergearVentasHoy(dataHoy.documentos || []);
+        console.log('Ventas hoy cargadas:', dataHoy.total);
+      }
+    } catch(e) { console.log('Sin data de hoy:', e.message); }
+
     initVendedoras();
   }catch(e){
     document.getElementById('main').innerHTML='<div class="loader"><p>Error: '+e.message+'</p></div>';
   }
+}
+
+function mergearVentasHoy(docs){
+  // Agrupar facturas de hoy por vendedor
+  const hoy = new Date();
+  const mes = hoy.getMonth() + 1;
+  const fecha = `${String(hoy.getDate()).padStart(2,'0')}/${String(mes).padStart(2,'0')}/${String(hoy.getFullYear()).slice(-2)}`;
+
+  docs.forEach(doc => {
+    const vendedor = doc.vendedor_nombre || doc.vendedor || '';
+    const cliente = doc.persona_nombre || doc.persona || '';
+    const total = parseFloat(doc.total || 0);
+    if(!vendedor || !cliente || !total) return;
+    if(EXCLUIR.includes(vendedor)) return;
+
+    if(!DATA[vendedor]) DATA[vendedor] = [];
+    let cli = DATA[vendedor].find(c => c.nombre === cliente);
+    if(!cli){
+      cli = {nombre:cliente, total:0, num_compras:0, provincia:'', productos:[], marcas:[], frecuencia:[]};
+      DATA[vendedor].push(cli);
+    }
+    cli.total = Math.round((cli.total + total)*100)/100;
+    cli.num_compras += 1;
+
+    // Actualizar frecuencia del mes actual
+    let freqMes = cli.frecuencia.find(f => f.mes === mes);
+    if(!freqMes){ freqMes = {mes, total:0, compras:0}; cli.frecuencia.push(freqMes); }
+    freqMes.total = Math.round((freqMes.total + total)*100)/100;
+    freqMes.compras += 1;
+  });
+
+  // Re-ordenar clientes por total
+  Object.keys(DATA).forEach(v => {
+    DATA[v].sort((a,b) => b.total - a.total);
+  });
 }
 
 
@@ -693,9 +738,9 @@ function renderHome(){
   const maxVend=ranking[0]?.total||1;
 
   document.getElementById('main').innerHTML=`
-    <div class="breadcrumb"><i class="ti ti-home" style="font-size:12px;color:var(--brown)"></i><span style="font-weight:500">Resumen general — Ene–May 2026</span></div>
+    <div class="breadcrumb"><i class="ti ti-home" style="font-size:12px;color:var(--brown)"></i><span style="font-weight:500">Resumen general — Ene–Jun 2026</span></div>
     <div class="kpi-row">
-      <div class="kpi"><div class="kpi-label">Ventas totales</div><div class="kpi-val">${fmt(totalGlobal)}</div><div class="kpi-sub">Ene–May 2026</div></div>
+      <div class="kpi"><div class="kpi-label">Ventas totales</div><div class="kpi-val">${fmt(totalGlobal)}</div><div class="kpi-sub">Ene–Jun 2026</div></div>
       <div class="kpi"><div class="kpi-label">Vendedoras</div><div class="kpi-val">${vendedoras.length}</div><div class="kpi-sub">activas</div></div>
       <div class="kpi"><div class="kpi-label">Clientes</div><div class="kpi-val">${totalClientes}</div><div class="kpi-sub">únicos</div></div>
       <div class="kpi"><div class="kpi-label">Facturas</div><div class="kpi-val">${totalFacturas}</div><div class="kpi-sub">emitidas</div></div>
@@ -746,7 +791,7 @@ function renderVendedor(nombre){
       <span style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${nombre}</span>
     </div>
     <div class="kpi-row">
-      <div class="kpi"><div class="kpi-label">Total ventas</div><div class="kpi-val">${fmt(totalVend)}</div><div class="kpi-sub">Ene–May 2026</div></div>
+      <div class="kpi"><div class="kpi-label">Total ventas</div><div class="kpi-val">${fmt(totalVend)}</div><div class="kpi-sub">Ene–Jun 2026</div></div>
       <div class="kpi"><div class="kpi-label">Clientes</div><div class="kpi-val">${clientes.length}</div><div class="kpi-sub">activos</div></div>
       <div class="kpi"><div class="kpi-label">Facturas</div><div class="kpi-val">${clientes.reduce((a,c)=>a+c.num_compras,0)}</div><div class="kpi-sub">emitidas</div></div>
       <div class="kpi"><div class="kpi-label">Ticket prom.</div><div class="kpi-val">${fmt(totalVend/Math.max(clientes.reduce((a,c)=>a+c.num_compras,0),1))}</div><div class="kpi-sub">por factura</div></div>
@@ -840,7 +885,7 @@ function renderProvincias(provSeleccionada){
       <div class="breadcrumb"><span class="crumb" onclick="renderHome()"><i class="ti ti-home" style="font-size:12px"></i> Inicio</span><span> › </span><span style="font-weight:500">Clientes por Provincia</span></div>
       <div class="kpi-row">
         <div class="kpi"><div class="kpi-label">Provincias</div><div class="kpi-val">${provOrdenadas.length}</div><div class="kpi-sub">con ventas</div></div>
-        <div class="kpi"><div class="kpi-label">Total ventas</div><div class="kpi-val">${fmt(totalGlobal)}</div><div class="kpi-sub">Ene–May 2026</div></div>
+        <div class="kpi"><div class="kpi-label">Total ventas</div><div class="kpi-val">${fmt(totalGlobal)}</div><div class="kpi-sub">Ene–Jun 2026</div></div>
         <div class="kpi"><div class="kpi-label">Clientes</div><div class="kpi-val">${provOrdenadas.reduce((a,p)=>a+p.num_clientes,0)}</div><div class="kpi-sub">total</div></div>
         <div class="kpi"><div class="kpi-label">Prov. líder</div><div class="kpi-val" style="font-size:13px">${provOrdenadas[0]?.nombre||''}</div><div class="kpi-sub">${fmt(provOrdenadas[0]?.total||0)}</div></div>
       </div>
@@ -1121,7 +1166,7 @@ document.addEventListener('DOMContentLoaded', function() {
   // Saludo
   const nombre = usuarioActual.nombre.split(' ')[0];
   const badge = document.getElementById('badge-periodo');
-  if (badge) badge.innerHTML = `Hola, ${nombre} &nbsp;·&nbsp; Ene–May 2026`;
+  if (badge) badge.innerHTML = `Hola, ${nombre} &nbsp;·&nbsp; Ene–Jun 2026`;
 
   // Botón settings
   const settingsBtn = document.querySelector('.icon-btn');
