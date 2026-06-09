@@ -196,7 +196,7 @@ const server = http.createServer(async (req, res) => {
   // VENTAS HOY (caché v2)
   if (urlPath === '/api/ventas-hoy' && req.method === 'GET') {
     res.writeHead(200,{'Content-Type':'application/json'});
-    res.end(JSON.stringify({ total: cache.documentos.length, ultima_sync: cache.ultima_sync, sincronizando: cache.sincronizando }));
+    res.end(JSON.stringify({ total: cache.documentos.length, ultima_sync: cache.ultima_sync, sincronizando: cache.sincronizando, documentos: cache.documentos }));
     return;
   }
 
