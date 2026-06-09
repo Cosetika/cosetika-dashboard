@@ -34,7 +34,11 @@ async function sincronizarHoy(){
   const fecha = fmtDate(now);
   console.log('Sincronizando v2 fecha:', fecha);
   try {
-    let url = `https://api.contifico.com/sistema/api/v2/documento/?tipo_documento=FAC&fecha_emision_ini=${fecha}&fecha_emision_fin=${fecha}&page_size=100`;
+    const dd = now.getDate().toString().padStart(2,'0');
+    const mm = (now.getMonth()+1).toString().padStart(2,'0');
+    const yyyy = now.getFullYear();
+    const fechaFmt = `${dd}/${mm}/${yyyy}`;
+    let url = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${fechaFmt}&fecha_final=${fechaFmt}&page_size=100`;
     let todos = [];
     let paginas = 0;
     while(url && paginas < 20){
@@ -272,7 +276,11 @@ const server = http.createServer(async (req, res) => {
       const fecha = `${now.getFullYear()}-${d(now.getMonth()+1)}-${d(now.getDate())}`;
       
       // Try v2 endpoint
-      const url = `https://api.contifico.com/sistema/api/v2/documento/?tipo_documento=FAC&fecha_emision_ini=${fecha}&fecha_emision_fin=${fecha}`;
+      const d = now.getDate().toString().padStart(2,'0');
+      const m = (now.getMonth()+1).toString().padStart(2,'0');
+      const y = now.getFullYear();
+      const fechaFmt = `${d}/${m}/${y}`;
+      const url = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${fechaFmt}&fecha_final=${fechaFmt}`;
       console.log('Testing v2:', url);
       
       const inicio = Date.now();
