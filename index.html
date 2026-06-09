@@ -592,33 +592,6 @@ async function cargarData(){
   }
 }
 
-function setMod(mod){
-  document.querySelectorAll('.mod').forEach(m=>m.classList.remove('active'));
-  document.getElementById('mod-'+mod)?.classList.add('active');
-  modActual=mod;
-  
-  // Mostrar/ocultar submenu
-  document.getElementById('submenu-ventas').classList.toggle('visible', mod==='ventas');
-  
-  if(mod==='ventas'){
-    document.getElementById('sidebar').classList.remove('hidden');
-    document.getElementById('body').classList.remove('full-width');
-    renderHome();
-  } else if(mod==='visitas'){
-    document.getElementById('sidebar').classList.add('hidden');
-    document.getElementById('body').classList.add('full-width');
-    renderVisitas();
-  } else {
-    document.getElementById('sidebar').classList.add('hidden');
-    document.getElementById('body').classList.add('full-width');
-    document.getElementById('main').innerHTML=`
-      <div class="coming">
-        <i class="ti ti-tools"></i>
-        <p>Módulo de ${mod.charAt(0).toUpperCase()+mod.slice(1)}</p>
-        <span style="font-size:12px">Próximamente</span>
-      </div>`;
-  }
-}
 
 function setSubtab(tab){
   document.querySelectorAll('.stab').forEach(s=>s.classList.remove('active'));
