@@ -1052,115 +1052,10 @@ function diasLabel(lugar){
   return `Hace ${d}d`;
 }
 
-async function renderVisitas(){
-  await cargarVisitas();
-  const asesoraActual = asesoraVisitas || Object.keys(ASESOR_DATA)[0];
-  const data = ASESOR_DATA[asesoraActual];
-  const todosLugares = [...Object.values(data.zonas).flat(), ...data.provincias];
-  const urgentes = todosLugares.filter(l=>{
-    const tipo = data.provincias.includes(l)?'provincia':'sector';
-    return estadoLugar(l,tipo)==='warn' || estadoLugar(l,tipo)==='none';
-  });
-
-  const asesBtns = Object.keys(ASESOR_DATA).map(a=>`
-    <button onclick="selAsesoraVisitas('${a.replace(/'/g,"\'")}',this)"
-      style="padding:5px 12px;font-size:11px;border-radius:20px;cursor:pointer;transition:all 0.2s;
-      border:0.5px solid ${a===asesoraActual?'var(--brown)':'var(--border)'};
-      background:${a===asesoraActual?'var(--brown)':'white'};
-      color:${a===asesoraActual?'white':'var(--muted)'}"
-      class="ases-v-btn">${a.split(' ')[0]}</button>`).join('');
-
-  let sectoresHtml = '';
-  Object.entries(data.zonas).forEach(([zona, sectores])=>{
-    sectoresHtml += `<div style="font-size:11px;font-weight:500;color:var(--text);margin:12px 0 8px;padding-bottom:4px;border-bottom:1px solid var(--border)">${zona}</div>`;
-    sectoresHtml += `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px">`;
-    sectores.forEach(s=>{
-      const st = estadoLugar(s,'sector');
-      const colors = {fresh:'background:#dcfce7;color:#166534;border-color:#86efac',ok:'background:#fef9c3;color:#854d0e;border-color:#fde047',warn:'background:#fee2e2;color:#991b1b;border-color:#fca5a5',none:'background:#f3f4f6;color:#6b7280;border-color:#d1d5db'};
-      sectoresHtml += `<button onclick="abrirModalVisita('${s.replace(/'/g,"\'")}','sector','${asesoraActual.replace(/'/g,"\'")}',this)"
-        style="padding:6px 12px;font-size:11px;border-radius:20px;border:0.5px solid;cursor:pointer;${colors[st]}"
-        title="${diasLabel(s)}">${s}</button>`;
-    });
-    sectoresHtml += '</div>';
-  });
-
-  let provsHtml = '<div style="display:flex;flex-wrap:wrap;gap:8px">';
-  data.provincias.forEach(p=>{
-    const st = estadoLugar(p,'provincia');
-    const colors = {fresh:'background:#dcfce7;color:#166534;border-color:#86efac',ok:'background:#fef9c3;color:#854d0e;border-color:#fde047',warn:'background:#fee2e2;color:#991b1b;border-color:#fca5a5',none:'background:#f3f4f6;color:#6b7280;border-color:#d1d5db'};
-    provsHtml += `<button onclick="abrirModalVisita('${p}','provincia','${asesoraActual.replace(/'/g,"\'")}',this)"
-      style="padding:8px 16px;font-size:12px;border-radius:10px;border:0.5px solid;cursor:pointer;display:flex;align-items:center;gap:6px;${colors[st]}">
-      <i class="ti ti-map-pin" aria-hidden="true"></i>${p}
-      <span style="font-size:10px;opacity:0.7">${diasLabel(p)}</span>
-    </button>`;
-  });
-  provsHtml += '</div>';
-
-  const recientes = [...visitasDB].sort((a,b)=>new Date(b.fecha)-new Date(a.fecha)).slice(0,10);
-  const histHtml = recientes.length ? recientes.map(v=>`
-    <div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:0.5px solid var(--border);font-size:12px">
-      <i class="ti ti-${v.tipo==='provincia'?'world':'map-pin'}" aria-hidden="true" style="color:#A0684A;font-size:14px;flex-shrink:0"></i>
-      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${v.lugar}</span>
-      <span style="font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(160,104,74,0.12);color:#A0684A">${v.asesora.split(' ')[0]}</span>
-      <span style="color:var(--muted);font-size:11px;min-width:65px;text-align:right">${fmtFecha(v.fecha)}</span>
-    </div>`).join('') : '<p style="font-size:12px;color:var(--muted)">Sin visitas registradas</p>';
-
-  document.getElementById('main').innerHTML = `
-    <div class="breadcrumb"><i class="ti ti-map-pin" style="font-size:12px;color:#A0684A" aria-hidden="true"></i><span style="font-weight:500">Módulo de visitas</span></div>
-
-    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:4px">
-      <div style="display:flex;gap:6px;flex-wrap:wrap">${asesBtns}</div>
-    </div>
-
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:4px">
-      <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)"><div style="width:10px;height:10px;border-radius:50%;background:#4ade80"></div>Reciente</div>
-      <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)"><div style="width:10px;height:10px;border-radius:50%;background:#facc15"></div>Próximo a vencer</div>
-      <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)"><div style="width:10px;height:10px;border-radius:50%;background:#f87171"></div>Urgente</div>
-      <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)"><div style="width:10px;height:10px;border-radius:50%;background:#d1d5db"></div>Sin visita</div>
-    </div>
-
-    <div class="kpi-row">
-      <div class="kpi"><div class="kpi-label">Sectores</div><div class="kpi-val">${Object.values(data.zonas).flat().length}</div><div class="kpi-sub">asignados</div></div>
-      <div class="kpi"><div class="kpi-label">Provincias</div><div class="kpi-val">${data.provincias.length}</div><div class="kpi-sub">asignadas</div></div>
-      <div class="kpi"><div class="kpi-label">Total visitas</div><div class="kpi-val">${visitasDB.filter(v=>v.asesora===asesoraActual).length}</div><div class="kpi-sub">registradas</div></div>
-      <div class="kpi"><div class="kpi-label">Requieren visita</div><div class="kpi-val" style="color:#991b1b">${urgentes.length}</div><div class="kpi-sub" style="color:#991b1b">urgente o sin visita</div></div>
-    </div>
-
-    <div class="row2" style="align-items:start">
-      <div class="card">
-        <div class="card-title"><i class="ti ti-map" aria-hidden="true"></i> Sectores — haz clic para registrar visita</div>
-        ${sectoresHtml}
-      </div>
-      <div style="display:flex;flex-direction:column;gap:12px">
-        <div class="card">
-          <div class="card-title"><i class="ti ti-world" aria-hidden="true"></i> Provincias asignadas</div>
-          ${provsHtml}
-        </div>
-        <div class="card">
-          <div class="card-title"><i class="ti ti-history" aria-hidden="true"></i> Historial de visitas</div>
-          ${histHtml}
-        </div>
-      </div>
-    </div>
-
-    <div id="modal-visita" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:100;align-items:center;justify-content:center;padding:20px">
-      <div style="background:white;border-radius:12px;border:0.5px solid var(--border);width:100%;max-width:400px;max-height:80vh;overflow-y:auto">
-        <div style="padding:14px 16px;border-bottom:0.5px solid var(--border);display:flex;align-items:center;justify-content:space-between">
-          <div id="mv-title" style="font-size:14px;font-weight:500;color:var(--text)"></div>
-          <button onclick="cerrarModalVisita()" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:18px"><i class="ti ti-x" aria-hidden="true"></i></button>
-        </div>
-        <div id="mv-body" style="padding:16px"></div>
-      </div>
-    </div>`;
-
-  document.getElementById('modal-visita').addEventListener('click', function(e){
-    if(e.target===this) cerrarModalVisita();
-  });
-}
 
 function selAsesoraVisitas(nombre, el){
   asesoraVisitas = nombre;
-  renderVisitas();
+  renderVisitasRealizadas();
 }
 
 function cerrarModalVisita(){
@@ -1211,7 +1106,7 @@ async function marcarVisitaDB(lugar, tipo, asesora, btn){
       body: JSON.stringify({lugar, tipo, asesora})
     });
     cerrarModalVisita();
-    await renderVisitas();
+    await renderVisitasRealizadas();
   } catch(e) {
     btn.disabled=false;
     btn.textContent='Error — intenta de nuevo';
