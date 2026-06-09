@@ -643,10 +643,10 @@ async function mostrarVentasHoy(){
             <tbody>
               ${(data.documentos||[]).map(d=>`
                 <tr style="border-bottom:0.5px solid var(--border)">
-                  <td style="padding:7px 10px;color:var(--muted);font-size:11px">${d.documento||'—'}</td>
-                  <td style="padding:7px 10px;font-weight:500;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${d.cliente_nombre||d.descripcion||'—'}</td>
-                  <td style="padding:7px 10px;color:var(--muted)">${(d.vendedor_nombre||d.vendedor||'—')}</td>
-                  <td style="padding:7px 10px;text-align:right;color:var(--brown);font-weight:500">$${parseFloat(d.total||0).toLocaleString('es-EC',{minimumFractionDigits:2})}</td>
+                  <td style="padding:7px 10px;color:var(--muted);font-size:11px;white-space:nowrap">${d.documento||'—'}</td>
+                  <td style="padding:7px 10px;font-weight:500;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${d.cliente_nombre||d.cliente?.razon_social||'—'}">${d.cliente_nombre||d.cliente?.razon_social||'—'}</td>
+                  <td style="padding:7px 10px;color:var(--muted);white-space:nowrap">${(d.vendedor?.razon_social||d.vendedor?.nombre||'—').split(' ')[0]}</td>
+                  <td style="padding:7px 10px;text-align:right;color:var(--brown);font-weight:500;white-space:nowrap">$${parseFloat(d.total||0).toLocaleString('es-EC',{minimumFractionDigits:2})}</td>
                 </tr>`).join('')}
             </tbody>
           </table>

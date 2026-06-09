@@ -41,23 +41,9 @@ async function sincronizarHoy() {
       console.log(`Página ${paginas}: ${(data.results||[]).length} docs, total: ${todos.length}`);
     }
     const clientes = todos.filter(d => d.tipo_registro === 'CLI');
-    // Enriquecer con nombres de personas (en batch)
-    const personaIds = [...new Set(clientes.map(d=>d.persona_id).filter(Boolean))];
-    const personas = {};
-    for(const pid of personaIds.slice(0,50)) {
-      try {
-        const pr = await fetch(`https://api.contifico.com/sistema/api/v2/persona/${pid}/`, {
-          headers: { 'Authorization': API_KEY, 'Accept': 'application/json' }
-        });
-        if(pr.ok){
-          const pdata = await pr.json();
-          personas[pid] = pdata.razon_social || pdata.nombre || pdata.descripcion || pid;
-        }
-      } catch(e) {}
-    }
-    // Agregar nombre a cada documento
+    // Agregar cliente_nombre directo desde el objeto cliente
     clientes.forEach(d => {
-      d.cliente_nombre = personas[d.persona_id] || d.persona_id || '—';
+      d.cliente_nombre = d.cliente?.razon_social || d.cliente?.nombre_comercial || d.persona_id || '—';
     });
     cache.documentos = clientes;
     cache.ultima_sync = new Date().toISOString();
