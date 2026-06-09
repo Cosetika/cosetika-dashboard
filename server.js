@@ -171,7 +171,7 @@ const server = http.createServer(async (req, res) => {
   // Static files
   let filePath = urlPath === '/' ? path.join(__dirname, 'index.html')
     : urlPath === '/login' ? path.join(__dirname, 'public', 'login.html')
-    : urlPath === '/bot' ? path.join(__dirname, 'public', 'bot.html')
+    : urlPath === '/bot' ? path.join(__dirname, 'bot.html')
     : path.join(__dirname, urlPath);
 
   if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
