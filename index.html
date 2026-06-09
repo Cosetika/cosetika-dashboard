@@ -22,7 +22,7 @@
     /* MÓDULOS PRINCIPALES */
     .mods{display:grid;grid-template-columns:repeat(5,1fr);background:#fff;border-bottom:1px solid var(--border)}
     .mod{display:flex;flex-direction:column;align-items:center;gap:3px;padding:10px 4px;cursor:pointer;border-bottom:3px solid transparent;color:var(--muted);font-size:11px;font-weight:500;transition:all 0.2s}
-    .mod.active{border-bottom-color:var(--brown);color:var(--brown)}.mod.active i{color:var(--brown)}
+    .mod.active{border-bottom-color:var(--brown);color:var(--brown)}
     .mod i{font-size:20px}
 
     /* SUBMENÚ DE VENTAS */
@@ -119,17 +119,17 @@
     </div>
   </div>
   <div class="hdr-right">
-    <div class="badge">Ene–May 2026</div>
+    <div class="badge" id="badge-periodo">Ene–May 2026</div>
     <div class="icon-btn" title="Administración" onclick="alert('Panel admin próximamente')"><i class="ti ti-settings"></i></div>
   </div>
 </div>
 
-<div class="mods" id="mods-bar">
+<div class="mods">
   <div class="mod active" id="mod-ventas" onclick="setMod('ventas')"><i class="ti ti-chart-bar"></i>Ventas</div>
-  <div class="mod" id="mod-visitas" onclick="setMod('visitas')"><i class="ti ti-map-pin"></i>Visitas</div>
-  <div class="mod" id="mod-kpis" onclick="setMod('kpis')"><i class="ti ti-trending-up"></i>KPIs</div>
-  <div class="mod" id="mod-inventario" onclick="setMod('inventario')"><i class="ti ti-package"></i>Inventario</div>
-  <div class="mod" id="mod-config" onclick="setMod('config')" style="display:none"><i class="ti ti-settings"></i>Config</div>
+  <div class="mod" onclick="setMod('inventarios')"><i class="ti ti-package"></i>Inventarios</div>
+  <div class="mod" onclick="setMod('clientes')"><i class="ti ti-building"></i>Clientes</div>
+  <div class="mod" onclick="setMod('visitas')"><i class="ti ti-map-pin"></i>Visitas</div>
+  <div class="mod" onclick="setMod('reportes')"><i class="ti ti-file-analytics"></i>Reportes</div>
 </div>
 
 <div class="submenu" id="submenu-ventas">
@@ -177,17 +177,21 @@ function setMod(mod){
   document.querySelectorAll('.mod').forEach(m=>m.classList.remove('active'));
   document.getElementById('mod-'+mod)?.classList.add('active');
   modActual=mod;
+  
+  // Mostrar/ocultar submenu
   document.getElementById('submenu-ventas').classList.toggle('visible', mod==='ventas');
-  document.getElementById('sidebar').classList.toggle('hidden', mod!=='ventas');
-  document.getElementById('body').classList.toggle('full-width', mod!=='ventas');
-
+  
   if(mod==='ventas'){
+    document.getElementById('sidebar').classList.remove('hidden');
+    document.getElementById('body').classList.remove('full-width');
     renderHome();
   } else if(mod==='visitas'){
-    renderModVisitas();
-  } else if(mod==='config'){
-    renderConfig();
+    document.getElementById('sidebar').classList.add('hidden');
+    document.getElementById('body').classList.add('full-width');
+    renderVisitas();
   } else {
+    document.getElementById('sidebar').classList.add('hidden');
+    document.getElementById('body').classList.add('full-width');
     document.getElementById('main').innerHTML=`
       <div class="coming">
         <i class="ti ti-tools"></i>
@@ -196,293 +200,6 @@ function setMod(mod){
       </div>`;
   }
 }
-
-// Visitas con submenú Planificación / Realizadas
-function renderModVisitas(){
-  const tab = window._visitaTab || 'realizadas';
-  document.getElementById('main').innerHTML = `
-    <div style="display:flex;gap:0;background:white;border-radius:12px;border:1px solid var(--border);overflow:hidden;margin-bottom:12px">
-      <button onclick="setVisitaTab('realizadas')" id="vtab-realizadas"
-        style="flex:1;padding:11px;font-size:13px;font-weight:500;border:none;cursor:pointer;transition:all 0.2s;
-        background:${tab==='realizadas'?'var(--brown)':'white'};color:${tab==='realizadas'?'white':'var(--muted)'}">
-        <i class="ti ti-check" style="margin-right:5px"></i>Realizadas
-      </button>
-      <button onclick="setVisitaTab('planificacion')" id="vtab-planificacion"
-        style="flex:1;padding:11px;font-size:13px;font-weight:500;border:none;cursor:pointer;transition:all 0.2s;
-        background:${tab==='planificacion'?'var(--brown)':'white'};color:${tab==='planificacion'?'white':'var(--muted)'}">
-        <i class="ti ti-calendar" style="margin-right:5px"></i>Planificación
-      </button>
-    </div>
-    <div id="visitas-content"></div>`;
-  
-  if(tab==='realizadas') renderVisitasContent();
-  else renderPlanificacion();
-}
-
-function setVisitaTab(tab){
-  window._visitaTab = tab;
-  renderModVisitas();
-}
-
-async function renderVisitasContent(){
-  await cargarVisitas();
-  // Filtrar por asesora si no es admin ni jefa_ventas
-  const nombre = usuarioActual?.nombre || '';
-  const rol = usuarioActual?.rol || '';
-  
-  // Determinar qué asesora mostrar
-  if(rol === 'asesora'){
-    // Solo ve sus propios sectores
-    asesoraVisitas = nombre;
-  }
-  // Admin y jefa_ventas ven todas
-  
-  const asesoraActual2 = asesoraVisitas || Object.keys(ASESOR_DATA)[0];
-  const data = ASESOR_DATA[asesoraActual2];
-  if(!data){ document.getElementById('visitas-content').innerHTML='<p style="color:var(--muted);font-size:13px">No hay sectores asignados</p>'; return; }
-
-  const todosLugares = [...Object.values(data.zonas).flat(), ...data.provincias];
-  const urgentes = todosLugares.filter(l=>{
-    const tipo = data.provincias.includes(l)?'provincia':'sector';
-    return estadoLugar(l,tipo)==='warn'||estadoLugar(l,tipo)==='none';
-  });
-
-  // Selector de asesora (solo admin y jefa_ventas)
-  let asesBtns = '';
-  if(rol==='admin'||rol==='jefa_ventas'){
-    asesBtns = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
-      ${Object.keys(ASESOR_DATA).map(a=>`
-        <button onclick="selAsesoraVisitas('${a.replace(/'/g,"\'")}',this)"
-          style="padding:5px 12px;font-size:11px;border-radius:20px;cursor:pointer;border:0.5px solid ${a===asesoraActual2?'var(--brown)':'var(--border)'};
-          background:${a===asesoraActual2?'var(--brown)':'white'};color:${a===asesoraActual2?'white':'var(--muted)'}">
-          ${a.split(' ')[0]}
-        </button>`).join('')}
-    </div>`;
-  }
-
-  let sectoresHtml = '';
-  Object.entries(data.zonas).forEach(([zona,sectores])=>{
-    sectoresHtml += `<div style="font-size:11px;font-weight:500;color:var(--text);margin:12px 0 8px;padding-bottom:4px;border-bottom:1px solid var(--border)">${zona}</div>`;
-    sectoresHtml += `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px">`;
-    sectores.forEach(s=>{
-      const st=estadoLugar(s,'sector');
-      const colors={fresh:'background:#dcfce7;color:#166534;border-color:#86efac',ok:'background:#fef9c3;color:#854d0e;border-color:#fde047',warn:'background:#fee2e2;color:#991b1b;border-color:#fca5a5',none:'background:#f3f4f6;color:#6b7280;border-color:#d1d5db'};
-      sectoresHtml+=`<button onclick="abrirModalVisita('${s.replace(/'/g,"\'")}','sector','${asesoraActual2.replace(/'/g,"\'")}',this)" style="padding:6px 12px;font-size:11px;border-radius:20px;border:0.5px solid;cursor:pointer;${colors[st]}" title="${diasLabel(s)}">${s}</button>`;
-    });
-    sectoresHtml+='</div>';
-  });
-
-  let provsHtml='<div style="display:flex;flex-wrap:wrap;gap:8px">';
-  data.provincias.forEach(p=>{
-    const st=estadoLugar(p,'provincia');
-    const colors={fresh:'background:#dcfce7;color:#166534;border-color:#86efac',ok:'background:#fef9c3;color:#854d0e;border-color:#fde047',warn:'background:#fee2e2;color:#991b1b;border-color:#fca5a5',none:'background:#f3f4f6;color:#6b7280;border-color:#d1d5db'};
-    provsHtml+=`<button onclick="abrirModalVisita('${p}','provincia','${asesoraActual2.replace(/'/g,"\'")}',this)" style="padding:8px 16px;font-size:12px;border-radius:10px;border:0.5px solid;cursor:pointer;display:flex;align-items:center;gap:6px;${colors[st]}"><i class="ti ti-map-pin"></i>${p}<span style="font-size:10px;opacity:0.7">${diasLabel(p)}</span></button>`;
-  });
-  provsHtml+='</div>';
-
-  const recientes=[...visitasDB].filter(v=>rol==='asesora'?v.asesora===nombre:true).sort((a,b)=>new Date(b.fecha)-new Date(a.fecha)).slice(0,8);
-  const histHtml=recientes.length?recientes.map(v=>`
-    <div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:0.5px solid var(--border);font-size:12px">
-      <i class="ti ti-${v.tipo==='provincia'?'world':'map-pin'}" style="color:#A0684A;font-size:14px;flex-shrink:0"></i>
-      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${v.lugar}</span>
-      <span style="font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(160,104,74,0.12);color:#A0684A">${v.asesora.split(' ')[0]}</span>
-      <span style="color:var(--muted);font-size:11px;min-width:65px;text-align:right">${fmtFecha(v.fecha)}</span>
-    </div>`).join(''):'<p style="font-size:12px;color:var(--muted)">Sin visitas registradas</p>';
-
-  document.getElementById('visitas-content').innerHTML=`
-    ${asesBtns}
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
-      <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)"><div style="width:10px;height:10px;border-radius:50%;background:#4ade80"></div>Reciente</div>
-      <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)"><div style="width:10px;height:10px;border-radius:50%;background:#facc15"></div>Próximo a vencer</div>
-      <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)"><div style="width:10px;height:10px;border-radius:50%;background:#f87171"></div>Urgente</div>
-      <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)"><div style="width:10px;height:10px;border-radius:50%;background:#d1d5db"></div>Sin visita</div>
-    </div>
-    <div class="kpi-row" style="margin-bottom:12px">
-      <div class="kpi"><div class="kpi-label">Sectores</div><div class="kpi-val">${Object.values(data.zonas).flat().length}</div><div class="kpi-sub">asignados</div></div>
-      <div class="kpi"><div class="kpi-label">Provincias</div><div class="kpi-val">${data.provincias.length}</div><div class="kpi-sub">asignadas</div></div>
-      <div class="kpi"><div class="kpi-label">Visitas</div><div class="kpi-val">${visitasDB.filter(v=>v.asesora===asesoraActual2).length}</div><div class="kpi-sub">registradas</div></div>
-      <div class="kpi"><div class="kpi-label">Requieren visita</div><div class="kpi-val" style="color:#991b1b">${urgentes.length}</div><div class="kpi-sub" style="color:#991b1b">pendientes</div></div>
-    </div>
-    <div class="row2" style="align-items:start">
-      <div class="card"><div class="card-title"><i class="ti ti-map"></i> Sectores</div>${sectoresHtml}</div>
-      <div style="display:flex;flex-direction:column;gap:12px">
-        <div class="card"><div class="card-title"><i class="ti ti-world"></i> Provincias</div>${provsHtml}</div>
-        <div class="card"><div class="card-title"><i class="ti ti-history"></i> Historial</div>${histHtml}</div>
-      </div>
-    </div>
-    <div id="modal-visita" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:100;align-items:center;justify-content:center;padding:20px">
-      <div style="background:white;border-radius:12px;border:0.5px solid var(--border);width:100%;max-width:400px;max-height:80vh;overflow-y:auto">
-        <div style="padding:14px 16px;border-bottom:0.5px solid var(--border);display:flex;align-items:center;justify-content:space-between">
-          <div id="mv-title" style="font-size:14px;font-weight:500;color:var(--text)"></div>
-          <button onclick="cerrarModalVisita()" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:18px"><i class="ti ti-x"></i></button>
-        </div>
-        <div id="mv-body" style="padding:16px"></div>
-      </div>
-    </div>`;
-
-  document.getElementById('modal-visita').addEventListener('click',function(e){if(e.target===this)cerrarModalVisita();});
-}
-
-function renderPlanificacion(){
-  document.getElementById('visitas-content').innerHTML=`
-    <div class="coming">
-      <i class="ti ti-calendar-plus"></i>
-      <p>Planificación de visitas</p>
-      <span style="font-size:12px">Próximamente — dinos qué quieres ver aquí</span>
-    </div>`;
-}
-
-// Panel de configuración (solo admin)
-async function renderConfig(){
-  if(!usuarioActual||usuarioActual.rol!=='admin'){
-    document.getElementById('main').innerHTML='<div class="coming"><i class="ti ti-lock"></i><p>Acceso restringido</p></div>';
-    return;
-  }
-  let usuarios=[];
-  try{ const r=await fetch('/api/usuarios'); usuarios=await r.json(); }catch(e){}
-  
-  const MODS_LISTA = ['ventas','visitas','kpis','inventario'];
-  
-  document.getElementById('main').innerHTML=`
-    <div class="breadcrumb"><i class="ti ti-settings" style="color:var(--brown);font-size:12px"></i><span style="font-weight:500">Configuración</span></div>
-    
-    <div style="display:flex;gap:8px;margin-bottom:16px">
-      <button onclick="showConfigTab('credenciales',this)" id="cfg-credenciales"
-        style="padding:8px 18px;font-size:13px;border-radius:20px;border:none;cursor:pointer;background:var(--brown);color:white;font-weight:500">
-        Credenciales
-      </button>
-      <button onclick="showConfigTab('permisos',this)" id="cfg-permisos"
-        style="padding:8px 18px;font-size:13px;border-radius:20px;border:0.5px solid var(--border);cursor:pointer;background:white;color:var(--muted)">
-        Permisos
-      </button>
-    </div>
-
-    <div id="cfg-tab-credenciales">
-      <div class="card">
-        <div class="card-title"><i class="ti ti-key"></i> Credenciales de usuarios</div>
-        ${usuarios.map(u=>`
-          <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:0.5px solid var(--border)">
-            <div style="width:34px;height:34px;border-radius:50%;background:rgba(160,104,74,0.15);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:500;color:var(--brown);flex-shrink:0">
-              ${u.nombre.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase()}
-            </div>
-            <div style="flex:1">
-              <div style="font-size:13px;font-weight:500;color:var(--text)">${u.nombre}</div>
-              <div style="font-size:11px;color:var(--muted)">@${u.usuario} · ${u.rol}</div>
-            </div>
-            <input type="password" id="pwd-${u.id}" placeholder="Nueva clave"
-              style="width:130px;padding:6px 10px;border:0.5px solid var(--border);border-radius:6px;font-size:12px;outline:none"/>
-            <button onclick="cambiarClave(${u.id},'pwd-${u.id}')"
-              style="padding:6px 12px;background:var(--brown);color:white;border:none;border-radius:6px;font-size:12px;cursor:pointer">
-              Guardar
-            </button>
-          </div>`).join('')}
-      </div>
-      <div class="card" style="margin-top:12px">
-        <div class="card-title"><i class="ti ti-user-plus"></i> Nuevo usuario</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-          <div><div style="font-size:11px;color:var(--muted);margin-bottom:4px">Nombre completo</div><input id="new-nombre" type="text" placeholder="Ej: Ana Torres" style="width:100%;padding:7px 10px;border:0.5px solid var(--border);border-radius:6px;font-size:13px;outline:none"/></div>
-          <div><div style="font-size:11px;color:var(--muted);margin-bottom:4px">Usuario</div><input id="new-usuario" type="text" placeholder="Ej: Ana" style="width:100%;padding:7px 10px;border:0.5px solid var(--border);border-radius:6px;font-size:13px;outline:none"/></div>
-          <div><div style="font-size:11px;color:var(--muted);margin-bottom:4px">Contraseña</div><input id="new-pwd" type="password" placeholder="••••••••" style="width:100%;padding:7px 10px;border:0.5px solid var(--border);border-radius:6px;font-size:13px;outline:none"/></div>
-          <div><div style="font-size:11px;color:var(--muted);margin-bottom:4px">Rol</div>
-            <select id="new-rol" style="width:100%;padding:7px 10px;border:0.5px solid var(--border);border-radius:6px;font-size:13px;outline:none">
-              <option value="asesora">Asesora</option>
-              <option value="jefa_ventas">Jefa de Ventas</option>
-              <option value="admin">Admin</option>
-            </select>
-          </div>
-        </div>
-        <div style="margin-top:12px;display:flex;justify-content:flex-end">
-          <button onclick="crearUsuario()" style="padding:8px 18px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500">
-            <i class="ti ti-user-plus"></i> Crear usuario
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <div id="cfg-tab-permisos" style="display:none">
-      <div class="card">
-        <div class="card-title"><i class="ti ti-shield"></i> Permisos por módulo</div>
-        <div style="overflow-x:auto">
-          <table style="width:100%;border-collapse:collapse;font-size:13px">
-            <thead>
-              <tr style="border-bottom:0.5px solid var(--border)">
-                <th style="text-align:left;padding:8px 10px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Usuario</th>
-                ${MODS_LISTA.map(m=>`<th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">${m}</th>`).join('')}
-                <th style="padding:8px 10px;font-size:11px;color:var(--muted)"></th>
-              </tr>
-            </thead>
-            <tbody>
-              ${usuarios.map(u=>{
-                const modActivos = u.modulos ? u.modulos.split(',') : [];
-                return `<tr style="border-bottom:0.5px solid var(--border)" id="perm-row-${u.id}">
-                  <td style="padding:10px">
-                    <div style="font-size:13px;font-weight:500">${u.nombre.split(' ')[0]}</div>
-                    <div style="font-size:11px;color:var(--muted)">${u.rol}</div>
-                  </td>
-                  ${MODS_LISTA.map(m=>`
-                    <td style="text-align:center;padding:10px">
-                      <input type="checkbox" ${modActivos.includes(m)?'checked':''} 
-                        id="perm-${u.id}-${m}" accent-color="var(--brown)"
-                        style="accent-color:#A0684A;width:16px;height:16px;cursor:pointer"/>
-                    </td>`).join('')}
-                  <td style="padding:10px">
-                    <button onclick="guardarPermisos(${u.id},'${MODS_LISTA.join(',')}')"
-                      style="padding:5px 12px;background:var(--brown);color:white;border:none;border-radius:6px;font-size:11px;cursor:pointer">
-                      Guardar
-                    </button>
-                  </td>
-                </tr>`;
-              }).join('')}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>`;
-}
-
-function showConfigTab(tab, btn){
-  document.getElementById('cfg-tab-credenciales').style.display = tab==='credenciales'?'block':'none';
-  document.getElementById('cfg-tab-permisos').style.display = tab==='permisos'?'block':'none';
-  document.querySelectorAll('[id^="cfg-"]').forEach(b=>{
-    if(b.tagName==='BUTTON'){
-      b.style.background = b.id==='cfg-'+tab?'var(--brown)':'white';
-      b.style.color = b.id==='cfg-'+tab?'white':'var(--muted)';
-      b.style.border = b.id==='cfg-'+tab?'none':'0.5px solid var(--border)';
-    }
-  });
-}
-
-async function cambiarClave(id, inputId){
-  const pwd = document.getElementById(inputId)?.value;
-  if(!pwd){ alert('Ingresa la nueva contraseña'); return; }
-  try{
-    await fetch('/api/usuarios/'+id, {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pwd})});
-    document.getElementById(inputId).value='';
-    alert('Contraseña actualizada ✓');
-  }catch(e){ alert('Error al actualizar'); }
-}
-
-async function crearUsuario(){
-  const nombre = document.getElementById('new-nombre')?.value?.trim();
-  const usuario = document.getElementById('new-usuario')?.value?.trim();
-  const pwd = document.getElementById('new-pwd')?.value;
-  const rol = document.getElementById('new-rol')?.value;
-  if(!nombre||!usuario){ alert('Completa nombre y usuario'); return; }
-  try{
-    await fetch('/api/usuarios',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nombre,usuario,password:pwd||'1234',rol,modulos:'ventas,visitas,kpis,inventario'})});
-    alert('Usuario creado ✓');
-    renderConfig();
-  }catch(e){ alert('Error al crear usuario'); }
-}
-
-async function guardarPermisos(id, modsList){
-  const mods = modsList.split(',').filter(m=>document.getElementById('perm-'+id+'-'+m)?.checked);
-  try{
-    await fetch('/api/usuarios/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({modulos:mods.join(',')})});
-    alert('Permisos guardados ✓');
-  }catch(e){ alert('Error al guardar'); }
-}
-
 
 function setSubtab(tab){
   document.querySelectorAll('.stab').forEach(s=>s.classList.remove('active'));
@@ -1109,19 +826,20 @@ async function marcarVisitaDB(lugar, tipo, asesora, btn){
   }
 }
 
-// ─── AUTH ───────────────────────────────────
-const usuarioActual = JSON.parse(sessionStorage.getItem('cosetika_usuario') || 'null');
-if(!usuarioActual){ window.location.href='/login'; }
-
-// Saludo personalizado
-if(usuarioActual){
-  const nombre = usuarioActual.nombre.split(' ')[0];
-  document.getElementById('badge-periodo').innerHTML = `Hola, ${nombre} &nbsp;·&nbsp; Ene–May 2026`;
+// ─── AUTH ───────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', function() {
+  const usuarioActual = JSON.parse(sessionStorage.getItem('cosetika_usuario') || 'null');
+  if (!usuarioActual) { window.location.href = '/login'; return; }
   
-  // Logout al hacer clic en settings si es admin
+  // Saludo
+  const nombre = usuarioActual.nombre.split(' ')[0];
+  const badge = document.getElementById('badge-periodo');
+  if (badge) badge.innerHTML = `Hola, ${nombre} &nbsp;·&nbsp; Ene–May 2026`;
+
+  // Botón settings
   const settingsBtn = document.querySelector('.icon-btn');
-  if(settingsBtn){
-    if(usuarioActual.rol === 'admin'){
+  if (settingsBtn) {
+    if (usuarioActual.rol === 'admin') {
       settingsBtn.title = 'Configuración';
       settingsBtn.onclick = () => setMod('config');
     } else {
@@ -1130,19 +848,21 @@ if(usuarioActual){
     }
   }
 
-  // Mostrar solo módulos permitidos
+  // Mostrar módulos según permisos
   const modulos = usuarioActual.modulos ? usuarioActual.modulos.split(',') : [];
   document.querySelectorAll('.mod').forEach(m => {
-    const id = m.id.replace('mod-','');
-    if(id === 'config'){
+    const id = m.id.replace('mod-', '');
+    if (id === 'config') {
       m.style.display = usuarioActual.rol === 'admin' ? 'flex' : 'none';
-    } else if(id && !modulos.includes(id)){
+    } else if (id && !modulos.includes(id)) {
       m.style.display = 'none';
     }
   });
-}
 
-cargarData();
+  // Guardar usuario globalmente
+  window.usuarioActual = usuarioActual;
+  cargarData();
+});
 </script>
 </body>
 </html>
