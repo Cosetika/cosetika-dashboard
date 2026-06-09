@@ -11,23 +11,31 @@
     body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
     .header{background:var(--brown-dark);padding:12px 20px;display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid var(--brown)}
     .logo{display:flex;align-items:center;gap:10px}
-    .logo-c{width:40px;height:40px;background:var(--brown);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:19px;font-weight:700;color:#fff;font-style:italic;font-family:Georgia,serif}
+    .logo-c{width:40px;height:40px;background:var(--brown);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:19px;font-weight:700;color:#fff;font-style:italic;font-family:Georgia,serif;flex-shrink:0}
     .logo-name{font-size:17px;font-weight:500;letter-spacing:2px;color:#fff}
     .logo-sl{font-size:9px;color:#fff;letter-spacing:1px}
     .hdr-right{display:flex;align-items:center;gap:8px}
     .badge{background:rgba(160,104,74,0.25);border:1px solid var(--brown);color:#c9a07a;font-size:11px;padding:3px 10px;border-radius:20px}
-    .icon-btn{background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.2);color:#fff;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:15px;transition:background 0.2s}
+    .icon-btn{background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.2);color:#fff;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:15px}
     .icon-btn:hover{background:var(--brown)}
-    .top-tabs{display:flex;background:#fff;border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:none}
-    .top-tabs::-webkit-scrollbar{display:none}
-    .ttab{padding:9px 16px;font-size:11px;font-weight:500;color:var(--muted);cursor:pointer;border-bottom:3px solid transparent;white-space:nowrap}
-    .ttab.active{color:var(--brown);border-bottom-color:var(--brown);background:#faf9f8}
+
+    /* MÓDULOS PRINCIPALES */
     .mods{display:grid;grid-template-columns:repeat(5,1fr);background:#fff;border-bottom:1px solid var(--border)}
-    .mod{display:flex;flex-direction:column;align-items:center;gap:3px;padding:10px 4px;cursor:pointer;border-bottom:3px solid transparent;color:var(--muted);font-size:11px;font-weight:500}
+    .mod{display:flex;flex-direction:column;align-items:center;gap:3px;padding:10px 4px;cursor:pointer;border-bottom:3px solid transparent;color:var(--muted);font-size:11px;font-weight:500;transition:all 0.2s}
     .mod.active{border-bottom-color:var(--brown);color:var(--brown)}
     .mod i{font-size:20px}
-    .body{display:grid;grid-template-columns:170px 1fr;min-height:calc(100vh - 148px)}
+
+    /* SUBMENÚ DE VENTAS */
+    .submenu{display:none;background:#faf9f8;border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:none}
+    .submenu::-webkit-scrollbar{display:none}
+    .submenu.visible{display:flex}
+    .stab{padding:8px 18px;font-size:11px;font-weight:500;color:var(--muted);cursor:pointer;border-bottom:3px solid transparent;white-space:nowrap;transition:all 0.2s}
+    .stab:hover{color:var(--text)}
+    .stab.active{color:var(--brown);border-bottom-color:var(--brown)}
+
+    .body{display:grid;grid-template-columns:170px 1fr;min-height:calc(100vh - 120px)}
     .sidebar{background:#fff;border-right:1px solid var(--border);padding:12px 10px;overflow-y:auto}
+    .sidebar.hidden{display:none}
     .sb-title{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px}
     .vend-item{display:flex;align-items:center;gap:6px;padding:5px 7px;border-radius:6px;cursor:pointer;font-size:11px;color:var(--text);margin-bottom:1px;transition:background 0.15s}
     .vend-item:hover{background:#faf9f8}
@@ -40,8 +48,9 @@
     .marca-val{color:var(--brown);font-weight:600}
     .marca-track{height:5px;background:#f0ede9;border-radius:2px}
     .marca-fill{height:100%;border-radius:2px}
-    .main{padding:12px 14px;display:flex;flex-direction:column;gap:12px;overflow-y:auto}
-    .card{background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px}
+
+    .main{padding:12px 14px;display:flex;flex-direction:column;gap:12px;overflow-y:auto;overflow-x:hidden}
+    .card{background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px;overflow:hidden}
     .card-title{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;display:flex;align-items:center;gap:5px}
     .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
     .kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
@@ -49,47 +58,51 @@
     .kpi-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px}
     .kpi-val{font-size:17px;font-weight:600;color:var(--text);margin-top:2px}
     .kpi-sub{font-size:10px;color:#3B6D11;margin-top:1px}
-    .hbar{display:flex;align-items:center;gap:6px;margin-bottom:5px;cursor:pointer;border-radius:5px;padding:2px 4px;transition:background 0.15s}
+
+    .hbar{display:flex;align-items:center;gap:6px;margin-bottom:5px;cursor:pointer;border-radius:5px;padding:2px 4px;transition:background 0.15s;overflow:hidden}
     .hbar:hover{background:#faf9f8}
-    .hbar.sel{background:var(--bl)}
-    .hbar-lbl{font-size:11px;color:var(--text);width:130px;text-align:right;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .hbar-track{flex:1;height:14px;background:#f0ede9;border-radius:3px}
-    .hbar-fill{height:100%;border-radius:3px;background:#5a8fa3;transition:width 0.4s}
+    .hbar-lbl{font-size:11px;color:var(--text);width:120px;min-width:120px;text-align:right;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .hbar-track{flex:1;height:14px;background:#f0ede9;border-radius:3px;overflow:hidden;min-width:0}
+    .hbar-fill{height:100%;border-radius:3px;background:#5a8fa3;transition:width 0.4s;max-width:100%}
     .hbar-fill.brown{background:var(--brown)}
-    .hbar-val{font-size:11px;color:var(--muted);min-width:60px;text-align:right}
-    .prod-row{display:flex;align-items:center;gap:6px;margin-bottom:5px}
-    .prod-name{font-size:11px;color:var(--text);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .prod-bar{width:55px;height:9px;background:#f0ede9;border-radius:2px;flex-shrink:0}
-    .prod-fill{height:100%;border-radius:2px;background:#7ab3c4}
-    .prod-qty{font-size:11px;color:var(--muted);min-width:30px;text-align:right}
-    .freq-row{display:flex;align-items:center;gap:8px;margin-bottom:5px}
-    .freq-lbl{font-size:10px;color:var(--muted);width:36px;text-align:right;flex-shrink:0}
-    .freq-track{flex:1;height:18px;background:#f0ede9;border-radius:3px;overflow:hidden}
-    .freq-fill{height:100%;border-radius:3px;background:var(--brown);display:flex;align-items:center;padding-left:7px;transition:width 0.4s;min-width:0}
-    .freq-fill span{font-size:10px;color:#fff;font-weight:600;white-space:nowrap}
-    .freq-count{font-size:10px;color:var(--muted);min-width:55px}
-    .breadcrumb{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+    .hbar-val{font-size:11px;color:var(--muted);min-width:60px;max-width:70px;text-align:right;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+    .prod-row{display:flex;align-items:center;gap:6px;margin-bottom:5px;overflow:hidden}
+    .prod-name{font-size:11px;color:var(--text);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+    .prod-bar{width:50px;min-width:50px;height:9px;background:#f0ede9;border-radius:2px;flex-shrink:0;overflow:hidden}
+    .prod-fill{height:100%;border-radius:2px;background:#7ab3c4;max-width:100%}
+    .prod-qty{font-size:11px;color:var(--muted);min-width:28px;text-align:right;flex-shrink:0}
+
+    .freq-row{display:flex;align-items:center;gap:8px;margin-bottom:5px;overflow:hidden}
+    .freq-lbl{font-size:10px;color:var(--muted);width:36px;min-width:36px;text-align:right;flex-shrink:0}
+    .freq-track{flex:1;height:18px;background:#f0ede9;border-radius:3px;overflow:hidden;min-width:0}
+    .freq-fill{height:100%;border-radius:3px;background:var(--brown);display:flex;align-items:center;padding-left:7px;transition:width 0.4s;min-width:0;max-width:100%}
+    .freq-fill span{font-size:10px;color:#fff;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .freq-count{font-size:10px;color:var(--muted);min-width:55px;flex-shrink:0}
+
+    .breadcrumb{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);flex-wrap:wrap}
     .crumb{color:var(--brown);cursor:pointer}
     .crumb:hover{text-decoration:underline}
-    .cli-header{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--bl);border:1px solid rgba(160,104,74,0.25);border-radius:8px}
+    .cli-header{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--bl);border:1px solid rgba(160,104,74,0.25);border-radius:8px;overflow:hidden}
     .cli-avatar{width:36px;height:36px;border-radius:50%;background:rgba(160,104,74,0.2);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;color:var(--brown);flex-shrink:0}
-    .cli-name{font-size:14px;font-weight:600;color:var(--text)}
+    .cli-name{font-size:14px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .cli-sub{font-size:11px;color:var(--muted)}
-    .back-btn{margin-left:auto;background:none;border:1px solid var(--brown);color:var(--brown);font-size:11px;padding:5px 12px;border-radius:20px;cursor:pointer;display:flex;align-items:center;gap:4px}
+    .back-btn{margin-left:auto;background:none;border:1px solid var(--brown);color:var(--brown);font-size:11px;padding:5px 12px;border-radius:20px;cursor:pointer;display:flex;align-items:center;gap:4px;flex-shrink:0}
     .back-btn:hover{background:var(--bl)}
     .loader{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px;gap:12px;color:var(--muted)}
     .loader i{font-size:36px;color:var(--brown);animation:spin 1s linear infinite}
     @keyframes spin{to{transform:rotate(360deg)}}
-    .vend-card{background:#fff;border:1px solid var(--border);border-radius:10px;padding:12px 16px;cursor:pointer;transition:all 0.2s;display:flex;align-items:center;gap:12px}
-    .vend-card:hover{border-color:var(--brown);background:var(--bl)}
-    .vend-avatar{width:40px;height:40px;border-radius:50%;background:var(--bl);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:600;color:var(--brown);flex-shrink:0}
-    .vend-card-info{flex:1}
-    .vend-card-name{font-size:13px;font-weight:500;color:var(--text)}
-    .vend-card-sub{font-size:11px;color:var(--muted)}
-    .vend-card-total{font-size:15px;font-weight:600;color:var(--brown)}
-    .progress-mini{height:4px;background:#f0ede9;border-radius:2px;margin-top:6px}
-    .progress-mini-fill{height:100%;border-radius:2px;background:var(--brown)}
-    @media(max-width:600px){.body{grid-template-columns:1fr}.sidebar{display:none}.kpi-row{grid-template-columns:repeat(2,1fr)}.row2{grid-template-columns:1fr}}
+    .coming{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px;gap:12px;color:var(--muted)}
+    .coming i{font-size:48px;color:rgba(160,104,74,0.3)}
+
+    @media(max-width:640px){
+      .body{grid-template-columns:1fr}
+      .sidebar{display:none}
+      .kpi-row{grid-template-columns:repeat(2,1fr)}
+      .row2{grid-template-columns:1fr}
+      .hbar-lbl{width:90px;min-width:90px}
+      .hbar-val{min-width:50px}
+    }
   </style>
 </head>
 <body>
@@ -108,23 +121,21 @@
   </div>
 </div>
 
-<div class="top-tabs">
-  <div class="ttab active">Panel cliente venta y frecuencia</div>
-  <div class="ttab">marca.venta.total</div>
-  <div class="ttab">Cli.frec</div>
-  <div class="ttab">Venta.Productos</div>
-</div>
-
 <div class="mods">
-  <div class="mod active"><i class="ti ti-chart-bar"></i>Ventas</div>
-  <div class="mod"><i class="ti ti-package"></i>Inventarios</div>
-  <div class="mod"><i class="ti ti-building"></i>Clientes</div>
-  <div class="mod"><i class="ti ti-map-pin"></i>Visitas</div>
-  <div class="mod"><i class="ti ti-file-analytics"></i>Reportes</div>
+  <div class="mod active" id="mod-ventas" onclick="setMod('ventas')"><i class="ti ti-chart-bar"></i>Ventas</div>
+  <div class="mod" onclick="setMod('inventarios')"><i class="ti ti-package"></i>Inventarios</div>
+  <div class="mod" onclick="setMod('clientes')"><i class="ti ti-building"></i>Clientes</div>
+  <div class="mod" onclick="setMod('visitas')"><i class="ti ti-map-pin"></i>Visitas</div>
+  <div class="mod" onclick="setMod('reportes')"><i class="ti ti-file-analytics"></i>Reportes</div>
 </div>
 
-<div class="body">
-  <div class="sidebar">
+<div class="submenu" id="submenu-ventas">
+  <div class="stab active" id="stab-cpf" onclick="setSubtab('cpf')">Clientes, Productos y Frecuencia</div>
+  <div class="stab" id="stab-prov" onclick="setSubtab('prov')">Clientes por Provincia</div>
+</div>
+
+<div class="body" id="body">
+  <div class="sidebar" id="sidebar">
     <div class="sb-title">Vendedor</div>
     <div id="vend-list"></div>
     <div class="marca-sec">
@@ -138,19 +149,59 @@
 <script>
 const MESES={1:'Ene',2:'Feb',3:'Mar',4:'Abr',5:'May',6:'Jun',7:'Jul',8:'Ago',9:'Sep',10:'Oct',11:'Nov',12:'Dic'};
 const fmt=n=>'$'+Number(n).toLocaleString('es-EC',{minimumFractionDigits:2,maximumFractionDigits:2});
-const pct=(v,mx)=>mx?Math.round((v/mx)*100):0;
+const pct=(v,mx)=>mx?Math.min(Math.round((v/mx)*100),100):0;
+const EXCLUIR=['Fernando Espíndola','Fernando Espindola'];
 
 let DATA={};
 let vendActual=null;
+let modActual='ventas';
+let subtabActual='home'; // home = resumen general
 
 async function cargarData(){
   document.getElementById('main').innerHTML='<div class="loader"><i class="ti ti-refresh"></i><p>Cargando data...</p></div>';
   try{
     const r=await fetch('/data.json');
     DATA=await r.json();
+    // Excluir Fernando
+    EXCLUIR.forEach(e=>delete DATA[e]);
     initVendedoras();
   }catch(e){
     document.getElementById('main').innerHTML='<div class="loader"><p>Error: '+e.message+'</p></div>';
+  }
+}
+
+function setMod(mod){
+  document.querySelectorAll('.mod').forEach(m=>m.classList.remove('active'));
+  document.getElementById('mod-'+mod)?.classList.add('active');
+  modActual=mod;
+  
+  // Mostrar/ocultar submenu
+  document.getElementById('submenu-ventas').classList.toggle('visible', mod==='ventas');
+  
+  if(mod==='ventas'){
+    document.getElementById('sidebar').classList.remove('hidden');
+    renderHome();
+  } else {
+    document.getElementById('sidebar').classList.add('hidden');
+    document.getElementById('main').innerHTML=`
+      <div class="coming">
+        <i class="ti ti-tools"></i>
+        <p>Módulo de ${mod.charAt(0).toUpperCase()+mod.slice(1)}</p>
+        <span style="font-size:12px">Próximamente</span>
+      </div>`;
+  }
+}
+
+function setSubtab(tab){
+  document.querySelectorAll('.stab').forEach(s=>s.classList.remove('active'));
+  document.getElementById('stab-'+tab)?.classList.add('active');
+  subtabActual=tab;
+  
+  if(tab==='cpf'){
+    if(vendActual) renderVendedor(vendActual);
+    else renderHome();
+  } else if(tab==='prov'){
+    renderProvincias();
   }
 }
 
@@ -158,16 +209,19 @@ function initVendedoras(){
   const vendedoras=Object.keys(DATA);
   const list=document.getElementById('vend-list');
   list.innerHTML=`
-    <div class="vend-item active" onclick="selVendedorTodo(this)">
+    <div class="vend-item active" id="vi-todo" onclick="selVendedorTodo(this)">
       <input type="checkbox" checked/>
       <span>(Todo)</span>
-    </div>
-  `+vendedoras.map(v=>`
+    </div>`+
+    vendedoras.map(v=>`
     <div class="vend-item" onclick="selVendedor(this,'${v.replace(/'/g,"\\'")}')">
       <input type="checkbox"/>
       <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${v}</span>
     </div>`).join('');
-  renderTodos();
+  
+  // Mostrar submenu de ventas
+  document.getElementById('submenu-ventas').classList.add('visible');
+  renderHome();
 }
 
 function selVendedorTodo(el){
@@ -175,7 +229,8 @@ function selVendedorTodo(el){
   el.classList.add('active');
   el.querySelector('input').checked=true;
   vendActual=null;
-  renderTodos();
+  if(subtabActual==='prov') renderProvincias();
+  else renderHome();
 }
 
 function selVendedor(el,nombre){
@@ -183,30 +238,51 @@ function selVendedor(el,nombre){
   el.classList.add('active');
   el.querySelector('input').checked=true;
   vendActual=nombre;
+  if(subtabActual==='prov') renderProvincias();
+  else renderVendedor(nombre);
+}
+
+function selVendedorPorNombre(nombre){
+  document.querySelectorAll('.vend-item').forEach(el=>{
+    el.classList.remove('active');
+    el.querySelector('input').checked=false;
+    if(el.textContent.trim()===nombre){
+      el.classList.add('active');
+      el.querySelector('input').checked=true;
+    }
+  });
+  vendActual=nombre;
+  // Activar subtab cpf
+  document.querySelectorAll('.stab').forEach(s=>s.classList.remove('active'));
+  document.getElementById('stab-cpf').classList.add('active');
+  subtabActual='cpf';
   renderVendedor(nombre);
 }
 
-function renderTodos(){
-  const vendedoras=Object.keys(DATA);
-  const totalGlobal=vendedoras.reduce((a,v)=>a+DATA[v].reduce((b,c)=>b+c.total,0),0);
-  const totalClientes=vendedoras.reduce((a,v)=>a+DATA[v].length,0);
-  const totalFacturas=vendedoras.reduce((a,v)=>a+DATA[v].reduce((b,c)=>b+c.num_compras,0),0);
-
-  // Marcas globales
-  const marcas={};
-  vendedoras.forEach(v=>DATA[v].forEach(c=>c.marcas.forEach(m=>{
-    marcas[m.marca]=(marcas[m.marca]||0)+m.total;
-  })));
-  const maxMarca=Math.max(...Object.values(marcas),1);
+function renderMarcasSidebar(marcas){
+  const maxM=Math.max(...Object.values(marcas),1);
   document.getElementById('marcas-sb').innerHTML=Object.entries(marcas)
     .sort((a,b)=>b[1]-a[1])
     .map(([m,t])=>`
       <div class="marca-row">
         <div class="marca-hdr"><span class="marca-name">${m}</span><span class="marca-val">${fmt(t)}</span></div>
-        <div class="marca-track"><div class="marca-fill" style="width:${pct(t,maxMarca)}%;background:var(--brown)"></div></div>
+        <div class="marca-track"><div class="marca-fill" style="width:${pct(t,maxM)}%;background:var(--brown)"></div></div>
       </div>`).join('');
+}
 
-  // Ranking vendedoras
+function renderHome(){
+  subtabActual='home';
+  document.querySelectorAll('.stab').forEach(s=>s.classList.remove('active'));
+  
+  const vendedoras=Object.keys(DATA);
+  const totalGlobal=vendedoras.reduce((a,v)=>a+DATA[v].reduce((b,c)=>b+c.total,0),0);
+  const totalClientes=vendedoras.reduce((a,v)=>a+DATA[v].length,0);
+  const totalFacturas=vendedoras.reduce((a,v)=>a+DATA[v].reduce((b,c)=>b+c.num_compras,0),0);
+
+  const marcas={};
+  vendedoras.forEach(v=>DATA[v].forEach(c=>c.marcas.forEach(m=>{marcas[m.marca]=(marcas[m.marca]||0)+m.total;})));
+  renderMarcasSidebar(marcas);
+
   const ranking=vendedoras.map(v=>({
     nombre:v,
     total:DATA[v].reduce((a,c)=>a+c.total,0),
@@ -216,17 +292,15 @@ function renderTodos(){
   const maxVend=ranking[0]?.total||1;
 
   document.getElementById('main').innerHTML=`
-    <div class="breadcrumb"><i class="ti ti-chart-bar" style="font-size:12px;color:var(--brown)"></i><span style="font-weight:500">Resumen general — Todas las vendedoras</span></div>
-
+    <div class="breadcrumb"><i class="ti ti-home" style="font-size:12px;color:var(--brown)"></i><span style="font-weight:500">Resumen general — Ene–May 2026</span></div>
     <div class="kpi-row">
       <div class="kpi"><div class="kpi-label">Ventas totales</div><div class="kpi-val">${fmt(totalGlobal)}</div><div class="kpi-sub">Ene–May 2026</div></div>
       <div class="kpi"><div class="kpi-label">Vendedoras</div><div class="kpi-val">${vendedoras.length}</div><div class="kpi-sub">activas</div></div>
       <div class="kpi"><div class="kpi-label">Clientes</div><div class="kpi-val">${totalClientes}</div><div class="kpi-sub">únicos</div></div>
       <div class="kpi"><div class="kpi-label">Facturas</div><div class="kpi-val">${totalFacturas}</div><div class="kpi-sub">emitidas</div></div>
     </div>
-
     <div class="card">
-      <div class="card-title"><i class="ti ti-award"></i> Ranking de vendedoras — haz clic para ver detalle</div>
+      <div class="card-title"><i class="ti ti-award"></i> Ranking de vendedoras</div>
       ${ranking.map(v=>`
         <div class="hbar" onclick="selVendedorPorNombre('${v.nombre.replace(/'/g,"\\'")}')">
           <span class="hbar-lbl" title="${v.nombre}">${v.nombre}</span>
@@ -234,13 +308,12 @@ function renderTodos(){
           <span class="hbar-val">${fmt(v.total)}</span>
         </div>`).join('')}
     </div>
-
     <div class="row2">
       <div class="card">
         <div class="card-title"><i class="ti ti-users"></i> Clientes por vendedora</div>
         ${ranking.map(v=>`
           <div class="hbar" onclick="selVendedorPorNombre('${v.nombre.replace(/'/g,"\\'")}')">
-            <span class="hbar-lbl">${v.nombre}</span>
+            <span class="hbar-lbl" title="${v.nombre}">${v.nombre}</span>
             <div class="hbar-track"><div class="hbar-fill" style="width:${pct(v.clientes,ranking[0].clientes)}%"></div></div>
             <span class="hbar-val">${v.clientes} cli.</span>
           </div>`).join('')}
@@ -249,50 +322,27 @@ function renderTodos(){
         <div class="card-title"><i class="ti ti-receipt"></i> Facturas por vendedora</div>
         ${ranking.map(v=>`
           <div class="hbar" onclick="selVendedorPorNombre('${v.nombre.replace(/'/g,"\\'")}')">
-            <span class="hbar-lbl">${v.nombre}</span>
+            <span class="hbar-lbl" title="${v.nombre}">${v.nombre}</span>
             <div class="hbar-track"><div class="hbar-fill" style="width:${pct(v.facturas,ranking[0].facturas)}%"></div></div>
             <span class="hbar-val">${v.facturas} fact.</span>
           </div>`).join('')}
       </div>
-    </div>
-  `;
-}
-
-function selVendedorPorNombre(nombre){
-  const items=document.querySelectorAll('.vend-item');
-  items.forEach(el=>{
-    el.classList.remove('active');
-    el.querySelector('input').checked=false;
-    if(el.textContent.trim()===nombre){
-      el.classList.add('active');
-      el.querySelector('input').checked=true;
-    }
-  });
-  vendActual=nombre;
-  renderVendedor(nombre);
+    </div>`;
 }
 
 function renderVendedor(nombre){
   const clientes=DATA[nombre]||[];
   const totalVend=clientes.reduce((a,c)=>a+c.total,0);
   const maxTotal=clientes[0]?.total||1;
-
   const marcas={};
   clientes.forEach(c=>c.marcas.forEach(m=>{marcas[m.marca]=(marcas[m.marca]||0)+m.total;}));
-  const maxMarca=Math.max(...Object.values(marcas),1);
-  document.getElementById('marcas-sb').innerHTML=Object.entries(marcas)
-    .sort((a,b)=>b[1]-a[1])
-    .map(([m,t])=>`
-      <div class="marca-row">
-        <div class="marca-hdr"><span class="marca-name">${m}</span><span class="marca-val">${fmt(t)}</span></div>
-        <div class="marca-track"><div class="marca-fill" style="width:${pct(t,maxMarca)}%;background:var(--brown)"></div></div>
-      </div>`).join('');
+  renderMarcasSidebar(marcas);
 
   document.getElementById('main').innerHTML=`
     <div class="breadcrumb">
-      <span class="crumb" onclick="selVendedorTodo(document.querySelector('.vend-item'))"><i class="ti ti-home" style="font-size:12px"></i> Inicio</span>
-      <span style="color:var(--border)"> › </span>
-      <span style="font-weight:500">${nombre}</span>
+      <span class="crumb" onclick="renderHome()"><i class="ti ti-home" style="font-size:12px"></i> Inicio</span>
+      <span> › </span>
+      <span style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${nombre}</span>
     </div>
     <div class="kpi-row">
       <div class="kpi"><div class="kpi-label">Total ventas</div><div class="kpi-val">${fmt(totalVend)}</div><div class="kpi-sub">Ene–May 2026</div></div>
@@ -302,13 +352,12 @@ function renderVendedor(nombre){
     </div>
     <div class="card">
       <div class="card-title"><i class="ti ti-users"></i> Monto por cliente — haz clic para ver detalle</div>
-      <div>${clientes.map(c=>`
-        <div class="hbar" onclick="selCliente('${c.nombre.replace(/'/g,"\\'")}')">
+      ${clientes.map(c=>`
+        <div class="hbar" onclick="selCliente('${c.nombre.replace(/'/g,"\\'").replace(/"/g,'\\"')}')">
           <span class="hbar-lbl" title="${c.nombre}">${c.nombre}</span>
           <div class="hbar-track"><div class="hbar-fill" style="width:${pct(c.total,maxTotal)}%"></div></div>
           <span class="hbar-val">${fmt(c.total)}</span>
         </div>`).join('')}
-      </div>
     </div>`;
 }
 
@@ -320,30 +369,27 @@ function selCliente(nombre){
   const maxFreq=Math.max(...c.frecuencia.map(f=>f.total),1);
   const iniciales=nombre.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase();
   const maxMarcaCli=Math.max(...c.marcas.map(m=>m.total),1);
-  document.getElementById('marcas-sb').innerHTML=c.marcas.sort((a,b)=>b.total-a.total).map(m=>`
-    <div class="marca-row">
-      <div class="marca-hdr"><span class="marca-name">${m.marca}</span><span class="marca-val">${fmt(m.total)}</span></div>
-      <div class="marca-track"><div class="marca-fill" style="width:${pct(m.total,maxMarcaCli)}%;background:var(--brown)"></div></div>
-    </div>`).join('');
+  renderMarcasSidebar(Object.fromEntries(c.marcas.map(m=>[m.marca,m.total])));
+
   document.getElementById('main').innerHTML=`
     <div class="breadcrumb">
-      <span class="crumb" onclick="selVendedorTodo(document.querySelector('.vend-item'))"><i class="ti ti-home" style="font-size:12px"></i> Inicio</span>
-      <span style="color:var(--border)"> › </span>
+      <span class="crumb" onclick="renderHome()"><i class="ti ti-home" style="font-size:12px"></i> Inicio</span>
+      <span> › </span>
       <span class="crumb" onclick="renderVendedor('${vendActual.replace(/'/g,"\\'")}'">${vendActual}</span>
-      <span style="color:var(--border)"> › </span>
-      <span style="font-weight:500">${nombre}</span>
+      <span> › </span>
+      <span style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${nombre}</span>
     </div>
     <div class="cli-header">
       <div class="cli-avatar">${iniciales}</div>
-      <div>
-        <div class="cli-name">${nombre}</div>
-        <div class="cli-sub">Total: <strong style="color:var(--brown)">${fmt(c.total)}</strong> · ${c.num_compras} facturas · Vendedora: ${vendActual}</div>
+      <div style="flex:1;min-width:0">
+        <div class="cli-name" title="${nombre}">${nombre}</div>
+        <div class="cli-sub">Total: <strong style="color:var(--brown)">${fmt(c.total)}</strong> · ${c.num_compras} facturas</div>
       </div>
       <button class="back-btn" onclick="renderVendedor('${vendActual.replace(/'/g,"\\'")}')"><i class="ti ti-arrow-left"></i> Volver</button>
     </div>
     <div class="row2">
       <div class="card">
-        <div class="card-title"><i class="ti ti-package"></i> Productos comprados — cantidad</div>
+        <div class="card-title"><i class="ti ti-package"></i> Productos — cantidad</div>
         ${c.productos.length?c.productos.map(p=>`
           <div class="prod-row">
             <span class="prod-name" title="${p.nombre}">${p.nombre}</span>
@@ -352,15 +398,31 @@ function selCliente(nombre){
           </div>`).join(''):'<p style="font-size:12px;color:var(--muted)">Sin productos</p>'}
       </div>
       <div class="card">
-        <div class="card-title"><i class="ti ti-calendar-stats"></i> Frecuencia de compras por mes</div>
+        <div class="card-title"><i class="ti ti-calendar-stats"></i> Frecuencia por mes</div>
         ${c.frecuencia.length?c.frecuencia.map(f=>`
           <div class="freq-row">
             <span class="freq-lbl">${MESES[f.mes]||f.mes}</span>
-            <div class="freq-track"><div class="freq-fill" style="width:${pct(f.total,maxFreq)}%;min-width:${f.total>0?'40px':'0'}"><span>${fmt(f.total)}</span></div></div>
+            <div class="freq-track"><div class="freq-fill" style="width:${pct(f.total,maxFreq)}%;min-width:${f.total>0?'36px':'0'}"><span>${fmt(f.total)}</span></div></div>
             <span class="freq-count">${f.compras} compra${f.compras>1?'s':''}</span>
           </div>`).join(''):'<p style="font-size:12px;color:var(--muted)">Sin historial</p>'}
         <div style="margin-top:8px;font-size:11px;color:var(--muted)">Total: <strong>${c.num_compras}</strong> facturas · <strong style="color:var(--brown)">${fmt(c.total)}</strong></div>
       </div>
+    </div>`;
+}
+
+function renderProvincias(){
+  const vendedoras=vendActual ? [vendActual] : Object.keys(DATA);
+  const provincias={};
+  vendedoras.forEach(v=>{
+    DATA[v].forEach(c=>{
+      // Buscar provincia en los datos (si la tenemos)
+    });
+  });
+  document.getElementById('main').innerHTML=`
+    <div class="coming">
+      <i class="ti ti-map"></i>
+      <p>Clientes por Provincia</p>
+      <span style="font-size:12px">Próximamente — agregando datos de provincia</span>
     </div>`;
 }
 
