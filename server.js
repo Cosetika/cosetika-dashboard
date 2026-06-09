@@ -2,108 +2,130 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
+const { Pool } = require('pg');
 
 const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.CONTIFICO_API_KEY || '';
 
-let cache = { documentos: [], ultima_sync: null, sincronizando: false };
+// PostgreSQL
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
+});
 
-function fetchContifico(url) {
+// Crear tabla si no existe
+async function initDB() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS visitas (
+        id SERIAL PRIMARY KEY,
+        lugar VARCHAR(255) NOT NULL,
+        tipo VARCHAR(50) NOT NULL,
+        asesora VARCHAR(255) NOT NULL,
+        fecha TIMESTAMP DEFAULT NOW(),
+        notas TEXT
+      )
+    `);
+    console.log('DB inicializada correctamente');
+  } catch(e) {
+    console.error('Error inicializando DB:', e.message);
+  }
+}
+
+initDB();
+
+const MIME = {
+  '.html': 'text/html',
+  '.js': 'application/javascript',
+  '.css': 'text/css',
+  '.json': 'application/json',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.ico': 'image/x-icon'
+};
+
+function bodyJSON(req) {
   return new Promise((resolve, reject) => {
-    const req = https.request(url, {
-      method: 'GET',
-      headers: { 'Authorization': API_KEY, 'Accept': 'application/json' }
-    }, (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => resolve({ status: res.statusCode, body: data }));
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try { resolve(JSON.parse(body)); } catch(e) { reject(e); }
     });
     req.on('error', reject);
-    req.setTimeout(15000, () => { req.destroy(); reject(new Error('Timeout')); });
-    req.end();
   });
 }
 
-async function sincronizarHoy() {
-  if (cache.sincronizando) return;
-  cache.sincronizando = true;
-  try {
-    const now = new Date();
-    const d = n => String(n).padStart(2, '0');
-    const y = String(now.getFullYear()).slice(-2);
-    const fecha = `${d(now.getDate())}/${d(now.getMonth()+1)}/${y}`;
-    const url = `https://api.contifico.com/sistema/api/v1/documento/?tipo_documento=FAC&fecha_inicio=${fecha}&fecha_fin=${fecha}`;
-    console.log('Sincronizando hoy:', fecha);
-    const inicio = Date.now();
-    const r = await fetchContifico(url);
-    const tiempo = Date.now() - inicio;
-    console.log(`Respuesta en ${tiempo}ms, status: ${r.status}`);
-    const data = JSON.parse(r.body);
-    const docs = Array.isArray(data) ? data : (data.results || data.data || []);
-    console.log(`Facturas de hoy: ${docs.length}`);
-    cache.documentos = docs;
-    cache.ultima_sync = new Date().toISOString();
-    cache.sincronizando = false;
-    return { tiempo_ms: tiempo, facturas: docs.length, fecha };
-  } catch(e) {
-    console.error('Error sync:', e.message);
-    cache.sincronizando = false;
-    throw e;
-  }
-}
-
-// Sincronizar al arrancar y cada hora
-sincronizarHoy().catch(e => console.error('Error inicial:', e.message));
-setInterval(() => sincronizarHoy().catch(e => console.error('Error sync:', e.message)), 60 * 60 * 1000);
-
-const MIME = { '.html':'text/html', '.js':'application/javascript', '.css':'text/css', '.json':'application/json' };
-
 const server = http.createServer(async (req, res) => {
   const urlPath = req.url.split('?')[0];
+
   res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
   if (req.method === 'OPTIONS') { res.writeHead(200); res.end(); return; }
 
-  if (urlPath === '/api/hoy') {
+  // GET visitas
+  if (urlPath === '/api/visitas' && req.method === 'GET') {
     try {
-      const inicio = Date.now();
-      const result = await sincronizarHoy();
-      res.writeHead(200, {'Content-Type': 'application/json'});
-      res.end(JSON.stringify(result));
+      const result = await pool.query(
+        'SELECT * FROM visitas ORDER BY fecha DESC LIMIT 200'
+      );
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(result.rows));
     } catch(e) {
-      res.writeHead(200, {'Content-Type': 'application/json'});
+      res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: e.message }));
     }
     return;
   }
 
+  // POST visita
+  if (urlPath === '/api/visitas' && req.method === 'POST') {
+    try {
+      const body = await bodyJSON(req);
+      const { lugar, tipo, asesora, notas } = body;
+      if (!lugar || !tipo || !asesora) throw new Error('Faltan campos');
+      const result = await pool.query(
+        'INSERT INTO visitas (lugar, tipo, asesora, notas) VALUES ($1, $2, $3, $4) RETURNING *',
+        [lugar, tipo, asesora, notas || null]
+      );
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(result.rows[0]));
+    } catch(e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
+  // DELETE visita
+  if (urlPath.startsWith('/api/visitas/') && req.method === 'DELETE') {
+    try {
+      const id = urlPath.split('/').pop();
+      await pool.query('DELETE FROM visitas WHERE id = $1', [id]);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+    } catch(e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
+  // Debug
   if (urlPath === '/api/debug') {
     try {
-      const inicio = Date.now();
-      const r = await fetchContifico('https://api.contifico.com/sistema/api/v1/marca/');
-      const tiempo = Date.now() - inicio;
-      res.writeHead(200, {'Content-Type': 'application/json'});
-      res.end(JSON.stringify({ 
-        key: API_KEY.substring(0,8)+'...', 
-        status: r.status, 
-        tiempo_ms: tiempo,
-        marcas: r.body.substring(0,300),
-        cache_docs: cache.documentos.length,
-        ultima_sync: cache.ultima_sync
+      const dbCheck = await pool.query('SELECT COUNT(*) FROM visitas');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        key: API_KEY.substring(0,8)+'...',
+        db: 'conectada',
+        visitas_count: dbCheck.rows[0].count
       }));
     } catch(e) {
-      res.writeHead(200, {'Content-Type': 'application/json'});
-      res.end(JSON.stringify({ error: e.message }));
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ db_error: e.message }));
     }
-    return;
-  }
-
-  if (urlPath === '/api/ventas') {
-    res.writeHead(200, {'Content-Type': 'application/json'});
-    res.end(JSON.stringify({
-      total: cache.documentos.length,
-      documentos: cache.documentos,
-      ultima_sync: cache.ultima_sync
-    }));
     return;
   }
 
@@ -113,10 +135,10 @@ const server = http.createServer(async (req, res) => {
     : path.join(__dirname, urlPath);
 
   if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
-    res.writeHead(200, {'Content-Type': MIME[path.extname(filePath)] || 'text/plain'});
+    res.writeHead(200, { 'Content-Type': MIME[path.extname(filePath)] || 'text/plain' });
     fs.createReadStream(filePath).pipe(res);
   } else {
-    res.writeHead(200, {'Content-Type': 'text/html'});
+    res.writeHead(200, { 'Content-Type': 'text/html' });
     fs.createReadStream(path.join(__dirname, 'index.html')).pipe(res);
   }
 });
