@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Cosétika — Ingresar</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;display:flex;flex-direction:column;background:#1a0e08}
+    .bg{position:fixed;inset:0;background:linear-gradient(135deg,#1a0e08 0%,#2d1a0e 50%,#1a0e08 100%);z-index:0}
+    .bg::before{content:'';position:absolute;inset:0;background:radial-gradient(circle at 25% 50%,rgba(160,104,74,0.15) 0%,transparent 55%),radial-gradient(circle at 75% 20%,rgba(160,104,74,0.1) 0%,transparent 45%)}
+    .wrap{position:relative;z-index:1;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px 16px}
+    .logo{display:flex;align-items:center;gap:14px;margin-bottom:36px}
+    .logo-c{width:50px;height:50px;background:#A0684A;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;color:white;font-style:italic;font-family:Georgia,serif}
+    .logo-name{font-size:22px;font-weight:500;letter-spacing:3px;color:white}
+    .logo-sl{font-size:10px;color:rgba(255,255,255,0.6);letter-spacing:1px}
+    .card{background:white;border-radius:16px;padding:36px 32px;width:100%;max-width:400px;box-shadow:0 24px 60px rgba(0,0,0,0.4)}
+    .card-title{font-size:20px;font-weight:500;color:#1a1a1a;margin-bottom:4px}
+    .card-sub{font-size:13px;color:#6b6b6b;margin-bottom:28px}
+    .form-group{margin-bottom:18px}
+    .form-label{display:block;font-size:12px;font-weight:500;color:#444;margin-bottom:6px}
+    .form-input{width:100%;padding:11px 14px;border:1.5px solid #e0dbd6;border-radius:8px;font-size:14px;color:#1a1a1a;background:#faf9f8;outline:none;transition:border-color 0.2s;font-family:inherit}
+    .form-input:focus{border-color:#A0684A;background:white}
+    .btn-login{width:100%;padding:13px;background:#A0684A;color:white;border:none;border-radius:8px;font-size:15px;font-weight:500;cursor:pointer;transition:background 0.2s;margin-top:8px;display:flex;align-items:center;justify-content:center;gap:8px;font-family:inherit}
+    .btn-login:hover{background:#8a5840}
+    .btn-login:disabled{background:#c4a090;cursor:not-allowed}
+    .error-msg{display:none;background:#fff5f5;border:1px solid #fca5a5;border-radius:8px;padding:10px 14px;font-size:13px;color:#991b1b;margin-bottom:16px}
+    .error-msg.show{display:block}
+    .spinner{width:18px;height:18px;border:2px solid rgba(255,255,255,0.3);border-top-color:white;border-radius:50%;animation:spin 0.8s linear infinite;display:none}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .footer{position:relative;z-index:1;text-align:center;padding:20px;font-size:11px;color:rgba(255,255,255,0.25)}
+  </style>
+</head>
+<body>
+<div class="bg"></div>
+<div class="wrap">
+  <div class="logo">
+    <div class="logo-c">C</div>
+    <div>
+      <div class="logo-name">COSÉTIKA</div>
+      <div class="logo-sl">Innovación Europea en Belleza</div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">Bienvenido 👋</div>
+    <div class="card-sub">Ingresa con tu usuario y contraseña</div>
+    <div class="error-msg" id="error-msg">Usuario o contraseña incorrectos</div>
+    <div class="form-group">
+      <label class="form-label">Usuario</label>
+      <input class="form-input" type="text" id="usuario" placeholder="Ej: Fernando" autocomplete="username"/>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Contraseña</label>
+      <input class="form-input" type="password" id="password" placeholder="••••••••" autocomplete="current-password"/>
+    </div>
+    <button class="btn-login" onclick="login()" id="btn-login">
+      <span id="btn-text">Ingresar</span>
+      <div class="spinner" id="spinner"></div>
+    </button>
+  </div>
+</div>
+<div class="footer">Panel de Ventas Cosétika © 2026</div>
+<script>
+document.addEventListener('keydown', e => { if(e.key==='Enter') login(); });
+if(sessionStorage.getItem('cosetika_usuario')) window.location.href='/';
+async function login(){
+  const usuario = document.getElementById('usuario').value.trim();
+  const password = document.getElementById('password').value;
+  const btn = document.getElementById('btn-login');
+  const spinner = document.getElementById('spinner');
+  const btnText = document.getElementById('btn-text');
+  const errorMsg = document.getElementById('error-msg');
+  if(!usuario||!password){ errorMsg.textContent='Por favor ingresa usuario y contraseña'; errorMsg.classList.add('show'); return; }
+  btn.disabled=true; spinner.style.display='block'; btnText.textContent='Ingresando...'; errorMsg.classList.remove('show');
+  try{
+    const res = await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({usuario,password})});
+    const data = await res.json();
+    if(res.ok&&data.ok){
+      sessionStorage.setItem('cosetika_usuario', JSON.stringify(data.usuario));
+      window.location.href='/';
+    } else {
+      errorMsg.textContent = data.error || 'Credenciales incorrectas';
+      errorMsg.classList.add('show');
+      btn.disabled=false; spinner.style.display='none'; btnText.textContent='Ingresar';
+    }
+  }catch(e){
+    errorMsg.textContent='Error de conexión'; errorMsg.classList.add('show');
+    btn.disabled=false; spinner.style.display='none'; btnText.textContent='Ingresar';
+  }
+}
+</script>
+</body>
+</html>

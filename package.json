@@ -2,9 +2,8 @@
   "name": "cosetika-dashboard",
   "version": "1.0.0",
   "scripts": {
-    "start": "node server.js"
+    "dev": "vercel dev",
+    "build": "echo 'No build needed'"
   },
-  "dependencies": {
-    "pg": "^8.11.0"
-  }
+  "dependencies": {}
 }
