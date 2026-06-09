@@ -95,6 +95,9 @@
     .coming{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px;gap:12px;color:var(--muted)}
     .coming i{font-size:48px;color:rgba(160,104,74,0.3)}
 
+
+    .sort-btn{padding:4px 10px;font-size:10px;border-radius:6px;border:1px solid var(--border);background:#fff;color:var(--muted);cursor:pointer;transition:all 0.2s}
+    .sort-btn.active-sort{background:var(--brown);color:#fff;border-color:var(--brown)}
     @media(max-width:640px){
       .body{grid-template-columns:1fr}
       .sidebar{display:none}
@@ -351,13 +354,21 @@ function renderVendedor(nombre){
       <div class="kpi"><div class="kpi-label">Ticket prom.</div><div class="kpi-val">${fmt(totalVend/Math.max(clientes.reduce((a,c)=>a+c.num_compras,0),1))}</div><div class="kpi-sub">por factura</div></div>
     </div>
     <div class="card">
-      <div class="card-title"><i class="ti ti-users"></i> Monto por cliente — haz clic para ver detalle</div>
-      ${clientes.map(c=>`
-        <div class="hbar" onclick="selCliente('${c.nombre.replace(/'/g,"\\'").replace(/"/g,'\\"')}')">
-          <span class="hbar-lbl" title="${c.nombre}">${c.nombre}</span>
-          <div class="hbar-track"><div class="hbar-fill" style="width:${pct(c.total,maxTotal)}%"></div></div>
-          <span class="hbar-val">${fmt(c.total)}</span>
-        </div>`).join('')}
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:6px">
+        <div class="card-title" style="margin-bottom:0"><i class="ti ti-users"></i> Monto por cliente</div>
+        <div style="display:flex;gap:4px">
+          <button class="sort-btn active-sort" id="sort-v-monto" onclick="sortVend('monto')">Mayor $ primero</button>
+          <button class="sort-btn" id="sort-v-az" onclick="sortVend('az')">A → Z</button>
+        </div>
+      </div>
+      <div id="cli-list-vend">
+        ${clientes.map(c=>`
+          <div class="hbar" onclick="selCliente('${c.nombre.replace(/'/g,"\\'").replace(/"/g,'\\"')}')">
+            <span class="hbar-lbl" title="${c.nombre}">${c.nombre}</span>
+            <div class="hbar-track"><div class="hbar-fill" style="width:${pct(c.total,maxTotal)}%"></div></div>
+            <span class="hbar-val">${fmt(c.total)}</span>
+          </div>`).join('')}
+      </div>
     </div>`;
 }
 
@@ -463,13 +474,21 @@ function renderProvincias(provSeleccionada){
         <div class="kpi"><div class="kpi-label">Ticket prom.</div><div class="kpi-val">${fmt(totalProv/Math.max(provData.reduce((a,c)=>a+c.num_compras,0),1))}</div><div class="kpi-sub">por factura</div></div>
       </div>
       <div class="card">
-        <div class="card-title"><i class="ti ti-users"></i> Clientes en ${provSeleccionada} — haz clic para ver detalle</div>
-        ${provData.map(c=>`
-          <div class="hbar" onclick="selClienteProvincia('${c.nombre.replace(/'/g,"\\'").replace(/"/g,'\\"')}','${provSeleccionada.replace(/'/g,"\\'")}')">
-            <span class="hbar-lbl" title="${c.nombre}">${c.nombre}</span>
-            <div class="hbar-track"><div class="hbar-fill" style="width:${pct(c.total,maxCli)}%"></div></div>
-            <span class="hbar-val">${fmt(c.total)}</span>
-          </div>`).join('')}
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:6px">
+          <div class="card-title" style="margin-bottom:0"><i class="ti ti-users"></i> Clientes en ${provSeleccionada}</div>
+          <div style="display:flex;gap:4px">
+            <button class="sort-btn active-sort" id="sort-p-monto" onclick="sortProv('monto','${provSeleccionada}')">Mayor $ primero</button>
+            <button class="sort-btn" id="sort-p-az" onclick="sortProv('az','${provSeleccionada}')">A → Z</button>
+          </div>
+        </div>
+        <div id="cli-list-prov">
+          ${provData.map(c=>`
+            <div class="hbar" onclick="selClienteProvincia('${c.nombre.replace(/'/g,"\\'").replace(/"/g,'\\"')}','${provSeleccionada.replace(/'/g,"\\'")}')">
+              <span class="hbar-lbl" title="${c.nombre}">${c.nombre}</span>
+              <div class="hbar-track"><div class="hbar-fill" style="width:${pct(c.total,maxCli)}%"></div></div>
+              <span class="hbar-val">${fmt(c.total)}</span>
+            </div>`).join('')}
+        </div>
       </div>`;
   }
 }
@@ -525,6 +544,50 @@ function selClienteProvincia(nombre, provincia){
         <div style="margin-top:8px;font-size:11px;color:var(--muted)">Total: <strong>${c.num_compras}</strong> facturas · <strong style="color:var(--brown)">${fmt(c.total)}</strong></div>
       </div>
     </div>`;
+}
+
+
+let sortVendMode='monto';
+let sortProvMode='monto';
+
+function sortVend(mode){
+  sortVendMode=mode;
+  document.querySelectorAll('[id^="sort-v-"]').forEach(b=>{b.classList.remove('active-sort')});
+  document.getElementById('sort-v-'+mode)?.classList.add('active-sort');
+  const nombre=vendActual;
+  const clientes=[...DATA[nombre]||[]];
+  if(mode==='az') clientes.sort((a,b)=>a.nombre.localeCompare(b.nombre));
+  else clientes.sort((a,b)=>b.total-a.total);
+  const maxTotal=Math.max(...clientes.map(c=>c.total),1);
+  document.getElementById('cli-list-vend').innerHTML=clientes.map(c=>`
+    <div class="hbar" onclick="selCliente('${c.nombre.replace(/'/g,"\\'")}')">
+      <span class="hbar-lbl" title="${c.nombre}">${c.nombre}</span>
+      <div class="hbar-track"><div class="hbar-fill" style="width:${pct(c.total,maxTotal)}%"></div></div>
+      <span class="hbar-val">${fmt(c.total)}</span>
+    </div>`).join('');
+}
+
+function sortProv(mode, provincia){
+  sortProvMode=mode;
+  document.querySelectorAll('[id^="sort-p-"]').forEach(b=>{b.classList.remove('active-sort')});
+  document.getElementById('sort-p-'+mode)?.classList.add('active-sort');
+  const vendedoras=vendActual ? [vendActual] : Object.keys(DATA);
+  const provincias={};
+  vendedoras.forEach(v=>DATA[v].forEach(c=>{
+    const prov=c.provincia&&c.provincia!=='nan'&&c.provincia?c.provincia:'SIN PROVINCIA';
+    if(!provincias[prov]) provincias[prov]=[];
+    provincias[prov].push({...c,vendedor:v});
+  }));
+  let clientes=[...(provincias[provincia]||[])];
+  if(mode==='az') clientes.sort((a,b)=>a.nombre.localeCompare(b.nombre));
+  else clientes.sort((a,b)=>b.total-a.total);
+  const maxCli=Math.max(...clientes.map(c=>c.total),1);
+  document.getElementById('cli-list-prov').innerHTML=clientes.map(c=>`
+    <div class="hbar" onclick="selClienteProvincia('${c.nombre.replace(/'/g,"\\'")}','${provincia.replace(/'/g,"\\'")}')">
+      <span class="hbar-lbl" title="${c.nombre}">${c.nombre}</span>
+      <div class="hbar-track"><div class="hbar-fill" style="width:${pct(c.total,maxCli)}%"></div></div>
+      <span class="hbar-val">${fmt(c.total)}</span>
+    </div>`).join('');
 }
 
 cargarData();
