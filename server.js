@@ -196,6 +196,39 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // Test Contifico v2
+  if (urlPath === '/api/test-v2' && req.method === 'GET') {
+    try {
+      const now = new Date();
+      const d = n => String(n).padStart(2,'0');
+      const fecha = `${now.getFullYear()}-${d(now.getMonth()+1)}-${d(now.getDate())}`;
+      
+      // Try v2 endpoint
+      const url = `https://api.contifico.com/sistema/api/v2/documento/?tipo_documento=FAC&fecha_emision_ini=${fecha}&fecha_emision_fin=${fecha}`;
+      console.log('Testing v2:', url);
+      
+      const inicio = Date.now();
+      const response = await fetch(url, {
+        headers: { 'Authorization': API_KEY, 'Accept': 'application/json' }
+      });
+      const tiempo = Date.now() - inicio;
+      const texto = await response.text();
+      
+      res.writeHead(200, {'Content-Type': 'application/json'});
+      res.end(JSON.stringify({
+        url_probada: url,
+        status: response.status,
+        tiempo_ms: tiempo,
+        tiempo_seg: (tiempo/1000).toFixed(1)+'s',
+        respuesta_preview: texto.substring(0, 500)
+      }));
+    } catch(e) {
+      res.writeHead(200, {'Content-Type': 'application/json'});
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
   // Chat API
   if (urlPath === '/api/chat' && req.method === 'POST') {
     try {
