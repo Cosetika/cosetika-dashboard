@@ -1,9 +1,17 @@
 {
   "name": "cosetika-dashboard",
   "version": "1.0.0",
+  "description": "Cosétika Sales Dashboard",
+  "main": "server.js",
   "scripts": {
-    "dev": "vercel dev",
-    "build": "echo 'No build needed'"
+    "start": "node server.js",
+    "install-deps": "npm install"
   },
-  "dependencies": {}
+  "dependencies": {
+    "pg": "8.11.0"
+  },
+  "engines": {
+    "node": "18.x",
+    "npm": ">=8.0.0"
+  }
 }
