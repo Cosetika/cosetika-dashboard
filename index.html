@@ -33,7 +33,7 @@
     .stab:hover{color:var(--text)}
     .stab.active{color:var(--brown);border-bottom-color:var(--brown)}
 
-    .body{display:grid;grid-template-columns:170px 1fr;min-height:calc(100vh - 120px)}
+    .body{display:grid;grid-template-columns:170px 1fr;min-height:calc(100vh - 120px)}.body.full-width{grid-template-columns:1fr}
     .sidebar{background:#fff;border-right:1px solid var(--border);padding:12px 10px;overflow-y:auto}
     .sidebar.hidden{display:none}
     .sb-title{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px}
@@ -183,12 +183,15 @@ function setMod(mod){
   
   if(mod==='ventas'){
     document.getElementById('sidebar').classList.remove('hidden');
+    document.getElementById('body').classList.remove('full-width');
     renderHome();
   } else if(mod==='visitas'){
     document.getElementById('sidebar').classList.add('hidden');
+    document.getElementById('body').classList.add('full-width');
     renderVisitas();
   } else {
     document.getElementById('sidebar').classList.add('hidden');
+    document.getElementById('body').classList.add('full-width');
     document.getElementById('main').innerHTML=`
       <div class="coming">
         <i class="ti ti-tools"></i>
@@ -731,19 +734,21 @@ async function renderVisitas(){
       <div class="kpi"><div class="kpi-label">Requieren visita</div><div class="kpi-val" style="color:#991b1b">${urgentes.length}</div><div class="kpi-sub" style="color:#991b1b">urgente o sin visita</div></div>
     </div>
 
-    <div class="card">
-      <div class="card-title"><i class="ti ti-map" aria-hidden="true"></i> Sectores — haz clic para registrar visita</div>
-      ${sectoresHtml}
-    </div>
-
-    <div class="card">
-      <div class="card-title"><i class="ti ti-world" aria-hidden="true"></i> Provincias — haz clic para registrar visita</div>
-      ${provsHtml}
-    </div>
-
-    <div class="card">
-      <div class="card-title"><i class="ti ti-history" aria-hidden="true"></i> Historial de visitas</div>
-      ${histHtml}
+    <div class="row2" style="align-items:start">
+      <div class="card">
+        <div class="card-title"><i class="ti ti-map" aria-hidden="true"></i> Sectores — haz clic para registrar visita</div>
+        ${sectoresHtml}
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div class="card">
+          <div class="card-title"><i class="ti ti-world" aria-hidden="true"></i> Provincias asignadas</div>
+          ${provsHtml}
+        </div>
+        <div class="card">
+          <div class="card-title"><i class="ti ti-history" aria-hidden="true"></i> Historial de visitas</div>
+          ${histHtml}
+        </div>
+      </div>
     </div>
 
     <div id="modal-visita" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:100;align-items:center;justify-content:center;padding:20px">
