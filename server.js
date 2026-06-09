@@ -1,7 +1,6 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const https = require('https');
 const { Pool } = require('pg');
 
 const PORT = process.env.PORT || 3000;
@@ -15,86 +14,67 @@ const pool = new Pool({
 // ─── CACHÉ v2 ────────────────────────────────────────────────
 let cache = { documentos: [], ultima_sync: null, sincronizando: false };
 
-function fmtDate(d){
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+function fmtDateEC(d) {
+  const dd = String(d.getDate()).padStart(2,'0');
+  const mm = String(d.getMonth()+1).padStart(2,'0');
+  const yyyy = d.getFullYear();
+  return `${dd}/${mm}/${yyyy}`;
 }
 
-async function fetchPagina(url){
-  const r = await fetch(url, {
-    headers: { 'Authorization': API_KEY, 'Accept': 'application/json' }
-  });
-  if(!r.ok) throw new Error(`HTTP ${r.status}`);
-  return r.json();
-}
-
-async function sincronizarHoy(){
-  if(cache.sincronizando) return;
+async function sincronizarHoy() {
+  if (cache.sincronizando) return;
   cache.sincronizando = true;
-  const now = new Date();
-  const fecha = fmtDate(now);
-  console.log('Sincronizando v2 fecha:', fecha);
   try {
-    const fechaFmt2 = `${now.getDate().toString().padStart(2,'0')}/${(now.getMonth()+1).toString().padStart(2,'0')}/${now.getFullYear()}`;
-    let url = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${fechaFmt2}&fecha_final=${fechaFmt2}&page_size=100`;
+    const now = new Date();
+    const fecha = fmtDateEC(now);
+    const url = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${fecha}&fecha_final=${fecha}&page_size=100`;
+    console.log('Sincronizando v2:', url);
     let todos = [];
+    let nextUrl = url;
     let paginas = 0;
-    while(url && paginas < 20){
-      const data = await fetchPagina(url);
-      const results = data.results || [];
-      todos = todos.concat(results);
-      url = data.next || null;
+    while (nextUrl && paginas < 20) {
+      const resp = await fetch(nextUrl, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
+      const data = await resp.json();
+      todos = todos.concat(data.results || []);
+      nextUrl = data.next || null;
       paginas++;
-      console.log(`Página ${paginas}: ${results.length} docs, total: ${todos.length}`);
+      console.log(`Página ${paginas}: ${(data.results||[]).length} docs, total: ${todos.length}`);
     }
-    // Filtrar solo clientes
     const clientes = todos.filter(d => d.tipo_registro === 'CLI');
     cache.documentos = clientes;
     cache.ultima_sync = new Date().toISOString();
-    console.log(`✓ Sincronizado: ${clientes.length} facturas de clientes hoy`);
+    console.log(`✓ Sync: ${clientes.length} facturas de clientes hoy`);
   } catch(e) {
-    console.error('Error sync v2:', e.message);
+    console.error('Error sync:', e.message);
   }
   cache.sincronizando = false;
 }
 
-// Sincronizar al arrancar y cada hora
 sincronizarHoy().catch(e => console.error('Error sync inicial:', e.message));
 setInterval(() => sincronizarHoy().catch(e => console.error('Error sync:', e.message)), 60 * 60 * 1000);
 
+// ─── DB ───────────────────────────────────────────────────────
 async function initDB() {
   try {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS visitas (
-        id SERIAL PRIMARY KEY,
-        lugar VARCHAR(255) NOT NULL,
-        tipo VARCHAR(50) NOT NULL,
-        asesora VARCHAR(255) NOT NULL,
-        fecha TIMESTAMP DEFAULT NOW(),
-        notas TEXT
+        id SERIAL PRIMARY KEY, lugar VARCHAR(255) NOT NULL,
+        tipo VARCHAR(50) NOT NULL, asesora VARCHAR(255) NOT NULL,
+        fecha TIMESTAMP DEFAULT NOW(), notas TEXT
       );
       CREATE TABLE IF NOT EXISTS usuarios (
-        id SERIAL PRIMARY KEY,
-        nombre VARCHAR(255) NOT NULL,
-        usuario VARCHAR(100) UNIQUE NOT NULL,
-        password VARCHAR(255) NOT NULL,
-        rol VARCHAR(50) DEFAULT 'asesora',
-        modulos TEXT DEFAULT 'ventas,visitas,kpis,inventario',
-        activo BOOLEAN DEFAULT true,
-        created_at TIMESTAMP DEFAULT NOW()
+        id SERIAL PRIMARY KEY, nombre VARCHAR(255) NOT NULL,
+        usuario VARCHAR(100) UNIQUE NOT NULL, password VARCHAR(255) NOT NULL,
+        rol VARCHAR(50) DEFAULT 'asesora', modulos TEXT DEFAULT 'ventas,visitas,kpis,inventario',
+        activo BOOLEAN DEFAULT true, created_at TIMESTAMP DEFAULT NOW()
       );
       CREATE TABLE IF NOT EXISTS planificacion (
-        id SERIAL PRIMARY KEY,
-        asesora VARCHAR(255) NOT NULL,
-        semana DATE NOT NULL,
-        dia VARCHAR(20),
-        sector VARCHAR(255),
-        cliente VARCHAR(255),
-        coordinado BOOLEAN DEFAULT false,
-        created_at TIMESTAMP DEFAULT NOW(),
-        updated_at TIMESTAMP DEFAULT NOW()
+        id SERIAL PRIMARY KEY, asesora VARCHAR(255) NOT NULL,
+        semana DATE NOT NULL, dia VARCHAR(20), sector VARCHAR(255),
+        cliente VARCHAR(255), coordinado BOOLEAN DEFAULT false,
+        created_at TIMESTAMP DEFAULT NOW()
       );
     `);
-
     const usuarios = [
       { nombre: 'Fernando Espíndola', usuario: 'Fernando', password: '1234', rol: 'admin', modulos: 'ventas,visitas,kpis,inventario,config' },
       { nombre: 'Giovanna Portilla', usuario: 'Giovanna', password: '1234', rol: 'jefa_ventas', modulos: 'ventas,visitas,kpis,inventario' },
@@ -106,21 +86,16 @@ async function initDB() {
     ];
     for (const u of usuarios) {
       await pool.query(
-        'INSERT INTO usuarios (nombre,usuario,password,rol,modulos) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (usuario) DO NOTHING',
+        'INSERT INTO usuarios(nombre,usuario,password,rol,modulos) VALUES($1,$2,$3,$4,$5) ON CONFLICT(usuario) DO NOTHING',
         [u.nombre, u.usuario, u.password, u.rol, u.modulos]
       );
     }
     console.log('DB inicializada');
   } catch(e) { console.error('Error DB:', e.message); }
 }
-
 initDB();
 
-const MIME = {
-  '.html':'text/html','.js':'application/javascript',
-  '.css':'text/css','.json':'application/json',
-  '.png':'image/png','.jpg':'image/jpeg','.ico':'image/x-icon'
-};
+const MIME = { '.html':'text/html','.js':'application/javascript','.css':'text/css','.json':'application/json','.png':'image/png','.jpg':'image/jpeg','.ico':'image/x-icon' };
 
 function bodyJSON(req) {
   return new Promise((resolve, reject) => {
@@ -134,7 +109,6 @@ function bodyJSON(req) {
 const server = http.createServer(async (req, res) => {
   const urlObj = new URL(req.url, 'http://localhost');
   const urlPath = urlObj.pathname;
-
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -144,43 +118,29 @@ const server = http.createServer(async (req, res) => {
   if (urlPath === '/api/login' && req.method === 'POST') {
     try {
       const { usuario, password } = await bodyJSON(req);
-      const result = await pool.query(
-        'SELECT * FROM usuarios WHERE usuario=$1 AND password=$2 AND activo=true',
-        [usuario, password]
-      );
-      if (!result.rows.length) {
-        res.writeHead(401, {'Content-Type':'application/json'});
-        res.end(JSON.stringify({error:'Usuario o contraseña incorrectos'}));
-        return;
-      }
-      const u = result.rows[0];
-      res.writeHead(200, {'Content-Type':'application/json'});
+      const r = await pool.query('SELECT * FROM usuarios WHERE usuario=$1 AND password=$2 AND activo=true', [usuario, password]);
+      if (!r.rows.length) { res.writeHead(401,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:'Usuario o contraseña incorrectos'})); return; }
+      const u = r.rows[0];
+      res.writeHead(200,{'Content-Type':'application/json'});
       res.end(JSON.stringify({ok:true, usuario:{id:u.id,nombre:u.nombre,usuario:u.usuario,rol:u.rol,modulos:u.modulos}}));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
     return;
   }
 
-  // GET usuarios
+  // USUARIOS
   if (urlPath === '/api/usuarios' && req.method === 'GET') {
-    try {
-      const r = await pool.query('SELECT id,nombre,usuario,rol,modulos,activo FROM usuarios ORDER BY id');
-      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.rows));
-    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    try { const r = await pool.query('SELECT id,nombre,usuario,rol,modulos,activo FROM usuarios ORDER BY id'); res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.rows)); }
+    catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
     return;
   }
-
-  // POST usuario
   if (urlPath === '/api/usuarios' && req.method === 'POST') {
     try {
       const {nombre,usuario,password,rol,modulos} = await bodyJSON(req);
-      await pool.query('INSERT INTO usuarios(nombre,usuario,password,rol,modulos) VALUES($1,$2,$3,$4,$5)',
-        [nombre,usuario,password||'1234',rol||'asesora',modulos||'ventas,visitas,kpis,inventario']);
+      await pool.query('INSERT INTO usuarios(nombre,usuario,password,rol,modulos) VALUES($1,$2,$3,$4,$5)',[nombre,usuario,password||'1234',rol||'asesora',modulos||'ventas,visitas,kpis,inventario']);
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
     return;
   }
-
-  // PUT usuario
   if (urlPath.startsWith('/api/usuarios/') && req.method === 'PUT') {
     try {
       const id = urlPath.split('/').pop();
@@ -194,112 +154,78 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // GET visitas
+  // VISITAS
   if (urlPath === '/api/visitas' && req.method === 'GET') {
-    try {
-      const r = await pool.query('SELECT * FROM visitas ORDER BY fecha DESC LIMIT 300');
-      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.rows));
-    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    try { const r = await pool.query('SELECT * FROM visitas ORDER BY fecha DESC LIMIT 300'); res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.rows)); }
+    catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
     return;
   }
-
-  // POST visita
   if (urlPath === '/api/visitas' && req.method === 'POST') {
     try {
       const {lugar,tipo,asesora,notas} = await bodyJSON(req);
-      const r = await pool.query('INSERT INTO visitas(lugar,tipo,asesora,notas) VALUES($1,$2,$3,$4) RETURNING *',
-        [lugar,tipo,asesora,notas||null]);
+      const r = await pool.query('INSERT INTO visitas(lugar,tipo,asesora,notas) VALUES($1,$2,$3,$4) RETURNING *',[lugar,tipo,asesora,notas||null]);
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.rows[0]));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
     return;
   }
 
-  // GET planificacion
+  // PLANIFICACION
   if (urlPath === '/api/planificacion' && req.method === 'GET') {
     try {
       const asesora = urlObj.searchParams.get('asesora') || '';
       const semana = urlObj.searchParams.get('semana') || '';
-      const r = await pool.query(
-        'SELECT * FROM planificacion WHERE asesora=$1 AND semana=$2 ORDER BY id',
-        [asesora, semana]
-      );
+      const r = await pool.query('SELECT * FROM planificacion WHERE asesora=$1 AND semana=$2 ORDER BY id',[asesora,semana]);
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.rows));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
     return;
   }
-
-  // POST planificacion (upsert — borra y reinserta la semana)
   if (urlPath === '/api/planificacion' && req.method === 'POST') {
     try {
-      const {asesora, semana, filas} = await bodyJSON(req);
+      const {asesora,semana,filas} = await bodyJSON(req);
       if (!asesora||!semana||!filas) throw new Error('Faltan datos');
       await pool.query('DELETE FROM planificacion WHERE asesora=$1 AND semana=$2',[asesora,semana]);
       for (const fila of filas) {
-        await pool.query(
-          'INSERT INTO planificacion(asesora,semana,dia,sector,cliente,coordinado) VALUES($1,$2,$3,$4,$5,$6)',
-          [asesora, semana, fila.dia||'', fila.sector||'', fila.cliente||'', fila.coordinado||false]
-        );
+        await pool.query('INSERT INTO planificacion(asesora,semana,dia,sector,cliente,coordinado) VALUES($1,$2,$3,$4,$5,$6)',
+          [asesora,semana,fila.dia||'',fila.sector||'',fila.cliente||'',fila.coordinado||false]);
       }
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true,filas:filas.length}));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
     return;
   }
 
-  // GET ventas de hoy desde caché v2
+  // VENTAS HOY (caché v2)
   if (urlPath === '/api/ventas-hoy' && req.method === 'GET') {
-    res.writeHead(200, {'Content-Type':'application/json'});
-    res.end(JSON.stringify({
-      total: cache.documentos.length,
-      ultima_sync: cache.ultima_sync,
-      sincronizando: cache.sincronizando,
-      documentos: cache.documentos.slice(0, 5) // preview
-    }));
+    res.writeHead(200,{'Content-Type':'application/json'});
+    res.end(JSON.stringify({ total: cache.documentos.length, ultima_sync: cache.ultima_sync, sincronizando: cache.sincronizando }));
     return;
   }
 
-  // Forzar sync manual
+  // SYNC MANUAL
   if (urlPath === '/api/sync' && req.method === 'GET') {
     sincronizarHoy().catch(e => console.error(e));
-    res.writeHead(200, {'Content-Type':'application/json'});
+    res.writeHead(200,{'Content-Type':'application/json'});
     res.end(JSON.stringify({msg:'Sync iniciado', ultima_sync: cache.ultima_sync}));
     return;
   }
 
-  // Test Contifico v2
+  // TEST V2
   if (urlPath === '/api/test-v2' && req.method === 'GET') {
     try {
       const now = new Date();
-      const d = n => String(n).padStart(2,'0');
-      const fecha = `${now.getFullYear()}-${d(now.getMonth()+1)}-${d(now.getDate())}`;
-      
-      // Try v2 endpoint
-      const fechaFmt = `${now.getDate().toString().padStart(2,'0')}/${(now.getMonth()+1).toString().padStart(2,'0')}/${now.getFullYear()}`;
-      const url = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${fechaFmt}&fecha_final=${fechaFmt}`;
-      console.log('Testing v2:', url);
-      
+      const testFecha = fmtDateEC(now);
+      const testUrl = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${testFecha}&fecha_final=${testFecha}`;
+      console.log('Testing v2:', testUrl);
       const inicio = Date.now();
-      const response = await fetch(url, {
-        headers: { 'Authorization': API_KEY, 'Accept': 'application/json' }
-      });
+      const response = await fetch(testUrl, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
       const tiempo = Date.now() - inicio;
       const texto = await response.text();
-      
-      res.writeHead(200, {'Content-Type': 'application/json'});
-      res.end(JSON.stringify({
-        url_probada: url,
-        status: response.status,
-        tiempo_ms: tiempo,
-        tiempo_seg: (tiempo/1000).toFixed(1)+'s',
-        respuesta_preview: texto.substring(0, 500)
-      }));
-    } catch(e) {
-      res.writeHead(200, {'Content-Type': 'application/json'});
-      res.end(JSON.stringify({ error: e.message }));
-    }
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ url_probada: testUrl, status: response.status, tiempo_ms: tiempo, tiempo_seg: (tiempo/1000).toFixed(1)+'s', respuesta_preview: texto.substring(0,500) }));
+    } catch(e) { res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
     return;
   }
 
-  // Chat API
+  // CHAT
   if (urlPath === '/api/chat' && req.method === 'POST') {
     try {
       const body = await bodyJSON(req);
@@ -316,7 +242,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // Static files
+  // STATIC FILES
   let filePath = urlPath==='/' ? path.join(__dirname,'index.html')
     : urlPath==='/login' ? path.join(__dirname,'login.html')
     : urlPath==='/bot' ? path.join(__dirname,'bot.html')
