@@ -8,40 +8,36 @@
     *{box-sizing:border-box;margin:0;padding:0}
     :root{--brown:#A0684A;--brown-dark:#1a0e08;--bl:rgba(160,104,74,0.12)}
     body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f4f1ee;min-height:100vh;display:flex;flex-direction:column}
-
     .header{background:var(--brown-dark);padding:14px 20px;display:flex;align-items:center;gap:12px;border-bottom:2px solid var(--brown)}
     .logo-c{width:40px;height:40px;background:var(--brown);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:19px;font-weight:700;color:#fff;font-style:italic;font-family:Georgia,serif;flex-shrink:0}
     .logo-text .name{font-size:16px;font-weight:500;letter-spacing:2px;color:#fff}
     .logo-text .slogan{font-size:9px;color:#fff;letter-spacing:1px}
     .header-badge{margin-left:auto;background:rgba(160,104,74,0.3);border:1px solid var(--brown);color:#c9a07a;font-size:11px;padding:3px 10px;border-radius:20px}
-
     .chat-wrap{flex:1;display:flex;flex-direction:column;max-width:700px;width:100%;margin:0 auto;padding:16px;gap:12px}
-
-    .welcome{background:white;border-radius:16px;padding:20px;border:1px solid rgba(0,0,0,0.08);text-align:center}
-    .welcome-icon{font-size:48px;margin-bottom:12px}
-    .welcome h2{font-size:18px;font-weight:500;color:#1a1a1a;margin-bottom:6px}
-    .welcome p{font-size:13px;color:#6b6b6b;line-height:1.6;margin-bottom:16px}
+    .welcome{background:white;border-radius:16px;padding:28px 24px;border:1px solid rgba(0,0,0,0.08);text-align:center}
+    .sofia-img{width:130px;height:130px;border-radius:50%;overflow:hidden;margin:0 auto 16px;border:3px solid var(--brown);box-shadow:0 4px 24px rgba(160,104,74,0.2)}
+    .sofia-img img{width:100%;height:100%;object-fit:cover;object-position:center top}
+    .welcome h2{font-size:20px;font-weight:500;color:#1a1a1a;margin-bottom:4px}
+    .welcome .role{font-size:13px;color:var(--brown);font-weight:500;margin-bottom:12px;letter-spacing:0.5px}
+    .welcome p{font-size:13px;color:#6b6b6b;line-height:1.7;margin-bottom:20px}
     .suggestions{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
     .sugg-btn{background:var(--bl);border:1px solid rgba(160,104,74,0.3);color:var(--brown);font-size:12px;padding:7px 14px;border-radius:20px;cursor:pointer;transition:all 0.2s}
     .sugg-btn:hover{background:var(--brown);color:#fff}
-
     .messages{display:flex;flex-direction:column;gap:12px;flex:1}
-
     .msg{display:flex;gap:10px;align-items:flex-start}
     .msg.user{flex-direction:row-reverse}
-    .msg-avatar{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
-    .msg.bot .msg-avatar{background:var(--brown);color:#fff;font-style:italic;font-family:Georgia,serif}
-    .msg.user .msg-avatar{background:#e2e8f0;color:#475569;font-size:16px}
+    .msg-avatar{width:36px;height:36px;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;background:#e2e8f0}
+    .msg.bot .msg-avatar{border:1.5px solid rgba(160,104,74,0.3)}
+    .msg.bot .msg-avatar img{width:100%;height:100%;object-fit:cover;object-position:center top}
+    .msg.user .msg-avatar{color:#475569;font-size:16px}
     .msg-bubble{max-width:85%;padding:12px 16px;border-radius:16px;font-size:14px;line-height:1.6}
     .msg.bot .msg-bubble{background:white;border:1px solid rgba(0,0,0,0.08);color:#1a1a1a;border-radius:4px 16px 16px 16px}
     .msg.user .msg-bubble{background:var(--brown);color:#fff;border-radius:16px 4px 16px 16px}
-
     .typing{display:flex;gap:4px;align-items:center;padding:14px 16px}
     .typing span{width:7px;height:7px;background:#A0684A;border-radius:50%;animation:bounce 1.2s infinite}
     .typing span:nth-child(2){animation-delay:0.2s}
     .typing span:nth-child(3){animation-delay:0.4s}
     @keyframes bounce{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-8px)}}
-
     .input-area{background:white;border-radius:16px;border:1px solid rgba(0,0,0,0.08);padding:12px;display:flex;gap:8px;align-items:flex-end}
     .input-text{flex:1;border:none;outline:none;font-size:14px;font-family:inherit;resize:none;max-height:120px;color:#1a1a1a;line-height:1.5;background:transparent}
     .input-text::placeholder{color:#9ca3af}
@@ -52,14 +48,7 @@
     .btn-send{width:40px;height:40px;border-radius:50%;border:none;background:var(--brown);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:18px;transition:all 0.2s;flex-shrink:0}
     .btn-send:hover{background:#8a5840}
     .btn-send:disabled{background:#d1c4bc;cursor:not-allowed}
-
-    .audio-player{margin-top:8px}
-    .audio-player audio{width:100%;height:32px;accent-color:var(--brown)}
-
-    @media(max-width:500px){
-      .chat-wrap{padding:10px}
-      .msg-bubble{font-size:13px}
-    }
+    @media(max-width:500px){.chat-wrap{padding:10px}.msg-bubble{font-size:13px}.sofia-img{width:110px;height:110px}}
   </style>
 </head>
 <body>
@@ -75,9 +64,12 @@
 
 <div class="chat-wrap">
   <div class="welcome" id="welcome">
-    <div class="welcome-icon">💆‍♀️</div>
-    <h2>Hola, soy tu asistente de belleza</h2>
-    <p>Puedo ayudarte a encontrar el producto perfecto para tu tipo de piel, resolver dudas sobre nuestras marcas y recomendarte rutinas de cuidado.</p>
+    <div class="sofia-img">
+      <img src="/sofia.jpg" alt="Sofía, asesora virtual de Cosétika"/>
+    </div>
+    <h2>Hola, soy Sofía</h2>
+    <div class="role">Tu asesora virtual de Cosétika</div>
+    <p>Estoy aquí para ayudarte a encontrar el producto perfecto para tu tipo de piel, resolver tus dudas sobre nuestras marcas y recomendarte rutinas de belleza personalizadas. ¿En qué te puedo ayudar hoy?</p>
     <div class="suggestions">
       <button class="sugg-btn" onclick="sugerir(this)">¿Qué productos tienen para piel grasa?</button>
       <button class="sugg-btn" onclick="sugerir(this)">¿Cuál es la diferencia entre ZIAJA y BIOSKIN?</button>
@@ -153,6 +145,8 @@ INSTRUCCIONES:
 - Usa emojis con moderación para hacer la conversación más amena
 - Si preguntan por contacto, menciona www.cosetika.com`;
 
+const SOFIA_AVATAR = '<img src="/sofia.jpg" style="width:100%;height:100%;object-fit:cover;object-position:center top">';
+
 let historial = [];
 let grabando = false;
 let mediaRecorder = null;
@@ -168,17 +162,13 @@ async function enviar() {
   const input = document.getElementById('input');
   const texto = input.value.trim();
   if (!texto) return;
-
   document.getElementById('welcome').style.display = 'none';
   input.value = '';
   input.style.height = 'auto';
-
   agregarMensaje('user', texto);
   historial.push({ role: 'user', content: texto });
-
   mostrarTyping();
   document.getElementById('btn-send').disabled = true;
-
   try {
     const res = await fetch('/api/chat', {
       method: 'POST',
@@ -187,17 +177,14 @@ async function enviar() {
     });
     const data = await res.json();
     ocultarTyping();
-
     if (data.error) throw new Error(data.error);
-
     const respuesta = data.content[0].text;
     historial.push({ role: 'assistant', content: respuesta });
     await agregarMensajeBot(respuesta);
   } catch(e) {
     ocultarTyping();
-    agregarMensaje('bot', '¡Ups! Hubo un problema. Por favor intenta de nuevo. 😊');
+    agregarMensajeBot('¡Ups! Hubo un problema. Por favor intenta de nuevo. 😊');
   }
-
   document.getElementById('btn-send').disabled = false;
   input.focus();
 }
@@ -206,10 +193,8 @@ function agregarMensaje(rol, texto) {
   const msgs = document.getElementById('messages');
   const div = document.createElement('div');
   div.className = `msg ${rol}`;
-  const avatar = rol === 'bot' ? 'S' : '👤';
-  div.innerHTML = `
-    <div class="msg-avatar">${avatar}</div>
-    <div class="msg-bubble">${texto.replace(/\n/g,'<br>')}</div>`;
+  const avatar = rol === 'bot' ? SOFIA_AVATAR : '👤';
+  div.innerHTML = `<div class="msg-avatar">${avatar}</div><div class="msg-bubble">${texto.replace(/\n/g,'<br>')}</div>`;
   msgs.appendChild(div);
   div.scrollIntoView({ behavior: 'smooth', block: 'end' });
   return div;
@@ -220,15 +205,13 @@ async function agregarMensajeBot(texto) {
   const div = document.createElement('div');
   div.className = 'msg bot';
   div.innerHTML = `
-    <div class="msg-avatar">S</div>
+    <div class="msg-avatar">${SOFIA_AVATAR}</div>
     <div>
       <div class="msg-bubble">${texto.replace(/\n/g,'<br>')}</div>
       <div class="audio-player" id="audio-${Date.now()}"></div>
     </div>`;
   msgs.appendChild(div);
   div.scrollIntoView({ behavior: 'smooth', block: 'end' });
-
-  // Generar audio con Web Speech API
   try {
     const audioContainer = div.querySelector('.audio-player');
     const btn = document.createElement('button');
@@ -247,8 +230,7 @@ function leerEnVoz(texto, btn) {
     utt.rate = 0.95;
     utt.pitch = 1.1;
     const voces = window.speechSynthesis.getVoices();
-    const vozES = voces.find(v => v.lang.startsWith('es') && v.name.toLowerCase().includes('female'))
-      || voces.find(v => v.lang.startsWith('es'));
+    const vozES = voces.find(v => v.lang.startsWith('es') && v.name.toLowerCase().includes('female')) || voces.find(v => v.lang.startsWith('es'));
     if (vozES) utt.voice = vozES;
     btn.textContent = '⏸ Pausar';
     utt.onend = () => btn.textContent = '🔊 Escuchar respuesta';
@@ -262,20 +244,15 @@ function mostrarTyping() {
   const div = document.createElement('div');
   div.className = 'msg bot';
   div.id = 'typing';
-  div.innerHTML = `<div class="msg-avatar">S</div><div class="msg-bubble"><div class="typing"><span></span><span></span><span></span></div></div>`;
+  div.innerHTML = `<div class="msg-avatar">${SOFIA_AVATAR}</div><div class="msg-bubble"><div class="typing"><span></span><span></span><span></span></div></div>`;
   msgs.appendChild(div);
   div.scrollIntoView({ behavior: 'smooth', block: 'end' });
 }
 
-function ocultarTyping() {
-  document.getElementById('typing')?.remove();
-}
+function ocultarTyping() { document.getElementById('typing')?.remove(); }
 
 async function toggleVoz() {
-  if (grabando) {
-    mediaRecorder?.stop();
-    return;
-  }
+  if (grabando) { mediaRecorder?.stop(); return; }
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     mediaRecorder = new MediaRecorder(stream);
@@ -283,28 +260,18 @@ async function toggleVoz() {
     mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
     mediaRecorder.onstop = async () => {
       stream.getTracks().forEach(t => t.stop());
-      const blob = new Blob(audioChunks, { type: 'audio/webm' });
       grabando = false;
       document.getElementById('btn-voz').className = 'btn-voz';
       document.getElementById('btn-voz').textContent = '🎤';
-
-      // Usar Web Speech API para transcribir
       const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
       recognition.lang = 'es-ES';
-      recognition.onresult = e => {
-        document.getElementById('input').value = e.results[0][0].transcript;
-        enviar();
-      };
-      recognition.onerror = () => {
-        document.getElementById('input').placeholder = 'No se pudo transcribir, escribe tu pregunta';
-      };
+      recognition.onresult = e => { document.getElementById('input').value = e.results[0][0].transcript; enviar(); };
     };
     mediaRecorder.start();
     grabando = true;
     document.getElementById('btn-voz').className = 'btn-voz recording';
     document.getElementById('btn-voz').textContent = '⏹';
   } catch(e) {
-    // Fallback a SpeechRecognition directo
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) { alert('Tu navegador no soporta reconocimiento de voz'); return; }
     const recognition = new SR();
@@ -319,11 +286,7 @@ async function toggleVoz() {
       document.getElementById('btn-voz').textContent = '🎤';
       enviar();
     };
-    recognition.onend = () => {
-      document.getElementById('btn-voz').className = 'btn-voz';
-      document.getElementById('btn-voz').textContent = '🎤';
-      grabando = false;
-    };
+    recognition.onend = () => { document.getElementById('btn-voz').className = 'btn-voz'; document.getElementById('btn-voz').textContent = '🎤'; grabando = false; };
     recognition.start();
     grabando = true;
   }
