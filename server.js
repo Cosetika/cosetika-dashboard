@@ -12,6 +12,54 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
+// ─── CACHÉ v2 ────────────────────────────────────────────────
+let cache = { documentos: [], ultima_sync: null, sincronizando: false };
+
+function fmtDate(d){
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+async function fetchPagina(url){
+  const r = await fetch(url, {
+    headers: { 'Authorization': API_KEY, 'Accept': 'application/json' }
+  });
+  if(!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+
+async function sincronizarHoy(){
+  if(cache.sincronizando) return;
+  cache.sincronizando = true;
+  const now = new Date();
+  const fecha = fmtDate(now);
+  console.log('Sincronizando v2 fecha:', fecha);
+  try {
+    let url = `https://api.contifico.com/sistema/api/v2/documento/?tipo_documento=FAC&fecha_emision_ini=${fecha}&fecha_emision_fin=${fecha}&page_size=100`;
+    let todos = [];
+    let paginas = 0;
+    while(url && paginas < 20){
+      const data = await fetchPagina(url);
+      const results = data.results || [];
+      todos = todos.concat(results);
+      url = data.next || null;
+      paginas++;
+      console.log(`Página ${paginas}: ${results.length} docs, total: ${todos.length}`);
+    }
+    // Filtrar solo clientes
+    const clientes = todos.filter(d => d.tipo_registro === 'CLI');
+    cache.documentos = clientes;
+    cache.ultima_sync = new Date().toISOString();
+    console.log(`✓ Sincronizado: ${clientes.length} facturas de clientes hoy`);
+  } catch(e) {
+    console.error('Error sync v2:', e.message);
+  }
+  cache.sincronizando = false;
+}
+
+// Sincronizar al arrancar y cada hora
+sincronizarHoy().catch(e => console.error('Error sync inicial:', e.message));
+setInterval(() => sincronizarHoy().catch(e => console.error('Error sync:', e.message)), 60 * 60 * 1000);
+
 async function initDB() {
   try {
     await pool.query(`
@@ -193,6 +241,26 @@ const server = http.createServer(async (req, res) => {
       }
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true,filas:filas.length}));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+
+  // GET ventas de hoy desde caché v2
+  if (urlPath === '/api/ventas-hoy' && req.method === 'GET') {
+    res.writeHead(200, {'Content-Type':'application/json'});
+    res.end(JSON.stringify({
+      total: cache.documentos.length,
+      ultima_sync: cache.ultima_sync,
+      sincronizando: cache.sincronizando,
+      documentos: cache.documentos.slice(0, 5) // preview
+    }));
+    return;
+  }
+
+  // Forzar sync manual
+  if (urlPath === '/api/sync' && req.method === 'GET') {
+    sincronizarHoy().catch(e => console.error(e));
+    res.writeHead(200, {'Content-Type':'application/json'});
+    res.end(JSON.stringify({msg:'Sync iniciado', ultima_sync: cache.ultima_sync}));
     return;
   }
 
