@@ -129,9 +129,49 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+
+  // POST /api/chat - Chatbot con Claude
+  if (urlPath === '/api/chat' && req.method === 'POST') {
+    try {
+      const body = await bodyJSON(req);
+      const { messages, system } = body;
+
+      const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
+      if (!ANTHROPIC_KEY) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'API Key de Anthropic no configurada' }));
+        return;
+      }
+
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': ANTHROPIC_KEY,
+          'anthropic-version': '2023-06-01'
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 1024,
+          system: system || '',
+          messages: messages || []
+        })
+      });
+
+      const data = await response.json();
+      res.writeHead(response.status, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(data));
+    } catch(e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
   // Static files
   let filePath = urlPath === '/' ? path.join(__dirname, 'index.html')
     : urlPath === '/login' ? path.join(__dirname, 'public', 'login.html')
+    : urlPath === '/bot' ? path.join(__dirname, 'public', 'bot.html')
     : path.join(__dirname, urlPath);
 
   if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
