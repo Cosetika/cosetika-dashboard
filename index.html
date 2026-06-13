@@ -23,6 +23,8 @@
     .mods{display:grid;grid-template-columns:repeat(5,1fr);background:#fff;border-bottom:1px solid var(--border)}
     .mod{display:flex;flex-direction:column;align-items:center;gap:3px;padding:10px 4px;cursor:pointer;border-bottom:3px solid transparent;color:var(--muted);font-size:11px;font-weight:500;transition:all 0.2s}
     .mod.active{border-bottom-color:var(--brown);color:var(--brown)}
+    .mod.active i{color:var(--brown)}
+    .mod i{transition:color 0.2s}
     .mod i{font-size:20px}
 
     /* SUBMENÚ DE VENTAS */
@@ -120,7 +122,9 @@
   </div>
   <div class="hdr-right">
     <div class="badge" id="badge-periodo">Ene–Jun 2026</div>
-    <div class="icon-btn" title="Administración" onclick="alert('Panel admin próximamente')"><i class="ti ti-settings"></i></div>
+    <div class="badge" id="badge-saludo" style="display:none;background:rgba(160,104,74,0.35);border-color:var(--brown);color:#e8c9a8;font-weight:600"></div>
+    <div class="icon-btn" id="btn-config" title="Configuración" style="display:none" onclick="setMod('config')"><i class="ti ti-settings"></i></div>
+    <div class="icon-btn" id="btn-logout" title="Cerrar sesión" onclick="if(confirm('¿Cerrar sesión?')){sessionStorage.clear();window.location.href='/login';}"><i class="ti ti-logout"></i></div>
   </div>
 </div>
 
@@ -213,14 +217,18 @@ async function renderVisitasRealizadas(){
   const usuario = window.usuarioActual || {};
   const rol = usuario.rol || '';
   const nombre = usuario.nombre || '';
+  // Asesoras solo ven su propia data; admin y jefa_ventas ven todas
   if(rol==='asesora') asesoraVisitas = nombre;
-  const asesoraActual2 = asesoraVisitas || Object.keys(ASESOR_DATA)[0];
+  else if(!asesoraVisitas) asesoraVisitas = Object.keys(ASESOR_DATA)[0];
+  const asesoraActual2 = asesoraVisitas;
   const data = ASESOR_DATA[asesoraActual2];
   if(!data){ document.getElementById('visitas-content').innerHTML='<p style="color:var(--muted);font-size:13px;padding:20px">No hay sectores asignados</p>'; return; }
   const todosLugares=[...Object.values(data.zonas).flat(),...data.provincias];
   const urgentes=todosLugares.filter(l=>{const t=data.provincias.includes(l)?'provincia':'sector';return estadoLugar(l,t)==='warn'||estadoLugar(l,t)==='none';});
+  const modulos = usuario.modulos ? usuario.modulos.split(',') : [];
+  const puedeVerTodas = rol==='admin' || rol==='jefa_ventas' || modulos.includes('ver_visitas_todas');
   let asesBtns='';
-  if(rol==='admin'||rol==='jefa_ventas'){
+  if(puedeVerTodas){
     asesBtns=`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">${Object.keys(ASESOR_DATA).map(a=>`<button onclick="selAsesoraVisitas('${a.replace(/'/g,"\'")}',this)" style="padding:5px 12px;font-size:11px;border-radius:20px;cursor:pointer;border:0.5px solid ${a===asesoraActual2?'var(--brown)':'var(--border)'};background:${a===asesoraActual2?'var(--brown)':'white'};color:${a===asesoraActual2?'white':'var(--muted)'}">${a.split(' ')[0]}</button>`).join('')}</div>`;
   }
   let sectoresHtml='';
@@ -240,7 +248,7 @@ async function renderVisitasRealizadas(){
     provsHtml+=`<button onclick="abrirModalVisita('${p}','provincia','${asesoraActual2.replace(/'/g,"\'")}',this)" style="padding:8px 16px;font-size:12px;border-radius:10px;border:0.5px solid;cursor:pointer;display:flex;align-items:center;gap:6px;${colors[st]}"><i class="ti ti-map-pin"></i>${p}<span style="font-size:10px;opacity:0.7">${diasLabel(p)}</span></button>`;
   });
   provsHtml+='</div>';
-  const recientes=[...visitasDB].filter(v=>rol==='asesora'?v.asesora===nombre:true).sort((a,b)=>new Date(b.fecha)-new Date(a.fecha)).slice(0,8);
+  const recientes=[...visitasDB].filter(v=>puedeVerTodas?true:v.asesora===nombre).sort((a,b)=>new Date(b.fecha)-new Date(a.fecha)).slice(0,8);
   const histHtml=recientes.length?recientes.map(v=>`<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:0.5px solid var(--border);font-size:12px"><i class="ti ti-${v.tipo==='provincia'?'world':'map-pin'}" style="color:#A0684A;font-size:14px;flex-shrink:0"></i><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${v.lugar}</span><span style="font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(160,104,74,0.12);color:#A0684A">${v.asesora.split(' ')[0]}</span><span style="color:var(--muted);font-size:11px;min-width:65px;text-align:right">${fmtFecha(v.fecha)}</span></div>`).join(''):'<p style="font-size:12px;color:var(--muted)">Sin visitas registradas</p>';
   document.getElementById('visitas-content').innerHTML=`
     ${asesBtns}
@@ -328,9 +336,11 @@ async function renderPlanificacion(){
     planRows = Array.from({length:20}, (_,i)=>({dia:'',sector:'',cliente:'',coordinado:false}));
   }
 
-  // Si admin o jefa, mostrar selector de asesora
+  // Si admin o jefa o tiene permiso ver_visitas_todas, mostrar selector de asesora
+  const modulos2 = usuario.modulos ? usuario.modulos.split(',') : [];
+  const puedeVerTodas2 = rol==='admin' || rol==='jefa_ventas' || modulos2.includes('ver_visitas_todas');
   let asesoraSelector = '';
-  if(rol==='admin'||rol==='jefa_ventas'){
+  if(puedeVerTodas2){
     const asesoras = ['Daniela Villegas Chamorro','Giovanna Portilla','Liseth Gavilanes','Karen Rebeca Mora Cedeño','María Caridad Zea Larrea','Nicole Yanira Leon Marquez'];
     asesoraSelector = `
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
@@ -498,10 +508,19 @@ async function renderConfig(){
   const MODS_LISTA=['ventas','visitas','kpis','inventario'];
   document.getElementById('main').innerHTML=`
     <div class="breadcrumb"><i class="ti ti-settings" style="color:var(--brown);font-size:12px"></i><span style="font-weight:500">Configuración</span></div>
-    <div style="display:flex;gap:8px;margin-bottom:16px">
-      <button onclick="showConfigTab('credenciales')" id="cfg-btn-credenciales" style="padding:8px 18px;font-size:13px;border-radius:20px;border:none;cursor:pointer;background:var(--brown);color:white;font-weight:500">Credenciales</button>
-      <button onclick="showConfigTab('permisos')" id="cfg-btn-permisos" style="padding:8px 18px;font-size:13px;border-radius:20px;border:0.5px solid var(--border);cursor:pointer;background:white;color:var(--muted)">Permisos</button>
+
+    <!-- Submenú Config estilo igual al de Visitas -->
+    <div style="display:flex;gap:0;background:white;border-radius:12px;border:1px solid var(--border);overflow:hidden;margin-bottom:16px">
+      <button onclick="showConfigTab('credenciales')" id="cfg-btn-credenciales"
+        style="flex:1;padding:11px;font-size:13px;font-weight:500;border:none;cursor:pointer;transition:all 0.2s;background:var(--brown);color:white">
+        <i class="ti ti-key" style="margin-right:5px"></i>Credenciales
+      </button>
+      <button onclick="showConfigTab('permisos')" id="cfg-btn-permisos"
+        style="flex:1;padding:11px;font-size:13px;font-weight:500;border:none;cursor:pointer;transition:all 0.2s;background:white;color:var(--muted)">
+        <i class="ti ti-shield" style="margin-right:5px"></i>Permisos
+      </button>
     </div>
+
     <div id="cfg-credenciales">
       <div class="card">
         <div class="card-title"><i class="ti ti-key"></i> Cambiar contraseñas</div>
@@ -526,6 +545,7 @@ async function renderConfig(){
         </div>
       </div>
     </div>
+
     <div id="cfg-permisos" style="display:none">
       <div class="card">
         <div class="card-title"><i class="ti ti-shield"></i> Permisos por módulo</div>
@@ -534,19 +554,34 @@ async function renderConfig(){
             <thead><tr style="border-bottom:0.5px solid var(--border)">
               <th style="text-align:left;padding:8px 10px;font-size:11px;color:var(--muted)">Usuario</th>
               ${MODS_LISTA.map(m=>`<th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);text-transform:uppercase">${m}</th>`).join('')}
+              <th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);white-space:nowrap">Ver visitas<br>de todas</th>
               <th></th>
             </tr></thead>
             <tbody>
               ${usuarios.map(u=>{
                 const mods=u.modulos?u.modulos.split(','):[];
+                const verTodas = mods.includes('ver_visitas_todas') || u.rol==='admin' || u.rol==='jefa_ventas';
+                const esAdmin = u.rol==='admin';
                 return `<tr style="border-bottom:0.5px solid var(--border)">
-                  <td style="padding:10px"><div style="font-size:13px;font-weight:500">${u.nombre.split(' ')[0]}</div><div style="font-size:11px;color:var(--muted)">${u.rol}</div></td>
-                  ${MODS_LISTA.map(m=>`<td style="text-align:center;padding:10px"><input type="checkbox" ${mods.includes(m)?'checked':''} id="perm-${u.id}-${m}" style="accent-color:#A0684A;width:16px;height:16px;cursor:pointer"/></td>`).join('')}
-                  <td style="padding:10px"><button onclick="guardarPermisos(${u.id})" style="padding:5px 12px;background:var(--brown);color:white;border:none;border-radius:6px;font-size:11px;cursor:pointer">Guardar</button></td>
+                  <td style="padding:10px">
+                    <div style="font-size:13px;font-weight:500">${u.nombre.split(' ')[0]}</div>
+                    <div style="font-size:11px;color:var(--muted)">${u.rol}</div>
+                  </td>
+                  ${MODS_LISTA.map(m=>`<td style="text-align:center;padding:10px"><input type="checkbox" ${mods.includes(m)||esAdmin?'checked':''} ${esAdmin?'disabled':''} id="perm-${u.id}-${m}" style="accent-color:#A0684A;width:16px;height:16px;cursor:pointer"/></td>`).join('')}
+                  <td style="text-align:center;padding:10px">
+                    <input type="checkbox" ${verTodas?'checked':''} ${esAdmin||u.rol==='jefa_ventas'?'disabled':''} id="perm-${u.id}-ver_visitas_todas"
+                      style="accent-color:#A0684A;width:16px;height:16px;cursor:pointer"
+                      title="${u.rol==='jefa_ventas'?'Jefa de ventas siempre tiene acceso':u.rol==='admin'?'Admin siempre tiene acceso':'Permitir ver visitas de otras asesoras'}"/>
+                  </td>
+                  <td style="padding:10px">${esAdmin?'':'<button onclick="guardarPermisos('+u.id+')" style="padding:5px 12px;background:var(--brown);color:white;border:none;border-radius:6px;font-size:11px;cursor:pointer">Guardar</button>'}</td>
                 </tr>`;
               }).join('')}
             </tbody>
           </table>
+        </div>
+        <div style="margin-top:10px;font-size:11px;color:var(--muted);background:#faf9f8;padding:8px 12px;border-radius:6px">
+          <i class="ti ti-info-circle" style="color:var(--brown)"></i> 
+          Giovanna (Jefa de Ventas) y Fernando (Admin) siempre pueden ver las visitas de todas las asesoras.
         </div>
       </div>
     </div>`;
@@ -555,8 +590,8 @@ async function renderConfig(){
 function showConfigTab(tab){
   document.getElementById('cfg-credenciales').style.display=tab==='credenciales'?'block':'none';
   document.getElementById('cfg-permisos').style.display=tab==='permisos'?'block':'none';
-  document.getElementById('cfg-btn-credenciales').style.cssText=`padding:8px 18px;font-size:13px;border-radius:20px;border:none;cursor:pointer;font-weight:500;background:${tab==='credenciales'?'var(--brown)':'white'};color:${tab==='credenciales'?'white':'var(--muted)'}`;
-  document.getElementById('cfg-btn-permisos').style.cssText=`padding:8px 18px;font-size:13px;border-radius:20px;cursor:pointer;font-weight:500;border:0.5px solid var(--border);background:${tab==='permisos'?'var(--brown)':'white'};color:${tab==='permisos'?'white':'var(--muted)'}`;
+  document.getElementById('cfg-btn-credenciales').style.cssText=`flex:1;padding:11px;font-size:13px;font-weight:500;border:none;cursor:pointer;transition:all 0.2s;background:${tab==='credenciales'?'var(--brown)':'white'};color:${tab==='credenciales'?'white':'var(--muted)'}`;
+  document.getElementById('cfg-btn-permisos').style.cssText=`flex:1;padding:11px;font-size:13px;font-weight:500;border:none;cursor:pointer;transition:all 0.2s;background:${tab==='permisos'?'var(--brown)':'white'};color:${tab==='permisos'?'white':'var(--muted)'}`;
 }
 
 async function cambiarClave(id,inputId){
@@ -577,6 +612,8 @@ async function crearUsuario(){
 async function guardarPermisos(id){
   const MODS=['ventas','visitas','kpis','inventario'];
   const mods=MODS.filter(m=>document.getElementById('perm-'+id+'-'+m)?.checked);
+  const verTodas = document.getElementById('perm-'+id+'-ver_visitas_todas')?.checked;
+  if(verTodas) mods.push('ver_visitas_todas');
   try{await fetch('/api/usuarios/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({modulos:mods.join(',')})});alert('Permisos guardados ✓');}catch(e){alert('Error al guardar');}
 }
 async function cargarData(){
@@ -1214,21 +1251,18 @@ document.addEventListener('DOMContentLoaded', function() {
   const usuarioActual = JSON.parse(sessionStorage.getItem('cosetika_usuario') || 'null');
   if (!usuarioActual) { window.location.href = '/login'; return; }
   
-  // Saludo
+  // Saludo en header
   const nombre = usuarioActual.nombre.split(' ')[0];
-  const badge = document.getElementById('badge-periodo');
-  if (badge) badge.innerHTML = `Hola, ${nombre} &nbsp;·&nbsp; Ene–Jun 2026`;
+  const badgeSaludo = document.getElementById('badge-saludo');
+  if (badgeSaludo) {
+    badgeSaludo.textContent = `Hola, ${nombre}`;
+    badgeSaludo.style.display = 'block';
+  }
 
-  // Botón settings
-  const settingsBtn = document.querySelector('.icon-btn');
-  if (settingsBtn) {
-    if (usuarioActual.rol === 'admin') {
-      settingsBtn.title = 'Configuración';
-      settingsBtn.onclick = () => setMod('config');
-    } else {
-      settingsBtn.title = 'Cerrar sesión';
-      settingsBtn.onclick = () => { if(confirm('¿Cerrar sesión?')){ sessionStorage.clear(); window.location.href='/login'; }};
-    }
+  // Botón config solo para admin
+  const btnConfig = document.getElementById('btn-config');
+  if (btnConfig && (usuarioActual.rol === 'admin')) {
+    btnConfig.style.display = 'flex';
   }
 
   // Mostrar módulos según permisos
@@ -1236,7 +1270,7 @@ document.addEventListener('DOMContentLoaded', function() {
   document.querySelectorAll('.mod').forEach(m => {
     const id = m.id.replace('mod-', '');
     if (id === 'config') {
-      m.style.display = usuarioActual.rol === 'admin' ? 'flex' : 'none';
+      m.style.display = 'none'; // Config nunca en barra principal
     } else if (id && !modulos.includes(id)) {
       m.style.display = 'none';
     }
