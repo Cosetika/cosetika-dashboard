@@ -35,7 +35,7 @@ async function sincronizarCatalogo() {
       results.forEach(p => {
         const id     = p.id || '';
         const nombre = (p.nombre || p.descripcion || '').trim();
-        const marca  = (p.marca || p.categoria?.nombre || p.categoria || '').trim().toUpperCase();
+        const marca  = (p.marca_nombre || p.marca || '').trim().toUpperCase();
         const codigo = (p.codigo || p.codigo_principal || '').trim();
         if (id) nuevosCatalogo[id] = { nombre, marca, codigo };
       });
