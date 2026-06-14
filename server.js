@@ -23,7 +23,7 @@ async function sincronizarCatalogo() {
   try {
     console.log('Sincronizando catálogo de productos desde Contifico...');
     let nuevosCatalogo = {};
-    let nextUrl = 'https://api.contifico.com/sistema/api/v2/producto/?page_size=200';
+    let nextUrl = 'https://api.contifico.com/sistema/api/v2/producto/?page_size=100';
     let paginas = 0;
     while (nextUrl && paginas < 50) {
       const resp = await fetch(nextUrl, {
@@ -457,7 +457,7 @@ const server = http.createServer(async (req, res) => {
   // SYNC MANUAL CATÁLOGO — ejecuta sincrónicamente y devuelve resultado detallado
   if (urlPath === '/api/sync-catalogo' && req.method === 'GET') {
     try {
-      const url = 'https://api.contifico.com/sistema/api/v2/producto/?page_size=200';
+      const url = 'https://api.contifico.com/sistema/api/v2/producto/?page_size=100';
       console.log('Probando catálogo URL:', url);
       const resp = await fetch(url, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
       const txt = await resp.text();
