@@ -802,78 +802,223 @@ function renderMarcasSidebar(marcas){
   document.getElementById('marcas-sb').innerHTML=Object.entries(marcas)
     .sort((a,b)=>b[1]-a[1])
     .map(([m,t])=>`
-      <div class="marca-row" onclick="renderProductosPorMarca('${m.replace(/'/g,"\'")}',${t})" style="cursor:pointer;border-radius:6px;padding:2px;transition:background 0.15s" title="Ver productos de ${m}" onmouseover="this.style.background='#f5f0eb'" onmouseout="this.style.background='transparent'">
+      <div class="marca-row" onclick="window._prodMarcaSel='${m}';window._prodTodoAnio=false;window._prodMesFiltro=new Date().getMonth()+1;renderProductosPorMarca()" style="cursor:pointer;border-radius:6px;padding:2px;transition:background 0.15s" title="Ver productos de ${m}" onmouseover="this.style.background='#f5f0eb'" onmouseout="this.style.background='transparent'">
         <div class="marca-hdr"><span class="marca-name" style="color:var(--brown)">${m} <i class="ti ti-chevron-right" style="font-size:9px"></i></span><span class="marca-val">${fmt(t)}</span></div>
         <div class="marca-track"><div class="marca-fill" style="width:${pct(t,maxM)}%;background:var(--brown)"></div></div>
       </div>`).join('');
 }
 
-function renderProductosPorMarca(marca, totalMarca){
-  // Recopilar todos los productos de esa marca, de los clientes visibles
+
+// ─── Diccionario producto → marca (derivado de prefijos en nombre) ─────────────
+const MARCA_PREFIJOS = {
+  'ERAYBA':    ['ABH/'],
+  'BIOSKIN':   ['BSK','BS ','BS1','K10','K12','K15','K16','N10','N12','N15','N18',
+                'DUO-PEEL','ENZYME PEEL','LIFTING','CLEANSING MILK','CALMING MASK',
+                'NORMALISING','NOURISHING CREAM','REFRESHING FACE TONER','SEBUM CONTROL',
+                'SERUM FOR SKIN','SERUM HYDRO','SERUM WITH CERAMIDES','ULTRALIGHT',
+                'VITAMIN C IN SERUM','ANTI-WRINKLE SERUM','ASTRINGENT FACE MASK',
+                'INTENSELY REGENERATING'],
+  'ZIAJA':     ['ACAI BERRY','JAZMÍN','JAZMIN','NIACINAMIDA','MANUKA TREE',
+                'MANTECA DE CACAO','VITAMINA C','PANTALLA SOLAR','ESPUMA FACIAL',
+                'ANTIMANCHAS','MED CONTORNO','CREMA BB','CREMA ANTI-IMP','CREMA DERMO',
+                'DESMAQUILLADOR','LÍNEA','LINEA'],
+  'ZIAJA PRO': ['ZIAJA PRO'],
+};
+
+function detectarMarcaProducto(nombre){
+  const nu = nombre.toUpperCase();
+  for(const [marca, prefijos] of Object.entries(MARCA_PREFIJOS)){
+    for(const p of prefijos){
+      if(nu.startsWith(p.toUpperCase()) || nu.includes(p.toUpperCase())) return marca;
+    }
+  }
+  return null;
+}
+
+// Construir ranking de productos con filtro de marca y período
+// vendedorasScope: array de nombres de vendedoras a incluir (null = todas)
+function buildProductosRanking(marcaFiltro, mesFiltro, todoAnio){
   const vendedoras = vendActual ? [vendActual] : Object.keys(DATA);
-  const productos = {};
+  const productos = {}; // nombre -> {cantidad, total, marcaDetectada}
+
   vendedoras.forEach(v=>{
-    (DATA[v]||[]).forEach(c=>{
-      // Buscar si el cliente tiene productos de esa marca
-      const marcaData = c.marcas.find(m=>m.marca===marca);
-      if(!marcaData) return;
-      // Acumular productos de c.productos (si tiene info de marca, usarla)
-      c.productos.forEach(p=>{
-        if(!p.marca || p.marca===marca || vendedoras.length===1){
-          if(!productos[p.nombre]) productos[p.nombre]={nombre:p.nombre,cantidad:0,total:0};
-          productos[p.nombre].cantidad += p.cantidad||0;
-          productos[p.nombre].total += p.total||0;
-        }
+    (DATA[v]||[]).forEach(cli=>{
+      // Ratio del mes para prorratear montos
+      const ratioMes = todoAnio ? 1 : (cli.total>0
+        ? ((cli.frecuencia.find(f=>f.mes===mesFiltro)||{total:0}).total / cli.total)
+        : 0);
+
+      // ¿Este cliente tiene ventas de la marca filtro?
+      if(marcaFiltro!=='TODAS'){
+        const mCli = cli.marcas.find(m=>m.marca===marcaFiltro);
+        if(!mCli) return; // cliente no compró esa marca → skip
+      }
+
+      cli.productos.forEach(p=>{
+        if(p.nombre==='Transporte') return;
+        const marcaProd = detectarMarcaProducto(p.nombre);
+        // Filtrar por marca si corresponde
+        if(marcaFiltro!=='TODAS' && marcaProd !== marcaFiltro) return;
+
+        const key = p.nombre;
+        if(!productos[key]) productos[key]={nombre:p.nombre, cantidad:0, total:0, marca:marcaProd};
+        // cantidad proporcional al mes
+        const cantMes = todoAnio ? (p.cantidad||0) : Math.round((p.cantidad||0)*ratioMes*10)/10;
+        productos[key].cantidad += cantMes;
+        productos[key].total   += (p.total||0) * ratioMes;
       });
     });
   });
 
-  // Si no hay info de marca por producto, mostrar el ranking general de la marca
-  const lista = Object.values(productos).sort((a,b)=>b.cantidad-a.cantidad);
-  const maxQ = lista[0]?.cantidad||1;
-  const maxT = lista[0]?.total||1;
+  return Object.values(productos).filter(p=>p.cantidad>0).sort((a,b)=>b.cantidad-a.cantidad);
+}
 
-  const breadVend = vendActual ? `<span class="crumb" onclick="renderVendedor('${(vendActual||'').replace(/'/g,"\'")}')"> › ${vendActual}</span>` : '';
-  
+function renderProductosPorMarca(marcaSeleccionada, totalMarcaIn){
+  const anioActual = new Date().getFullYear();
+  // Estado del filtro
+  if(marcaSeleccionada !== undefined) window._prodMarcaSel = marcaSeleccionada;
+  const marcaSel = window._prodMarcaSel || 'TODAS';
+  let prodMesFiltro = window._prodMesFiltro !== undefined ? window._prodMesFiltro : (new Date().getMonth()+1);
+  let prodTodoAnio  = window._prodTodoAnio  !== undefined ? window._prodTodoAnio  : false;
+
+  // Todas las marcas disponibles
+  const todasMarcas = ['TODAS','BIOSKIN','ERAYBA','ZIAJA','ZIAJA PRO'];
+
+  // Calcular total de la marca seleccionada según período
+  function calcTotalMarca(marca, mes, todoAnio){
+    const vendedoras = vendActual ? [vendActual] : Object.keys(DATA);
+    let t=0;
+    vendedoras.forEach(v=>(DATA[v]||[]).forEach(cli=>{
+      if(marca==='TODAS'){
+        if(todoAnio) t+=cli.total;
+        else t+=(cli.frecuencia.find(f=>f.mes===mes)||{total:0}).total;
+      } else {
+        const mCli = cli.marcas.find(m=>m.marca===marca);
+        if(!mCli) return;
+        const ratioMarca = cli.total>0 ? mCli.total/cli.total : 0;
+        const totMes = todoAnio ? cli.total : (cli.frecuencia.find(f=>f.mes===mes)||{total:0}).total;
+        t += totMes*ratioMarca;
+      }
+    }));
+    return t;
+  }
+
+  const lista = buildProductosRanking(marcaSel, prodMesFiltro, prodTodoAnio);
+  const totalMarca = calcTotalMarca(marcaSel, prodMesFiltro, prodTodoAnio);
+  const maxQ = lista[0]?.cantidad||1;
+
+  const MESES_LABELS=['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const etiqueta = prodTodoAnio ? `Todo ${anioActual}` : `${MESES_LABELS[prodMesFiltro]} ${anioActual}`;
+  const mesesOpts=[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>
+    `<option value="m${m}" ${!prodTodoAnio&&prodMesFiltro===m?'selected':''}>${MESES_LABELS[m]} ${anioActual}</option>`
+  ).join('');
+
+  const MARCA_COLORS={'BIOSKIN':'#6366f1','ERAYBA':'#f59e0b','ZIAJA':'#10b981','ZIAJA PRO':'#ec4899','TODAS':'var(--brown)'};
+
   document.getElementById('main').innerHTML=`
-    <div class="breadcrumb" style="margin-bottom:4px">
-      <span class="crumb" onclick="${vendActual?'renderVendedor(\''+vendActual.replace(/'/g,"\'")+'\')':"renderHome()"}"><i class="ti ti-arrow-left" style="font-size:12px"></i> Volver</span>
-      <span> › </span>
-      <span style="font-weight:500">Productos — <span style="color:var(--brown)">${marca}</span></span>
+    <!-- Breadcrumb + volver -->
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+      <div class="breadcrumb" style="margin-bottom:0">
+        <span class="crumb" onclick="${vendActual?'renderVendedor(\''+vendActual.replace(/'/g,"\\'")+'\')':"renderHome()"}">
+          <i class="ti ti-arrow-left" style="font-size:12px"></i> Volver
+        </span>
+        <span> › </span>
+        <span style="font-weight:500">Ranking de productos</span>
+        ${marcaSel!=='TODAS'?`<span> › </span><span style="font-weight:500;color:${MARCA_COLORS[marcaSel]||'var(--brown)'}">${marcaSel}</span>`:''}
+      </div>
     </div>
+
+    <!-- Filtros: marca + período -->
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 14px;background:white;border-radius:10px;border:1px solid var(--border);margin-bottom:12px">
+      <!-- Selector marca -->
+      <span style="font-size:11px;color:var(--muted);font-weight:500">Marca:</span>
+      <div style="display:flex;gap:4px;flex-wrap:wrap">
+        ${todasMarcas.map(m=>`
+          <button onclick="window._prodMarcaSel='${m}';renderProductosPorMarca()"
+            style="padding:5px 10px;font-size:11px;border-radius:20px;cursor:pointer;font-weight:500;border:1px solid ${marcaSel===m?(MARCA_COLORS[m]||'var(--brown)'):'var(--border)'};background:${marcaSel===m?(MARCA_COLORS[m]||'var(--brown)'):'white'};color:${marcaSel===m?'white':'var(--muted)'}">
+            ${m}
+          </button>`).join('')}
+      </div>
+      <span style="color:var(--border);margin:0 4px">|</span>
+      <!-- Selector período -->
+      <span style="font-size:11px;color:var(--muted);font-weight:500">Período:</span>
+      <select onchange="if(this.value==='todo'){window._prodTodoAnio=true;}else{window._prodTodoAnio=false;window._prodMesFiltro=parseInt(this.value.replace('m',''));}renderProductosPorMarca()"
+        style="padding:5px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;outline:none;background:white">
+        <option value="todo" ${prodTodoAnio?'selected':''}>Todo ${anioActual}</option>
+        ${mesesOpts}
+      </select>
+      <span style="font-size:12px;font-weight:600;color:${MARCA_COLORS[marcaSel]||'var(--brown)'}">${etiqueta}</span>
+    </div>
+
+    <!-- KPIs -->
     <div class="kpi-row">
-      <div class="kpi"><div class="kpi-label">Marca</div><div class="kpi-val" style="font-size:14px">${marca}</div><div class="kpi-sub">seleccionada</div></div>
-      <div class="kpi"><div class="kpi-label">Ventas con IVA</div><div class="kpi-val">${fmt(totalMarca)}</div><div class="kpi-sub">total marca</div></div>
-      <div class="kpi"><div class="kpi-label">Ventas sin IVA</div><div class="kpi-val">${fmt(totalMarca/1.12)}</div><div class="kpi-sub">subtotal</div></div>
+      <div class="kpi" style="border-left:3px solid ${MARCA_COLORS[marcaSel]||'var(--brown)'}">
+        <div class="kpi-label">Marca</div>
+        <div class="kpi-val" style="font-size:14px;color:${MARCA_COLORS[marcaSel]||'var(--brown)'}">${marcaSel}</div>
+        <div class="kpi-sub">${etiqueta}</div>
+      </div>
+      <div class="kpi"><div class="kpi-label">Ventas c/IVA</div><div class="kpi-val">${fmt(totalMarca)}</div><div class="kpi-sub">período</div></div>
+      <div class="kpi"><div class="kpi-label">Ventas s/IVA</div><div class="kpi-val">${fmt(totalMarca/1.12)}</div><div class="kpi-sub">subtotal</div></div>
       <div class="kpi"><div class="kpi-label">Productos</div><div class="kpi-val">${lista.length}</div><div class="kpi-sub">distintos</div></div>
     </div>
+
+    <!-- Ranking -->
     <div class="card">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
-        <div class="card-title" style="margin-bottom:0"><i class="ti ti-package"></i> Ranking de productos — ${marca}</div>
+        <div class="card-title" style="margin-bottom:0">
+          <i class="ti ti-package"></i> Ranking de productos
+          ${marcaSel!=='TODAS'?`— <span style="color:${MARCA_COLORS[marcaSel]}">${marcaSel}</span>`:'— Todas las marcas'}
+        </div>
         <div style="display:flex;gap:4px">
-          <button class="sort-btn active-sort" id="sort-p-qty" onclick="sortProductosMarca('qty','${marca.replace(/'/g,"\'")}',${totalMarca})">Mayor cantidad</button>
-          <button class="sort-btn" id="sort-p-total" onclick="sortProductosMarca('total','${marca.replace(/'/g,"\'")}',${totalMarca})">Mayor monto</button>
+          <button class="sort-btn active-sort" id="sort-p-qty" onclick="sortProductosMarca('qty')">Mayor cantidad</button>
+          <button class="sort-btn" id="sort-p-total" onclick="sortProductosMarca('total')">Mayor monto</button>
         </div>
       </div>
       <div id="ranking-productos-lista">
-        ${lista.length===0?'<p style="font-size:13px;color:var(--muted)">Sin detalle de productos disponible para esta marca</p>':
-        lista.map((p,i)=>`
-          <div style="display:flex;align-items:center;gap:8px;padding:7px 6px;border-bottom:0.5px solid var(--border);border-radius:4px;transition:background 0.1s" onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='transparent'">
-            <span style="font-size:11px;color:var(--muted);min-width:18px;text-align:right;font-weight:600">${i+1}</span>
-            <span style="flex:1;font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p.nombre}">${p.nombre}</span>
-            <div style="width:90px;height:10px;background:#f0ede9;border-radius:2px;overflow:hidden;flex-shrink:0">
-              <div style="height:100%;background:var(--brown);border-radius:2px;width:${pct(p.cantidad,maxQ)}%"></div>
-            </div>
-            <span style="font-size:12px;color:var(--muted);min-width:36px;text-align:right">${p.cantidad} ud.</span>
-            <span style="font-size:12px;color:var(--brown);font-weight:600;min-width:75px;text-align:right">${fmt(p.total||0)}</span>
-          </div>`).join('')}
+        ${lista.length===0
+          ? `<p style="font-size:13px;color:var(--muted);padding:10px 0">Sin productos para el filtro seleccionado</p>`
+          : lista.map((p,i)=>{
+              const marcaColor = MARCA_COLORS[p.marca]||'#9ca3af';
+              return `<div style="display:flex;align-items:center;gap:8px;padding:7px 6px;border-bottom:0.5px solid var(--border);border-radius:4px;transition:background 0.1s" onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='transparent'">
+                <span style="font-size:11px;color:var(--muted);min-width:20px;text-align:right;font-weight:600">${i+1}</span>
+                ${p.marca?`<span style="font-size:9px;padding:2px 6px;border-radius:10px;background:${marcaColor}20;color:${marcaColor};font-weight:600;white-space:nowrap;min-width:52px;text-align:center">${p.marca}</span>`:''}
+                <span style="flex:1;font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p.nombre}">${p.nombre}</span>
+                <div style="width:80px;height:8px;background:#f0ede9;border-radius:2px;overflow:hidden;flex-shrink:0">
+                  <div style="height:100%;background:${marcaColor};border-radius:2px;width:${Math.min(Math.round(p.cantidad/maxQ*100),100)}%"></div>
+                </div>
+                <span style="font-size:12px;color:var(--muted);min-width:42px;text-align:right">${p.cantidad%1===0?p.cantidad:p.cantidad.toFixed(1)} ud.</span>
+              </div>`;
+            }).join('')
+        }
       </div>
-    </div>`;
-
-  // Guardar lista para reordenar
+    </div>
+  `;
   window._productosMarcaCache = lista;
-  window._productosMarcaNombre = marca;
-  window._productosMarcaTotal = totalMarca;
+}
+
+function sortProductosMarca(criterio){
+  let lista = (window._productosMarcaCache||[]).slice();
+  if(criterio==='qty') lista.sort((a,b)=>b.cantidad-a.cantidad);
+  else lista.sort((a,b)=>b.total-a.total);
+  window._productosMarcaCache = lista;
+  const maxQ = lista[0]?.cantidad||1;
+  document.querySelectorAll('[id^=sort-p-]').forEach(b=>b.classList.remove('active-sort'));
+  document.getElementById('sort-p-'+criterio)?.classList.add('active-sort');
+  const MARCA_COLORS={'BIOSKIN':'#6366f1','ERAYBA':'#f59e0b','ZIAJA':'#10b981','ZIAJA PRO':'#ec4899','TODAS':'var(--brown)'};
+  document.getElementById('ranking-productos-lista').innerHTML = lista.length===0
+    ? '<p style="font-size:13px;color:var(--muted)">Sin datos</p>'
+    : lista.map((p,i)=>{
+        const marcaColor = MARCA_COLORS[p.marca]||'#9ca3af';
+        return `<div style="display:flex;align-items:center;gap:8px;padding:7px 6px;border-bottom:0.5px solid var(--border);border-radius:4px;transition:background 0.1s" onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='transparent'">
+          <span style="font-size:11px;color:var(--muted);min-width:20px;text-align:right;font-weight:600">${i+1}</span>
+          ${p.marca?`<span style="font-size:9px;padding:2px 6px;border-radius:10px;background:${marcaColor}20;color:${marcaColor};font-weight:600;white-space:nowrap;min-width:52px;text-align:center">${p.marca}</span>`:''}
+          <span style="flex:1;font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p.nombre}">${p.nombre}</span>
+          <div style="width:80px;height:8px;background:#f0ede9;border-radius:2px;overflow:hidden;flex-shrink:0">
+            <div style="height:100%;background:${marcaColor};border-radius:2px;width:${Math.min(Math.round(p.cantidad/maxQ*100),100)}%"></div>
+          </div>
+          <span style="font-size:12px;color:var(--muted);min-width:42px;text-align:right">${p.cantidad%1===0?p.cantidad:p.cantidad.toFixed(1)} ud.</span>
+        </div>`;
+      }).join('');
 }
 
 function sortProductosMarca(criterio, marca, totalMarca){
@@ -1084,7 +1229,7 @@ function renderVentasPanel(){
     <div class="card">
       <div class="card-title"><i class="ti ti-tag"></i> Ventas por marca — <span style="font-size:11px;color:var(--muted)">haz clic para ver productos</span></div>
       ${marcasArr.map(([m,t])=>`
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer;padding:4px 6px;border-radius:6px;transition:background 0.15s" onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='transparent'" onclick="renderProductosPorMarca('${m.replace(/'/g,"\'")}',${t})">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer;padding:4px 6px;border-radius:6px;transition:background 0.15s" onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='transparent'" onclick="window._prodMarcaSel='${m}';window._prodTodoAnio=false;window._prodMesFiltro=new Date().getMonth()+1;renderProductosPorMarca()">
           <span style="font-size:12px;width:110px;min-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--brown)">${m} <i class="ti ti-chevron-right" style="font-size:9px"></i></span>
           <div style="flex:1;height:14px;background:#f0ede9;border-radius:3px;overflow:hidden">
             <div style="height:100%;border-radius:3px;background:#7ab3c4;width:${pct(t,maxMarca)}%;transition:width 0.4s"></div>
