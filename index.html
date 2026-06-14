@@ -190,6 +190,8 @@ function setMod(mod){
     renderConfig();
   } else if(mod==='reportes'){
     renderReportes();
+  } else if(mod==='kpis'){
+    renderKpis();
   } else {
     document.getElementById('main').innerHTML=`
       <div class="coming">
@@ -1811,6 +1813,299 @@ function guardarConfigComisiones(){
   document.getElementById('modal-com-cfg')?.remove();
   renderComisiones();
   alert('✓ Parámetros guardados');
+}
+
+
+// ══════════════════════════════════════════════════════════════════
+// MÓDULO KPIs
+// ══════════════════════════════════════════════════════════════════
+const KPI_KEY = 'cosetika_kpis'; // localStorage: { 'Nombre-2026-06': { casaAbierta:'', clientesBase:N, clientesMes:N } }
+
+function getKpiStore(){ try{ return JSON.parse(localStorage.getItem(KPI_KEY))||{}; }catch(e){ return {}; } }
+function saveKpiStore(s){ localStorage.setItem(KPI_KEY, JSON.stringify(s)); }
+
+function kpiStoreKey(nombre, anio, mes){ return `${nombre}-${anio}-${String(mes).padStart(2,'0')}`; }
+
+function getKpiData(nombre, anio, mes){
+  const store = getKpiStore();
+  const key = kpiStoreKey(nombre, anio, mes);
+  return store[key] || { casaAbierta:'', clientesMes:0, clientesBase:null };
+}
+function saveKpiData(nombre, anio, mes, data){
+  const store = getKpiStore();
+  store[kpiStoreKey(nombre, anio, mes)] = data;
+  saveKpiStore(store);
+}
+
+// Detectar visita a provincia del mes desde visitasDB
+function getVisitaProvinciaDelMes(nombreAsesora, anio, mes){
+  if(!window.visitasDB) return null;
+  return window.visitasDB.find(v=>{
+    if(v.asesora !== nombreAsesora) return false;
+    if(v.tipo !== 'provincia') return false;
+    const d = new Date(v.fecha);
+    return d.getFullYear()===anio && (d.getMonth()+1)===mes;
+  }) || null;
+}
+
+// Contar clientes únicos de un vendedor en un mes dado (desde DATA)
+function clientesEnMes(nombreVend, anio, mes){
+  const clientes = DATA[nombreVend] || [];
+  return clientes.filter(c=> c.frecuencia.some(f=>f.mes===mes && f.total>0)).length;
+}
+
+async function renderKpis(){
+  await cargarVisitas(); // asegura visitasDB cargado
+  const usuario = window.usuarioActual || {};
+  const rol = usuario.rol || '';
+  const nombre = usuario.nombre || '';
+
+  const now = new Date();
+  const anioActual = now.getFullYear();
+  const mesActual = now.getMonth()+1;
+
+  // Admin y jefa ven selector de asesora; asesoras solo su propia
+  const puedeVerTodas = (rol==='admin'||rol==='jefa_ventas');
+  const asesoras = ['Daniela Villegas Chamorro','Liseth Gavilanes','Karen Rebeca Mora','Nicole Yanira Leon','Giovanna Portilla'];
+  let asesoraKpi = window._kpiAsesora || (puedeVerTodas ? asesoras[0] : nombre);
+  window._kpiAsesora = asesoraKpi;
+
+  let mesFiltro = window._kpiMes || mesActual;
+  let anioFiltro = window._kpiAnio || anioActual;
+  window._kpiMes = mesFiltro;
+  window._kpiAnio = anioFiltro;
+
+  // Datos guardados del mes
+  let kpiData = getKpiData(asesoraKpi, anioFiltro, mesFiltro);
+
+  // Comisión del mes (reutilizando lógica de renderComisiones)
+  const cfg = getComisionCfg();
+  function ventasMesKpi(nombreVend, mes){
+    const clientes = DATA[nombreVend] || [];
+    let conIva=0, sinIva=0;
+    clientes.forEach(c=>{
+      const f=c.frecuencia.find(x=>x.mes===mes);
+      if(f){ conIva+=f.total||0; sinIva+=f.subtotal||(f.total/1.12)||0; }
+    });
+    return {conIva, sinIva};
+  }
+
+  const vAsesora = ventasMesKpi(asesoraKpi, mesFiltro);
+  let comision = 0;
+  const cfgAse = cfg.asesoras[asesoraKpi];
+  if(cfgAse){
+    const base = Math.max(0, vAsesora.sinIva - cfgAse.minimo);
+    comision = base * (cfgAse.pct/100);
+  } else if(asesoraKpi.includes('Giovanna')){
+    const equipoNombres = Object.keys(cfg.asesoras);
+    const totalEquipo = equipoNombres.reduce((a,n)=>{ const v=ventasMesKpi(n,mesFiltro); return a+v.sinIva; },0);
+    comision = (vAsesora.sinIva + totalEquipo) * (cfg.giovanna.pct_equipo/100);
+  }
+
+  // Visita a provincia
+  const visitaProv = getVisitaProvinciaDelMes(asesoraKpi, anioFiltro, mesFiltro);
+
+  // Clientes nuevos del mes
+  const clientesActuales = clientesEnMes(asesoraKpi, anioFiltro, mesFiltro);
+  // clientesBase = clientes a fin del mes anterior (guardado manualmente o calculado)
+  const mesAnterior = mesFiltro===1 ? 12 : mesFiltro-1;
+  const anioAnterior = mesFiltro===1 ? anioFiltro-1 : anioFiltro;
+  const kpiAnterior = getKpiData(asesoraKpi, anioAnterior, mesAnterior);
+  const clientesBase = kpiData.clientesBase !== null ? kpiData.clientesBase : (kpiAnterior.clientesCierre || 0);
+  const clientesNuevos = Math.max(0, clientesActuales - clientesBase);
+  const META_CLIENTES = 16;
+
+  // Meses disponibles para historial
+  const mesesOpts = [];
+  for(let y=anioActual; y>=anioActual-1; y--){
+    for(let m=12; m>=1; m--){
+      if(y===anioActual && m>mesActual) continue;
+      mesesOpts.push({y,m});
+    }
+  }
+  const MESES_N=['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+
+  // Selectores
+  const selectorAsesora = puedeVerTodas ? `
+    <select id="kpi-asesora-sel" onchange="window._kpiAsesora=this.value;renderKpis()"
+      style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;outline:none;background:white">
+      ${asesoras.map(a=>`<option value="${a}" ${a===asesoraKpi?'selected':''}>${a.split(' ')[0]} ${a.split(' ')[1]||''}</option>`).join('')}
+    </select>` : `<span style="font-size:13px;font-weight:500;color:var(--brown)">${asesoraKpi.split(' ')[0]}</span>`;
+
+  const selectorMes = `
+    <select id="kpi-mes-sel" onchange="window._kpiMes=parseInt(this.value.split('-')[1]);window._kpiAnio=parseInt(this.value.split('-')[0]);renderKpis()"
+      style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;outline:none;background:white">
+      ${mesesOpts.map(({y,m})=>`<option value="${y}-${m}" ${y===anioFiltro&&m===mesFiltro?'selected':''}>${MESES_N[m]} ${y}</option>`).join('')}
+    </select>`;
+
+  const esMesActual = (mesFiltro===mesActual && anioFiltro===anioActual);
+
+  document.getElementById('main').innerHTML=`
+    <!-- Cabecera con filtros -->
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 14px;background:white;border-radius:10px;border:1px solid var(--border);margin-bottom:14px">
+      <i class="ti ti-trending-up" style="color:var(--brown);font-size:16px"></i>
+      <span style="font-size:13px;font-weight:600">KPIs</span>
+      <span style="color:var(--border)">|</span>
+      ${selectorAsesora}
+      <span style="color:var(--border)">|</span>
+      ${selectorMes}
+      ${!esMesActual?`<span style="font-size:11px;padding:3px 8px;background:#fef9c3;color:#854d0e;border-radius:20px;border:1px solid #fde047">Historial</span>`:''}
+    </div>
+
+    <!-- Comisiones del mes -->
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-title" style="margin-bottom:12px"><i class="ti ti-coin"></i> Comisión generada — ${MESES_N[mesFiltro]} ${anioFiltro}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div style="background:#faf9f8;border-radius:10px;padding:14px;text-align:center;border:1px solid var(--border)">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">Ventas sin IVA</div>
+          <div style="font-size:22px;font-weight:700;color:var(--text)">${fmt(vAsesora.sinIva)}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">Con IVA: ${fmt(vAsesora.conIva)}</div>
+        </div>
+        <div style="background:${comision>0?'#f0fdf4':'#faf9f8'};border-radius:10px;padding:14px;text-align:center;border:1px solid ${comision>0?'#86efac':'var(--border)'}">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">Comisión generada</div>
+          <div style="font-size:22px;font-weight:700;color:${comision>0?'#166534':'var(--muted)'}">${fmt(comision)}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">${cfgAse?`${cfgAse.pct}% s/ventas > ${fmt(cfgAse.minimo)}`:'1.75% equipo+propio'}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Clientes nuevos -->
+    <div class="card" style="margin-bottom:12px">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+        <div class="card-title" style="margin-bottom:0"><i class="ti ti-user-plus"></i> Clientes nuevos — ${MESES_N[mesFiltro]} ${anioFiltro}</div>
+        ${esMesActual?`<button onclick="editarClientesBase('${asesoraKpi}',${anioFiltro},${mesFiltro},${clientesBase})" style="padding:5px 10px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:white;color:var(--muted);cursor:pointer"><i class="ti ti-pencil"></i> Editar base</button>`:''}
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+        <div style="background:#faf9f8;border-radius:10px;padding:12px;text-align:center;border:1px solid var(--border)">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">Base mes anterior</div>
+          <div style="font-size:20px;font-weight:700;color:var(--text)">${clientesBase}</div>
+          <div style="font-size:10px;color:var(--muted)">clientes al cierre</div>
+        </div>
+        <div style="background:#faf9f8;border-radius:10px;padding:12px;text-align:center;border:1px solid var(--border)">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">Clientes actuales</div>
+          <div style="font-size:20px;font-weight:700;color:var(--text)">${clientesActuales}</div>
+          <div style="font-size:10px;color:var(--muted)">este mes</div>
+        </div>
+        <div style="background:${clientesNuevos>=META_CLIENTES?'#f0fdf4':clientesNuevos>0?'#fef9c3':'#fef2f2'};border-radius:10px;padding:12px;text-align:center;border:1px solid ${clientesNuevos>=META_CLIENTES?'#86efac':clientesNuevos>0?'#fde047':'#fca5a5'}">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">Clientes nuevos</div>
+          <div style="font-size:26px;font-weight:800;color:${clientesNuevos>=META_CLIENTES?'#166534':clientesNuevos>0?'#854d0e':'#991b1b'}">${clientesNuevos}</div>
+          <div style="font-size:10px;color:var(--muted)">meta: ${META_CLIENTES} · ${clientesNuevos>=META_CLIENTES?'✅ cumplida':'⚠️ pendiente'}</div>
+        </div>
+      </div>
+      <!-- Barra de progreso -->
+      <div style="margin-top:12px">
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:4px">
+          <span>Progreso hacia meta (${META_CLIENTES} clientes)</span>
+          <span style="font-weight:600;color:${clientesNuevos>=META_CLIENTES?'#166534':'#991b1b'}">${Math.round(clientesNuevos/META_CLIENTES*100)}%</span>
+        </div>
+        <div style="height:8px;background:#f0ede9;border-radius:4px;overflow:hidden">
+          <div style="height:100%;border-radius:4px;background:${clientesNuevos>=META_CLIENTES?'#22c55e':'#ef4444'};width:${Math.min(clientesNuevos/META_CLIENTES*100,100)}%;transition:width 0.5s"></div>
+        </div>
+      </div>
+      ${esMesActual?`
+      <div style="margin-top:10px;display:flex;justify-content:flex-end">
+        <button onclick="cerrarMesClientes('${asesoraKpi}',${anioFiltro},${mesFiltro},${clientesActuales})"
+          style="padding:5px 12px;font-size:11px;border:1px solid var(--brown);background:rgba(160,104,74,0.1);color:var(--brown);border-radius:6px;cursor:pointer">
+          <i class="ti ti-lock"></i> Cerrar mes (guardar ${clientesActuales} como base)
+        </button>
+      </div>`:''}
+    </div>
+
+    <!-- Compromisos del mes -->
+    <div class="card">
+      <div class="card-title" style="margin-bottom:12px"><i class="ti ti-checklist"></i> Compromisos del mes — ${MESES_N[mesFiltro]} ${anioFiltro}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+
+        <!-- Visita a Provincia -->
+        <div style="border-radius:10px;padding:14px;border:2px solid ${visitaProv?'#86efac':'#fca5a5'};background:${visitaProv?'#f0fdf4':'#fef2f2'}">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+            <div style="width:28px;height:28px;border-radius:50%;background:${visitaProv?'#22c55e':'#ef4444'};display:flex;align-items:center;justify-content:center;flex-shrink:0">
+              <i class="ti ti-${visitaProv?'check':'x'}" style="color:white;font-size:14px"></i>
+            </div>
+            <span style="font-size:13px;font-weight:600;color:${visitaProv?'#166534':'#991b1b'}">Visita a Provincia</span>
+          </div>
+          ${visitaProv
+            ? `<div style="font-size:12px;color:#166534;font-weight:500">✅ ${visitaProv.lugar}</div>
+               <div style="font-size:11px;color:var(--muted);margin-top:2px">${new Date(visitaProv.fecha).toLocaleDateString('es-EC',{day:'2-digit',month:'long'})}</div>`
+            : `<div style="font-size:12px;color:#991b1b">Sin visita registrada</div>
+               <div style="font-size:11px;color:var(--muted);margin-top:4px">Se marcará automáticamente cuando registres una visita a provincia en el módulo Visitas</div>`
+          }
+        </div>
+
+        <!-- Casa Abierta -->
+        <div style="border-radius:10px;padding:14px;border:2px solid ${kpiData.casaAbierta?'#86efac':'#fca5a5'};background:${kpiData.casaAbierta?'#f0fdf4':'#fef2f2'}">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+            <div style="width:28px;height:28px;border-radius:50%;background:${kpiData.casaAbierta?'#22c55e':'#ef4444'};display:flex;align-items:center;justify-content:center;flex-shrink:0">
+              <i class="ti ti-${kpiData.casaAbierta?'check':'x'}" style="color:white;font-size:14px"></i>
+            </div>
+            <span style="font-size:13px;font-weight:600;color:${kpiData.casaAbierta?'#166534':'#991b1b'}">Casa Abierta</span>
+          </div>
+          ${kpiData.casaAbierta
+            ? `<div style="font-size:12px;color:#166534;font-weight:500">✅ ${kpiData.casaAbierta}</div>
+               ${esMesActual?`<button onclick="editarCasaAbierta('${asesoraKpi}',${anioFiltro},${mesFiltro})" style="margin-top:6px;padding:3px 8px;font-size:10px;border:1px solid #86efac;border-radius:5px;background:white;color:#166534;cursor:pointer">Editar</button>`:''}`
+            : `<div style="font-size:12px;color:#991b1b">Sin registrar</div>
+               ${esMesActual?`<div style="margin-top:8px">
+                 <input type="text" id="casa-abierta-input" placeholder="Nombre de la estética..." 
+                   style="width:100%;padding:6px 8px;border:1px solid #fca5a5;border-radius:6px;font-size:12px;outline:none;background:white"/>
+                 <button onclick="guardarCasaAbierta('${asesoraKpi}',${anioFiltro},${mesFiltro})"
+                   style="margin-top:6px;width:100%;padding:6px;font-size:12px;background:#ef4444;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:500">
+                   Registrar casa abierta
+                 </button>
+               </div>`:''}`
+          }
+        </div>
+      </div>
+
+      <!-- Resumen semáforo -->
+      <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
+        <div style="font-size:11px;color:var(--muted)">Resumen:</div>
+        <span style="font-size:11px;padding:2px 10px;border-radius:20px;background:${visitaProv?'#dcfce7':'#fee2e2'};color:${visitaProv?'#166534':'#991b1b'};font-weight:500">${visitaProv?'✓':'✗'} Visita provincia</span>
+        <span style="font-size:11px;padding:2px 10px;border-radius:20px;background:${kpiData.casaAbierta?'#dcfce7':'#fee2e2'};color:${kpiData.casaAbierta?'#166534':'#991b1b'};font-weight:500">${kpiData.casaAbierta?'✓':'✗'} Casa abierta</span>
+        <span style="font-size:11px;padding:2px 10px;border-radius:20px;background:${clientesNuevos>=META_CLIENTES?'#dcfce7':'#fee2e2'};color:${clientesNuevos>=META_CLIENTES?'#166534':'#991b1b'};font-weight:500">${clientesNuevos>=META_CLIENTES?'✓':'✗'} Clientes nuevos</span>
+      </div>
+    </div>
+  `;
+}
+
+function guardarCasaAbierta(nombre, anio, mes){
+  const input = document.getElementById('casa-abierta-input');
+  const val = input ? input.value.trim() : '';
+  if(!val){ alert('Por favor ingresa el nombre de la estética'); return; }
+  const data = getKpiData(nombre, anio, mes);
+  data.casaAbierta = val;
+  saveKpiData(nombre, anio, mes, data);
+  renderKpis();
+}
+
+function editarCasaAbierta(nombre, anio, mes){
+  const data = getKpiData(nombre, anio, mes);
+  const nuevo = prompt('Editar Casa Abierta:', data.casaAbierta||'');
+  if(nuevo !== null){ data.casaAbierta = nuevo.trim(); saveKpiData(nombre, anio, mes, data); renderKpis(); }
+}
+
+function editarClientesBase(nombre, anio, mes, baseActual){
+  const nuevo = prompt(`Base de clientes (fin del mes anterior):`, baseActual);
+  if(nuevo !== null && !isNaN(nuevo)){
+    const data = getKpiData(nombre, anio, mes);
+    data.clientesBase = parseInt(nuevo);
+    saveKpiData(nombre, anio, mes, data);
+    renderKpis();
+  }
+}
+
+function cerrarMesClientes(nombre, anio, mes, totalActual){
+  if(!confirm(`¿Cerrar mes con ${totalActual} clientes? Este valor será la base para el mes siguiente.`)) return;
+  const data = getKpiData(nombre, anio, mes);
+  data.clientesCierre = totalActual;
+  saveKpiData(nombre, anio, mes, data);
+  // Guardar como base del mes siguiente
+  const mesSig = mes===12?1:mes+1;
+  const anioSig = mes===12?anio+1:anio;
+  const dataSig = getKpiData(nombre, anioSig, mesSig);
+  dataSig.clientesBase = totalActual;
+  saveKpiData(nombre, anioSig, mesSig, dataSig);
+  alert(`✓ Mes cerrado. Base para ${['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'][mesSig]} establecida en ${totalActual}`);
+  renderKpis();
 }
 
 </script>
