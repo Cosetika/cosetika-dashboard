@@ -601,6 +601,9 @@ async function guardarPermisos(id){
 async function cargarData(){
   document.getElementById('main').innerHTML='<div class="loader"><i class="ti ti-refresh"></i><p>Cargando data...</p></div>';
   try{
+    // Cargar catálogo de productos con marcas desde Contifico
+    await cargarCatalogo();
+
     const r=await fetch('/data.json');
     DATA=await r.json();
     EXCLUIR.forEach(e=>delete DATA[e]);
@@ -810,27 +813,34 @@ function renderMarcasSidebar(marcas){
 
 
 // ─── Diccionario producto → marca (derivado de prefijos en nombre) ─────────────
-const MARCA_PREFIJOS = {
-  'ERAYBA':    ['ABH/'],
-  'BIOSKIN':   ['BSK','BS ','BS1','K10','K12','K15','K16','N10','N12','N15','N18',
-                'DUO-PEEL','ENZYME PEEL','LIFTING','CLEANSING MILK','CALMING MASK',
-                'NORMALISING','NOURISHING CREAM','REFRESHING FACE TONER','SEBUM CONTROL',
-                'SERUM FOR SKIN','SERUM HYDRO','SERUM WITH CERAMIDES','ULTRALIGHT',
-                'VITAMIN C IN SERUM','ANTI-WRINKLE SERUM','ASTRINGENT FACE MASK',
-                'INTENSELY REGENERATING'],
-  'ZIAJA':     ['ACAI BERRY','JAZMÍN','JAZMIN','NIACINAMIDA','MANUKA TREE',
-                'MANTECA DE CACAO','VITAMINA C','PANTALLA SOLAR','ESPUMA FACIAL',
-                'ANTIMANCHAS','MED CONTORNO','CREMA BB','CREMA ANTI-IMP','CREMA DERMO',
-                'DESMAQUILLADOR','LÍNEA','LINEA'],
-  'ZIAJA PRO': ['ZIAJA PRO'],
-};
+// ─── CATÁLOGO DE PRODUCTOS DESDE CONTIFICO ───────────────────────────────────
+// Se carga dinámicamente desde /api/productos-catalogo al iniciar
+// { 'NOMBRE PRODUCTO': 'MARCA' }
+let PRODUCTO_MARCA = {};
+
+async function cargarCatalogo(){
+  try {
+    const r = await fetch('/api/productos-catalogo');
+    const data = await r.json();
+    if(data.productos && Object.keys(data.productos).length > 0){
+      PRODUCTO_MARCA = data.productos;
+      console.log(`Catálogo cargado: ${Object.keys(PRODUCTO_MARCA).length} productos`);
+    } else {
+      console.log('Catálogo vacío desde API, usando diccionario local');
+    }
+  } catch(e) {
+    console.log('No se pudo cargar catálogo:', e.message);
+  }
+}
 
 function detectarMarcaProducto(nombre){
-  const nu = nombre.toUpperCase();
-  for(const [marca, prefijos] of Object.entries(MARCA_PREFIJOS)){
-    for(const p of prefijos){
-      if(nu.startsWith(p.toUpperCase()) || nu.includes(p.toUpperCase())) return marca;
-    }
+  if(!nombre) return null;
+  // Lookup exacto
+  if(PRODUCTO_MARCA[nombre]) return PRODUCTO_MARCA[nombre];
+  // Lookup case-insensitive
+  const nu = nombre.trim().toUpperCase();
+  for(const [prod, marca] of Object.entries(PRODUCTO_MARCA)){
+    if(prod.toUpperCase()===nu) return marca;
   }
   return null;
 }
@@ -867,7 +877,7 @@ function buildProductosRanking(marcaFiltro, mesFiltro, todoAnio){
   });
 
   return Object.values(productos)
-    .map(p=>({...p, cantidad:Math.round(p.cantidad*10)/10}))
+    .map(p=>({...p, cantidad:Math.round(p.cantidad)}))
     .filter(p=>p.cantidad>0)
     .sort((a,b)=>b.cantidad-a.cantidad);
 }
@@ -881,7 +891,9 @@ function renderProductosPorMarca(marcaSeleccionada, totalMarcaIn){
   let prodTodoAnio  = window._prodTodoAnio  !== undefined ? window._prodTodoAnio  : false;
 
   // Todas las marcas disponibles
-  const todasMarcas = ['TODAS','BIOSKIN','ERAYBA','ZIAJA','ZIAJA PRO'];
+  // Marcas disponibles dinámicamente desde el catálogo cargado
+  const marcasEnCatalogo = [...new Set(Object.values(PRODUCTO_MARCA))].sort();
+  const todasMarcas = ['TODAS', ...marcasEnCatalogo];
 
   // Calcular total de la marca seleccionada según período
   function calcTotalMarca(marca, mes, todoAnio){
@@ -977,7 +989,7 @@ function renderProductosPorMarca(marcaSeleccionada, totalMarcaIn){
           ? `<p style="font-size:13px;color:var(--muted);padding:10px 0">Sin productos para este filtro</p>`
           : lista.map((p,i)=>{
               const marcaColor = MARCA_COLORS[p.marca]||'#9ca3af';
-              const cantDisplay = Number.isInteger(p.cantidad) ? p.cantidad : p.cantidad.toFixed(1);
+              const cantDisplay = Math.round(p.cantidad);
               const pctBar = Math.min(Math.round(p.cantidad/maxQ*100),100);
               return `<div style="display:flex;align-items:center;gap:8px;padding:8px 6px;border-bottom:0.5px solid var(--border);transition:background 0.1s" onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='transparent'">
                 <span style="font-size:11px;color:var(--muted);min-width:22px;text-align:right;font-weight:700">${i+1}</span>
@@ -1010,7 +1022,7 @@ function sortProductosMarca(criterio){
     ? '<p style="font-size:13px;color:var(--muted)">Sin datos</p>'
     : lista.map((p,i)=>{
         const mc=MC[p.marca]||'#9ca3af';
-        const cd=Number.isInteger(p.cantidad)?p.cantidad:p.cantidad.toFixed(1);
+        const cd=Math.round(p.cantidad);
         const pb=Math.min(Math.round(p.cantidad/maxQ*100),100);
         return `<div style="display:flex;align-items:center;gap:8px;padding:8px 6px;border-bottom:0.5px solid var(--border);transition:background 0.1s" onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='transparent'">
           <span style="font-size:11px;color:var(--muted);min-width:22px;text-align:right;font-weight:700">${i+1}</span>

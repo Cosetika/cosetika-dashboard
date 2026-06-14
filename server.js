@@ -14,6 +14,50 @@ const pool = new Pool({
 // ─── CACHÉ v2 ────────────────────────────────────────────────
 let cache = { documentos: [], ultima_sync: null, sincronizando: false };
 
+// ─── CACHÉ CATÁLOGO PRODUCTOS ─────────────────────────────────
+// { 'NOMBRE PRODUCTO': 'MARCA', ... }
+let catalogoProductos = {};
+let catalogoSyncedAt = null;
+
+async function sincronizarCatalogo() {
+  try {
+    console.log('Sincronizando catálogo de productos...');
+    let productos = {};
+    let nextUrl = 'https://api.contifico.com/sistema/api/v1/producto/?page_size=200&estado=A';
+    let paginas = 0;
+    while (nextUrl && paginas < 50) {
+      const resp = await fetch(nextUrl, {
+        headers: { 'Authorization': API_KEY, 'Accept': 'application/json' }
+      });
+      if (!resp.ok) { console.error('Error catálogo:', resp.status); break; }
+      const data = await resp.json();
+      const results = data.results || data || [];
+      results.forEach(p => {
+        // Contifico devuelve: nombre, categoria (= marca), codigo, etc.
+        const nombre = (p.nombre || p.descripcion || '').trim();
+        const marca  = (p.categoria?.nombre || p.categoria || p.marca || '').trim().toUpperCase();
+        if (nombre && marca) productos[nombre] = marca;
+      });
+      nextUrl = data.next || null;
+      paginas++;
+      console.log(`Catálogo página ${paginas}: ${results.length} productos, total: ${Object.keys(productos).length}`);
+    }
+    if (Object.keys(productos).length > 0) {
+      catalogoProductos = productos;
+      catalogoSyncedAt = new Date().toISOString();
+      console.log(`✓ Catálogo sincronizado: ${Object.keys(catalogoProductos).length} productos`);
+    } else {
+      console.log('Catálogo vacío — revisar endpoint de productos Contifico');
+    }
+  } catch(e) {
+    console.error('Error sincronizando catálogo:', e.message);
+  }
+}
+
+// Sincronizar catálogo al arrancar y cada 24 horas
+sincronizarCatalogo().catch(e => console.error('Error catálogo inicial:', e.message));
+setInterval(() => sincronizarCatalogo().catch(e => console.error('Error catálogo:', e.message)), 24 * 60 * 60 * 1000);
+
 function fmtDateEC(d) {
   const dd = String(d.getDate()).padStart(2,'0');
   const mm = String(d.getMonth()+1).padStart(2,'0');
@@ -209,6 +253,25 @@ const server = http.createServer(async (req, res) => {
     sincronizarHoy().catch(e => console.error(e));
     res.writeHead(200,{'Content-Type':'application/json'});
     res.end(JSON.stringify({msg:'Sync iniciado', ultima_sync: cache.ultima_sync}));
+    return;
+  }
+
+  // CATÁLOGO DE PRODUCTOS CON MARCAS
+  if (urlPath === '/api/productos-catalogo' && req.method === 'GET') {
+    res.writeHead(200, {'Content-Type':'application/json'});
+    res.end(JSON.stringify({
+      productos: catalogoProductos,
+      total: Object.keys(catalogoProductos).length,
+      synced_at: catalogoSyncedAt
+    }));
+    return;
+  }
+
+  // SYNC MANUAL CATÁLOGO
+  if (urlPath === '/api/sync-catalogo' && req.method === 'GET') {
+    sincronizarCatalogo().catch(e => console.error(e));
+    res.writeHead(200, {'Content-Type':'application/json'});
+    res.end(JSON.stringify({msg:'Sync catálogo iniciado', synced_at: catalogoSyncedAt}));
     return;
   }
 
