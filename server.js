@@ -21,36 +21,37 @@ let catalogoSyncedAt = null;
 
 async function sincronizarCatalogo() {
   try {
-    console.log('Sincronizando catálogo de productos...');
-    let productos = {};
-    let nextUrl = 'https://api.contifico.com/sistema/api/v1/producto/?page_size=200&estado=A';
+    console.log('Sincronizando catálogo de productos desde Contifico...');
+    let nuevosCatalogo = {};
+    let nextUrl = 'https://api.contifico.com/sistema/api/v1/producto/?page_size=200';
     let paginas = 0;
     while (nextUrl && paginas < 50) {
       const resp = await fetch(nextUrl, {
         headers: { 'Authorization': API_KEY, 'Accept': 'application/json' }
       });
-      if (!resp.ok) { console.error('Error catálogo:', resp.status); break; }
+      if (!resp.ok) { console.error('Error catálogo HTTP:', resp.status); break; }
       const data = await resp.json();
-      const results = data.results || data || [];
+      const results = data.results || [];
       results.forEach(p => {
-        // Contifico devuelve: nombre, categoria (= marca), codigo, etc.
+        const id     = p.id || '';
         const nombre = (p.nombre || p.descripcion || '').trim();
         const marca  = (p.marca || p.categoria?.nombre || p.categoria || '').trim().toUpperCase();
-        if (nombre && marca) productos[nombre] = marca;
+        const codigo = (p.codigo || p.codigo_principal || '').trim();
+        if (id) nuevosCatalogo[id] = { nombre, marca, codigo };
       });
       nextUrl = data.next || null;
       paginas++;
-      console.log(`Catálogo página ${paginas}: ${results.length} productos, total: ${Object.keys(productos).length}`);
+      console.log(`Catálogo pág ${paginas}: ${results.length} prods, total: ${Object.keys(nuevosCatalogo).length}`);
     }
-    if (Object.keys(productos).length > 0) {
-      catalogoProductos = productos;
+    if (Object.keys(nuevosCatalogo).length > 0) {
+      catalogoProductos = nuevosCatalogo;
       catalogoSyncedAt = new Date().toISOString();
-      console.log(`✓ Catálogo sincronizado: ${Object.keys(catalogoProductos).length} productos`);
+      console.log(`✓ Catálogo: ${Object.keys(catalogoProductos).length} productos con marcas`);
     } else {
-      console.log('Catálogo vacío — revisar endpoint de productos Contifico');
+      console.warn('Catálogo vacío — verificar endpoint /api/v1/producto/');
     }
   } catch(e) {
-    console.error('Error sincronizando catálogo:', e.message);
+    console.error('Error catálogo:', e.message);
   }
 }
 
@@ -100,6 +101,185 @@ async function sincronizarHoy() {
 
 sincronizarHoy().catch(e => console.error('Error sync inicial:', e.message));
 setInterval(() => sincronizarHoy().catch(e => console.error('Error sync:', e.message)), 60 * 60 * 1000);
+
+
+// ─── GENERADOR DATA.JSON DESDE CONTIFICO ─────────────────────
+// Usa producto_id y cliente.id como claves únicas → sin duplicados
+// aunque cambien los nombres en Contifico
+
+const EXCLUIR_VENDEDORES = ['Fernando Espíndola', 'Fernando Espindola'];
+
+async function generarDataJson(fechaInicial, fechaFinal) {
+  console.log(`Generando data.json: ${fechaInicial} → ${fechaFinal}`);
+  // Estructura: { vendedor_id: { nombre, clientes: { cliente_id: {...} } } }
+  const vendedores = {};
+
+  let nextUrl = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${fechaInicial}&fecha_final=${fechaFinal}&page_size=100`;
+  let paginas = 0;
+
+  while (nextUrl && paginas < 200) {
+    const resp = await fetch(nextUrl, {
+      headers: { 'Authorization': API_KEY, 'Accept': 'application/json' }
+    });
+    if (!resp.ok) { console.error('Error generarData HTTP:', resp.status); break; }
+    const data = await resp.json();
+    const docs = (data.results || []).filter(d =>
+      d.tipo_registro === 'CLI' &&
+      !d.anulado &&
+      d.vendedor &&
+      !EXCLUIR_VENDEDORES.includes(d.vendedor.razon_social)
+    );
+
+    docs.forEach(doc => {
+      const vendId   = doc.vendedor.id;
+      const vendNom  = doc.vendedor.razon_social;
+      const cliId    = doc.cliente?.id || doc.persona_id;
+      const cliNom   = doc.cliente?.razon_social || doc.cliente?.nombre_comercial || '—';
+      const cliRuc   = doc.cliente?.ruc || doc.cliente?.cedula || '';
+      const cliProv  = doc.cliente?.adicional1_cliente || '';
+      const mes      = parseInt((doc.fecha_emision || '').split('/')[1]) || 0;
+      const totalDoc = parseFloat(doc.total || 0);
+      const subDoc   = parseFloat(doc.subtotal || doc.subtotal_12 || 0);
+
+      if (!cliId || totalDoc === 0) return;
+
+      // Inicializar vendedor
+      if (!vendedores[vendId]) vendedores[vendId] = { nombre: vendNom, clientes: {} };
+      // Actualizar nombre por si cambió en Contifico
+      vendedores[vendId].nombre = vendNom;
+
+      // Inicializar cliente
+      const vObj = vendedores[vendId].clientes;
+      if (!vObj[cliId]) {
+        vObj[cliId] = {
+          id:         cliId,
+          nombre:     cliNom,
+          ruc:        cliRuc,
+          total:      0,
+          subtotal:   0,
+          num_compras:0,
+          provincia:  cliProv,
+          marcas:     {},   // { marca: total }
+          productos:  {},   // { producto_id: { nombre, codigo, marca, cantidad, total } }
+          frecuencia: {}    // { mes: { total, subtotal, compras } }
+        };
+      }
+      const cli = vObj[cliId];
+      // Actualizar nombre por si cambió
+      cli.nombre   = cliNom;
+      cli.ruc      = cliRuc;
+      cli.total    += totalDoc;
+      cli.subtotal += subDoc;
+      cli.num_compras++;
+
+      // Frecuencia por mes
+      if (!cli.frecuencia[mes]) cli.frecuencia[mes] = { total:0, subtotal:0, compras:0 };
+      cli.frecuencia[mes].total    += totalDoc;
+      cli.frecuencia[mes].subtotal += subDoc;
+      cli.frecuencia[mes].compras++;
+
+      // Productos y marcas del documento
+      (doc.detalles || []).forEach(det => {
+        const prodId   = det.producto_id || '';
+        const prodNom  = det.producto_nombre || '';
+        const cantidad = parseFloat(det.cantidad || 0);
+        const base     = parseFloat(det.base_gravable || det.base_cero || 0);
+        const pctDesc  = parseFloat(det.porcentaje_descuento || 0);
+        if (!prodId || cantidad === 0 || base === 0) return;
+
+        // Buscar en catálogo por producto_id
+        const cat   = catalogoProductos[prodId] || {};
+        const marca = cat.marca || '';
+        const cod   = cat.codigo || '';
+        const nom   = cat.nombre || prodNom; // nombre actualizado desde catálogo
+
+        // Acumular producto
+        if (!cli.productos[prodId]) {
+          cli.productos[prodId] = { id: prodId, nombre: nom, codigo: cod, marca, cantidad: 0, total: 0 };
+        }
+        cli.productos[prodId].nombre   = nom; // siempre actualizar nombre
+        cli.productos[prodId].cantidad += cantidad;
+        cli.productos[prodId].total    += base;
+
+        // Acumular marca
+        if (marca) {
+          cli.marcas[marca] = (cli.marcas[marca] || 0) + base;
+        }
+      });
+    });
+
+    nextUrl = data.next || null;
+    paginas++;
+    if (paginas % 10 === 0) console.log(`  Página ${paginas}, docs procesados...`);
+  }
+
+  // Convertir a formato compatible con el dashboard existente
+  const resultado = {};
+  Object.values(vendedores).forEach(vend => {
+    const clientes = Object.values(vend.clientes).map(cli => ({
+      id:          cli.id,
+      nombre:      cli.nombre,
+      ruc:         cli.ruc,
+      total:       Math.round(cli.total * 100) / 100,
+      subtotal:    Math.round(cli.subtotal * 100) / 100,
+      num_compras: cli.num_compras,
+      provincia:   cli.provincia,
+      marcas:      Object.entries(cli.marcas).map(([marca, total]) => ({
+        marca, total: Math.round(total * 100) / 100
+      })).sort((a,b) => b.total - a.total),
+      productos:   Object.values(cli.productos).map(p => ({
+        id:       p.id,
+        nombre:   p.nombre,
+        codigo:   p.codigo,
+        marca:    p.marca,
+        cantidad: Math.round(p.cantidad),
+        total:    Math.round(p.total * 100) / 100
+      })).sort((a,b) => b.cantidad - a.cantidad),
+      frecuencia:  Object.entries(cli.frecuencia).map(([mes, f]) => ({
+        mes:      parseInt(mes),
+        total:    Math.round(f.total * 100) / 100,
+        subtotal: Math.round(f.subtotal * 100) / 100,
+        compras:  f.compras
+      })).sort((a,b) => a.mes - b.mes)
+    })).sort((a,b) => b.total - a.total);
+
+    resultado[vend.nombre] = clientes;
+  });
+
+  return resultado;
+}
+
+// Regenerar data.json automáticamente cada noche a las 2 AM
+async function regenerarDataJsonAuto() {
+  try {
+    const ahora  = new Date();
+    const inicio = new Date(ahora.getFullYear(), 0, 1); // 1 enero año actual
+    const fi = fmtDateEC(inicio);
+    const ff = fmtDateEC(ahora);
+    console.log(`Regenerando data.json automáticamente: ${fi} → ${ff}`);
+    const data = await generarDataJson(fi, ff);
+    const ruta = require('path').join(__dirname, 'data.json');
+    require('fs').writeFileSync(ruta, JSON.stringify(data, null, 2));
+    console.log(`✓ data.json regenerado: ${Object.keys(data).length} vendedoras`);
+  } catch(e) {
+    console.error('Error regenerando data.json:', e.message);
+  }
+}
+
+// Programar regeneración diaria a las 2 AM
+function programarRegeneracion() {
+  const ahora = new Date();
+  const manana2am = new Date(ahora);
+  manana2am.setDate(manana2am.getDate() + 1);
+  manana2am.setHours(2, 0, 0, 0);
+  const ms = manana2am - ahora;
+  setTimeout(() => {
+    regenerarDataJsonAuto();
+    setInterval(regenerarDataJsonAuto, 24 * 60 * 60 * 1000);
+  }, ms);
+  console.log(`Próxima regeneración data.json en ${Math.round(ms/3600000)}h`);
+}
+programarRegeneracion();
 
 // ─── DB ───────────────────────────────────────────────────────
 async function initDB() {
@@ -257,12 +437,19 @@ const server = http.createServer(async (req, res) => {
   }
 
   // CATÁLOGO DE PRODUCTOS CON MARCAS
+  // Devuelve { por_id: {id: {nombre,marca,codigo}}, por_nombre: {nombre: marca} }
   if (urlPath === '/api/productos-catalogo' && req.method === 'GET') {
+    // Construir lookup por nombre también (para data.json histórico)
+    const porNombre = {};
+    Object.values(catalogoProductos).forEach(p => {
+      if(p.nombre && p.marca) porNombre[p.nombre] = p.marca;
+    });
     res.writeHead(200, {'Content-Type':'application/json'});
     res.end(JSON.stringify({
-      productos: catalogoProductos,
-      total: Object.keys(catalogoProductos).length,
-      synced_at: catalogoSyncedAt
+      por_id:     catalogoProductos,
+      por_nombre: porNombre,
+      total:      Object.keys(catalogoProductos).length,
+      synced_at:  catalogoSyncedAt
     }));
     return;
   }
@@ -272,6 +459,21 @@ const server = http.createServer(async (req, res) => {
     sincronizarCatalogo().catch(e => console.error(e));
     res.writeHead(200, {'Content-Type':'application/json'});
     res.end(JSON.stringify({msg:'Sync catálogo iniciado', synced_at: catalogoSyncedAt}));
+    return;
+  }
+
+  // REGENERAR DATA.JSON MANUAL — solo admin puede llamar esto
+  if (urlPath === '/api/regenerar-data' && req.method === 'GET') {
+    const fi = urlObj.searchParams.get('desde') || fmtDateEC(new Date(new Date().getFullYear(),0,1));
+    const ff = urlObj.searchParams.get('hasta') || fmtDateEC(new Date());
+    res.writeHead(200,{'Content-Type':'application/json'});
+    res.end(JSON.stringify({msg:`Regenerando data.json del ${fi} al ${ff}...`, ok:true}));
+    // Ejecutar en background
+    generarDataJson(fi, ff).then(data => {
+      const ruta = require('path').join(__dirname, 'data.json');
+      require('fs').writeFileSync(ruta, JSON.stringify(data, null, 2));
+      console.log(`✓ data.json regenerado manualmente: ${Object.keys(data).length} vendedoras`);
+    }).catch(e => console.error('Error regenerar manual:', e.message));
     return;
   }
 

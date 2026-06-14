@@ -205,321 +205,19 @@ function setMod(mod){
 function renderModVisitas(){
   const tab = window._visitaTab || 'realizadas';
   document.getElementById('main').innerHTML = `
-    <div style="display:flex;gap:0;background:white;border-radius:12px;border:1px solid var(--border);overflow:hidden;margin-bottom:12px">
-      <button onclick="setVisitaTab('planificacion')"
-        style="flex:1;padding:11px;font-size:13px;font-weight:500;border:none;cursor:pointer;transition:all 0.2s;
-        background:${tab==='planificacion'?'var(--brown)':'white'};color:${tab==='planificacion'?'white':'var(--muted)'}">
-        <i class="ti ti-calendar" style="margin-right:5px"></i>Planificación
+    <div style="display:flex;gap:0;background:white;border-radius:12px;border:1px solid var(--border);overflow:hidden;margin-bottom:16px">
+      <button onclick="showConfigTab('credenciales')" id="cfg-btn-credenciales"
+        style="flex:1;padding:11px;font-size:13px;font-weight:500;border:none;cursor:pointer;transition:all 0.2s;background:var(--brown);color:white">
+        <i class="ti ti-key" style="margin-right:5px"></i>Credenciales
       </button>
-      <button onclick="setVisitaTab('realizadas')"
-        style="flex:1;padding:11px;font-size:13px;font-weight:500;border:none;cursor:pointer;transition:all 0.2s;
-        background:${tab==='realizadas'?'var(--brown)':'white'};color:${tab==='realizadas'?'white':'var(--muted)'}">
-        <i class="ti ti-check" style="margin-right:5px"></i>Realizadas
+      <button onclick="showConfigTab('permisos')" id="cfg-btn-permisos"
+        style="flex:1;padding:11px;font-size:13px;font-weight:500;border:none;cursor:pointer;transition:all 0.2s;background:white;color:var(--muted)">
+        <i class="ti ti-shield" style="margin-right:5px"></i>Permisos
       </button>
-    </div>
-    <div id="visitas-content"></div>`;
-  if(tab==='realizadas') renderVisitasRealizadas();
-  else renderPlanificacion();
-}
-
-function setVisitaTab(tab){
-  window._visitaTab = tab;
-  renderModVisitas();
-}
-
-async function renderVisitasRealizadas(){
-  await cargarVisitas();
-  const usuario = window.usuarioActual || {};
-  const rol = usuario.rol || '';
-  const nombre = usuario.nombre || '';
-  if(rol==='asesora') asesoraVisitas = nombre;
-  const asesoraActual2 = asesoraVisitas || Object.keys(ASESOR_DATA)[0];
-  const data = ASESOR_DATA[asesoraActual2];
-  if(!data){ document.getElementById('visitas-content').innerHTML='<p style="color:var(--muted);font-size:13px;padding:20px">No hay sectores asignados</p>'; return; }
-  const todosLugares=[...Object.values(data.zonas).flat(),...data.provincias];
-  const urgentes=todosLugares.filter(l=>{const t=data.provincias.includes(l)?'provincia':'sector';return estadoLugar(l,t)==='warn'||estadoLugar(l,t)==='none';});
-  let asesBtns='';
-  if(rol==='admin'||rol==='jefa_ventas'){
-    asesBtns=`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">${Object.keys(ASESOR_DATA).map(a=>`<button onclick="selAsesoraVisitas('${a.replace(/'/g,"\'")}',this)" style="padding:5px 12px;font-size:11px;border-radius:20px;cursor:pointer;border:0.5px solid ${a===asesoraActual2?'var(--brown)':'var(--border)'};background:${a===asesoraActual2?'var(--brown)':'white'};color:${a===asesoraActual2?'white':'var(--muted)'}">${a.split(' ')[0]}</button>`).join('')}</div>`;
-  }
-  let sectoresHtml='';
-  Object.entries(data.zonas).forEach(([zona,sectores])=>{
-    sectoresHtml+=`<div style="font-size:11px;font-weight:500;color:var(--text);margin:12px 0 8px;padding-bottom:4px;border-bottom:1px solid var(--border)">${zona}</div><div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px">`;
-    sectores.forEach(s=>{
-      const st=estadoLugar(s,'sector');
-      const colors={fresh:'background:#dcfce7;color:#166534;border-color:#86efac',ok:'background:#fef9c3;color:#854d0e;border-color:#fde047',warn:'background:#fee2e2;color:#991b1b;border-color:#fca5a5',none:'background:#f3f4f6;color:#6b7280;border-color:#d1d5db'};
-      sectoresHtml+=`<button onclick="abrirModalVisita('${s.replace(/'/g,"\'")}','sector','${asesoraActual2.replace(/'/g,"\'")}',this)" style="padding:6px 12px;font-size:11px;border-radius:20px;border:0.5px solid;cursor:pointer;${colors[st]}" title="${diasLabel(s)}">${s}</button>`;
-    });
-    sectoresHtml+='</div>';
-  });
-  let provsHtml='<div style="display:flex;flex-wrap:wrap;gap:8px">';
-  data.provincias.forEach(p=>{
-    const st=estadoLugar(p,'provincia');
-    const colors={fresh:'background:#dcfce7;color:#166534;border-color:#86efac',ok:'background:#fef9c3;color:#854d0e;border-color:#fde047',warn:'background:#fee2e2;color:#991b1b;border-color:#fca5a5',none:'background:#f3f4f6;color:#6b7280;border-color:#d1d5db'};
-    provsHtml+=`<button onclick="abrirModalVisita('${p}','provincia','${asesoraActual2.replace(/'/g,"\'")}',this)" style="padding:8px 16px;font-size:12px;border-radius:10px;border:0.5px solid;cursor:pointer;display:flex;align-items:center;gap:6px;${colors[st]}"><i class="ti ti-map-pin"></i>${p}<span style="font-size:10px;opacity:0.7">${diasLabel(p)}</span></button>`;
-  });
-  provsHtml+='</div>';
-  const recientes=[...visitasDB].filter(v=>rol==='asesora'?v.asesora===nombre:true).sort((a,b)=>new Date(b.fecha)-new Date(a.fecha)).slice(0,8);
-  const histHtml=recientes.length?recientes.map(v=>`<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:0.5px solid var(--border);font-size:12px"><i class="ti ti-${v.tipo==='provincia'?'world':'map-pin'}" style="color:#A0684A;font-size:14px;flex-shrink:0"></i><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${v.lugar}</span><span style="font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(160,104,74,0.12);color:#A0684A">${v.asesora.split(' ')[0]}</span><span style="color:var(--muted);font-size:11px;min-width:65px;text-align:right">${fmtFecha(v.fecha)}</span></div>`).join(''):'<p style="font-size:12px;color:var(--muted)">Sin visitas registradas</p>';
-  document.getElementById('visitas-content').innerHTML=`
-    ${asesBtns}
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
-      <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)"><div style="width:10px;height:10px;border-radius:50%;background:#4ade80"></div>Reciente</div>
-      <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)"><div style="width:10px;height:10px;border-radius:50%;background:#facc15"></div>Próximo a vencer</div>
-      <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)"><div style="width:10px;height:10px;border-radius:50%;background:#f87171"></div>Urgente</div>
-      <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)"><div style="width:10px;height:10px;border-radius:50%;background:#d1d5db"></div>Sin visita</div>
-    </div>
-    <div class="kpi-row" style="margin-bottom:12px">
-      <div class="kpi"><div class="kpi-label">Sectores</div><div class="kpi-val">${Object.values(data.zonas).flat().length}</div><div class="kpi-sub">asignados</div></div>
-      <div class="kpi"><div class="kpi-label">Provincias</div><div class="kpi-val">${data.provincias.length}</div><div class="kpi-sub">asignadas</div></div>
-      <div class="kpi"><div class="kpi-label">Visitas</div><div class="kpi-val">${visitasDB.filter(v=>v.asesora===asesoraActual2).length}</div><div class="kpi-sub">registradas</div></div>
-      <div class="kpi"><div class="kpi-label">Pendientes</div><div class="kpi-val" style="color:#991b1b">${urgentes.length}</div><div class="kpi-sub" style="color:#991b1b">sin visitar</div></div>
-    </div>
-    <div class="row2" style="align-items:start">
-      <div class="card"><div class="card-title"><i class="ti ti-map"></i> Sectores</div>${sectoresHtml}</div>
-      <div style="display:flex;flex-direction:column;gap:12px">
-        <div class="card"><div class="card-title"><i class="ti ti-world"></i> Provincias</div>${provsHtml}</div>
-        <div class="card"><div class="card-title"><i class="ti ti-history"></i> Historial reciente</div>${histHtml}</div>
-      </div>
-    </div>
-    <div id="modal-visita" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:100;align-items:center;justify-content:center;padding:20px">
-      <div style="background:white;border-radius:12px;width:100%;max-width:400px;max-height:80vh;overflow-y:auto">
-        <div style="padding:14px 16px;border-bottom:0.5px solid var(--border);display:flex;align-items:center;justify-content:space-between">
-          <div id="mv-title" style="font-size:14px;font-weight:500"></div>
-          <button onclick="cerrarModalVisita()" style="background:none;border:none;cursor:pointer;font-size:18px;color:var(--muted)"><i class="ti ti-x"></i></button>
-        </div>
-        <div id="mv-body" style="padding:16px"></div>
-      </div>
-    </div>`;
-  document.getElementById('modal-visita').addEventListener('click',function(e){if(e.target===this)cerrarModalVisita();});
-}
-
-
-// ── Utilidades de semana ──────────────────────────────────────
-function getWeekDates(offset=0){
-  const now = new Date();
-  const day = now.getDay(); // 0=Dom
-  const monday = new Date(now);
-  monday.setDate(now.getDate() - (day===0?6:day-1) + offset*7);
-  const dates = [];
-  for(let i=0;i<6;i++){
-    const d = new Date(monday);
-    d.setDate(monday.getDate()+i);
-    dates.push(d);
-  }
-  return dates;
-}
-
-function weekLabel(offset=0){
-  const dates = getWeekDates(offset);
-  const opts = {day:'2-digit',month:'short'};
-  return `${dates[0].toLocaleDateString('es-EC',opts)} – ${dates[5].toLocaleDateString('es-EC',opts)}`;
-}
-
-function isoDate(d){ return d.toISOString().split('T')[0]; }
-
-function getDayName(d){
-  return ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][d.getDay()];
-}
-
-// ── Planificación ─────────────────────────────────────────────
-let planWeekOffset = 0;
-let planRows = [];
-
-async function renderPlanificacion(){
-  const usuario = window.usuarioActual || {};
-  const asesora = usuario.nombre || '';
-  const rol = usuario.rol || '';
-  const weekDates = getWeekDates(planWeekOffset);
-  const semanaKey = isoDate(weekDates[0]);
-
-  // Cargar planificación de esta semana
-  let saved = [];
-  try {
-    const r = await fetch(`/api/planificacion?asesora=${encodeURIComponent(asesora)}&semana=${semanaKey}`);
-    saved = await r.json();
-  } catch(e) { saved = []; }
-
-  // Inicializar filas
-  if(saved.length > 0){
-    planRows = saved.map(r=>({dia:r.dia,sector:r.sector,cliente:r.cliente,coordinado:r.coordinado}));
-  } else {
-    planRows = Array.from({length:20}, (_,i)=>({dia:'',sector:'',cliente:'',coordinado:false}));
-  }
-
-  // Si admin o jefa, mostrar selector de asesora
-  let asesoraSelector = '';
-  if(rol==='admin'||rol==='jefa_ventas'){
-    const asesoras = ['Daniela Villegas Chamorro','Giovanna Portilla','Liseth Gavilanes','Karen Rebeca Mora Cedeño','María Caridad Zea Larrea','Nicole Yanira Leon Marquez'];
-    asesoraSelector = `
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
-        <span style="font-size:12px;color:var(--muted)">Asesora:</span>
-        <select id="plan-asesora-sel" onchange="planAsesoraChange(this.value)" style="padding:6px 10px;border:0.5px solid var(--border);border-radius:6px;font-size:12px;outline:none">
-          ${asesoras.map(a=>`<option value="${a}" ${a===asesora||(!asesora&&a===asesoras[0])?'selected':''}>${a.split(' ')[0]}</option>`).join('')}
-        </select>
-      </div>`;
-  }
-
-  const weekDayNames = weekDates.map(d=>`${getDayName(d)} ${d.getDate()}`);
-
-  document.getElementById('visitas-content').innerHTML = `
-    ${asesoraSelector}
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap">
-      <button onclick="planWeekOffset--;renderPlanificacion()" style="padding:6px 10px;border:0.5px solid var(--border);border-radius:6px;background:white;cursor:pointer;font-size:14px">‹</button>
-      <div style="flex:1;text-align:center">
-        <div style="font-size:13px;font-weight:500;color:var(--text)">Semana del ${weekLabel(planWeekOffset)}</div>
-        <div style="font-size:11px;color:var(--muted)">${planWeekOffset===0?'Esta semana':planWeekOffset<0?`Hace ${Math.abs(planWeekOffset)} semana${Math.abs(planWeekOffset)>1?'s':''}`:`En ${planWeekOffset} semana${planWeekOffset>1?'s':''}`}</div>
-      </div>
-      <button onclick="planWeekOffset++;renderPlanificacion()" style="padding:6px 10px;border:0.5px solid var(--border);border-radius:6px;background:white;cursor:pointer;font-size:14px">›</button>
-      ${planWeekOffset!==0?`<button onclick="planWeekOffset=0;renderPlanificacion()" style="padding:5px 10px;font-size:11px;border:0.5px solid var(--brown);border-radius:6px;background:rgba(160,104,74,0.1);color:var(--brown);cursor:pointer">Hoy</button>`:''}
-    </div>
-
-    <div class="card">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
-        <div class="card-title" style="margin-bottom:0"><i class="ti ti-calendar-event"></i> Planificación semanal — ${asesora.split(' ')[0]}</div>
-        <div style="display:flex;gap:6px">
-          <button onclick="agregarFilaPlan()" style="padding:5px 12px;font-size:11px;border:0.5px solid var(--border);border-radius:6px;background:white;color:var(--muted);cursor:pointer"><i class="ti ti-plus"></i> Agregar fila</button>
-          <button onclick="guardarPlanificacion('${asesora}','${semanaKey}')" style="padding:5px 14px;font-size:11px;background:var(--brown);color:white;border:none;border-radius:6px;cursor:pointer;font-weight:500"><i class="ti ti-device-floppy"></i> Guardar</button>
-        </div>
-      </div>
-      <div style="overflow-x:auto">
-        <table style="width:100%;border-collapse:collapse;font-size:12px" id="plan-table">
-          <thead>
-            <tr style="background:#faf9f8;border-bottom:1px solid var(--border)">
-              <th style="padding:8px 10px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;width:130px">Día</th>
-              <th style="padding:8px 10px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Sector</th>
-              <th style="padding:8px 10px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Cliente</th>
-              <th style="padding:8px 10px;text-align:center;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;width:90px">Coordinado</th>
-              <th style="width:30px"></th>
-            </tr>
-          </thead>
-          <tbody id="plan-tbody">
-            ${planRows.map((row,i)=>renderPlanRow(row,i,weekDayNames)).join('')}
-          </tbody>
-        </table>
-      </div>
-      <div style="margin-top:10px;font-size:11px;color:var(--muted);text-align:right">
-        ${saved.length>0?`Última actualización: guardado`:'Sin guardar aún'}
-      </div>
-    </div>`;
-}
-
-function renderPlanRow(row, i, weekDayNames){
-  const dayOpts = ['',
-    ...(weekDayNames||['Lun','Mar','Mié','Jue','Vie','Sáb'])
-  ].map(d=>`<option value="${d}" ${row.dia===d?'selected':''}>${d||'-- Día --'}</option>`).join('');
-  
-  return `<tr style="border-bottom:0.5px solid var(--border)" id="plan-row-${i}">
-    <td style="padding:5px 8px">
-      <select onchange="planRows[${i}].dia=this.value" style="width:100%;padding:5px 6px;border:0.5px solid var(--border);border-radius:5px;font-size:12px;outline:none;background:white">
-        ${dayOpts}
-      </select>
-    </td>
-    <td style="padding:5px 8px">
-      <input type="text" value="${row.sector||''}" onchange="planRows[${i}].sector=this.value" placeholder="Ej: La Carolina"
-        style="width:100%;padding:5px 8px;border:0.5px solid var(--border);border-radius:5px;font-size:12px;outline:none"/>
-    </td>
-    <td style="padding:5px 8px">
-      <input type="text" value="${row.cliente||''}" onchange="planRows[${i}].cliente=this.value" placeholder="Nombre del cliente"
-        style="width:100%;padding:5px 8px;border:0.5px solid var(--border);border-radius:5px;font-size:12px;outline:none"/>
-    </td>
-    <td style="padding:5px 8px;text-align:center">
-      <input type="checkbox" ${row.coordinado?'checked':''} onchange="planRows[${i}].coordinado=this.checked"
-        style="accent-color:#A0684A;width:16px;height:16px;cursor:pointer"/>
-    </td>
-    <td style="padding:5px 4px;text-align:center">
-      <button onclick="eliminarFilaPlan(${i})" style="background:none;border:none;cursor:pointer;color:#ccc;font-size:14px;padding:2px 4px" title="Eliminar">×</button>
-    </td>
-  </tr>`;
-}
-
-function agregarFilaPlan(){
-  const weekDates = getWeekDates(planWeekOffset);
-  const weekDayNames = weekDates.map(d=>`${getDayName(d)} ${d.getDate()}`);
-  planRows.push({dia:'',sector:'',cliente:'',coordinado:false});
-  const tbody = document.getElementById('plan-tbody');
-  if(tbody){
-    const i = planRows.length-1;
-    const tr = document.createElement('tr');
-    tr.style.borderBottom = '0.5px solid var(--border)';
-    tr.id = 'plan-row-'+i;
-    tr.innerHTML = renderPlanRow(planRows[i], i, weekDayNames).replace(/^<tr[^>]*>/,'').replace(/<\/tr>$/,'');
-    tbody.appendChild(tr);
-  }
-}
-
-function eliminarFilaPlan(i){
-  planRows.splice(i,1);
-  const weekDates = getWeekDates(planWeekOffset);
-  const weekDayNames = weekDates.map(d=>`${getDayName(d)} ${d.getDate()}`);
-  const tbody = document.getElementById('plan-tbody');
-  if(tbody) tbody.innerHTML = planRows.map((row,idx)=>renderPlanRow(row,idx,weekDayNames)).join('');
-}
-
-async function planAsesoraChange(asesora){
-  const weekDates = getWeekDates(planWeekOffset);
-  const semanaKey = isoDate(weekDates[0]);
-  try {
-    const r = await fetch(`/api/planificacion?asesora=${encodeURIComponent(asesora)}&semana=${semanaKey}`);
-    const saved = await r.json();
-    const weekDayNames = weekDates.map(d=>`${getDayName(d)} ${d.getDate()}`);
-    planRows = saved.length>0 ? saved.map(r=>({dia:r.dia,sector:r.sector,cliente:r.cliente,coordinado:r.coordinado}))
-      : Array.from({length:20},()=>({dia:'',sector:'',cliente:'',coordinado:false}));
-    const tbody = document.getElementById('plan-tbody');
-    if(tbody) tbody.innerHTML = planRows.map((row,i)=>renderPlanRow(row,i,weekDayNames)).join('');
-  } catch(e){}
-}
-
-async function guardarPlanificacion(asesora, semanaKey){
-  // Leer valores actuales del DOM
-  const rows = planRows.map((row,i)=>{
-    const tr = document.getElementById('plan-row-'+i);
-    if(tr){
-      const sel = tr.querySelector('select');
-      const inputs = tr.querySelectorAll('input[type="text"]');
-      const chk = tr.querySelector('input[type="checkbox"]');
-      return {
-        dia: sel ? sel.value : row.dia,
-        sector: inputs[0] ? inputs[0].value : row.sector,
-        cliente: inputs[1] ? inputs[1].value : row.cliente,
-        coordinado: chk ? chk.checked : row.coordinado
-      };
-    }
-    return row;
-  }).filter(r=>r.dia||r.sector||r.cliente);
-
-  if(rows.length===0){ alert('No hay datos para guardar'); return; }
-
-  // Si admin/jefa, usar asesora del selector
-  const sel = document.getElementById('plan-asesora-sel');
-  const asesoraFinal = sel ? sel.value : asesora;
-
-  try {
-    const r = await fetch('/api/planificacion', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ asesora: asesoraFinal, semana: semanaKey, filas: rows })
-    });
-    const data = await r.json();
-    if(data.ok) alert(`✓ Planificación guardada — ${rows.length} filas`);
-    else alert('Error: '+data.error);
-  } catch(e){ alert('Error de conexión'); }
-}
-
-async function renderConfig(){
-  const usuario = window.usuarioActual || {};
-  if(usuario.rol !== 'admin'){
-    document.getElementById('main').innerHTML='<div class="coming"><i class="ti ti-lock"></i><p>Acceso restringido</p></div>';
-    return;
-  }
-  let usuarios=[];
-  try{ const r=await fetch('/api/usuarios'); usuarios=await r.json(); }catch(e){}
-  const MODS_LISTA=['ventas','visitas','kpis','inventario'];
-  document.getElementById('main').innerHTML=`
-    <div class="breadcrumb"><i class="ti ti-settings" style="color:var(--brown);font-size:12px"></i><span style="font-weight:500">Configuración</span></div>
-    <div style="display:flex;gap:8px;margin-bottom:16px">
-      <button onclick="showConfigTab('credenciales')" id="cfg-btn-credenciales" style="padding:8px 18px;font-size:13px;border-radius:20px;border:none;cursor:pointer;background:var(--brown);color:white;font-weight:500">Credenciales</button>
-      <button onclick="showConfigTab('permisos')" id="cfg-btn-permisos" style="padding:8px 18px;font-size:13px;border-radius:20px;border:0.5px solid var(--border);cursor:pointer;background:white;color:var(--muted)">Permisos</button>
+      <button onclick="showConfigTab('sync')" id="cfg-btn-sync"
+        style="flex:1;padding:11px;font-size:13px;font-weight:500;border:none;cursor:pointer;transition:all 0.2s;background:white;color:var(--muted)">
+        <i class="ti ti-refresh" style="margin-right:5px"></i>Sincronización
+      </button>
     </div>
     <div id="cfg-credenciales">
       <div class="card">
@@ -543,6 +241,21 @@ async function renderConfig(){
         <div style="margin-top:12px;display:flex;justify-content:flex-end">
           <button onclick="crearUsuario()" style="padding:8px 18px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-user-plus"></i> Crear usuario</button>
         </div>
+      </div>
+    </div>
+    <div id="cfg-sync" style="display:none">
+      <div class="card">
+        <div class="card-title"><i class="ti ti-refresh"></i> Sincronización de datos</div>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:12px">Regenera el <code>data.json</code> descargando todas las facturas del año desde Contifico. Los nombres de clientes y marcas de productos se actualizarán automáticamente.</p>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <button onclick="regenerarData()" style="padding:8px 18px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500">
+            <i class="ti ti-refresh"></i> Regenerar data.json ahora
+          </button>
+          <button onclick="sincronizarCatalogoBtnClick()" style="padding:8px 18px;background:white;color:var(--brown);border:1px solid var(--brown);border-radius:8px;font-size:13px;cursor:pointer">
+            <i class="ti ti-tag"></i> Sync catálogo de productos
+          </button>
+        </div>
+        <div id="sync-status" style="margin-top:12px;font-size:12px;color:var(--muted)"></div>
       </div>
     </div>
     <div id="cfg-permisos" style="display:none">
@@ -572,10 +285,12 @@ async function renderConfig(){
 }
 
 function showConfigTab(tab){
-  document.getElementById('cfg-credenciales').style.display=tab==='credenciales'?'block':'none';
-  document.getElementById('cfg-permisos').style.display=tab==='permisos'?'block':'none';
-  document.getElementById('cfg-btn-credenciales').style.cssText=`padding:8px 18px;font-size:13px;border-radius:20px;border:none;cursor:pointer;font-weight:500;background:${tab==='credenciales'?'var(--brown)':'white'};color:${tab==='credenciales'?'white':'var(--muted)'}`;
-  document.getElementById('cfg-btn-permisos').style.cssText=`padding:8px 18px;font-size:13px;border-radius:20px;cursor:pointer;font-weight:500;border:0.5px solid var(--border);background:${tab==='permisos'?'var(--brown)':'white'};color:${tab==='permisos'?'white':'var(--muted)'}`;
+  ['credenciales','permisos','sync'].forEach(t=>{
+    const el=document.getElementById('cfg-'+t);
+    if(el) el.style.display=t===tab?'block':'none';
+    const btn=document.getElementById('cfg-btn-'+t);
+    if(btn) btn.style.cssText=`flex:1;padding:11px;font-size:13px;font-weight:500;border:none;cursor:pointer;transition:all 0.2s;background:${t===tab?'var(--brown)':'white'};color:${t===tab?'white':'var(--muted)'}`;
+  });
 }
 
 async function cambiarClave(id,inputId){
@@ -822,20 +537,25 @@ async function cargarCatalogo(){
   try {
     const r = await fetch('/api/productos-catalogo');
     const data = await r.json();
-    if(data.productos && Object.keys(data.productos).length > 0){
-      PRODUCTO_MARCA = data.productos;
+    // por_nombre: { 'NOMBRE PRODUCTO': 'MARCA' } — para data.json histórico
+    // por_id:     { 'producto_id': { nombre, marca, codigo } } — para datos nuevos
+    if(data.por_nombre && Object.keys(data.por_nombre).length > 0){
+      PRODUCTO_MARCA = data.por_nombre;
+      window.CATALOGO_POR_ID = data.por_id || {};
       console.log(`Catálogo cargado: ${Object.keys(PRODUCTO_MARCA).length} productos`);
     } else {
-      console.log('Catálogo vacío desde API, usando diccionario local');
+      console.log('Catálogo no disponible aún — usando marca del dato si existe');
     }
   } catch(e) {
     console.log('No se pudo cargar catálogo:', e.message);
   }
 }
 
-function detectarMarcaProducto(nombre){
+function detectarMarcaProducto(nombre, marcaDirecta){
+  // Si el producto ya trae su marca (data.json nuevo con producto_id), usarla
+  if(marcaDirecta) return marcaDirecta.toUpperCase();
   if(!nombre) return null;
-  // Lookup exacto
+  // Lookup exacto por nombre en catálogo
   if(PRODUCTO_MARCA[nombre]) return PRODUCTO_MARCA[nombre];
   // Lookup case-insensitive
   const nu = nombre.trim().toUpperCase();
@@ -868,10 +588,14 @@ function buildProductosRanking(marcaFiltro, mesFiltro, todoAnio){
 
       cli.productos.forEach(p=>{
         if(p.nombre==='Transporte') return;
-        const marcaProd = detectarMarcaProducto(p.nombre);
+        // Usar marca directa del producto si viene en el data.json nuevo
+        const marcaProd = detectarMarcaProducto(p.nombre, p.marca);
         if(marcaFiltro!=='TODAS' && marcaProd!==marcaFiltro) return;
-        if(!productos[p.nombre]) productos[p.nombre]={nombre:p.nombre, cantidad:0, marca:marcaProd};
-        productos[p.nombre].cantidad += (p.cantidad||0)*ratioMes;
+        // Usar id del producto como clave si existe, sino el nombre
+        const key = p.id || p.nombre;
+        if(!productos[key]) productos[key]={nombre:p.nombre, cantidad:0, marca:marcaProd};
+        else productos[key].marca = productos[key].marca || marcaProd;
+        productos[key].cantidad += (p.cantidad||0)*ratioMes;
       });
     });
   });
