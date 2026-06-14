@@ -275,27 +275,22 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // TEST V2 — acepta ?fecha=DD/MM/YYYY o usa hoy
+  // TEST V2 — muestra primer documento CLI con detalles completos
   if (urlPath === '/api/test-v2' && req.method === 'GET') {
     try {
       const fechaParam = urlObj.searchParams.get('fecha');
       const testFecha = fechaParam || fmtDateEC(new Date());
-      const testUrl = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${testFecha}&fecha_final=${testFecha}&page_size=1`;
-      console.log('Testing v2:', testUrl);
-      const inicio = Date.now();
+      const testUrl = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${testFecha}&fecha_final=${testFecha}&page_size=100`;
       const response = await fetch(testUrl, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
-      const tiempo = Date.now() - inicio;
-      const texto = await response.text();
-      // Mostrar estructura completa del primer documento
-      let preview = texto.substring(0,2000);
-      try {
-        const parsed = JSON.parse(texto);
-        if(parsed.results && parsed.results[0]){
-          preview = JSON.stringify(parsed.results[0], null, 2).substring(0,3000);
-        }
-      } catch(e){}
+      const data = await response.json();
+      // Buscar primer documento de CLIENTE
+      const cli = (data.results||[]).find(d => d.tipo_registro === 'CLI');
       res.writeHead(200,{'Content-Type':'application/json'});
-      res.end(JSON.stringify({ url_probada: testUrl, status: response.status, tiempo_ms: tiempo, count: JSON.parse(texto).count||0, primer_documento: preview }));
+      res.end(JSON.stringify({
+        count_total: data.count,
+        count_resultados: (data.results||[]).length,
+        primer_cli: cli ? JSON.stringify(cli, null, 2) : 'No hay documentos CLI en esta fecha'
+      }));
     } catch(e) { res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
     return;
   }
