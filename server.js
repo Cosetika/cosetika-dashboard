@@ -381,6 +381,14 @@ const server = http.createServer(async (req, res) => {
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
     return;
   }
+  if (urlPath.startsWith('/api/usuarios/') && req.method === 'DELETE') {
+    try {
+      const id = urlPath.split('/').pop();
+      await pool.query('DELETE FROM usuarios WHERE id=$1 AND rol!='admin'',[id]);
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
 
   // VISITAS
   if (urlPath === '/api/visitas' && req.method === 'GET') {

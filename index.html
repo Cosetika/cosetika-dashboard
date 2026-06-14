@@ -123,7 +123,7 @@
     <div class="icon-btn" id="btn-bot" title="Sofía — Asistente IA" style="display:none" onclick="window.open('/bot','_blank')"><i class="ti ti-robot"></i></div>
     <div class="icon-btn" id="btn-config" title="Configuración" style="display:none" onclick="setMod('config')"><i class="ti ti-settings"></i></div>
     <div style="display:flex;align-items:center;gap:8px;cursor:pointer" onclick="if(confirm('¿Cerrar sesión?')){sessionStorage.clear();window.location.href='/login';}">
-      <div id="hdr-avatar" style="width:32px;height:32px;border-radius:50%;background:var(--brown);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;flex-shrink:0"></div>
+      <div id="hdr-avatar" style="width:32px;height:32px;border-radius:50%;background:var(--brown);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;flex-shrink:0;transition:background 0.3s"></div>
       <span id="hdr-nombre" style="font-size:12px;color:#e8c9a8;font-weight:500;white-space:nowrap"></span>
     </div>
   </div>
@@ -162,6 +162,48 @@ const MESES={1:'Ene',2:'Feb',3:'Mar',4:'Abr',5:'May',6:'Jun',7:'Jul',8:'Ago',9:'
 const fmt=n=>'$'+Number(n).toLocaleString('es-EC',{minimumFractionDigits:2,maximumFractionDigits:2});
 const pct=(v,mx)=>mx?Math.min(Math.round((v/mx)*100),100):0;
 const EXCLUIR=['Fernando Espíndola','Fernando Espindola'];
+
+// ─── COLORES GLOBALES ─────────────────────────────────────────────────────────
+const MARCA_COLORS = {
+  'BIOSKIN':   '#6366f1',  // índigo
+  'ERAYBA':    '#f59e0b',  // ámbar
+  'ZIAJA':     '#10b981',  // esmeralda
+  'ZIAJA PRO': '#ec4899',  // rosa
+  'TODAS':     '#A0684A',  // café Cosétika
+};
+
+const VEND_COLORS = {
+  'Giovanna Portilla':        '#0ea5e9',  // azul cielo
+  'Liseth Gavilanes':         '#8b5cf6',  // violeta
+  'Daniela Villegas Chamorro':'#f97316',  // naranja
+  'Karen Rebeca Mora':        '#14b8a6',  // teal
+  'Nicole Yanira Leon':       '#f43f5e',  // rosa rojo
+  'María Caridad Zea':        '#84cc16',  // lima
+};
+
+function getVendColor(nombre){
+  for(const [k,v] of Object.entries(VEND_COLORS)){
+    if(nombre && nombre.includes(k.split(' ')[0]) && nombre.includes(k.split(' ')[1]||'')) return v;
+  }
+  // fallback por primer nombre
+  const primer = (nombre||'').split(' ')[0];
+  for(const [k,v] of Object.entries(VEND_COLORS)){
+    if(k.startsWith(primer)) return v;
+  }
+  return '#A0684A';
+}
+
+function getMarcaColor(marca){
+  return MARCA_COLORS[marca] || '#9ca3af';
+}
+
+function vendAvatar(nombre, size=28){
+  const iniciales = (nombre||'').split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase();
+  const color = getVendColor(nombre);
+  return `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};display:flex;align-items:center;justify-content:center;font-size:${Math.round(size*0.4)}px;font-weight:700;color:#fff;flex-shrink:0">${iniciales}</div>`;
+}
+
+
 
 let DATA={};
 let vendActual=null;
@@ -274,6 +316,7 @@ async function renderConfig(){
             <div style="flex:1"><div style="font-size:13px;font-weight:500">${u.nombre}</div><div style="font-size:11px;color:var(--muted)">@${u.usuario} · ${u.rol}</div></div>
             <input type="password" id="pwd-${u.id}" placeholder="Nueva clave" style="width:120px;padding:6px 10px;border:0.5px solid var(--border);border-radius:6px;font-size:12px;outline:none"/>
             <button onclick="cambiarClave(${u.id},'pwd-${u.id}')" style="padding:6px 12px;background:var(--brown);color:white;border:none;border-radius:6px;font-size:12px;cursor:pointer">Guardar</button>
+            ${u.rol!=='admin'?`<button onclick="eliminarUsuario(${u.id},'${u.nombre}')" style="padding:6px 10px;background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;border-radius:6px;font-size:12px;cursor:pointer" title="Eliminar usuario"><i class="ti ti-trash"></i></button>`:''}
           </div>`).join('')}
       </div>
       <div class="card" style="margin-top:12px">
@@ -332,6 +375,15 @@ async function renderConfig(){
         <div id="sync-status" style="margin-top:12px;font-size:12px;color:var(--muted)"></div>
       </div>
     </div>`;
+}
+
+async function eliminarUsuario(id, nombre){
+  if(!confirm('¿Eliminar al usuario "'+nombre+'"? Esta acción no se puede deshacer.')) return;
+  try{
+    await fetch('/api/usuarios/'+id,{method:'DELETE'});
+    alert('Usuario eliminado ✓');
+    renderConfig();
+  }catch(e){ alert('Error al eliminar usuario'); }
 }
 
 async function cambiarClave(id, inputId){
@@ -566,8 +618,8 @@ function renderMarcasSidebar(marcas){
     .sort((a,b)=>b[1]-a[1])
     .map(([m,t])=>`
       <div class="marca-row" onclick="window._prodMarcaSel='${m}';window._prodTodoAnio=false;window._prodMesFiltro=new Date().getMonth()+1;renderProductosPorMarca()" style="cursor:pointer;border-radius:6px;padding:2px;transition:background 0.15s" title="Ver productos de ${m}" onmouseover="this.style.background='#f5f0eb'" onmouseout="this.style.background='transparent'">
-        <div class="marca-hdr"><span class="marca-name" style="color:var(--brown)">${m} <i class="ti ti-chevron-right" style="font-size:9px"></i></span><span class="marca-val">${fmt(t)}</span></div>
-        <div class="marca-track"><div class="marca-fill" style="width:${pct(t,maxM)}%;background:var(--brown)"></div></div>
+        <div class="marca-hdr"><span class="marca-name" style="color:${getMarcaColor(m)};font-weight:600">${m} <i class="ti ti-chevron-right" style="font-size:9px"></i></span><span class="marca-val">${fmt(t)}</span></div>
+        <div class="marca-track"><div class="marca-fill" style="width:${pct(t,maxM)}%;background:${getMarcaColor(m)}"></div></div>
       </div>`).join('');
 }
 
@@ -978,10 +1030,10 @@ function renderVentasPanel(){
       ${porVend.length===0?'<p style="font-size:12px;color:var(--muted)">Sin ventas en este período</p>':
       porVend.map(v=>`
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:4px 6px;border-radius:6px;cursor:pointer;transition:background 0.15s" onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='transparent'" onclick="selVendedorPorNombre('${v.nombre.replace(/'/g,"\'")}')">
-          <div style="width:28px;height:28px;border-radius:50%;background:rgba(160,104,74,0.15);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:var(--brown);flex-shrink:0">${v.nombre.split(' ').map(w=>w[0]).join('').substring(0,2)}</div>
+          <div style="width:28px;height:28px;border-radius:50%;background:${getVendColor(v.nombre)};display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff;flex-shrink:0">${v.nombre.split(' ').map(w=>w[0]).join('').substring(0,2)}</div>
           <span style="font-size:12px;width:140px;min-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${v.nombre.split(' ')[0]} ${v.nombre.split(' ')[1]||''}</span>
           <div style="flex:1;height:14px;background:#f0ede9;border-radius:3px;overflow:hidden">
-            <div style="height:100%;border-radius:3px;background:var(--brown);width:${pct(v.total,maxVend)}%;transition:width 0.4s"></div>
+            <div style="height:100%;border-radius:3px;background:${getVendColor(v.nombre)};width:${pct(v.total,maxVend)}%;transition:width 0.4s"></div>
           </div>
           <span style="font-size:12px;color:var(--brown);font-weight:600;min-width:80px;text-align:right">${fmt(v.total)}</span>
           <span style="font-size:11px;color:var(--muted);min-width:50px;text-align:right">${fmt(v.total/1.12)} s/IVA</span>
@@ -992,9 +1044,9 @@ function renderVentasPanel(){
       <div class="card-title"><i class="ti ti-tag"></i> Ventas por marca — <span style="font-size:11px;color:var(--muted)">haz clic para ver productos</span></div>
       ${marcasArr.map(([m,t])=>`
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer;padding:4px 6px;border-radius:6px;transition:background 0.15s" onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='transparent'" onclick="window._prodMarcaSel='${m}';window._prodTodoAnio=false;window._prodMesFiltro=new Date().getMonth()+1;renderProductosPorMarca()">
-          <span style="font-size:12px;width:110px;min-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--brown)">${m} <i class="ti ti-chevron-right" style="font-size:9px"></i></span>
+          <span style="font-size:12px;width:110px;min-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:${getMarcaColor(m)};font-weight:600">${m} <i class="ti ti-chevron-right" style="font-size:9px"></i></span>
           <div style="flex:1;height:14px;background:#f0ede9;border-radius:3px;overflow:hidden">
-            <div style="height:100%;border-radius:3px;background:#7ab3c4;width:${pct(t,maxMarca)}%;transition:width 0.4s"></div>
+            <div style="height:100%;border-radius:3px;background:${getMarcaColor(m)};width:${pct(t,maxMarca)}%;transition:width 0.4s"></div>
           </div>
           <span style="font-size:12px;color:var(--muted);min-width:80px;text-align:right">${fmt(t)}</span>
           <span style="font-size:10px;color:var(--muted);min-width:32px;text-align:right">${Math.round(t/totalConIva*100)||0}%</span>
@@ -1046,9 +1098,10 @@ function renderHome(){
     <div class="card">
       <div class="card-title"><i class="ti ti-award"></i> Ranking de vendedoras</div>
       ${ranking.map(v=>`
-        <div class="hbar" onclick="selVendedorPorNombre('${v.nombre.replace(/'/g,"\\'")}')">
+        <div class="hbar" onclick="selVendedorPorNombre('${v.nombre.replace(/'/g,"\\'")}')" style="display:flex;align-items:center;gap:8px">
+          ${vendAvatar(v.nombre,26)}
           <span class="hbar-lbl" title="${v.nombre}">${v.nombre}</span>
-          <div class="hbar-track"><div class="hbar-fill brown" style="width:${pct(v.total,maxVend)}%"></div></div>
+          <div class="hbar-track"><div class="hbar-fill" style="width:${pct(v.total,maxVend)}%;background:${getVendColor(v.nombre)}"></div></div>
           <span class="hbar-val">${fmt(v.total)}</span>
         </div>`).join('')}
     </div>
@@ -1733,7 +1786,11 @@ document.addEventListener('DOMContentLoaded', function() {
   const iniciales = usuarioActual.nombre.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase();
   const hdrAvatar = document.getElementById('hdr-avatar');
   const hdrNombre = document.getElementById('hdr-nombre');
-  if(hdrAvatar) hdrAvatar.textContent = iniciales;
+  if(hdrAvatar){
+    hdrAvatar.textContent = iniciales;
+    // Color personalizado por vendedora (se aplica después de cargar VEND_COLORS)
+    setTimeout(()=>{ hdrAvatar.style.background = getVendColor(usuarioActual.nombre) || 'var(--brown)'; }, 100);
+  }
   if(hdrNombre) hdrNombre.textContent = nombre;
 
   // Botón bot para todos
