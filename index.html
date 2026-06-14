@@ -965,32 +965,23 @@ let ventasFiltroTodo = false;
 function renderVentasPanel(){
   subtabActual='ventas';
   const anioActual = new Date().getFullYear();
+  const MESES_LABELS=['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  const MESES_CORTO=['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
 
-  function getVentasMes(clientes, mes){
-    return clientes.reduce((a,c)=>{
-      const f=c.frecuencia.find(x=>x.mes===mes);
-      return a+(f?f.total:0);
-    },0);
-  }
-  function getFacturasMes(clientes, mes){
-    return clientes.reduce((a,c)=>{
-      const f=c.frecuencia.find(x=>x.mes===mes);
-      return a+(f?f.compras:0);
-    },0);
-  }
+  function getVentasMes(clientes,mes){ return clientes.reduce((a,c)=>{ const f=c.frecuencia.find(x=>x.mes===mes); return a+(f?f.total:0); },0); }
+  function getFacturasMes(clientes,mes){ return clientes.reduce((a,c)=>{ const f=c.frecuencia.find(x=>x.mes===mes); return a+(f?f.compras:0); },0); }
 
   const vendedoras = Object.keys(DATA);
   const porVend = vendedoras.map(v=>({
     nombre:v,
-    total: ventasFiltroTodo ? DATA[v].reduce((a,c)=>a+c.total,0) : getVentasMes(DATA[v], ventasFiltroMes),
-    facturas: ventasFiltroTodo ? DATA[v].reduce((a,c)=>a+c.num_compras,0) : getFacturasMes(DATA[v], ventasFiltroMes)
+    total: ventasFiltroTodo ? DATA[v].reduce((a,c)=>a+c.total,0) : getVentasMes(DATA[v],ventasFiltroMes),
+    facturas: ventasFiltroTodo ? DATA[v].reduce((a,c)=>a+c.num_compras,0) : getFacturasMes(DATA[v],ventasFiltroMes)
   })).filter(v=>v.total>0).sort((a,b)=>b.total-a.total);
 
   const totalConIva = porVend.reduce((a,v)=>a+v.total,0);
   const totalSinIva = totalConIva/1.12;
   const maxVend = porVend[0]?.total||1;
 
-  // Marcas — proporción del mes
   const porMarca={};
   vendedoras.forEach(v=>DATA[v].forEach(c=>{
     const ratio = ventasFiltroTodo ? 1 : (c.total>0?(c.frecuencia.find(x=>x.mes===ventasFiltroMes)||{total:0}).total/c.total:0);
@@ -999,14 +990,20 @@ function renderVentasPanel(){
   const marcasArr=Object.entries(porMarca).sort((a,b)=>b[1]-a[1]);
   const maxMarca=marcasArr[0]?.[1]||1;
 
-  const MESES_LABELS=['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  // Datos mensuales para gráfico (siempre todo el año)
+  const mesesDisponibles=[];
+  for(let m=1;m<=12;m++){ if(vendedoras.some(v=>getVentasMes(DATA[v],m)>0)) mesesDisponibles.push(m); }
+  const datosMensuales=vendedoras.map(v=>({
+    nombre:v, color:getVendColor(v),
+    valores:mesesDisponibles.map(m=>getVentasMes(DATA[v],m))
+  })).filter(v=>v.valores.some(x=>x>0));
+
   const etiqueta = ventasFiltroTodo ? `Todo ${anioActual}` : `${MESES_LABELS[ventasFiltroMes]} ${anioActual}`;
-  const mesesOpts=[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>
-    `<option value="m${m}" ${!ventasFiltroTodo&&ventasFiltroMes===m?'selected':''}>${['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'][m-1]} ${anioActual}</option>`
+  const mesesOpts=MESES_CORTO.slice(1).map((l,i)=>
+    `<option value="m${i+1}" ${!ventasFiltroTodo&&ventasFiltroMes===i+1?'selected':''}>${l} ${anioActual}</option>`
   ).join('');
 
   document.getElementById('main').innerHTML=`
-    <!-- Filtro pegado arriba siempre visible -->
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding-bottom:10px;border-bottom:1px solid var(--border);margin-bottom:12px">
       <i class="ti ti-calendar" style="color:var(--brown);font-size:14px"></i>
       <span style="font-size:12px;color:var(--muted);font-weight:500">Período:</span>
@@ -1025,11 +1022,27 @@ function renderVentasPanel(){
       <div class="kpi"><div class="kpi-label">Ticket prom.</div><div class="kpi-val">${fmt(totalConIva/Math.max(porVend.reduce((a,v)=>a+v.facturas,0),1))}</div><div class="kpi-sub">por factura</div></div>
     </div>
 
-    <div class="card">
+    <!-- Gráfico de líneas -->
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-title"><i class="ti ti-chart-line"></i> Evolución mensual por vendedora — ${anioActual}</div>
+      <div style="width:100%;overflow-x:auto">
+        <canvas id="grafico-ventas" style="display:block;width:100%;min-width:480px;height:260px"></canvas>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:14px;margin-top:10px;justify-content:center">
+        ${datosMensuales.map(v=>`
+          <div style="display:flex;align-items:center;gap:5px">
+            <div style="width:20px;height:3px;border-radius:2px;background:${v.color}"></div>
+            <span style="font-size:11px;color:var(--text)">${v.nombre.split(' ')[0]} ${v.nombre.split(' ')[1]||''}</span>
+          </div>`).join('')}
+      </div>
+    </div>
+
+    <!-- Vendedoras sin onclick -->
+    <div class="card" style="margin-bottom:12px">
       <div class="card-title"><i class="ti ti-users"></i> Ventas por vendedora — ${etiqueta}</div>
       ${porVend.length===0?'<p style="font-size:12px;color:var(--muted)">Sin ventas en este período</p>':
       porVend.map(v=>`
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:4px 6px;border-radius:6px;cursor:pointer;transition:background 0.15s" onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='transparent'" onclick="selVendedorPorNombre('${v.nombre.replace(/'/g,"\'")}')">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:4px 6px;border-radius:6px">
           <div style="width:28px;height:28px;border-radius:50%;background:${getVendColor(v.nombre)};display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff;flex-shrink:0">${v.nombre.split(' ').map(w=>w[0]).join('').substring(0,2)}</div>
           <span style="font-size:12px;width:140px;min-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${v.nombre.split(' ')[0]} ${v.nombre.split(' ')[1]||''}</span>
           <div style="flex:1;height:14px;background:#f0ede9;border-radius:3px;overflow:hidden">
@@ -1040,6 +1053,7 @@ function renderVentasPanel(){
         </div>`).join('')}
     </div>
 
+    <!-- Marcas -->
     <div class="card">
       <div class="card-title"><i class="ti ti-tag"></i> Ventas por marca — <span style="font-size:11px;color:var(--muted)">haz clic para ver productos</span></div>
       ${marcasArr.map(([m,t])=>`
@@ -1052,6 +1066,57 @@ function renderVentasPanel(){
           <span style="font-size:10px;color:var(--muted);min-width:32px;text-align:right">${Math.round(t/totalConIva*100)||0}%</span>
         </div>`).join('')}
     </div>`;
+
+  requestAnimationFrame(()=>dibujarGraficoVentas(datosMensuales, mesesDisponibles));
+}
+
+function dibujarGraficoVentas(series, meses){
+  const canvas = document.getElementById('grafico-ventas');
+  if(!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio||1;
+  const W = canvas.offsetWidth||700;
+  const H = 260;
+  canvas.width = W*dpr; canvas.height = H*dpr;
+  ctx.scale(dpr,dpr);
+  ctx.clearRect(0,0,W,H);
+  const MESES_N=['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const pad={top:28,right:16,bottom:38,left:58};
+  const w=W-pad.left-pad.right, h=H-pad.top-pad.bottom;
+  const allVals=series.flatMap(s=>s.valores).filter(v=>v>0);
+  const maxVal=Math.max(...allVals,1);
+  const xPos=(i)=>pad.left+(meses.length>1?i*(w/(meses.length-1)):w/2);
+  const yPos=(v)=>pad.top+h-(v/maxVal)*h;
+  // Grid
+  for(let i=0;i<=5;i++){
+    const val=(maxVal/5)*i, y=yPos(val);
+    ctx.strokeStyle='#f0ede9'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(pad.left,y); ctx.lineTo(W-pad.right,y); ctx.stroke();
+    ctx.fillStyle='#9ca3af'; ctx.font='10px system-ui'; ctx.textAlign='right';
+    ctx.fillText(val>=1000?'$'+(val/1000).toFixed(0)+'K':'$'+Math.round(val),pad.left-5,y+3);
+  }
+  // Eje X
+  ctx.textAlign='center'; ctx.fillStyle='#6b7280'; ctx.font='10px system-ui';
+  meses.forEach((m,i)=>ctx.fillText(MESES_N[m],xPos(i),H-pad.bottom+14));
+  // Series
+  series.forEach(s=>{
+    ctx.strokeStyle=s.color; ctx.lineWidth=2.5; ctx.lineJoin='round';
+    ctx.beginPath();
+    let first=true;
+    s.valores.forEach((v,i)=>{
+      if(first){ctx.moveTo(xPos(i),yPos(v));first=false;}
+      else ctx.lineTo(xPos(i),yPos(v));
+    });
+    ctx.stroke();
+    s.valores.forEach((v,i)=>{
+      if(v===0) return;
+      const x=xPos(i),y=yPos(v);
+      ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(x,y,4,0,Math.PI*2); ctx.fill();
+      ctx.strokeStyle=s.color; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(x,y,4,0,Math.PI*2); ctx.stroke();
+      ctx.fillStyle=s.color; ctx.font='bold 9px system-ui'; ctx.textAlign='center';
+      ctx.fillText(v>=1000?'$'+(v/1000).toFixed(1)+'K':'$'+Math.round(v),x,y-9);
+    });
+  });
 }
 
 function aplicarFiltroVentas(val){
@@ -1060,31 +1125,65 @@ function aplicarFiltroVentas(val){
   renderVentasPanel();
 }
 
+let clientesFiltroMes = 0; // 0 = todo el año
+let clientesFiltroVend = ''; // '' = todas
+
 function renderHome(){
   subtabActual='home';
   document.querySelectorAll('.stab').forEach(s=>s.classList.remove('active'));
-  
-  const vendedoras=Object.keys(DATA);
-  const totalGlobal=vendedoras.reduce((a,v)=>a+DATA[v].reduce((b,c)=>b+c.total,0),0);
-  const totalClientes=vendedoras.reduce((a,v)=>a+DATA[v].length,0);
-  const totalFacturas=vendedoras.reduce((a,v)=>a+DATA[v].reduce((b,c)=>b+c.num_compras,0),0);
+
+  const anioActual = new Date().getFullYear();
+  const MESES_CORTO=['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const todasVendedoras=Object.keys(DATA);
+  const usuario = window.usuarioActual || {};
+  const rol = usuario.rol || '';
+  const modulos = usuario.modulos ? usuario.modulos.split(',') : [];
+  const puedeVerTodas = rol==='admin'||rol==='jefa_ventas'||modulos.includes('ver_visitas_todas');
+
+  // Filtrar vendedoras según rol
+  let vendedoras = puedeVerTodas
+    ? (clientesFiltroVend ? [clientesFiltroVend] : todasVendedoras)
+    : [usuario.nombre];
+
+  // Filtrar clientes por mes si aplica
+  function getClis(v){
+    if(!clientesFiltroMes) return DATA[v]||[];
+    return (DATA[v]||[]).filter(c=>c.frecuencia.some(f=>f.mes===clientesFiltroMes&&f.total>0));
+  }
+
+  const totalGlobal=vendedoras.reduce((a,v)=>a+(clientesFiltroMes?getClis(v).reduce((s,c)=>s+(c.frecuencia.find(f=>f.mes===clientesFiltroMes)||{total:0}).total,0):DATA[v].reduce((b,c)=>b+c.total,0)),0);
+  const totalClientes=vendedoras.reduce((a,v)=>a+getClis(v).length,0);
+  const totalFacturas=vendedoras.reduce((a,v)=>a+getClis(v).reduce((b,c)=>b+c.num_compras,0),0);
 
   const marcas={};
-  vendedoras.forEach(v=>DATA[v].forEach(c=>c.marcas.forEach(m=>{marcas[m.marca]=(marcas[m.marca]||0)+m.total;})));
+  vendedoras.forEach(v=>getClis(v).forEach(c=>c.marcas.forEach(m=>{marcas[m.marca]=(marcas[m.marca]||0)+m.total;})));
   renderMarcasSidebar(marcas);
 
   const ranking=vendedoras.map(v=>({
     nombre:v,
-    total:DATA[v].reduce((a,c)=>a+c.total,0),
-    clientes:DATA[v].length,
-    facturas:DATA[v].reduce((a,c)=>a+c.num_compras,0)
+    total:clientesFiltroMes?getClis(v).reduce((a,c)=>a+(c.frecuencia.find(f=>f.mes===clientesFiltroMes)||{total:0}).total,0):DATA[v].reduce((a,c)=>a+c.total,0),
+    clientes:getClis(v).length,
+    facturas:getClis(v).reduce((a,c)=>a+c.num_compras,0)
   })).sort((a,b)=>b.total-a.total);
   const maxVend=ranking[0]?.total||1;
 
+  const anioActual2 = new Date().getFullYear();
+  const MESES_CORTO2=['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const mesesOptsC=MESES_CORTO2.slice(1).map((l,i)=>
+    `<option value="${i+1}" ${clientesFiltroMes===i+1?'selected':''}>${l} ${anioActual2}</option>`
+  ).join('');
+  const etiquetaC = clientesFiltroMes ? MESES_CORTO2[clientesFiltroMes]+' '+anioActual2 : 'Todo '+anioActual2;
+
   document.getElementById('main').innerHTML=`
-    <div class="breadcrumb"><i class="ti ti-home" style="font-size:12px;color:var(--brown)"></i><span style="font-weight:500">Resumen general — Ene–Jun 2026</span></div>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding-bottom:10px;border-bottom:1px solid var(--border);margin-bottom:10px">
+      <i class="ti ti-calendar" style="color:var(--brown);font-size:14px"></i>
+      <select onchange="clientesFiltroMes=parseInt(this.value)||0;renderHome()" style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;outline:none;background:white;cursor:pointer"><option value="0" ${!clientesFiltroMes?'selected':''}>Todo el año ${anioActual2}</option>${mesesOptsC}</select>
+      ${puedeVerTodas?`<i class="ti ti-user" style="color:var(--brown);font-size:14px;margin-left:4px"></i><select onchange="clientesFiltroVend=this.value;renderHome()" style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;outline:none;background:white;cursor:pointer"><option value="" ${!clientesFiltroVend?'selected':''}>Todas las asesoras</option>${todasVendedoras.map(v=>`<option value="${v}" ${clientesFiltroVend===v?'selected':''}>` + v.split(' ')[0] + ' ' + (v.split(' ')[1]||'')+'</option>').join('')}</select>`:''}
+      <span style="font-size:12px;color:var(--brown);font-weight:600">— ${etiquetaC}</span>
+    </div>
+    <div class="breadcrumb"><i class="ti ti-home" style="font-size:12px;color:var(--brown)"></i><span style="font-weight:500">Clientes — ${etiquetaC}</span></div>
     <div class="kpi-row">
-      <div class="kpi"><div class="kpi-label">Ventas con IVA</div><div class="kpi-val">${fmt(totalGlobal)}</div><div class="kpi-sub">Ene–Jun 2026</div></div>
+      <div class="kpi"><div class="kpi-label">Ventas con IVA</div><div class="kpi-val">${fmt(totalGlobal)}</div><div class="kpi-sub">${etiquetaC}</div></div>
       <div class="kpi"><div class="kpi-label">Ventas sin IVA</div><div class="kpi-val">${fmt(totalGlobal/1.12)}</div><div class="kpi-sub">subtotal</div></div>
       <div class="kpi"><div class="kpi-label">Clientes</div><div class="kpi-val">${totalClientes}</div><div class="kpi-sub">únicos</div></div>
       <div class="kpi"><div class="kpi-label">Facturas</div><div class="kpi-val">${totalFacturas}</div><div class="kpi-sub">emitidas</div></div>
@@ -1197,10 +1296,16 @@ function selCliente(nombre){
 }
 
 function renderProvincias(provSeleccionada){
+  const anioActual3 = new Date().getFullYear();
+  const MESES_CORTO3=['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  if(window._provFiltroMes===undefined) window._provFiltroMes=0;
+  const provMes = window._provFiltroMes;
+
   const vendedoras=vendActual ? [vendActual] : Object.keys(DATA);
   const provincias={};
   vendedoras.forEach(v=>{
     DATA[v].forEach(c=>{
+      if(provMes && !c.frecuencia.some(f=>f.mes===provMes&&f.total>0)) return;
       const prov=c.provincia&&c.provincia!=='nan'&&c.provincia?c.provincia:'SIN PROVINCIA';
       if(!provincias[prov]) provincias[prov]=[];
       provincias[prov].push({...c, vendedor:v});
@@ -1214,6 +1319,14 @@ function renderProvincias(provSeleccionada){
     const maxProv=provOrdenadas[0]?.total||1;
     const totalGlobal=provOrdenadas.reduce((a,p)=>a+p.total,0);
     document.getElementById('main').innerHTML=`
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding-bottom:10px;border-bottom:1px solid var(--border);margin-bottom:12px">
+        <i class="ti ti-calendar" style="color:var(--brown);font-size:14px"></i>
+        <select onchange="window._provFiltroMes=parseInt(this.value)||0;renderProvincias()" style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;outline:none;background:white;cursor:pointer">
+          <option value="0" ${!provMes?'selected':''}>Todo el año ${anioActual3}</option>
+          ${MESES_CORTO3.slice(1).map((l,i)=>`<option value="${i+1}" ${provMes===i+1?'selected':''}>${l} ${anioActual3}</option>`).join('')}
+        </select>
+        <span style="font-size:12px;color:var(--brown);font-weight:600">— ${provMes?MESES_CORTO3[provMes]+' '+anioActual3:'Todo '+anioActual3}</span>
+      </div>
       <div class="breadcrumb"><span class="crumb" onclick="renderHome()"><i class="ti ti-home" style="font-size:12px"></i> Inicio</span><span> › </span><span style="font-weight:500">Clientes por Provincia</span></div>
       <div class="kpi-row">
         <div class="kpi"><div class="kpi-label">Provincias</div><div class="kpi-val">${provOrdenadas.length}</div><div class="kpi-sub">con ventas</div></div>
