@@ -1060,14 +1060,20 @@ function renderVentasPanel(){
           <div style="flex:1;height:14px;background:#f0ede9;border-radius:3px;overflow:hidden">
             <div style="height:100%;border-radius:3px;background:${getVendColor(v.nombre)};width:${pct(v.total,maxVend)}%;transition:width 0.4s"></div>
           </div>
-          <span style="font-size:12px;color:var(--brown);font-weight:600;min-width:80px;text-align:right">${fmt(v.total)}</span>
-          <span style="font-size:11px;color:var(--muted);min-width:50px;text-align:right">${fmt(v.total/1.12)} s/IVA</span>
+          <div style="text-align:right;min-width:90px">
+            <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">sin IVA</div>
+            <div style="font-size:12px;color:var(--text);font-weight:500">${fmt(v.total/1.12)}</div>
+          </div>
+          <div style="text-align:right;min-width:90px">
+            <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">con IVA</div>
+            <div style="font-size:12px;color:var(--brown);font-weight:600">${fmt(v.total)}</div>
+          </div>
         </div>`).join('')}
     </div>
 
     <!-- Marcas -->
     <div class="card">
-      <div class="card-title"><i class="ti ti-tag"></i> Ventas por marca — <span style="font-size:11px;color:var(--muted)">haz clic para ver productos</span></div>
+      <div class="card-title"><i class="ti ti-tag"></i> Ventas por marca <span style="font-size:10px;color:var(--muted);font-weight:400;margin-left:4px">— haz clic para ver productos</span></div>
       ${marcasArr.map(([m,t])=>`
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer;padding:4px 6px;border-radius:6px;transition:background 0.15s" onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='transparent'" onclick="window._prodMarcaSel='${m}';window._prodTodoAnio=false;window._prodMesFiltro=new Date().getMonth()+1;renderProductosPorMarca()">
           <span style="font-size:12px;width:110px;min-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:${getMarcaColor(m)};font-weight:600">${m} <i class="ti ti-chevron-right" style="font-size:9px"></i></span>
