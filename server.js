@@ -23,7 +23,7 @@ async function sincronizarCatalogo() {
   try {
     console.log('Sincronizando catálogo de productos desde Contifico...');
     let nuevosCatalogo = {};
-    let nextUrl = 'https://api.contifico.com/sistema/api/v1/producto/?page_size=200';
+    let nextUrl = 'https://api.contifico.com/sistema/api/v2/producto/?page_size=200';
     let paginas = 0;
     while (nextUrl && paginas < 50) {
       const resp = await fetch(nextUrl, {
@@ -466,29 +466,16 @@ const server = http.createServer(async (req, res) => {
   if (urlPath === '/api/test-catalogo' && req.method === 'GET') {
     try {
       const resultados = {};
-      const endpoints = [
-        'https://api.contifico.com/sistema/api/v1/producto/?page_size=5',
-        'https://api.contifico.com/sistema/api/v2/producto/?page_size=5',
-        'https://api.contifico.com/sistema/api/v1/producto/?page_size=5&estado=A',
-        'https://api.contifico.com/sistema/api/v1/producto/?page_size=5&activo=true',
-      ];
-      for (const url of endpoints) {
-        try {
-          const r = await fetch(url, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
-          const txt = await r.text();
-          let parsed;
-          try { parsed = JSON.parse(txt); } catch(e) { parsed = txt.substring(0,200); }
-          resultados[url] = {
-            status: r.status,
-            count: parsed.count,
-            results_length: (parsed.results||[]).length,
-            primer_item: parsed.results?.[0] ? JSON.stringify(parsed.results[0]).substring(0,500) : null,
-            raw: typeof parsed === 'string' ? parsed : null
-          };
-        } catch(e) {
-          resultados[url] = { error: e.message };
-        }
-      }
+      // Solo v2 que funciona — mostrar item completo
+      const url = 'https://api.contifico.com/sistema/api/v2/producto/?page_size=3';
+      const r = await fetch(url, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
+      const data = await r.json();
+      resultados['v2'] = {
+        status: r.status,
+        count: data.count,
+        campos_disponibles: data.results?.[0] ? Object.keys(data.results[0]) : [],
+        items: data.results?.map(p => JSON.stringify(p, null, 2))
+      };
       res.writeHead(200, {'Content-Type':'application/json'});
       res.end(JSON.stringify(resultados, null, 2));
     } catch(e) {
