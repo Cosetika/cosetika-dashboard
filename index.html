@@ -711,9 +711,21 @@ function renderProductosPorMarca(marcaSeleccionada, totalMarcaIn){
   let prodMesFiltro = window._prodMesFiltro !== undefined ? window._prodMesFiltro : (new Date().getMonth()+1);
   let prodTodoAnio  = window._prodTodoAnio  !== undefined ? window._prodTodoAnio  : false;
 
-  // Todas las marcas disponibles
-  // Marcas disponibles dinámicamente desde el catálogo cargado
-  const marcasEnCatalogo = [...new Set(Object.values(PRODUCTO_MARCA))].sort();
+  // Marcas disponibles: desde catálogo cargado, o desde DATA directamente
+  let marcasEnCatalogo = [...new Set(Object.values(PRODUCTO_MARCA))].filter(Boolean).sort();
+  if(marcasEnCatalogo.length === 0){
+    // Fallback: extraer marcas directamente de los datos
+    const marcasSet = new Set();
+    Object.values(DATA).forEach(clientes=>
+      clientes.forEach(c=>{
+        // Desde marcas del cliente
+        (c.marcas||[]).forEach(m=>{ if(m.marca) marcasSet.add(m.marca); });
+        // Desde productos con marca directa
+        (c.productos||[]).forEach(p=>{ if(p.marca) marcasSet.add(p.marca); });
+      })
+    );
+    marcasEnCatalogo = [...marcasSet].sort();
+  }
   const todasMarcas = ['TODAS', ...marcasEnCatalogo];
 
   // Calcular total de la marca seleccionada según período
