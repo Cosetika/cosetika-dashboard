@@ -130,7 +130,7 @@
 </div>
 
 <div class="mods" id="mods-bar">
-  <div class="mod active" id="mod-ventas" onclick="setMod('ventas')"><i class="ti ti-chart-bar"></i>Ventas</div>
+  <div class="mod active" id="mod-ventas" onclick="setMod('ventas')"><i class="ti ti-home"></i>Inicio</div>
   <div class="mod" id="mod-visitas" onclick="setMod('visitas')"><i class="ti ti-map-pin"></i>Visitas</div>
   <div class="mod" id="mod-kpis" onclick="setMod('kpis')"><i class="ti ti-trending-up"></i>KPIs</div>
   <div class="mod" id="mod-inventario" onclick="setMod('inventario')"><i class="ti ti-package"></i>Inventario</div>
@@ -1054,26 +1054,25 @@ function renderVentasPanel(){
       <div class="card-title"><i class="ti ti-users"></i> Ventas por vendedora — ${etiqueta}</div>
       ${porVend.length===0?'<p style="font-size:12px;color:var(--muted)">Sin ventas en este período</p>':
       porVend.map(v=>`
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:4px 6px;border-radius:6px">
-          <div style="width:28px;height:28px;border-radius:50%;background:${getVendColor(v.nombre)};display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff;flex-shrink:0">${v.nombre.split(' ').map(w=>w[0]).join('').substring(0,2)}</div>
-          <span style="font-size:12px;width:140px;min-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${v.nombre.split(' ')[0]} ${v.nombre.split(' ')[1]||''}</span>
-          <div style="flex:1;height:14px;background:#f0ede9;border-radius:3px;overflow:hidden">
+        <div style="margin-bottom:10px">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+            <div style="width:28px;height:28px;border-radius:50%;background:${getVendColor(v.nombre)};display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff;flex-shrink:0">${v.nombre.split(' ').map(w=>w[0]).join('').substring(0,2)}</div>
+            <span style="font-size:12px;flex:1;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${v.nombre.split(' ')[0]} ${v.nombre.split(' ')[1]||''}</span>
+            <div style="text-align:right;flex-shrink:0;line-height:1.3">
+              <div style="font-size:9px;color:var(--muted)">s/IVA: <b style="color:var(--text)">${fmt(v.total/1.12)}</b></div>
+              <div style="font-size:12px;color:var(--brown);font-weight:700">${fmt(v.total)}</div>
+            </div>
+          </div>
+          <div style="height:6px;background:#f0ede9;border-radius:3px;overflow:hidden;margin-left:34px">
             <div style="height:100%;border-radius:3px;background:${getVendColor(v.nombre)};width:${pct(v.total,maxVend)}%;transition:width 0.4s"></div>
           </div>
-          <div style="text-align:right;min-width:90px">
-            <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">sin IVA</div>
-            <div style="font-size:12px;color:var(--text);font-weight:500">${fmt(v.total/1.12)}</div>
-          </div>
-          <div style="text-align:right;min-width:90px">
-            <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">con IVA</div>
-            <div style="font-size:12px;color:var(--brown);font-weight:600">${fmt(v.total)}</div>
-          </div>
-        </div>`).join('')}
+        </div>
+      `).join('')}
     </div>
 
     <!-- Marcas -->
     <div class="card">
-      <div class="card-title"><i class="ti ti-tag"></i> Ventas por marca <span style="font-size:10px;color:var(--muted);font-weight:400;margin-left:4px">— haz clic para ver productos</span></div>
+      <div class="card-title"><i class="ti ti-tag"></i> Ventas por marca <span style="font-size:9px;color:var(--muted);font-weight:400;margin-left:2px">· toca para ver productos</span></div>
       ${marcasArr.map(([m,t])=>`
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer;padding:4px 6px;border-radius:6px;transition:background 0.15s" onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='transparent'" onclick="window._prodMarcaSel='${m}';window._prodTodoAnio=false;window._prodMesFiltro=new Date().getMonth()+1;renderProductosPorMarca()">
           <span style="font-size:12px;width:110px;min-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:${getMarcaColor(m)};font-weight:600">${m} <i class="ti ti-chevron-right" style="font-size:9px"></i></span>
