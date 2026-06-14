@@ -454,11 +454,61 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // SYNC MANUAL CATÁLOGO
+  // SYNC MANUAL CATÁLOGO — ejecuta sincrónicamente y devuelve resultado detallado
   if (urlPath === '/api/sync-catalogo' && req.method === 'GET') {
-    sincronizarCatalogo().catch(e => console.error(e));
-    res.writeHead(200, {'Content-Type':'application/json'});
-    res.end(JSON.stringify({msg:'Sync catálogo iniciado', synced_at: catalogoSyncedAt}));
+    try {
+      const url = 'https://api.contifico.com/sistema/api/v2/producto/?page_size=200';
+      console.log('Probando catálogo URL:', url);
+      const resp = await fetch(url, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
+      const txt = await resp.text();
+      let parsed;
+      try { parsed = JSON.parse(txt); } catch(e) { parsed = null; }
+      
+      const debug = {
+        url, status: resp.status,
+        api_key_presente: !!API_KEY,
+        api_key_primeros_chars: API_KEY ? API_KEY.substring(0,20)+'...' : 'VACÍA',
+        count: parsed?.count,
+        results_length: parsed?.results?.length,
+        raw_preview: txt.substring(0, 300),
+        error_parse: parsed ? null : 'No se pudo parsear JSON'
+      };
+
+      if (parsed?.results?.length > 0) {
+        // Procesar catálogo
+        let nuevosCatalogo = {};
+        parsed.results.forEach(p => {
+          const id    = p.id || '';
+          const nombre= (p.nombre || '').trim();
+          const marca = (p.marca_nombre || p.marca || '').trim().toUpperCase();
+          const codigo= (p.codigo || '').trim();
+          if (id) nuevosCatalogo[id] = { nombre, marca, codigo };
+        });
+        // Cargar páginas restantes
+        let nextUrl = parsed.next;
+        while (nextUrl) {
+          const r2 = await fetch(nextUrl, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
+          const d2 = await r2.json();
+          (d2.results||[]).forEach(p => {
+            if (p.id) nuevosCatalogo[p.id] = { nombre:(p.nombre||'').trim(), marca:(p.marca_nombre||p.marca||'').trim().toUpperCase(), codigo:(p.codigo||'').trim() };
+          });
+          nextUrl = d2.next;
+        }
+        catalogoProductos = nuevosCatalogo;
+        catalogoSyncedAt = new Date().toISOString();
+        debug.catalogoTotal = Object.keys(catalogoProductos).length;
+        debug.muestra = Object.entries(catalogoProductos).slice(0,3).map(([id,p])=>({id,...p}));
+        debug.resultado = 'OK';
+      } else {
+        debug.resultado = 'Sin resultados';
+      }
+      
+      res.writeHead(200, {'Content-Type':'application/json'});
+      res.end(JSON.stringify(debug, null, 2));
+    } catch(e) {
+      res.writeHead(200, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({ error: e.message, stack: e.stack?.substring(0,500) }));
+    }
     return;
   }
 
