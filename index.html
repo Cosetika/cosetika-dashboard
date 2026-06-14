@@ -835,42 +835,41 @@ function detectarMarcaProducto(nombre){
   return null;
 }
 
-// Construir ranking de productos con filtro de marca y período
-// vendedorasScope: array de nombres de vendedoras a incluir (null = todas)
+// Construir ranking de productos con filtro de marca y periodo
 function buildProductosRanking(marcaFiltro, mesFiltro, todoAnio){
   const vendedoras = vendActual ? [vendActual] : Object.keys(DATA);
-  const productos = {}; // nombre -> {cantidad, total, marcaDetectada}
+  const productos = {};
 
   vendedoras.forEach(v=>{
     (DATA[v]||[]).forEach(cli=>{
-      // Ratio del mes para prorratear montos
-      const ratioMes = todoAnio ? 1 : (cli.total>0
-        ? ((cli.frecuencia.find(f=>f.mes===mesFiltro)||{total:0}).total / cli.total)
-        : 0);
-
-      // ¿Este cliente tiene ventas de la marca filtro?
+      // Solo incluir clientes que compraron en el mes filtrado
+      if(!todoAnio){
+        const freqMes = cli.frecuencia.find(f=>f.mes===mesFiltro);
+        if(!freqMes || freqMes.total===0) return;
+      }
+      // Solo incluir clientes que compraron la marca filtrada
       if(marcaFiltro!=='TODAS'){
         const mCli = cli.marcas.find(m=>m.marca===marcaFiltro);
-        if(!mCli) return; // cliente no compró esa marca → skip
+        if(!mCli) return;
       }
+      // Ratio para prorratear cantidades al mes
+      const ratioMes = todoAnio ? 1 : (cli.total>0
+        ? (cli.frecuencia.find(f=>f.mes===mesFiltro)||{total:0}).total / cli.total : 0);
 
       cli.productos.forEach(p=>{
         if(p.nombre==='Transporte') return;
         const marcaProd = detectarMarcaProducto(p.nombre);
-        // Filtrar por marca si corresponde
-        if(marcaFiltro!=='TODAS' && marcaProd !== marcaFiltro) return;
-
-        const key = p.nombre;
-        if(!productos[key]) productos[key]={nombre:p.nombre, cantidad:0, total:0, marca:marcaProd};
-        // cantidad proporcional al mes
-        const cantMes = todoAnio ? (p.cantidad||0) : Math.round((p.cantidad||0)*ratioMes*10)/10;
-        productos[key].cantidad += cantMes;
-        productos[key].total   += (p.total||0) * ratioMes;
+        if(marcaFiltro!=='TODAS' && marcaProd!==marcaFiltro) return;
+        if(!productos[p.nombre]) productos[p.nombre]={nombre:p.nombre, cantidad:0, marca:marcaProd};
+        productos[p.nombre].cantidad += (p.cantidad||0)*ratioMes;
       });
     });
   });
 
-  return Object.values(productos).filter(p=>p.cantidad>0).sort((a,b)=>b.cantidad-a.cantidad);
+  return Object.values(productos)
+    .map(p=>({...p, cantidad:Math.round(p.cantidad*10)/10}))
+    .filter(p=>p.cantidad>0)
+    .sort((a,b)=>b.cantidad-a.cantidad);
 }
 
 function renderProductosPorMarca(marcaSeleccionada, totalMarcaIn){
@@ -928,33 +927,36 @@ function renderProductosPorMarca(marcaSeleccionada, totalMarcaIn){
       </div>
     </div>
 
-    <!-- Filtros: marca + período -->
-    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 14px;background:white;border-radius:10px;border:1px solid var(--border);margin-bottom:12px">
-      <!-- Selector marca -->
-      <span style="font-size:11px;color:var(--muted);font-weight:500">Marca:</span>
-      <div style="display:flex;gap:4px;flex-wrap:wrap">
-        ${todasMarcas.map(m=>`
-          <button onclick="window._prodMarcaSel='${m}';renderProductosPorMarca()"
-            style="padding:5px 10px;font-size:11px;border-radius:20px;cursor:pointer;font-weight:500;border:1px solid ${marcaSel===m?(MARCA_COLORS[m]||'var(--brown)'):'var(--border)'};background:${marcaSel===m?(MARCA_COLORS[m]||'var(--brown)'):'white'};color:${marcaSel===m?'white':'var(--muted)'}">
-            ${m}
-          </button>`).join('')}
-      </div>
-      <span style="color:var(--border);margin:0 4px">|</span>
-      <!-- Selector período -->
-      <span style="font-size:11px;color:var(--muted);font-weight:500">Período:</span>
+    <!-- FILTRO 1: Período (primero) -->
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 14px;background:white;border-radius:10px;border:1px solid var(--border);margin-bottom:10px">
+      <i class="ti ti-calendar" style="color:var(--brown);font-size:14px"></i>
+      <span style="font-size:12px;color:var(--muted);font-weight:500">Período:</span>
       <select onchange="if(this.value==='todo'){window._prodTodoAnio=true;}else{window._prodTodoAnio=false;window._prodMesFiltro=parseInt(this.value.replace('m',''));}renderProductosPorMarca()"
-        style="padding:5px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;outline:none;background:white">
+        style="padding:6px 12px;border:1px solid var(--border);border-radius:8px;font-size:12px;outline:none;background:white;cursor:pointer">
         <option value="todo" ${prodTodoAnio?'selected':''}>Todo ${anioActual}</option>
         ${mesesOpts}
       </select>
-      <span style="font-size:12px;font-weight:600;color:${MARCA_COLORS[marcaSel]||'var(--brown)'}">${etiqueta}</span>
+      <span style="font-size:13px;font-weight:600;color:var(--brown)">${etiqueta}</span>
+    </div>
+
+    <!-- FILTRO 2: Marca (segundo, depende del período) -->
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 14px;background:white;border-radius:10px;border:1px solid var(--border);margin-bottom:12px">
+      <i class="ti ti-tag" style="color:var(--brown);font-size:14px"></i>
+      <span style="font-size:12px;color:var(--muted);font-weight:500">Marca:</span>
+      <div style="display:flex;gap:5px;flex-wrap:wrap">
+        ${todasMarcas.map(m=>`
+          <button onclick="window._prodMarcaSel='${m}';renderProductosPorMarca()"
+            style="padding:5px 12px;font-size:11px;border-radius:20px;cursor:pointer;font-weight:600;transition:all 0.15s;border:1.5px solid ${marcaSel===m?(MARCA_COLORS[m]||'var(--brown)'):'var(--border)'};background:${marcaSel===m?(MARCA_COLORS[m]||'var(--brown)'):'white'};color:${marcaSel===m?'white':'#666'}">
+            ${m}
+          </button>`).join('')}
+      </div>
     </div>
 
     <!-- KPIs -->
     <div class="kpi-row">
       <div class="kpi" style="border-left:3px solid ${MARCA_COLORS[marcaSel]||'var(--brown)'}">
-        <div class="kpi-label">Marca</div>
-        <div class="kpi-val" style="font-size:14px;color:${MARCA_COLORS[marcaSel]||'var(--brown)'}">${marcaSel}</div>
+        <div class="kpi-label">Filtrando</div>
+        <div class="kpi-val" style="font-size:13px;color:${MARCA_COLORS[marcaSel]||'var(--brown)'}">${marcaSel}</div>
         <div class="kpi-sub">${etiqueta}</div>
       </div>
       <div class="kpi"><div class="kpi-label">Ventas c/IVA</div><div class="kpi-val">${fmt(totalMarca)}</div><div class="kpi-sub">período</div></div>
@@ -962,31 +964,29 @@ function renderProductosPorMarca(marcaSeleccionada, totalMarcaIn){
       <div class="kpi"><div class="kpi-label">Productos</div><div class="kpi-val">${lista.length}</div><div class="kpi-sub">distintos</div></div>
     </div>
 
-    <!-- Ranking -->
+    <!-- Ranking — solo cantidades, sin montos -->
     <div class="card">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
         <div class="card-title" style="margin-bottom:0">
           <i class="ti ti-package"></i> Ranking de productos
-          ${marcaSel!=='TODAS'?`— <span style="color:${MARCA_COLORS[marcaSel]}">${marcaSel}</span>`:'— Todas las marcas'}
-        </div>
-        <div style="display:flex;gap:4px">
-          <button class="sort-btn active-sort" id="sort-p-qty" onclick="sortProductosMarca('qty')">Mayor cantidad</button>
-          <button class="sort-btn" id="sort-p-total" onclick="sortProductosMarca('total')">Mayor monto</button>
+          ${marcaSel!=='TODAS'?`— <span style="color:${MARCA_COLORS[marcaSel]}">${marcaSel}</span> · ${etiqueta}`:`— Todas las marcas · ${etiqueta}`}
         </div>
       </div>
       <div id="ranking-productos-lista">
         ${lista.length===0
-          ? `<p style="font-size:13px;color:var(--muted);padding:10px 0">Sin productos para el filtro seleccionado</p>`
+          ? `<p style="font-size:13px;color:var(--muted);padding:10px 0">Sin productos para este filtro</p>`
           : lista.map((p,i)=>{
               const marcaColor = MARCA_COLORS[p.marca]||'#9ca3af';
-              return `<div style="display:flex;align-items:center;gap:8px;padding:7px 6px;border-bottom:0.5px solid var(--border);border-radius:4px;transition:background 0.1s" onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='transparent'">
-                <span style="font-size:11px;color:var(--muted);min-width:20px;text-align:right;font-weight:600">${i+1}</span>
-                ${p.marca?`<span style="font-size:9px;padding:2px 6px;border-radius:10px;background:${marcaColor}20;color:${marcaColor};font-weight:600;white-space:nowrap;min-width:52px;text-align:center">${p.marca}</span>`:''}
+              const cantDisplay = Number.isInteger(p.cantidad) ? p.cantidad : p.cantidad.toFixed(1);
+              const pctBar = Math.min(Math.round(p.cantidad/maxQ*100),100);
+              return `<div style="display:flex;align-items:center;gap:8px;padding:8px 6px;border-bottom:0.5px solid var(--border);transition:background 0.1s" onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='transparent'">
+                <span style="font-size:11px;color:var(--muted);min-width:22px;text-align:right;font-weight:700">${i+1}</span>
+                ${p.marca?`<span style="font-size:9px;padding:2px 7px;border-radius:10px;background:${marcaColor}18;color:${marcaColor};font-weight:700;white-space:nowrap;min-width:54px;text-align:center;border:1px solid ${marcaColor}40">${p.marca}</span>`:''}
                 <span style="flex:1;font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p.nombre}">${p.nombre}</span>
-                <div style="width:80px;height:8px;background:#f0ede9;border-radius:2px;overflow:hidden;flex-shrink:0">
-                  <div style="height:100%;background:${marcaColor};border-radius:2px;width:${Math.min(Math.round(p.cantidad/maxQ*100),100)}%"></div>
+                <div style="width:120px;height:10px;background:#f0ede9;border-radius:3px;overflow:hidden;flex-shrink:0">
+                  <div style="height:100%;background:${marcaColor};border-radius:3px;width:${pctBar}%;transition:width 0.4s"></div>
                 </div>
-                <span style="font-size:12px;color:var(--muted);min-width:42px;text-align:right">${p.cantidad%1===0?p.cantidad:p.cantidad.toFixed(1)} ud.</span>
+                <span style="font-size:13px;color:var(--text);font-weight:600;min-width:55px;text-align:right">${cantDisplay} <span style="font-size:10px;font-weight:400;color:var(--muted)">ud.</span></span>
               </div>`;
             }).join('')
         }
@@ -1005,18 +1005,21 @@ function sortProductosMarca(criterio){
   document.querySelectorAll('[id^=sort-p-]').forEach(b=>b.classList.remove('active-sort'));
   document.getElementById('sort-p-'+criterio)?.classList.add('active-sort');
   const MARCA_COLORS={'BIOSKIN':'#6366f1','ERAYBA':'#f59e0b','ZIAJA':'#10b981','ZIAJA PRO':'#ec4899','TODAS':'var(--brown)'};
+  const MC={'BIOSKIN':'#6366f1','ERAYBA':'#f59e0b','ZIAJA':'#10b981','ZIAJA PRO':'#ec4899','TODAS':'var(--brown)'};
   document.getElementById('ranking-productos-lista').innerHTML = lista.length===0
     ? '<p style="font-size:13px;color:var(--muted)">Sin datos</p>'
     : lista.map((p,i)=>{
-        const marcaColor = MARCA_COLORS[p.marca]||'#9ca3af';
-        return `<div style="display:flex;align-items:center;gap:8px;padding:7px 6px;border-bottom:0.5px solid var(--border);border-radius:4px;transition:background 0.1s" onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='transparent'">
-          <span style="font-size:11px;color:var(--muted);min-width:20px;text-align:right;font-weight:600">${i+1}</span>
-          ${p.marca?`<span style="font-size:9px;padding:2px 6px;border-radius:10px;background:${marcaColor}20;color:${marcaColor};font-weight:600;white-space:nowrap;min-width:52px;text-align:center">${p.marca}</span>`:''}
+        const mc=MC[p.marca]||'#9ca3af';
+        const cd=Number.isInteger(p.cantidad)?p.cantidad:p.cantidad.toFixed(1);
+        const pb=Math.min(Math.round(p.cantidad/maxQ*100),100);
+        return `<div style="display:flex;align-items:center;gap:8px;padding:8px 6px;border-bottom:0.5px solid var(--border);transition:background 0.1s" onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='transparent'">
+          <span style="font-size:11px;color:var(--muted);min-width:22px;text-align:right;font-weight:700">${i+1}</span>
+          ${p.marca?`<span style="font-size:9px;padding:2px 7px;border-radius:10px;background:${mc}18;color:${mc};font-weight:700;white-space:nowrap;min-width:54px;text-align:center;border:1px solid ${mc}40">${p.marca}</span>`:''}
           <span style="flex:1;font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p.nombre}">${p.nombre}</span>
-          <div style="width:80px;height:8px;background:#f0ede9;border-radius:2px;overflow:hidden;flex-shrink:0">
-            <div style="height:100%;background:${marcaColor};border-radius:2px;width:${Math.min(Math.round(p.cantidad/maxQ*100),100)}%"></div>
+          <div style="width:120px;height:10px;background:#f0ede9;border-radius:3px;overflow:hidden;flex-shrink:0">
+            <div style="height:100%;background:${mc};border-radius:3px;width:${pb}%;transition:width 0.4s"></div>
           </div>
-          <span style="font-size:12px;color:var(--muted);min-width:42px;text-align:right">${p.cantidad%1===0?p.cantidad:p.cantidad.toFixed(1)} ud.</span>
+          <span style="font-size:13px;color:var(--text);font-weight:600;min-width:55px;text-align:right">${cd} <span style="font-size:10px;font-weight:400;color:var(--muted)">ud.</span></span>
         </div>`;
       }).join('');
 }
