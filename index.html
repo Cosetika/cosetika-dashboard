@@ -120,8 +120,12 @@
     </div>
   </div>
   <div class="hdr-right">
-    <div class="badge" id="badge-periodo">Ene–Jun 2026</div>
-    <div class="icon-btn" title="Administración" onclick="alert('Panel admin próximamente')"><i class="ti ti-settings"></i></div>
+    <div class="icon-btn" id="btn-bot" title="Sofía — Asistente IA" style="display:none" onclick="window.open('/bot','_blank')"><i class="ti ti-robot"></i></div>
+    <div class="icon-btn" id="btn-config" title="Configuración" style="display:none" onclick="setMod('config')"><i class="ti ti-settings"></i></div>
+    <div style="display:flex;align-items:center;gap:8px;cursor:pointer" onclick="if(confirm('¿Cerrar sesión?')){sessionStorage.clear();window.location.href='/login';}">
+      <div id="hdr-avatar" style="width:32px;height:32px;border-radius:50%;background:var(--brown);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;flex-shrink:0"></div>
+      <span id="hdr-nombre" style="font-size:12px;color:#e8c9a8;font-weight:500;white-space:nowrap"></span>
+    </div>
   </div>
 </div>
 
@@ -130,6 +134,7 @@
   <div class="mod" id="mod-visitas" onclick="setMod('visitas')"><i class="ti ti-map-pin"></i>Visitas</div>
   <div class="mod" id="mod-kpis" onclick="setMod('kpis')"><i class="ti ti-trending-up"></i>KPIs</div>
   <div class="mod" id="mod-inventario" onclick="setMod('inventario')"><i class="ti ti-package"></i>Inventario</div>
+  <div class="mod" id="mod-reportes" onclick="setMod('reportes')" style="display:none"><i class="ti ti-file-analytics"></i>Reportes</div>
   <div class="mod" id="mod-config" onclick="setMod('config')" style="display:none"><i class="ti ti-settings"></i>Config</div>
 </div>
 
@@ -1527,39 +1532,287 @@ async function marcarVisitaDB(lugar, tipo, asesora, btn){
 document.addEventListener('DOMContentLoaded', function() {
   const usuarioActual = JSON.parse(sessionStorage.getItem('cosetika_usuario') || 'null');
   if (!usuarioActual) { window.location.href = '/login'; return; }
-  
-  // Saludo
-  const nombre = usuarioActual.nombre.split(' ')[0];
-  const badge = document.getElementById('badge-periodo');
-  if (badge) badge.innerHTML = `Hola, ${nombre} &nbsp;·&nbsp; Ene–Jun 2026`;
 
-  // Botón settings
-  const settingsBtn = document.querySelector('.icon-btn');
-  if (settingsBtn) {
-    if (usuarioActual.rol === 'admin') {
-      settingsBtn.title = 'Configuración';
-      settingsBtn.onclick = () => setMod('config');
-    } else {
-      settingsBtn.title = 'Cerrar sesión';
-      settingsBtn.onclick = () => { if(confirm('¿Cerrar sesión?')){ sessionStorage.clear(); window.location.href='/login'; }};
-    }
+  // Avatar e iniciales
+  const nombre = usuarioActual.nombre.split(' ')[0];
+  const iniciales = usuarioActual.nombre.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase();
+  const hdrAvatar = document.getElementById('hdr-avatar');
+  const hdrNombre = document.getElementById('hdr-nombre');
+  if(hdrAvatar) hdrAvatar.textContent = iniciales;
+  if(hdrNombre) hdrNombre.textContent = nombre;
+
+  // Botón bot para todos
+  const btnBot = document.getElementById('btn-bot');
+  if(btnBot) btnBot.style.display = 'flex';
+
+  // Botón config + módulo Reportes solo para admin
+  if(usuarioActual.rol === 'admin'){
+    const btnCfg = document.getElementById('btn-config');
+    if(btnCfg) btnCfg.style.display = 'flex';
+    const modRep = document.getElementById('mod-reportes');
+    if(modRep) modRep.style.display = 'flex';
   }
 
-  // Mostrar módulos según permisos
+  // Módulos según permisos — config y reportes controlados arriba
   const modulos = usuarioActual.modulos ? usuarioActual.modulos.split(',') : [];
   document.querySelectorAll('.mod').forEach(m => {
     const id = m.id.replace('mod-', '');
-    if (id === 'config') {
-      m.style.display = usuarioActual.rol === 'admin' ? 'flex' : 'none';
-    } else if (id && !modulos.includes(id)) {
-      m.style.display = 'none';
-    }
+    if(id === 'config' || id === 'reportes') return;
+    if(id && !modulos.includes(id)) m.style.display = 'none';
   });
 
-  // Guardar usuario globalmente
   window.usuarioActual = usuarioActual;
   cargarData();
 });
+
+// ══════════════════════════════════════════════════════════════════
+// MÓDULO REPORTES — solo admin
+// ══════════════════════════════════════════════════════════════════
+const COMISIONES_KEY = 'cosetika_comisiones_cfg';
+
+function getComisionCfg(){
+  try{ return JSON.parse(localStorage.getItem(COMISIONES_KEY)) || defaultComisionCfg(); }
+  catch(e){ return defaultComisionCfg(); }
+}
+function saveComisionCfg(cfg){ localStorage.setItem(COMISIONES_KEY, JSON.stringify(cfg)); }
+
+function defaultComisionCfg(){
+  return {
+    asesoras:{
+      'Liseth Gavilanes':          {pct:3.0, minimo:4000},
+      'Daniela Villegas Chamorro': {pct:3.0, minimo:4000},
+      'Karen Rebeca Mora':         {pct:3.0, minimo:4000},
+      'Nicole Yanira Leon':        {pct:3.0, minimo:4000}
+    },
+    giovanna:{pct_equipo:1.75},
+    admin:[
+      {nombre:'María José Añazco', pct:0.8, minimo:18000},
+      {nombre:'Fernanda Carrillo',  pct:0.8, minimo:18000},
+      {nombre:'Ana Andrango',       pct:0.8, minimo:18000}
+    ]
+  };
+}
+
+function renderReportes(){
+  const usuario = window.usuarioActual || {};
+  if(usuario.rol !== 'admin'){
+    document.getElementById('main').innerHTML='<div class="coming"><i class="ti ti-lock"></i><p>Solo el administrador puede ver Reportes</p></div>';
+    return;
+  }
+  document.getElementById('sidebar').classList.add('hidden');
+  document.getElementById('body').classList.add('full-width');
+  window._reportesTab = window._reportesTab || 'comisiones';
+  document.getElementById('main').innerHTML=`
+    <div class="breadcrumb" style="margin-bottom:12px"><i class="ti ti-file-analytics" style="color:var(--brown);font-size:12px"></i><span style="font-weight:500">Reportes</span></div>
+    <div style="display:flex;gap:0;background:white;border-radius:12px;border:1px solid var(--border);overflow:hidden;margin-bottom:16px">
+      <button onclick="setReportesTab('comisiones')" id="rep-btn-comisiones"
+        style="flex:1;padding:11px;font-size:13px;font-weight:500;border:none;cursor:pointer;background:var(--brown);color:white">
+        <i class="ti ti-coin" style="margin-right:5px"></i>Comisiones
+      </button>
+    </div>
+    <div id="reportes-content"></div>`;
+  renderComisiones();
+}
+
+function setReportesTab(tab){ window._reportesTab=tab; renderReportes(); }
+
+function renderComisiones(){
+  const cfg = getComisionCfg();
+  const anioActual = new Date().getFullYear();
+  const mesActual = new Date().getMonth()+1;
+  const mesFiltro = window._comisionesMes || mesActual;
+
+  function ventasMes(nombreVend, mes){
+    const clientes = DATA[nombreVend] || [];
+    let conIva=0, sinIva=0;
+    clientes.forEach(c=>{
+      const f=c.frecuencia.find(x=>x.mes===mes);
+      if(f){ conIva+=f.total||0; sinIva+=f.subtotal||(f.total/1.12)||0; }
+    });
+    return {conIva, sinIva};
+  }
+
+  const equipoNombres = Object.keys(cfg.asesoras);
+  const filasAsesoras = equipoNombres.map(nombre=>{
+    const v=ventasMes(nombre, mesFiltro);
+    const c=cfg.asesoras[nombre]||{pct:3.0,minimo:4000};
+    const base=Math.max(0, v.sinIva-c.minimo);
+    return {nombre, conIva:v.conIva, sinIva:v.sinIva, pct:c.pct, minimo:c.minimo, base, comision:base*(c.pct/100)};
+  });
+
+  const vGiovanna = ventasMes('Giovanna Portilla', mesFiltro);
+  const totalEquipoSinIva = filasAsesoras.reduce((a,r)=>a+r.sinIva,0);
+  const comisionGiovanna = (vGiovanna.sinIva+totalEquipoSinIva)*(cfg.giovanna.pct_equipo/100);
+
+  const todasVends = Object.keys(DATA);
+  let totalConIvaGlobal=0, totalSinIvaGlobal=0;
+  todasVends.forEach(v=>{ const r=ventasMes(v,mesFiltro); totalConIvaGlobal+=r.conIva; totalSinIvaGlobal+=r.sinIva; });
+
+  const filasAdmin = cfg.admin.map(a=>{
+    const base=Math.max(0, totalSinIvaGlobal-a.minimo);
+    return {...a, base, comision:base*(a.pct/100)};
+  });
+
+  const mesesOpts=[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>
+    `<option value="${m}" ${m===mesFiltro?'selected':''}>${['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'][m-1]} ${anioActual}</option>`
+  ).join('');
+
+  document.getElementById('reportes-content').innerHTML=`
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap;padding:12px 14px;background:white;border-radius:10px;border:1px solid var(--border)">
+      <span style="font-size:12px;color:var(--muted);font-weight:500">Mes:</span>
+      <select onchange="window._comisionesMes=parseInt(this.value);renderComisiones()"
+        style="padding:6px 12px;border:1px solid var(--border);border-radius:8px;font-size:12px;outline:none;background:white">
+        ${mesesOpts}
+      </select>
+      <span style="font-size:12px;color:var(--muted)">Ventas totales:</span>
+      <span style="font-size:12px;font-weight:600;color:var(--brown)">c/IVA ${fmt(totalConIvaGlobal)}</span>
+      <span style="font-size:12px;color:var(--muted)">·</span>
+      <span style="font-size:12px;font-weight:600">s/IVA ${fmt(totalSinIvaGlobal)}</span>
+    </div>
+
+    <div class="card" style="margin-bottom:12px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+        <div class="card-title" style="margin-bottom:0"><i class="ti ti-users"></i> Comisiones — Equipo de ventas</div>
+        <button onclick="editarConfigComisiones()" style="padding:5px 12px;font-size:11px;border:1px solid var(--brown);background:rgba(160,104,74,0.1);color:var(--brown);border-radius:6px;cursor:pointer"><i class="ti ti-settings"></i> Editar parámetros</button>
+      </div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead><tr style="background:#faf9f8;border-bottom:1px solid var(--border)">
+            <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--muted)">Asesora</th>
+            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Vtas c/IVA</th>
+            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Subtotal s/IVA</th>
+            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Mínimo</th>
+            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">%</th>
+            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Base</th>
+            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Comisión</th>
+          </tr></thead>
+          <tbody>
+            ${filasAsesoras.map(r=>`
+              <tr style="border-bottom:0.5px solid var(--border)">
+                <td style="padding:9px 12px;font-weight:500">${r.nombre.split(' ')[0]} ${r.nombre.split(' ')[1]||''}</td>
+                <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(r.conIva)}</td>
+                <td style="padding:9px 12px;text-align:right">${fmt(r.sinIva)}</td>
+                <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(r.minimo)}</td>
+                <td style="padding:9px 12px;text-align:right;color:var(--muted)">${r.pct}%</td>
+                <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(r.base)}</td>
+                <td style="padding:9px 12px;text-align:right;font-weight:700;font-size:14px;color:${r.comision>0?'#166534':'var(--muted)'}">${fmt(r.comision)}</td>
+              </tr>`).join('')}
+            <tr style="border-bottom:0.5px solid var(--border);background:rgba(160,104,74,0.04)">
+              <td style="padding:9px 12px;font-weight:500">Giovanna Portilla <span style="font-size:10px;color:var(--muted)">(Jefa)</span></td>
+              <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(vGiovanna.conIva)}</td>
+              <td style="padding:9px 12px;text-align:right">${fmt(vGiovanna.sinIva)}</td>
+              <td style="padding:9px 12px;text-align:right;color:var(--muted)">—</td>
+              <td style="padding:9px 12px;text-align:right;color:var(--muted)">${cfg.giovanna.pct_equipo}% <span style="font-size:10px">(equipo+propio)</span></td>
+              <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(vGiovanna.sinIva+totalEquipoSinIva)}</td>
+              <td style="padding:9px 12px;text-align:right;font-weight:700;font-size:14px;color:${comisionGiovanna>0?'#166534':'var(--muted)'}">${fmt(comisionGiovanna)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title" style="margin-bottom:12px"><i class="ti ti-briefcase"></i> Comisiones — Administrativas</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:10px;background:#faf9f8;padding:8px 12px;border-radius:6px">
+        Calculado sobre <strong>subtotal sin IVA</strong> de ventas totales de todo el equipo
+      </div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead><tr style="background:#faf9f8;border-bottom:1px solid var(--border)">
+            <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--muted)">Persona</th>
+            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Ventas totales s/IVA</th>
+            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Mínimo</th>
+            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">%</th>
+            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Base</th>
+            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Comisión</th>
+          </tr></thead>
+          <tbody>
+            ${filasAdmin.map(a=>`
+              <tr style="border-bottom:0.5px solid var(--border)">
+                <td style="padding:9px 12px;font-weight:500">${a.nombre}</td>
+                <td style="padding:9px 12px;text-align:right">${fmt(totalSinIvaGlobal)}</td>
+                <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(a.minimo)}</td>
+                <td style="padding:9px 12px;text-align:right;color:var(--muted)">${a.pct}%</td>
+                <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(a.base)}</td>
+                <td style="padding:9px 12px;text-align:right;font-weight:700;font-size:14px;color:${a.comision>0?'#166534':'var(--muted)'}">${fmt(a.comision)}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+function editarConfigComisiones(){
+  const cfg=getComisionCfg();
+  const equipoNombres=Object.keys(cfg.asesoras);
+  const modal=document.createElement('div');
+  modal.id='modal-com-cfg';
+  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px';
+  modal.innerHTML=`
+    <div style="background:white;border-radius:14px;width:100%;max-width:520px;max-height:90vh;overflow-y:auto">
+      <div style="padding:16px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+        <span style="font-size:15px;font-weight:600">Parámetros de comisión</span>
+        <button onclick="document.getElementById('modal-com-cfg').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--muted)">×</button>
+      </div>
+      <div style="padding:18px">
+        <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">Asesoras (3% sobre ventas &gt; mínimo)</div>
+        ${equipoNombres.map(n=>{
+          const a=cfg.asesoras[n]; const id=n.replace(/\s+/g,'_');
+          return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:0.5px solid var(--border)">
+            <span style="font-size:13px;flex:1">${n.split(' ')[0]} ${n.split(' ')[1]||''}</span>
+            <label style="font-size:11px;color:var(--muted)">Mín. $</label>
+            <input type="number" id="cfg-min-${id}" value="${a.minimo}" style="width:70px;padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;text-align:right"/>
+            <input type="number" id="cfg-pct-${id}" value="${a.pct}" step="0.1" style="width:50px;padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;text-align:right"/>
+            <label style="font-size:11px;color:var(--muted)">%</label>
+          </div>`;
+        }).join('')}
+        <div style="margin-top:14px;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">Giovanna (Jefa de Ventas)</div>
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:0.5px solid var(--border)">
+          <span style="font-size:13px;flex:1">% sobre (ventas propias + equipo)</span>
+          <input type="number" id="cfg-gio-pct" value="${cfg.giovanna.pct_equipo}" step="0.01" style="width:60px;padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;text-align:right"/>
+          <label style="font-size:11px;color:var(--muted)">%</label>
+        </div>
+        <div style="margin-top:14px;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">Administrativas (sobre ventas totales s/IVA)</div>
+        ${cfg.admin.map((a,i)=>`
+          <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:0.5px solid var(--border)">
+            <span style="font-size:13px;flex:1">${a.nombre}</span>
+            <label style="font-size:11px;color:var(--muted)">Mín. $</label>
+            <input type="number" id="cfg-adm-min-${i}" value="${a.minimo}" style="width:75px;padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;text-align:right"/>
+            <input type="number" id="cfg-adm-pct-${i}" value="${a.pct}" step="0.01" style="width:50px;padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;text-align:right"/>
+            <label style="font-size:11px;color:var(--muted)">%</label>
+          </div>`).join('')}
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px">
+          <button onclick="document.getElementById('modal-com-cfg').remove()" style="padding:8px 16px;border:1px solid var(--border);border-radius:8px;background:white;font-size:13px;cursor:pointer">Cancelar</button>
+          <button onclick="guardarConfigComisiones()" style="padding:8px 18px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500">Guardar</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+}
+
+function guardarConfigComisiones(){
+  const cfg=getComisionCfg();
+  Object.keys(cfg.asesoras).forEach(n=>{
+    const id=n.replace(/\s+/g,'_');
+    const minEl=document.getElementById('cfg-min-'+id);
+    const pctEl=document.getElementById('cfg-pct-'+id);
+    if(minEl) cfg.asesoras[n].minimo=parseFloat(minEl.value)||4000;
+    if(pctEl) cfg.asesoras[n].pct=parseFloat(pctEl.value)||3.0;
+  });
+  const gioPct=document.getElementById('cfg-gio-pct');
+  if(gioPct) cfg.giovanna.pct_equipo=parseFloat(gioPct.value)||1.75;
+  cfg.admin.forEach((a,i)=>{
+    const minEl=document.getElementById('cfg-adm-min-'+i);
+    const pctEl=document.getElementById('cfg-adm-pct-'+i);
+    if(minEl) a.minimo=parseFloat(minEl.value)||18000;
+    if(pctEl) a.pct=parseFloat(pctEl.value)||0.8;
+  });
+  saveComisionCfg(cfg);
+  document.getElementById('modal-com-cfg')?.remove();
+  renderComisiones();
+  alert('✓ Parámetros guardados');
+}
+
 </script>
 </body>
 </html>
