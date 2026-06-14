@@ -205,84 +205,28 @@ function setMod(mod){
 function renderModVisitas(){
   const tab = window._visitaTab || 'realizadas';
   document.getElementById('main').innerHTML = `
-    <div style="display:flex;gap:0;background:white;border-radius:12px;border:1px solid var(--border);overflow:hidden;margin-bottom:16px">
-      <button onclick="showConfigTab('credenciales')" id="cfg-btn-credenciales"
-        style="flex:1;padding:11px;font-size:13px;font-weight:500;border:none;cursor:pointer;transition:all 0.2s;background:var(--brown);color:white">
-        <i class="ti ti-key" style="margin-right:5px"></i>Credenciales
+    <div style="display:flex;gap:0;background:white;border-radius:12px;border:1px solid var(--border);overflow:hidden;margin-bottom:12px">
+      <button onclick="setVisitaTab('planificacion')"
+        style="flex:1;padding:11px;font-size:13px;font-weight:500;border:none;cursor:pointer;transition:all 0.2s;
+        background:${tab==='planificacion'?'var(--brown)':'white'};color:${tab==='planificacion'?'white':'var(--muted)'}">
+        <i class="ti ti-calendar" style="margin-right:5px"></i>Planificación
       </button>
-      <button onclick="showConfigTab('permisos')" id="cfg-btn-permisos"
-        style="flex:1;padding:11px;font-size:13px;font-weight:500;border:none;cursor:pointer;transition:all 0.2s;background:white;color:var(--muted)">
-        <i class="ti ti-shield" style="margin-right:5px"></i>Permisos
-      </button>
-      <button onclick="showConfigTab('sync')" id="cfg-btn-sync"
-        style="flex:1;padding:11px;font-size:13px;font-weight:500;border:none;cursor:pointer;transition:all 0.2s;background:white;color:var(--muted)">
-        <i class="ti ti-refresh" style="margin-right:5px"></i>Sincronización
+      <button onclick="setVisitaTab('realizadas')"
+        style="flex:1;padding:11px;font-size:13px;font-weight:500;border:none;cursor:pointer;transition:all 0.2s;
+        background:${tab==='realizadas'?'var(--brown)':'white'};color:${tab==='realizadas'?'white':'var(--muted)'}">
+        <i class="ti ti-check" style="margin-right:5px"></i>Realizadas
       </button>
     </div>
-    <div id="cfg-credenciales">
-      <div class="card">
-        <div class="card-title"><i class="ti ti-key"></i> Cambiar contraseñas</div>
-        ${usuarios.map(u=>`
-          <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:0.5px solid var(--border)">
-            <div style="width:34px;height:34px;border-radius:50%;background:rgba(160,104,74,0.15);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:var(--brown);flex-shrink:0">${u.nombre.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase()}</div>
-            <div style="flex:1"><div style="font-size:13px;font-weight:500">${u.nombre}</div><div style="font-size:11px;color:var(--muted)">@${u.usuario} · ${u.rol}</div></div>
-            <input type="password" id="pwd-${u.id}" placeholder="Nueva clave" style="width:120px;padding:6px 10px;border:0.5px solid var(--border);border-radius:6px;font-size:12px;outline:none"/>
-            <button onclick="cambiarClave(${u.id},'pwd-${u.id}')" style="padding:6px 12px;background:var(--brown);color:white;border:none;border-radius:6px;font-size:12px;cursor:pointer">Guardar</button>
-          </div>`).join('')}
-      </div>
-      <div class="card" style="margin-top:12px">
-        <div class="card-title"><i class="ti ti-user-plus"></i> Nuevo usuario</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-          <div><div style="font-size:11px;color:var(--muted);margin-bottom:4px">Nombre completo</div><input id="new-nombre" type="text" placeholder="Ej: Ana Torres" style="width:100%;padding:7px 10px;border:0.5px solid var(--border);border-radius:6px;font-size:13px;outline:none"/></div>
-          <div><div style="font-size:11px;color:var(--muted);margin-bottom:4px">Usuario</div><input id="new-usuario" type="text" placeholder="Ej: Ana" style="width:100%;padding:7px 10px;border:0.5px solid var(--border);border-radius:6px;font-size:13px;outline:none"/></div>
-          <div><div style="font-size:11px;color:var(--muted);margin-bottom:4px">Contraseña</div><input id="new-pwd" type="password" placeholder="••••" style="width:100%;padding:7px 10px;border:0.5px solid var(--border);border-radius:6px;font-size:13px;outline:none"/></div>
-          <div><div style="font-size:11px;color:var(--muted);margin-bottom:4px">Rol</div><select id="new-rol" style="width:100%;padding:7px 10px;border:0.5px solid var(--border);border-radius:6px;font-size:13px;outline:none"><option value="asesora">Asesora</option><option value="jefa_ventas">Jefa de Ventas</option><option value="admin">Admin</option></select></div>
-        </div>
-        <div style="margin-top:12px;display:flex;justify-content:flex-end">
-          <button onclick="crearUsuario()" style="padding:8px 18px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-user-plus"></i> Crear usuario</button>
-        </div>
-      </div>
-    </div>
-    <div id="cfg-sync" style="display:none">
-      <div class="card">
-        <div class="card-title"><i class="ti ti-refresh"></i> Sincronización de datos</div>
-        <p style="font-size:13px;color:var(--muted);margin-bottom:12px">Regenera el <code>data.json</code> descargando todas las facturas del año desde Contifico. Los nombres de clientes y marcas de productos se actualizarán automáticamente.</p>
-        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-          <button onclick="regenerarData()" style="padding:8px 18px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500">
-            <i class="ti ti-refresh"></i> Regenerar data.json ahora
-          </button>
-          <button onclick="sincronizarCatalogoBtnClick()" style="padding:8px 18px;background:white;color:var(--brown);border:1px solid var(--brown);border-radius:8px;font-size:13px;cursor:pointer">
-            <i class="ti ti-tag"></i> Sync catálogo de productos
-          </button>
-        </div>
-        <div id="sync-status" style="margin-top:12px;font-size:12px;color:var(--muted)"></div>
-      </div>
-    </div>
-    <div id="cfg-permisos" style="display:none">
-      <div class="card">
-        <div class="card-title"><i class="ti ti-shield"></i> Permisos por módulo</div>
-        <div style="overflow-x:auto">
-          <table style="width:100%;border-collapse:collapse;font-size:13px">
-            <thead><tr style="border-bottom:0.5px solid var(--border)">
-              <th style="text-align:left;padding:8px 10px;font-size:11px;color:var(--muted)">Usuario</th>
-              ${MODS_LISTA.map(m=>`<th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);text-transform:uppercase">${m}</th>`).join('')}
-              <th></th>
-            </tr></thead>
-            <tbody>
-              ${usuarios.map(u=>{
-                const mods=u.modulos?u.modulos.split(','):[];
-                return `<tr style="border-bottom:0.5px solid var(--border)">
-                  <td style="padding:10px"><div style="font-size:13px;font-weight:500">${u.nombre.split(' ')[0]}</div><div style="font-size:11px;color:var(--muted)">${u.rol}</div></td>
-                  ${MODS_LISTA.map(m=>`<td style="text-align:center;padding:10px"><input type="checkbox" ${mods.includes(m)?'checked':''} id="perm-${u.id}-${m}" style="accent-color:#A0684A;width:16px;height:16px;cursor:pointer"/></td>`).join('')}
-                  <td style="padding:10px"><button onclick="guardarPermisos(${u.id})" style="padding:5px 12px;background:var(--brown);color:white;border:none;border-radius:6px;font-size:11px;cursor:pointer">Guardar</button></td>
-                </tr>`;
-              }).join('')}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>`;
+    <div id="visitas-content"></div>`;
+  if(tab==='realizadas') renderVisitasRealizadas();
+  else renderPlanificacion();
 }
+
+function setVisitaTab(tab){
+  window._visitaTab = tab;
+  renderModVisitas();
+}
+
 
 function showConfigTab(tab){
   ['credenciales','permisos','sync'].forEach(t=>{
