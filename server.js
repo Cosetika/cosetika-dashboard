@@ -35,7 +35,7 @@ async function sincronizarCatalogo() {
       results.forEach(p => {
         // Contifico devuelve: nombre, categoria (= marca), codigo, etc.
         const nombre = (p.nombre || p.descripcion || '').trim();
-        const marca  = (p.categoria?.nombre || p.categoria || p.marca || '').trim().toUpperCase();
+        const marca  = (p.marca || p.categoria?.nombre || p.categoria || '').trim().toUpperCase();
         if (nombre && marca) productos[nombre] = marca;
       });
       nextUrl = data.next || null;
@@ -275,19 +275,27 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // TEST V2
+  // TEST V2 — acepta ?fecha=DD/MM/YYYY o usa hoy
   if (urlPath === '/api/test-v2' && req.method === 'GET') {
     try {
-      const now = new Date();
-      const testFecha = fmtDateEC(now);
-      const testUrl = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${testFecha}&fecha_final=${testFecha}`;
+      const fechaParam = urlObj.searchParams.get('fecha');
+      const testFecha = fechaParam || fmtDateEC(new Date());
+      const testUrl = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${testFecha}&fecha_final=${testFecha}&page_size=1`;
       console.log('Testing v2:', testUrl);
       const inicio = Date.now();
       const response = await fetch(testUrl, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
       const tiempo = Date.now() - inicio;
       const texto = await response.text();
+      // Mostrar estructura completa del primer documento
+      let preview = texto.substring(0,2000);
+      try {
+        const parsed = JSON.parse(texto);
+        if(parsed.results && parsed.results[0]){
+          preview = JSON.stringify(parsed.results[0], null, 2).substring(0,3000);
+        }
+      } catch(e){}
       res.writeHead(200,{'Content-Type':'application/json'});
-      res.end(JSON.stringify({ url_probada: testUrl, status: response.status, tiempo_ms: tiempo, tiempo_seg: (tiempo/1000).toFixed(1)+'s', respuesta_preview: texto.substring(0,500) }));
+      res.end(JSON.stringify({ url_probada: testUrl, status: response.status, tiempo_ms: tiempo, count: JSON.parse(texto).count||0, primer_documento: preview }));
     } catch(e) { res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
     return;
   }
