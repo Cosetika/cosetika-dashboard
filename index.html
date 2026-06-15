@@ -123,9 +123,8 @@
 
     <div class="icon-btn" id="btn-config" title="Configuración" style="display:none" onclick="setMod('config')"><i class="ti ti-settings"></i></div>
     <div style="display:flex;align-items:center;gap:8px">
-      <div id="hdr-avatar" style="width:32px;height:32px;border-radius:50%;background:var(--brown);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;flex-shrink:0;transition:background 0.3s"></div>
-      <span id="hdr-nombre" style="font-size:12px;color:#e8c9a8;font-weight:500;white-space:nowrap"></span>
-      <div class="icon-btn" title="Cerrar sesión" onclick="if(confirm('¿Cerrar sesión?')){sessionStorage.clear();window.location.href='/login';}" style="margin-left:4px">
+      <div id="hdr-avatar" style="width:32px;height:32px;border-radius:50%;background:var(--brown);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;flex-shrink:0;transition:background 0.3s;cursor:pointer" title="Cerrar sesión" onclick="if(confirm('¿Cerrar sesión?')){sessionStorage.clear();window.location.href='/login';}"></div>
+      <div class="icon-btn" title="Cerrar sesión" onclick="if(confirm('¿Cerrar sesión?')){sessionStorage.clear();window.location.href='/login';}">
         <i class="ti ti-logout" style="font-size:16px;color:#e8c9a8"></i>
       </div>
     </div>
@@ -146,7 +145,7 @@
   <div class="stab" id="stab-marcas" onclick="setSubtab('marcas')" style="padding:10px 6px;font-size:11px">Marcas</div>
   <div class="stab" id="stab-ventas" onclick="setSubtab('ventas')" style="padding:10px 6px;font-size:11px">Ventas</div>
   <div class="stab active" id="stab-cpf" onclick="setSubtab('cpf')" style="background:var(--brown);color:#fff;padding:10px 6px;font-size:11px">Clientes</div>
-  <div class="stab" id="stab-prov" onclick="setSubtab('prov')" style="padding:10px 6px;font-size:11px">Provincia</div>
+  <div class="stab" id="stab-prov" onclick="setSubtab('prov')" style="padding:10px 6px;font-size:11px">Provincias</div>
 </div>
 
 <!-- Botón refresh flotante para móvil -->
@@ -187,21 +186,25 @@ const VEND_COLORS = {
   'Giovanna Portilla':        '#7dd3fc',  // azul pastel
   'Liseth Gavilanes':         '#c4b5fd',  // violeta pastel
   'Daniela Villegas Chamorro':'#fdba74',  // naranja pastel
-  'Karen Rebeca Mora':        '#5eead4',  // teal pastel
-  'Nicole Yanira Leon':       '#fda4af',  // rosa pastel
-  'María Caridad Zea':        '#bef264',  // lima pastel
+  'Karen Rebeca Mora Cedeño': '#5eead4',  // teal pastel
+  'Nicole Yanira Leon Marquez':'#fda4af', // rosa pastel
+  'María Caridad Zea Larrea': '#bef264',  // lima pastel
 };
 
 function getVendColor(nombre){
+  if(!nombre) return '#c4a882';
+  // Lookup exacto
+  if(VEND_COLORS[nombre]) return VEND_COLORS[nombre];
+  // Lookup parcial — si el nombre del dato contiene el nombre de la clave o viceversa
   for(const [k,v] of Object.entries(VEND_COLORS)){
-    if(nombre && nombre.includes(k.split(' ')[0]) && nombre.includes(k.split(' ')[1]||'')) return v;
+    if(nombre.startsWith(k) || k.startsWith(nombre)) return v;
   }
-  // fallback por primer nombre
-  const primer = (nombre||'').split(' ')[0];
+  // Fallback por primer nombre
+  const primer = nombre.split(' ')[0];
   for(const [k,v] of Object.entries(VEND_COLORS)){
     if(k.startsWith(primer)) return v;
   }
-  return '#A0684A';
+  return '#c4a882';
 }
 
 function getMarcaColor(marca){
@@ -2080,8 +2083,8 @@ function defaultComisionCfg(){
     asesoras:{
       'Liseth Gavilanes':          {pct:3.0, minimo:4000},
       'Daniela Villegas Chamorro': {pct:3.0, minimo:4000},
-      'Karen Rebeca Mora':         {pct:3.0, minimo:4000},
-      'Nicole Yanira Leon':        {pct:3.0, minimo:4000}
+      'Karen Rebeca Mora Cedeño':  {pct:3.0, minimo:4000},
+      'Nicole Yanira Leon Marquez':{pct:3.0, minimo:4000}
     },
     giovanna:{pct_equipo:1.75},
     admin:[
@@ -2363,7 +2366,7 @@ async function renderKpis(){
 
   // Admin y jefa ven selector de asesora; asesoras solo su propia
   const puedeVerTodas = (rol==='admin'||rol==='jefa_ventas');
-  const asesoras = ['Daniela Villegas Chamorro','Liseth Gavilanes','Karen Rebeca Mora','Nicole Yanira Leon','Giovanna Portilla'];
+  const asesoras = ['Daniela Villegas Chamorro','Liseth Gavilanes','Karen Rebeca Mora Cedeño','Nicole Yanira Leon Marquez','Giovanna Portilla','María Caridad Zea Larrea'];
   let asesoraKpi = window._kpiAsesora || (puedeVerTodas ? asesoras[0] : nombre);
   window._kpiAsesora = asesoraKpi;
 
@@ -2414,11 +2417,8 @@ async function renderKpis(){
 
   // Meses disponibles para historial
   const mesesOpts = [];
-  for(let y=anioActual; y>=anioActual-1; y--){
-    for(let m=12; m>=1; m--){
-      if(y===anioActual && m>mesActual) continue;
-      mesesOpts.push({y,m});
-    }
+  for(let m=1; m<=mesActual; m++){
+    mesesOpts.push({y:anioActual, m});
   }
   const MESES_N=['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 
