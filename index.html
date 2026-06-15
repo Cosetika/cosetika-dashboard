@@ -30,7 +30,7 @@
     .submenu{display:none;background:#fff;border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:none}
     .submenu::-webkit-scrollbar{display:none}
     .submenu.visible{display:flex}
-    .stab{flex:1;padding:10px 18px;font-size:12px;font-weight:500;color:var(--muted);cursor:pointer;border:none;background:white;text-align:center;transition:all 0.2s;white-space:nowrap}
+    .stab{flex:1;padding:10px 4px;font-size:11px;font-weight:500;color:var(--muted);cursor:pointer;border:none;background:white;text-align:center;transition:all 0.2s;white-space:nowrap;min-width:0}
     .stab:hover{color:var(--text)}
     .stab.active{background:var(--brown);color:#fff}
 
@@ -142,11 +142,11 @@
 </div>
 
 <div class="submenu" id="submenu-ventas" style="border-radius:0">
-  <div class="stab" id="stab-facturas" onclick="setSubtab('facturas')"><i class="ti ti-receipt" style="font-size:13px;margin-right:4px"></i>Facturas</div>
-  <div class="stab" id="stab-marcas" onclick="setSubtab('marcas')"><i class="ti ti-tag" style="font-size:13px;margin-right:4px"></i>Marcas</div>
-  <div class="stab" id="stab-ventas" onclick="setSubtab('ventas')"><i class="ti ti-chart-bar" style="font-size:13px;margin-right:4px"></i>Ventas</div>
-  <div class="stab active" id="stab-cpf" onclick="setSubtab('cpf')" style="background:var(--brown);color:#fff"><i class="ti ti-users" style="font-size:13px;margin-right:4px"></i>Clientes</div>
-  <div class="stab" id="stab-prov" onclick="setSubtab('prov')"><i class="ti ti-map-pin" style="font-size:13px;margin-right:4px"></i>Provincia</div>
+  <div class="stab" id="stab-facturas" onclick="setSubtab('facturas')" style="padding:10px 6px;font-size:11px">Facturas</div>
+  <div class="stab" id="stab-marcas" onclick="setSubtab('marcas')" style="padding:10px 6px;font-size:11px">Marcas</div>
+  <div class="stab" id="stab-ventas" onclick="setSubtab('ventas')" style="padding:10px 6px;font-size:11px">Ventas</div>
+  <div class="stab active" id="stab-cpf" onclick="setSubtab('cpf')" style="background:var(--brown);color:#fff;padding:10px 6px;font-size:11px">Clientes</div>
+  <div class="stab" id="stab-prov" onclick="setSubtab('prov')" style="padding:10px 6px;font-size:11px">Provincia</div>
 </div>
 
 <!-- Botón refresh flotante para móvil -->
