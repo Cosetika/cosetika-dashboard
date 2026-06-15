@@ -368,6 +368,50 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // DIAGNÓSTICO DE TOTALES vs CONTIFICO
+  if (urlPath === '/api/diagnostico-ventas' && req.method === 'GET') {
+    try {
+      const fi = urlObj.searchParams.get('desde') || '01/01/2026';
+      const ff = urlObj.searchParams.get('hasta') || fmtDateEC(new Date());
+      let totalCLI=0, totalNC=0, totalFernando=0, totalAnulado=0;
+      let countCLI=0, countNC=0, countFernando=0, countAnulado=0;
+      let nextUrl = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${fi}&fecha_final=${ff}&page_size=100`;
+      let paginas=0;
+      while(nextUrl && paginas<200){
+        const resp = await fetch(nextUrl, { headers:{'Authorization':API_KEY,'Accept':'application/json'} });
+        const data = await resp.json();
+        (data.results||[]).forEach(d=>{
+          const total = parseFloat(d.total||0);
+          if(d.anulado){ totalAnulado+=total; countAnulado++; return; }
+          if(d.tipo_registro==='CLI'){
+            const vend = d.vendedor?.razon_social||'';
+            if(vend.includes('Fernando')||vend.includes('Espíndola')||vend.includes('Espindola')){
+              totalFernando+=total; countFernando++;
+            } else {
+              totalCLI+=total; countCLI++;
+            }
+          } else if(d.tipo_documento==='NC'||d.tipo_registro==='NC'){
+            totalNC+=total; countNC++;
+          }
+        });
+        nextUrl=data.next||null; paginas++;
+      }
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({
+        periodo: `${fi} → ${ff}`,
+        ventas_clientes: {total: Math.round(totalCLI*100)/100, facturas: countCLI},
+        ventas_fernando: {total: Math.round(totalFernando*100)/100, facturas: countFernando},
+        notas_credito:   {total: Math.round(totalNC*100)/100, docs: countNC},
+        anulados:        {total: Math.round(totalAnulado*100)/100, docs: countAnulado},
+        neto_esperado:   Math.round((totalCLI)*100)/100
+      },null,2));
+    } catch(e) {
+      res.writeHead(500,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({error:e.message}));
+    }
+    return;
+  }
+
   // REGENERAR DATA.JSON
   if (urlPath === '/api/regenerar-data' && req.method === 'GET') {
     const fi = urlObj.searchParams.get('desde') || fmtDateEC(new Date(new Date().getFullYear(),0,1));
