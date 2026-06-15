@@ -140,6 +140,7 @@
 
 <div class="submenu" id="submenu-ventas" style="border-radius:0">
   <div class="stab" id="stab-facturas" onclick="setSubtab('facturas')"><i class="ti ti-receipt" style="font-size:13px;margin-right:4px"></i>Facturas</div>
+  <div class="stab" id="stab-marcas" onclick="setSubtab('marcas')"><i class="ti ti-tag" style="font-size:13px;margin-right:4px"></i>Marcas</div>
   <div class="stab" id="stab-ventas" onclick="setSubtab('ventas')"><i class="ti ti-chart-bar" style="font-size:13px;margin-right:4px"></i>Ventas</div>
   <div class="stab active" id="stab-cpf" onclick="setSubtab('cpf')" style="background:var(--brown);color:#fff">Clientes</div>
   <div class="stab" id="stab-prov" onclick="setSubtab('prov')">Provincia</div>
@@ -165,20 +166,20 @@ const EXCLUIR=['Fernando Espíndola','Fernando Espindola'];
 
 // ─── COLORES GLOBALES ─────────────────────────────────────────────────────────
 const MARCA_COLORS = {
-  'BIOSKIN':   '#6366f1',  // índigo
-  'ERAYBA':    '#f59e0b',  // ámbar
-  'ZIAJA':     '#10b981',  // esmeralda
-  'ZIAJA PRO': '#ec4899',  // rosa
-  'TODAS':     '#A0684A',  // café Cosétika
+  'BIOSKIN':   '#a5b4fc',  // índigo pastel
+  'ERAYBA':    '#fcd34d',  // ámbar pastel
+  'ZIAJA':     '#6ee7b7',  // esmeralda pastel
+  'ZIAJA PRO': '#f9a8d4',  // rosa pastel
+  'TODAS':     '#c4a882',  // café pastel
 };
 
 const VEND_COLORS = {
-  'Giovanna Portilla':        '#0ea5e9',  // azul cielo
-  'Liseth Gavilanes':         '#8b5cf6',  // violeta
-  'Daniela Villegas Chamorro':'#f97316',  // naranja
-  'Karen Rebeca Mora':        '#14b8a6',  // teal
-  'Nicole Yanira Leon':       '#f43f5e',  // rosa rojo
-  'María Caridad Zea':        '#84cc16',  // lima
+  'Giovanna Portilla':        '#7dd3fc',  // azul pastel
+  'Liseth Gavilanes':         '#c4b5fd',  // violeta pastel
+  'Daniela Villegas Chamorro':'#fdba74',  // naranja pastel
+  'Karen Rebeca Mora':        '#5eead4',  // teal pastel
+  'Nicole Yanira Leon':       '#fda4af',  // rosa pastel
+  'María Caridad Zea':        '#bef264',  // lima pastel
 };
 
 function getVendColor(nombre){
@@ -545,6 +546,9 @@ function setSubtab(tab){
   if(tab==='facturas'){
     sidebar.classList.add('hidden'); body.classList.add('full-width');
     renderFacturasHoy();
+  } else if(tab==='marcas'){
+    sidebar.classList.add('hidden'); body.classList.add('full-width');
+    renderMarcasPanel();
   } else if(tab==='ventas'){
     sidebar.classList.add('hidden'); body.classList.add('full-width');
     renderVentasPanel();
@@ -757,7 +761,7 @@ function renderProductosPorMarca(marcaSeleccionada, totalMarcaIn){
     `<option value="m${m}" ${!prodTodoAnio&&prodMesFiltro===m?'selected':''}>${MESES_LABELS[m]} ${anioActual}</option>`
   ).join('');
 
-  const MARCA_COLORS={'BIOSKIN':'#6366f1','ERAYBA':'#f59e0b','ZIAJA':'#10b981','ZIAJA PRO':'#ec4899','TODAS':'var(--brown)'};
+  const MARCA_COLORS={'BIOSKIN':'#a5b4fc','ERAYBA':'#fcd34d','ZIAJA':'#6ee7b7','ZIAJA PRO':'#f9a8d4','TODAS':'#c4a882'};
 
   document.getElementById('main').innerHTML=`
     <!-- Breadcrumb + volver -->
@@ -849,8 +853,8 @@ function sortProductosMarca(criterio){
   const maxQ = lista[0]?.cantidad||1;
   document.querySelectorAll('[id^=sort-p-]').forEach(b=>b.classList.remove('active-sort'));
   document.getElementById('sort-p-'+criterio)?.classList.add('active-sort');
-  const MARCA_COLORS={'BIOSKIN':'#6366f1','ERAYBA':'#f59e0b','ZIAJA':'#10b981','ZIAJA PRO':'#ec4899','TODAS':'var(--brown)'};
-  const MC={'BIOSKIN':'#6366f1','ERAYBA':'#f59e0b','ZIAJA':'#10b981','ZIAJA PRO':'#ec4899','TODAS':'var(--brown)'};
+  const MARCA_COLORS={'BIOSKIN':'#a5b4fc','ERAYBA':'#fcd34d','ZIAJA':'#6ee7b7','ZIAJA PRO':'#f9a8d4','TODAS':'#c4a882'};
+  const MC={'BIOSKIN':'#a5b4fc','ERAYBA':'#fcd34d','ZIAJA':'#6ee7b7','ZIAJA PRO':'#f9a8d4','TODAS':'#c4a882'};
   document.getElementById('ranking-productos-lista').innerHTML = lista.length===0
     ? '<p style="font-size:13px;color:var(--muted)">Sin datos</p>'
     : lista.map((p,i)=>{
@@ -970,6 +974,92 @@ async function renderFacturasHoy(){
   }
 }
 
+
+// ─── TAB MARCAS: gráfico de líneas mensual + barras por marca ─────────────────
+function renderMarcasPanel(){
+  subtabActual='marcas';
+  const anioActual = new Date().getFullYear();
+  const MESES_CORTO=['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+
+  const vendedoras = Object.keys(DATA);
+
+  // Ventas por marca por mes (todo el año para el gráfico)
+  function getVentasMarcaMes(marca, mes){
+    let t=0;
+    vendedoras.forEach(v=>DATA[v].forEach(c=>{
+      const mCli = c.marcas.find(m=>m.marca===marca);
+      if(!mCli) return;
+      const ratio = c.total>0 ? mCli.total/c.total : 0;
+      const totMes = (c.frecuencia.find(f=>f.mes===mes)||{total:0}).total;
+      t += totMes * ratio;
+    }));
+    return t;
+  }
+
+  // Ventas totales por marca (todo el año)
+  const todasMarcasData = {};
+  vendedoras.forEach(v=>DATA[v].forEach(c=>{
+    c.marcas.forEach(m=>{
+      todasMarcasData[m.marca]=(todasMarcasData[m.marca]||0)+m.total;
+    });
+  }));
+  const marcasOrdenadas = Object.entries(todasMarcasData).sort((a,b)=>b[1]-a[1]);
+  const totalAnual = marcasOrdenadas.reduce((a,[,t])=>a+t, 0);
+
+  // Meses con datos
+  const mesesDisp=[];
+  for(let m=1;m<=12;m++){
+    if(vendedoras.some(v=>DATA[v].some(c=>c.frecuencia.some(f=>f.mes===m&&f.total>0)))) mesesDisp.push(m);
+  }
+
+  // Series para gráfico de líneas
+  const seriesMarcas = marcasOrdenadas.map(([marca])=>({
+    nombre: marca,
+    color: getMarcaColor(marca),
+    valores: mesesDisp.map(m=>getVentasMarcaMes(marca,m))
+  }));
+
+  document.getElementById('main').innerHTML=`
+    <div class="breadcrumb" style="margin-bottom:12px">
+      <i class="ti ti-tag" style="color:var(--brown);font-size:12px"></i>
+      <span style="font-weight:500">Ventas por marca — ${anioActual}</span>
+    </div>
+
+    <!-- Gráfico líneas marcas -->
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-title"><i class="ti ti-chart-line"></i> Evolución mensual por marca — ${anioActual}</div>
+      <div style="width:100%;overflow-x:auto">
+        <canvas id="grafico-marcas" style="display:block;width:100%;min-width:480px;height:240px"></canvas>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:10px;justify-content:center">
+        ${seriesMarcas.map(s=>`
+          <div style="display:flex;align-items:center;gap:5px">
+            <div style="width:20px;height:3px;border-radius:2px;background:${s.color}"></div>
+            <span style="font-size:11px;color:var(--text)">${s.nombre}</span>
+          </div>`).join('')}
+      </div>
+    </div>
+
+    <!-- Barras por marca -->
+    <div class="card">
+      <div class="card-title"><i class="ti ti-tag"></i> Ventas por marca · <span style="font-size:9px;color:var(--muted)">toca para ver productos</span></div>
+      ${marcasOrdenadas.map(([m,t])=>`
+        <div style="margin-bottom:10px;cursor:pointer;padding:6px 8px;border-radius:8px;transition:background 0.15s" onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='transparent'" onclick="window._prodMarcaSel='${m}';window._prodTodoAnio=true;renderProductosPorMarca()">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">
+            <span style="font-size:13px;font-weight:700;color:${getMarcaColor(m)};flex:1">${m} <i class="ti ti-chevron-right" style="font-size:10px"></i></span>
+            <span style="font-size:13px;color:var(--text);font-weight:600">${fmt(t)}</span>
+            <span style="font-size:11px;color:var(--muted);min-width:32px;text-align:right">${Math.round(t/totalAnual*100)||0}%</span>
+          </div>
+          <div style="height:10px;background:#f5f3f0;border-radius:5px;overflow:hidden">
+            <div style="height:100%;border-radius:5px;background:${getMarcaColor(m)};width:${Math.round(t/marcasOrdenadas[0][1]*100)}%;transition:width 0.5s"></div>
+          </div>
+          <div style="font-size:10px;color:var(--muted);margin-top:3px">s/IVA: ${fmt(t/1.12)}</div>
+        </div>`).join('')}
+    </div>`;
+
+  requestAnimationFrame(()=>dibujarGraficoLineas('grafico-marcas', seriesMarcas, mesesDisp));
+}
+
 // ─── TAB VENTAS: panel con filtro + vendedoras + marcas ───────────────────────
 let ventasFiltroMes = new Date().getMonth()+1;
 let ventasFiltroTodo = false;
@@ -1070,25 +1160,13 @@ function renderVentasPanel(){
       `).join('')}
     </div>
 
-    <!-- Marcas -->
-    <div class="card">
-      <div class="card-title"><i class="ti ti-tag"></i> Ventas por marca <span style="font-size:9px;color:var(--muted);font-weight:400;margin-left:2px">· toca para ver productos</span></div>
-      ${marcasArr.map(([m,t])=>`
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer;padding:4px 6px;border-radius:6px;transition:background 0.15s" onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='transparent'" onclick="window._prodMarcaSel='${m}';window._prodTodoAnio=false;window._prodMesFiltro=new Date().getMonth()+1;renderProductosPorMarca()">
-          <span style="font-size:12px;width:110px;min-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:${getMarcaColor(m)};font-weight:600">${m} <i class="ti ti-chevron-right" style="font-size:9px"></i></span>
-          <div style="flex:1;height:14px;background:#f0ede9;border-radius:3px;overflow:hidden">
-            <div style="height:100%;border-radius:3px;background:${getMarcaColor(m)};width:${pct(t,maxMarca)}%;transition:width 0.4s"></div>
-          </div>
-          <span style="font-size:12px;color:var(--muted);min-width:80px;text-align:right">${fmt(t)}</span>
-          <span style="font-size:10px;color:var(--muted);min-width:32px;text-align:right">${Math.round(t/totalConIva*100)||0}%</span>
-        </div>`).join('')}
-    </div>`;
+  `;
 
-  requestAnimationFrame(()=>dibujarGraficoVentas(datosMensuales, mesesDisponibles));
+  requestAnimationFrame(()=>dibujarGraficoLineas('grafico-ventas', datosMensuales, mesesDisponibles));
 }
 
-function dibujarGraficoVentas(series, meses){
-  const canvas = document.getElementById('grafico-ventas');
+function dibujarGraficoLineas(canvasId, series, meses){
+  const canvas = document.getElementById(canvasId);
   if(!canvas) return;
   const ctx = canvas.getContext('2d');
   const dpr = window.devicePixelRatio||1;
