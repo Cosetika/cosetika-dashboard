@@ -1319,6 +1319,7 @@ function renderHome(){
     : [usuario.nombre];
 
   // Filtrar clientes por mes si aplica
+  const anioActual2 = new Date().getFullYear();
   const anioCliActivo = window._clientesAnio || anioActual2;
   function getClis(v){
     if(!clientesFiltroMes) return (DATA[v]||[]).filter(c=>
@@ -1348,7 +1349,6 @@ function renderHome(){
   })).sort((a,b)=>b.total-a.total);
   const maxVend=ranking[0]?.total||1;
 
-  const anioActual2 = new Date().getFullYear();
   const MESES_CORTO2=['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
   // Solo mostrar meses que tienen datos en el año seleccionado
   const anioClientes = window._clientesAnio || anioActual2;
