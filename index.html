@@ -993,11 +993,13 @@ function renderMarcasPanel(){
   subtabActual='marcas';
   const anioActual = new Date().getFullYear();
   const MESES_CORTO=['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-  // Años disponibles en los datos
+  // Años disponibles — del campo anio si existe, sino del año actual
   const aniosSet = new Set();
+  let hayAnios = false;
   Object.values(DATA).forEach(clientes=>clientes.forEach(c=>
-    (c.frecuencia||[]).forEach(f=>{ if(f.anio) aniosSet.add(f.anio); else aniosSet.add(anioActual); })
+    (c.frecuencia||[]).forEach(f=>{ if(f.anio){ aniosSet.add(f.anio); hayAnios=true; } })
   ));
+  if(!hayAnios) aniosSet.add(anioActual); // fallback si data es viejo
   if(aniosSet.size===0) aniosSet.add(anioActual);
   const aniosDisp = [...aniosSet].sort((a,b)=>b-a);
   if(!aniosDisp.includes(ventasFiltroAnio)) ventasFiltroAnio = aniosDisp[0];
@@ -1091,17 +1093,34 @@ function renderVentasPanel(){
   const anioActual = new Date().getFullYear();
   const MESES_LABELS=['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
   const MESES_CORTO=['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-  // Años disponibles en los datos
+  // Años disponibles — del campo anio si existe, sino del año actual
   const aniosSet = new Set();
+  let hayAnios = false;
   Object.values(DATA).forEach(clientes=>clientes.forEach(c=>
-    (c.frecuencia||[]).forEach(f=>{ if(f.anio) aniosSet.add(f.anio); else aniosSet.add(anioActual); })
+    (c.frecuencia||[]).forEach(f=>{ if(f.anio){ aniosSet.add(f.anio); hayAnios=true; } })
   ));
+  if(!hayAnios) aniosSet.add(anioActual); // fallback si data es viejo
   if(aniosSet.size===0) aniosSet.add(anioActual);
   const aniosDisp = [...aniosSet].sort((a,b)=>b-a);
   if(!aniosDisp.includes(ventasFiltroAnio)) ventasFiltroAnio = aniosDisp[0];
 
-  function getVentasMes(clientes,mes,anio){ return clientes.reduce((a,c)=>{ const f=c.frecuencia.find(x=>x.mes===mes&&(!anio||!x.anio||x.anio===anio)); return a+(f?f.total:0); },0); }
-  function getFacturasMes(clientes,mes,anio){ return clientes.reduce((a,c)=>{ const f=c.frecuencia.find(x=>x.mes===mes&&(!anio||!x.anio||x.anio===anio)); return a+(f?f.compras:0); },0); }
+  function getVentasMes(clientes,mes,anio){
+    return clientes.reduce((a,c)=>{
+      // Buscar con año si está disponible, sino por mes solamente
+      const f = anio
+        ? c.frecuencia.find(x=>x.mes===mes && (x.anio===anio || (!x.anio && anio===new Date().getFullYear())))
+        : c.frecuencia.find(x=>x.mes===mes);
+      return a+(f?f.total:0);
+    },0);
+  }
+  function getFacturasMes(clientes,mes,anio){
+    return clientes.reduce((a,c)=>{
+      const f = anio
+        ? c.frecuencia.find(x=>x.mes===mes && (x.anio===anio || (!x.anio && anio===new Date().getFullYear())))
+        : c.frecuencia.find(x=>x.mes===mes);
+      return a+(f?f.compras:0);
+    },0);
+  }
 
   const vendedoras = Object.keys(DATA);
   const porVend = vendedoras.map(v=>({
@@ -1124,10 +1143,10 @@ function renderVentasPanel(){
 
   // Datos mensuales para gráfico (siempre todo el año)
   const mesesDisponibles=[];
-  for(let m=1;m<=12;m++){ if(vendedoras.some(v=>getVentasMes(DATA[v],m)>0)) mesesDisponibles.push(m); }
+  for(let m=1;m<=12;m++){ if(vendedoras.some(v=>getVentasMes(DATA[v],m,ventasFiltroAnio)>0)) mesesDisponibles.push(m); }
   const datosMensuales=vendedoras.map(v=>({
     nombre:v, color:getVendColor(v),
-    valores:mesesDisponibles.map(m=>getVentasMes(DATA[v],m))
+    valores:mesesDisponibles.map(m=>getVentasMes(DATA[v],m,ventasFiltroAnio))
   })).filter(v=>v.valores.some(x=>x>0));
 
   const etiqueta = ventasFiltroTodo ? `Todo ${ventasFiltroAnio}` : `${MESES_LABELS[ventasFiltroMes]} ${ventasFiltroAnio}`;
@@ -1135,7 +1154,8 @@ function renderVentasPanel(){
   const mesesConData = new Set();
   Object.values(DATA).forEach(clientes=>clientes.forEach(c=>
     (c.frecuencia||[]).forEach(f=>{
-      const fAnio = f.anio||anioActual;
+      // Si la frecuencia no tiene año (datos viejos), asumir que pertenece al año del dato
+      const fAnio = f.anio || (c.frecuencia.some(x=>x.anio) ? null : ventasFiltroAnio);
       if(fAnio===ventasFiltroAnio && f.total>0) mesesConData.add(f.mes);
     })
   ));
@@ -1169,7 +1189,7 @@ function renderVentasPanel(){
 
     <!-- Gráfico de líneas -->
     <div class="card" style="margin-bottom:12px">
-      <div class="card-title"><i class="ti ti-chart-line"></i> Evolución mensual por vendedora — ${anioActual}</div>
+      <div class="card-title"><i class="ti ti-chart-line"></i> Evolución mensual por vendedora — ${ventasFiltroAnio}</div>
       <div style="width:100%;overflow-x:auto">
         <canvas id="grafico-ventas" style="display:block;width:100%;min-width:480px;height:260px"></canvas>
       </div>
@@ -1277,11 +1297,13 @@ function renderHome(){
 
   const anioActual = new Date().getFullYear();
   const MESES_CORTO=['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-  // Años disponibles en los datos
+  // Años disponibles — del campo anio si existe, sino del año actual
   const aniosSet = new Set();
+  let hayAnios = false;
   Object.values(DATA).forEach(clientes=>clientes.forEach(c=>
-    (c.frecuencia||[]).forEach(f=>{ if(f.anio) aniosSet.add(f.anio); else aniosSet.add(anioActual); })
+    (c.frecuencia||[]).forEach(f=>{ if(f.anio){ aniosSet.add(f.anio); hayAnios=true; } })
   ));
+  if(!hayAnios) aniosSet.add(anioActual); // fallback si data es viejo
   if(aniosSet.size===0) aniosSet.add(anioActual);
   const aniosDisp = [...aniosSet].sort((a,b)=>b-a);
   if(!aniosDisp.includes(ventasFiltroAnio)) ventasFiltroAnio = aniosDisp[0];
