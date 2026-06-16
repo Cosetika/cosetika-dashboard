@@ -482,11 +482,19 @@ const server = http.createServer(async (req, res) => {
 
   // ESTADO DE LA DATA
   if (urlPath === '/api/data-status') {
+    const muestra = {};
+    Object.entries(DATA_CACHE||{}).slice(0,2).forEach(([v,clientes])=>{
+      muestra[v] = {
+        clientes: clientes.length,
+        ejemplo_frecuencia: clientes[0]?.frecuencia?.slice(0,3) || []
+      };
+    });
     res.writeHead(200, {'Content-Type':'application/json'});
     res.end(JSON.stringify({
       vendedoras: Object.keys(DATA_CACHE||{}).length,
       actualizado: DATA_CACHE_TS,
-      fuente: DATA_CACHE && Object.keys(DATA_CACHE).length > 0 ? 'postgresql' : 'vacia'
+      fuente: DATA_CACHE && Object.keys(DATA_CACHE).length > 0 ? 'postgresql' : 'vacia',
+      muestra_estructura: muestra
     }));
     return;
   }
