@@ -1353,9 +1353,11 @@ function renderHome(){
 
   const ranking=vendedoras.map(v=>({
     nombre:v,
-    total:clientesFiltroMes?getClis(v).reduce((a,c)=>a+(c.frecuencia.find(f=>f.mes===clientesFiltroMes)||{total:0}).total,0):DATA[v].reduce((a,c)=>a+c.total,0),
-    clientes:getClis(v).length,
-    facturas:getClis(v).reduce((a,c)=>a+c.num_compras,0)
+    total: clientesFiltroMes
+      ? getClis(v).reduce((a,c)=>a+(c.frecuencia.find(f=>f.mes===clientesFiltroMes&&(f.anio||anioCliActivo)===anioCliActivo)||{total:0}).total,0)
+      : getClis(v).reduce((a,c)=>a+c.frecuencia.filter(f=>(f.anio||anioCliActivo)===anioCliActivo).reduce((s,f)=>s+f.total,0),0),
+    clientes: getClis(v).length,
+    facturas: getClis(v).reduce((a,c)=>a+c.frecuencia.filter(f=>(f.anio||anioCliActivo)===anioCliActivo).reduce((s,f)=>s+f.compras,0),0)
   })).sort((a,b)=>b.total-a.total);
   const maxVend=ranking[0]?.total||1;
 
