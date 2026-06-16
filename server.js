@@ -76,8 +76,10 @@ async function generarDataJson(fi, ff) {
       const cli = vObj[cliId];
       cli.nombre = cliNom; cli.ruc = cliRuc;
       cli.total += totalDoc; cli.subtotal += subDoc; cli.num_compras++;
-      if (!cli.frecuencia[mes]) cli.frecuencia[mes] = { total: 0, subtotal: 0, compras: 0 };
-      cli.frecuencia[mes].total += totalDoc; cli.frecuencia[mes].subtotal += subDoc; cli.frecuencia[mes].compras++;
+      const anioDoc = parseInt((doc.fecha_emision || '').split('/')[2]) || new Date().getFullYear();
+      const freqKey = `${anioDoc}-${String(mes).padStart(2,'0')}`;
+      if (!cli.frecuencia[freqKey]) cli.frecuencia[freqKey] = { anio: anioDoc, mes, total: 0, subtotal: 0, compras: 0 };
+      cli.frecuencia[freqKey].total += totalDoc; cli.frecuencia[freqKey].subtotal += subDoc; cli.frecuencia[freqKey].compras++;
       (doc.detalles || []).forEach(det => {
         const prodId = det.producto_id || '';
         const cantidad = parseFloat(det.cantidad || 0);
@@ -105,7 +107,7 @@ async function generarDataJson(fi, ff) {
       num_compras: cli.num_compras, provincia: cli.provincia,
       marcas: Object.entries(cli.marcas).map(([m,t]) => ({ marca: m, total: Math.round(t*100)/100 })).sort((a,b) => b.total-a.total),
       productos: Object.values(cli.productos).map(p => ({ id: p.id, nombre: p.nombre, codigo: p.codigo, marca: p.marca, cantidad: Math.round(p.cantidad), total: Math.round(p.total*100)/100 })).sort((a,b) => b.cantidad-a.cantidad),
-      frecuencia: Object.entries(cli.frecuencia).map(([m,f]) => ({ mes: parseInt(m), total: Math.round(f.total*100)/100, subtotal: Math.round(f.subtotal*100)/100, compras: f.compras })).sort((a,b) => a.mes-b.mes)
+      frecuencia: Object.values(cli.frecuencia).map(f => ({ anio: f.anio, mes: f.mes, total: Math.round(f.total*100)/100, subtotal: Math.round(f.subtotal*100)/100, compras: f.compras })).sort((a,b) => a.anio!==b.anio ? a.anio-b.anio : a.mes-b.mes)
     })).sort((a,b) => b.total-a.total);
   });
   return resultado;
