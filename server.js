@@ -157,9 +157,51 @@ sincronizarHoy().catch(e => console.error('Error sync inicial:', e.message));
 setInterval(() => sincronizarHoy().catch(e => console.error('Error sync:', e.message)), 60 * 60 * 1000);
 
 // ─── DB ───────────────────────────────────────────────────────
+// ─── CACHÉ DE DATA EN MEMORIA (cargada desde PostgreSQL al arrancar) ─────────
+let DATA_CACHE = null;
+let DATA_CACHE_TS = null;
+
+async function cargarDataDesdeDB() {
+  try {
+    const r = await pool.query("SELECT datos FROM ventas_data ORDER BY actualizado_at DESC LIMIT 1");
+    if (r.rows.length > 0) {
+      DATA_CACHE = JSON.parse(r.rows[0].datos);
+      DATA_CACHE_TS = new Date().toISOString();
+      console.log('✓ DATA cargada desde PostgreSQL: ' + Object.keys(DATA_CACHE).length + ' vendedoras');
+    } else {
+      // Fallback: cargar desde data.json si existe
+      try {
+        const raw = fs.readFileSync(path.join(__dirname, 'data.json'), 'utf8');
+        DATA_CACHE = JSON.parse(raw);
+        DATA_CACHE_TS = new Date().toISOString();
+        console.log('✓ DATA cargada desde data.json: ' + Object.keys(DATA_CACHE).length + ' vendedoras');
+      } catch(e) { console.log('Sin data.json, esperando regeneración'); DATA_CACHE = {}; }
+    }
+  } catch(e) { console.error('Error cargando DATA:', e.message); DATA_CACHE = {}; }
+}
+
+async function guardarDataEnDB(data) {
+  try {
+    const json = JSON.stringify(data);
+    await pool.query(`
+      INSERT INTO ventas_data (datos, actualizado_at) VALUES ($1, NOW())
+      ON CONFLICT (id_unico) DO UPDATE SET datos = $1, actualizado_at = NOW()
+    `, [json]);
+    DATA_CACHE = data;
+    DATA_CACHE_TS = new Date().toISOString();
+    console.log('✓ DATA guardada en PostgreSQL');
+  } catch(e) { console.error('Error guardando DATA en DB:', e.message); }
+}
+
 async function initDB() {
   try {
     await pool.query(`
+      CREATE TABLE IF NOT EXISTS ventas_data (
+        id SERIAL PRIMARY KEY,
+        id_unico VARCHAR(10) DEFAULT 'principal' UNIQUE,
+        datos TEXT NOT NULL,
+        actualizado_at TIMESTAMP DEFAULT NOW()
+      );
       CREATE TABLE IF NOT EXISTS visitas (
         id SERIAL PRIMARY KEY, lugar VARCHAR(255) NOT NULL,
         tipo VARCHAR(50) NOT NULL, asesora VARCHAR(255) NOT NULL,
@@ -196,7 +238,7 @@ async function initDB() {
     console.log('DB inicializada');
   } catch(e) { console.error('Error DB:', e.message); }
 }
-initDB();
+initDB().then(() => cargarDataDesdeDB()).catch(e => console.error('Error init:', e.message));
 
 const MIME = { '.html':'text/html','.js':'application/javascript','.css':'text/css','.json':'application/json','.png':'image/png','.jpg':'image/jpeg','.ico':'image/x-icon' };
 
@@ -420,13 +462,32 @@ const server = http.createServer(async (req, res) => {
     const ff = urlObj.searchParams.get('hasta') || fmtDateEC(new Date());
     res.writeHead(200,{'Content-Type':'application/json'});
     res.end(JSON.stringify({ msg: 'Regenerando data.json del ' + fi + ' al ' + ff, ok: true }));
-    generarDataJson(fi, ff).then(data => {
+    generarDataJson(fi, ff).then(async data => {
+      await guardarDataEnDB(data);
+      // También actualizar data.json como backup
       try {
-        const ruta = path.join(__dirname, 'data.json');
-        fs.writeFileSync(ruta, JSON.stringify(data, null, 2));
-        console.log('data.json regenerado: ' + Object.keys(data).length + ' vendedoras');
-      } catch(e) { console.error('Error escribir data.json:', e.message); }
+        fs.writeFileSync(path.join(__dirname, 'data.json'), JSON.stringify(data, null, 2));
+      } catch(e) { /* OK si no se puede escribir */ }
+      console.log('✓ Regeneración completada: ' + Object.keys(data).length + ' vendedoras');
     }).catch(e => console.error('Error regenerar:', e.message));
+    return;
+  }
+
+  // DATA.JSON desde caché en memoria (PostgreSQL)
+  if (urlPath === '/data.json') {
+    res.writeHead(200, {'Content-Type':'application/json'});
+    res.end(JSON.stringify(DATA_CACHE || {}));
+    return;
+  }
+
+  // ESTADO DE LA DATA
+  if (urlPath === '/api/data-status') {
+    res.writeHead(200, {'Content-Type':'application/json'});
+    res.end(JSON.stringify({
+      vendedoras: Object.keys(DATA_CACHE||{}).length,
+      actualizado: DATA_CACHE_TS,
+      fuente: DATA_CACHE && Object.keys(DATA_CACHE).length > 0 ? 'postgresql' : 'vacia'
+    }));
     return;
   }
 
