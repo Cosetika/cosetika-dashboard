@@ -58,7 +58,16 @@ async function generarDataJson(fi, ff) {
     const resp = await fetch(nextUrl, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
     if (!resp.ok) break;
     const data = await resp.json();
-    const docs = (data.results || []).filter(d => d.tipo_registro === 'CLI' && !d.anulado && d.vendedor && !EXCLUIR_VEND.includes(d.vendedor.razon_social));
+    const docs = (data.results || []).filter(d => {
+      if (d.tipo_registro !== 'CLI') return false;  // solo clientes
+      if (d.anulado) return false;                   // excluir anulados
+      if (d.tipo_documento === 'NC') return false;   // excluir notas de crédito
+      if (!d.vendedor) return false;
+      // Excluir Fernando (comparación flexible)
+      const vNom = (d.vendedor.razon_social || '').toLowerCase();
+      if (vNom.includes('fernando') && (vNom.includes('espindola') || vNom.includes('espíndola'))) return false;
+      return true;
+    });
     docs.forEach(doc => {
       const vendId = doc.vendedor.id;
       const vendNom = doc.vendedor.razon_social;
