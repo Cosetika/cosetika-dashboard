@@ -1122,11 +1122,16 @@ function renderVentasPanel(){
     },0);
   }
 
+
   const vendedoras = Object.keys(DATA);
   const porVend = vendedoras.map(v=>({
     nombre:v,
-    total: ventasFiltroTodo ? DATA[v].reduce((a,c)=>a+c.total,0) : getVentasMes(DATA[v],ventasFiltroMes,ventasFiltroAnio),
-    facturas: ventasFiltroTodo ? DATA[v].reduce((a,c)=>a+c.num_compras,0) : getFacturasMes(DATA[v],ventasFiltroMes,ventasFiltroAnio)
+    total: ventasFiltroTodo
+      ? DATA[v].reduce((a,c)=>a+c.frecuencia.filter(f=>(f.anio||ventasFiltroAnio)===ventasFiltroAnio).reduce((s,f)=>s+f.total,0),0)
+      : getVentasMes(DATA[v],ventasFiltroMes,ventasFiltroAnio),
+    facturas: ventasFiltroTodo
+      ? DATA[v].reduce((a,c)=>a+c.frecuencia.filter(f=>(f.anio||ventasFiltroAnio)===ventasFiltroAnio).reduce((s,f)=>s+f.compras,0),0)
+      : getFacturasMes(DATA[v],ventasFiltroMes,ventasFiltroAnio)
   })).filter(v=>v.total>0).sort((a,b)=>b.total-a.total);
 
   const totalConIva = porVend.reduce((a,v)=>a+v.total,0);
@@ -1135,11 +1140,16 @@ function renderVentasPanel(){
 
   const porMarca={};
   vendedoras.forEach(v=>DATA[v].forEach(c=>{
-    const ratio = ventasFiltroTodo ? 1 : (c.total>0?(c.frecuencia.find(x=>x.mes===ventasFiltroMes)||{total:0}).total/c.total:0);
-    c.marcas.forEach(m=>{ porMarca[m.marca]=(porMarca[m.marca]||0)+(m.total*ratio); });
+    const totAnio = c.frecuencia.filter(f=>(f.anio||ventasFiltroAnio)===ventasFiltroAnio).reduce((a,f)=>a+f.total,0);
+    const rat = ventasFiltroTodo
+      ? (c.total>0 ? totAnio/c.total : 0)
+      : (c.total>0?(c.frecuencia.find(x=>x.mes===ventasFiltroMes&&(x.anio||ventasFiltroAnio)===ventasFiltroAnio)||{total:0}).total/c.total:0);
+    if(rat===0) return;
+    c.marcas.forEach(m=>{ porMarca[m.marca]=(porMarca[m.marca]||0)+(m.total*rat); });
   }));
   const marcasArr=Object.entries(porMarca).sort((a,b)=>b[1]-a[1]);
   const maxMarca=marcasArr[0]?.[1]||1;
+
 
   // Datos mensuales para gráfico (siempre todo el año)
   const mesesDisponibles=[];
