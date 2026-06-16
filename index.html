@@ -1319,12 +1319,20 @@ function renderHome(){
     : [usuario.nombre];
 
   // Filtrar clientes por mes si aplica
+  const anioCliActivo = window._clientesAnio || anioActual2;
   function getClis(v){
-    if(!clientesFiltroMes) return DATA[v]||[];
-    return (DATA[v]||[]).filter(c=>c.frecuencia.some(f=>f.mes===clientesFiltroMes&&f.total>0));
+    if(!clientesFiltroMes) return (DATA[v]||[]).filter(c=>
+      c.frecuencia.some(f=>(f.anio||anioActual2)===anioCliActivo && f.total>0)
+    );
+    return (DATA[v]||[]).filter(c=>c.frecuencia.some(f=>
+      f.mes===clientesFiltroMes && (f.anio||anioActual2)===anioCliActivo && f.total>0
+    ));
   }
 
-  const totalGlobal=vendedoras.reduce((a,v)=>a+(clientesFiltroMes?getClis(v).reduce((s,c)=>s+(c.frecuencia.find(f=>f.mes===clientesFiltroMes)||{total:0}).total,0):DATA[v].reduce((b,c)=>b+c.total,0)),0);
+  const totalGlobal=vendedoras.reduce((a,v)=>a+(clientesFiltroMes
+    ? getClis(v).reduce((s,c)=>s+(c.frecuencia.find(f=>f.mes===clientesFiltroMes&&(f.anio||anioActual2)===anioCliActivo)||{total:0}).total,0)
+    : getClis(v).reduce((s,c)=>s+c.frecuencia.filter(f=>(f.anio||anioActual2)===anioCliActivo).reduce((x,f)=>x+f.total,0),0)
+  ),0);
   const totalClientes=vendedoras.reduce((a,v)=>a+getClis(v).length,0);
   const totalFacturas=vendedoras.reduce((a,v)=>a+getClis(v).reduce((b,c)=>b+c.num_compras,0),0);
 
@@ -1342,15 +1350,36 @@ function renderHome(){
 
   const anioActual2 = new Date().getFullYear();
   const MESES_CORTO2=['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-  const mesesOptsC=MESES_CORTO2.slice(1).map((l,i)=>
-    `<option value="${i+1}" ${clientesFiltroMes===i+1?'selected':''}>${l} ${anioActual2}</option>`
-  ).join('');
-  const etiquetaC = clientesFiltroMes ? MESES_CORTO2[clientesFiltroMes]+' '+anioActual2 : 'Todo '+anioActual2;
+  // Solo mostrar meses que tienen datos en el año seleccionado
+  const anioClientes = window._clientesAnio || anioActual2;
+  const mesesConDataC = new Set();
+  Object.values(DATA).forEach(clientes=>clientes.forEach(c=>
+    (c.frecuencia||[]).forEach(f=>{
+      if((f.anio||anioActual2)===anioClientes && f.total>0) mesesConDataC.add(f.mes);
+    })
+  ));
+  const mesesOptsC=MESES_CORTO2.slice(1).map((l,i)=>{
+    const m=i+1;
+    if(!mesesConDataC.has(m)) return '';
+    return `<option value="${m}" ${clientesFiltroMes===m?'selected':''}>${l} ${anioClientes}</option>`;
+  }).join('');
+
+  // Años disponibles para Clientes
+  const aniosCliSet=new Set();
+  Object.values(DATA).forEach(clientes=>clientes.forEach(c=>
+    (c.frecuencia||[]).forEach(f=>{ if(f.anio) aniosCliSet.add(f.anio); })
+  ));
+  if(aniosCliSet.size===0) aniosCliSet.add(anioActual2);
+  const aniosCliDisp=[...aniosCliSet].sort((a,b)=>b-a);
+  const etiquetaC = clientesFiltroMes ? MESES_CORTO2[clientesFiltroMes]+' '+anioCliActivo : 'Todo '+anioCliActivo;
 
   document.getElementById('main').innerHTML=`
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding-bottom:10px;border-bottom:1px solid var(--border);margin-bottom:10px">
       <i class="ti ti-calendar" style="color:var(--brown);font-size:14px"></i>
-      <select onchange="clientesFiltroMes=parseInt(this.value)||0;renderHome()" style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;outline:none;background:white;cursor:pointer"><option value="0" ${!clientesFiltroMes?'selected':''}>Todo el año ${anioActual2}</option>${mesesOptsC}</select>
+      <select onchange="window._clientesAnio=parseInt(this.value);clientesFiltroMes=0;renderHome()" style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;outline:none;background:white;cursor:pointer">
+        ${aniosCliDisp.map(a=>`<option value="${a}" ${a===anioCliActivo?'selected':''}>${a}</option>`).join('')}
+      </select>
+      <select onchange="clientesFiltroMes=parseInt(this.value)||0;renderHome()" style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;outline:none;background:white;cursor:pointer"><option value="0" ${!clientesFiltroMes?'selected':''}>Todo el año</option>${mesesOptsC}</select>
       ${puedeVerTodas?`<i class="ti ti-user" style="color:var(--brown);font-size:14px;margin-left:4px"></i><select onchange="clientesFiltroVend=this.value;renderHome()" style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;outline:none;background:white;cursor:pointer"><option value="" ${!clientesFiltroVend?'selected':''}>Todas las asesoras</option>${todasVendedoras.map(v=>`<option value="${v}" ${clientesFiltroVend===v?'selected':''}>` + v.split(' ')[0] + ' ' + (v.split(' ')[1]||'')+'</option>').join('')}</select>`:''}
       <span style="font-size:12px;color:var(--brown);font-weight:600">— ${etiquetaC}</span>
     </div>
