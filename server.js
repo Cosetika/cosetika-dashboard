@@ -544,6 +544,27 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // VER DATA DE UN VENDEDOR ESPECÍFICO
+  if (urlPath === '/api/ver-vendedor' && req.method === 'GET') {
+    const nombre = urlObj.searchParams.get('nombre') || 'Fernando';
+    const encontrado = Object.entries(DATA_CACHE||{}).find(([k])=>k.toLowerCase().includes(nombre.toLowerCase()));
+    res.writeHead(200,{'Content-Type':'application/json'});
+    if(!encontrado){
+      const vendedores = Object.keys(DATA_CACHE||{});
+      res.end(JSON.stringify({error:'No encontrado', vendedores_disponibles: vendedores}));
+    } else {
+      const [nombre_real, clientes] = encontrado;
+      const totalAnio = clientes.reduce((a,c)=>a+c.frecuencia.filter(f=>f.anio===2026).reduce((s,f)=>s+f.total,0),0);
+      res.end(JSON.stringify({
+        vendedor: nombre_real,
+        clientes: clientes.length,
+        total_2026: Math.round(totalAnio*100)/100,
+        muestra_clientes: clientes.slice(0,5).map(c=>({nombre:c.nombre, ruc:c.ruc, total:c.total}))
+      }));
+    }
+    return;
+  }
+
   // ESTADO DE LA DATA
   if (urlPath === '/api/data-status') {
     const muestra = {};
