@@ -1124,6 +1124,14 @@ function renderVentasPanel(){
 
 
   const vendedoras = Object.keys(DATA);
+  console.log('Vendedoras en DATA:', vendedoras);
+  console.log('ventasFiltroAnio:', ventasFiltroAnio);
+  // Debug Fernando
+  if(DATA['Fernando Espíndola']){
+    const fern = DATA['Fernando Espíndola'];
+    const total = fern.reduce((a,c)=>a+c.frecuencia.filter(f=>(f.anio||ventasFiltroAnio)===ventasFiltroAnio).reduce((s,f)=>s+f.total,0),0);
+    console.log('Fernando total 2026:', total, 'frecuencia muestra:', fern[0]?.frecuencia?.slice(0,3));
+  }
   const porVend = vendedoras.map(v=>({
     nombre:v,
     total: ventasFiltroTodo
