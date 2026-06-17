@@ -554,12 +554,16 @@ const server = http.createServer(async (req, res) => {
       res.end(JSON.stringify({error:'No encontrado', vendedores_disponibles: vendedores}));
     } else {
       const [nombre_real, clientes] = encontrado;
-      const totalAnio = clientes.reduce((a,c)=>a+c.frecuencia.filter(f=>f.anio===2026).reduce((s,f)=>s+f.total,0),0);
+      const total2026 = clientes.reduce((a,c)=>a+c.frecuencia.filter(f=>f.anio===2026).reduce((s,f)=>s+f.total,0),0);
+      const total2025 = clientes.reduce((a,c)=>a+c.frecuencia.filter(f=>f.anio===2025).reduce((s,f)=>s+f.total,0),0);
+      const totalSinAnio = clientes.reduce((a,c)=>a+c.frecuencia.filter(f=>!f.anio).reduce((s,f)=>s+f.total,0),0);
       res.end(JSON.stringify({
         vendedor: nombre_real,
         clientes: clientes.length,
-        total_2026: Math.round(totalAnio*100)/100,
-        muestra_clientes: clientes.slice(0,5).map(c=>({nombre:c.nombre, ruc:c.ruc, total:c.total}))
+        total_2026: Math.round(total2026*100)/100,
+        total_2025: Math.round(total2025*100)/100,
+        total_sin_anio: Math.round(totalSinAnio*100)/100,
+        muestra_frecuencia: clientes[0]?.frecuencia?.slice(0,5)
       }));
     }
     return;
