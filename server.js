@@ -63,9 +63,9 @@ async function generarDataJson(fi, ff) {
       if (d.anulado) return false;                   // excluir anulados
       if (d.tipo_documento === 'NC') return false;   // excluir notas de crédito
       if (!d.vendedor) return false;
-      // Excluir Fernando (comparación flexible)
-      const vNom = (d.vendedor.razon_social || '').toLowerCase();
-      if (vNom.includes('fernando') && (vNom.includes('espindola') || vNom.includes('espíndola'))) return false;
+      // Excluir autoconsumo: facturas al cliente Corporación Cosétika (RUC 1793143660001)
+      const cliRuc = (d.cliente?.ruc || d.cliente?.cedula || '').trim();
+      if (cliRuc === '1793143660001') return false;
       return true;
     });
     docs.forEach(doc => {
@@ -486,6 +486,39 @@ const server = http.createServer(async (req, res) => {
   if (urlPath === '/data.json') {
     res.writeHead(200, {'Content-Type':'application/json'});
     res.end(JSON.stringify(DATA_CACHE || {}));
+    return;
+  }
+
+  // BUSCAR CLIENTE EN CONTIFICO por nombre
+  if (urlPath === '/api/buscar-cliente' && req.method === 'GET') {
+    try {
+      const nombre = urlObj.searchParams.get('q') || 'cosetika';
+      const desde = urlObj.searchParams.get('desde') || '01/06/2026';
+      const hasta = urlObj.searchParams.get('hasta') || fmtDateEC(new Date());
+      const url = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${desde}&fecha_final=${hasta}&page_size=100`;
+      const resp = await fetch(url, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
+      const data = await resp.json();
+      const encontrados = (data.results||[])
+        .filter(d => {
+          const cliNom = (d.cliente?.razon_social || d.cliente?.nombre_comercial || '').toLowerCase();
+          const vendNom = (d.vendedor?.razon_social || '').toLowerCase();
+          return cliNom.includes(nombre.toLowerCase()) || vendNom.includes(nombre.toLowerCase());
+        })
+        .map(d => ({
+          documento: d.documento,
+          tipo: d.tipo_documento,
+          fecha: d.fecha_emision,
+          cliente: d.cliente?.razon_social || d.cliente?.nombre_comercial,
+          vendedor: d.vendedor?.razon_social,
+          total: d.total,
+          anulado: d.anulado
+        }));
+      res.writeHead(200, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({ busqueda: nombre, total_docs: data.count, encontrados }));
+    } catch(e) {
+      res.writeHead(500,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({error: e.message}));
+    }
     return;
   }
 
