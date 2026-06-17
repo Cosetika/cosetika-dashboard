@@ -511,32 +511,41 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // BUSCAR CLIENTE EN CONTIFICO por nombre
+  // BUSCAR CLIENTE O VENDEDOR EN CONTIFICO
   if (urlPath === '/api/buscar-cliente' && req.method === 'GET') {
     try {
       const nombre = urlObj.searchParams.get('q') || 'cosetika';
       const desde = urlObj.searchParams.get('desde') || '01/06/2026';
       const hasta = urlObj.searchParams.get('hasta') || fmtDateEC(new Date());
-      const url = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${desde}&fecha_final=${hasta}&page_size=100`;
-      const resp = await fetch(url, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
-      const data = await resp.json();
-      const encontrados = (data.results||[])
-        .filter(d => {
+      // Paginar para obtener más resultados
+      let encontrados = [];
+      let nextUrl = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${desde}&fecha_final=${hasta}&page_size=100`;
+      let paginas = 0;
+      while(nextUrl && paginas < 5) {
+        const resp = await fetch(nextUrl, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
+        const data = await resp.json();
+        const filtrados = (data.results||[]).filter(d => {
           const cliNom = (d.cliente?.razon_social || d.cliente?.nombre_comercial || '').toLowerCase();
           const vendNom = (d.vendedor?.razon_social || '').toLowerCase();
           return cliNom.includes(nombre.toLowerCase()) || vendNom.includes(nombre.toLowerCase());
-        })
-        .map(d => ({
+        }).map(d => ({
           documento: d.documento,
-          tipo: d.tipo_documento,
+          tipo_registro: d.tipo_registro,
+          tipo_doc: d.tipo_documento,
           fecha: d.fecha_emision,
-          cliente: d.cliente?.razon_social || d.cliente?.nombre_comercial,
+          cliente: d.cliente?.razon_social,
+          cliente_ruc: d.cliente?.ruc || d.cliente?.cedula,
           vendedor: d.vendedor?.razon_social,
+          vendedor_obj: d.vendedor ? 'existe' : 'NULL',
           total: d.total,
           anulado: d.anulado
         }));
+        encontrados = encontrados.concat(filtrados);
+        nextUrl = data.next || null;
+        paginas++;
+      }
       res.writeHead(200, {'Content-Type':'application/json'});
-      res.end(JSON.stringify({ busqueda: nombre, total_docs: data.count, encontrados }));
+      res.end(JSON.stringify({ busqueda: nombre, encontrados }, null, 2));
     } catch(e) {
       res.writeHead(500,{'Content-Type':'application/json'});
       res.end(JSON.stringify({error: e.message}));
