@@ -583,6 +583,20 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // LISTAR VENDEDORES EXACTOS EN DATA_CACHE
+  if (urlPath === '/api/lista-vendedores') {
+    res.writeHead(200,{'Content-Type':'application/json'});
+    res.end(JSON.stringify({
+      vendedores: Object.keys(DATA_CACHE||{}),
+      totales: Object.entries(DATA_CACHE||{}).map(([v,clientes])=>({
+        vendedor: v,
+        clientes: clientes.length,
+        total_2026: Math.round(clientes.reduce((a,c)=>a+c.frecuencia.filter(f=>f.anio===2026).reduce((s,f)=>s+f.total,0),0)*100)/100
+      }))
+    }));
+    return;
+  }
+
   // ESTADO DE LA DATA
   if (urlPath === '/api/data-status') {
     const muestra = {};
