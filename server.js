@@ -60,15 +60,16 @@ async function generarDataJson(fi, ff) {
       if (d.tipo_registro !== 'CLI') return false;  // solo clientes
       if (d.anulado) return false;                   // excluir anulados
       if (d.tipo_documento === 'NC') return false;   // excluir notas de crédito
-      if (!d.vendedor) return false;
+      // Si no hay objeto vendedor pero hay identificación, lo incluimos como "Sin asignar"
+      if (!d.vendedor && !d.vendedor_id && !d.vendedor_identificacion) return false;
       // Excluir autoconsumo: facturas al cliente Corporación Cosétika (RUC 1793143660001)
       const cliRuc = (d.cliente?.ruc || d.cliente?.cedula || '').trim();
       if (cliRuc === '1793143660001') return false;
       return true;
     });
     docs.forEach(doc => {
-      const vendId = doc.vendedor.id;
-      const vendNom = doc.vendedor.razon_social;
+      const vendId = doc.vendedor?.id || doc.vendedor_identificacion || 'sin_vendedor';
+      const vendNom = doc.vendedor?.razon_social || ('Vendedor ' + (doc.vendedor_identificacion || 'Sin Asignar'));
       const cliId = doc.cliente && doc.cliente.id ? doc.cliente.id : doc.persona_id;
       const cliNom = (doc.cliente && (doc.cliente.razon_social || doc.cliente.nombre_comercial)) || '—';
       const cliRuc = (doc.cliente && (doc.cliente.ruc || doc.cliente.cedula)) || '';
