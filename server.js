@@ -48,8 +48,6 @@ sincronizarCatalogo().catch(e => console.error(e));
 setInterval(() => sincronizarCatalogo().catch(e => console.error(e)), 24 * 60 * 60 * 1000);
 
 // ─── GENERADOR DATA.JSON ──────────────────────────────────────
-const EXCLUIR_VEND = ['Fernando Espíndola', 'Fernando Espindola'];
-
 async function generarDataJson(fi, ff) {
   const vendedores = {};
   let nextUrl = 'https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=' + fi + '&fecha_final=' + ff + '&page_size=100';
@@ -486,6 +484,30 @@ const server = http.createServer(async (req, res) => {
   if (urlPath === '/data.json') {
     res.writeHead(200, {'Content-Type':'application/json'});
     res.end(JSON.stringify(DATA_CACHE || {}));
+    return;
+  }
+
+  // VER VENDEDORES EN CONTIFICO
+  if (urlPath === '/api/ver-vendedores' && req.method === 'GET') {
+    try {
+      const desde = urlObj.searchParams.get('desde') || '01/01/2026';
+      const hasta = urlObj.searchParams.get('hasta') || fmtDateEC(new Date());
+      const url = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${desde}&fecha_final=${hasta}&page_size=100`;
+      const resp = await fetch(url, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
+      const data = await resp.json();
+      const vendedores = {};
+      (data.results||[]).filter(d=>d.tipo_registro==='CLI'&&!d.anulado&&d.tipo_documento!=='NC').forEach(d=>{
+        const vNom = d.vendedor?.razon_social || 'SIN VENDEDOR';
+        if(!vendedores[vNom]) vendedores[vNom]={facturas:0,total:0};
+        vendedores[vNom].facturas++;
+        vendedores[vNom].total+=parseFloat(d.total||0);
+      });
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({periodo:`${desde}→${hasta}`,vendedores},null,2));
+    } catch(e) {
+      res.writeHead(500,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({error:e.message}));
+    }
     return;
   }
 
