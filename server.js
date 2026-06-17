@@ -566,14 +566,18 @@ const server = http.createServer(async (req, res) => {
       const [nombre_real, clientes] = encontrado;
       const total2026 = clientes.reduce((a,c)=>a+c.frecuencia.filter(f=>f.anio===2026).reduce((s,f)=>s+f.total,0),0);
       const total2025 = clientes.reduce((a,c)=>a+c.frecuencia.filter(f=>f.anio===2025).reduce((s,f)=>s+f.total,0),0);
-      const totalSinAnio = clientes.reduce((a,c)=>a+c.frecuencia.filter(f=>!f.anio).reduce((s,f)=>s+f.total,0),0);
+      // Clientes con ventas en 2026
+      const clis2026 = clientes.filter(c=>c.frecuencia.some(f=>f.anio===2026&&f.total>0));
       res.end(JSON.stringify({
         vendedor: nombre_real,
-        clientes: clientes.length,
+        total_clientes: clientes.length,
         total_2026: Math.round(total2026*100)/100,
         total_2025: Math.round(total2025*100)/100,
-        total_sin_anio: Math.round(totalSinAnio*100)/100,
-        muestra_frecuencia: clientes[0]?.frecuencia?.slice(0,5)
+        clientes_con_ventas_2026: clis2026.length,
+        detalle_2026: clis2026.map(c=>({
+          nombre: c.nombre,
+          frecuencia_2026: c.frecuencia.filter(f=>f.anio===2026)
+        }))
       }));
     }
     return;
