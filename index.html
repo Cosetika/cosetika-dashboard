@@ -171,7 +171,6 @@
 const MESES={1:'Ene',2:'Feb',3:'Mar',4:'Abr',5:'May',6:'Jun',7:'Jul',8:'Ago',9:'Sep',10:'Oct',11:'Nov',12:'Dic'};
 const fmt=n=>'$'+Number(n).toLocaleString('es-EC',{minimumFractionDigits:2,maximumFractionDigits:2});
 const pct=(v,mx)=>mx?Math.min(Math.round((v/mx)*100),100):0;
-const EXCLUIR=['Fernando Espíndola','Fernando Espindola'];
 
 // ─── COLORES GLOBALES ─────────────────────────────────────────────────────────
 const MARCA_COLORS = {
@@ -432,7 +431,6 @@ async function cargarData(){
 
     const r=await fetch('/data.json');
     DATA=await r.json();
-    EXCLUIR.forEach(e=>delete DATA[e]);
 
     // Cargar ventas de hoy desde API v2
     try {
@@ -1133,8 +1131,6 @@ function renderVentasPanel(){
       ? DATA[v].reduce((a,c)=>a+c.frecuencia.filter(f=>(f.anio||ventasFiltroAnio)===ventasFiltroAnio).reduce((s,f)=>s+f.compras,0),0)
       : getFacturasMes(DATA[v],ventasFiltroMes,ventasFiltroAnio)
   })).filter(v=>v.total>0).sort((a,b)=>b.total-a.total);
-  console.log('porVend completo:', porVend.map(v=>({n:v.nombre, t:v.total})));
-  console.log('Fernando en porVend:', porVend.find(v=>v.nombre.includes('Fernando')));
 
   const totalConIva = porVend.reduce((a,v)=>a+v.total,0);
   const totalSinIva = totalConIva/1.12;
