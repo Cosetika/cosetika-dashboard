@@ -1516,17 +1516,25 @@ function renderProvincias(provSeleccionada){
   const provMes = window._provFiltroMes;
 
   const vendedoras=vendActual ? [vendActual] : Object.keys(DATA);
+  const provAnio = ventasFiltroAnio || new Date().getFullYear();
   const provincias={};
   vendedoras.forEach(v=>{
     DATA[v].forEach(c=>{
-      if(provMes && !c.frecuencia.some(f=>f.mes===provMes&&f.total>0)) return;
-      const prov=c.provincia&&c.provincia!=='nan'&&c.provincia?c.provincia:'SIN PROVINCIA';
+      // Total del cliente en el año seleccionado
+      const frecAnio = c.frecuencia.filter(f=>f.anio===provAnio);
+      const totAnio = frecAnio.reduce((a,f)=>a+f.total,0);
+      if(totAnio===0) return;
+      // Filtrar por mes si aplica
+      if(provMes && !frecAnio.some(f=>f.mes===provMes&&f.total>0)) return;
+      const totMes = provMes ? (frecAnio.find(f=>f.mes===provMes)||{total:0}).total : totAnio;
+      if(totMes===0) return;
+      const prov=c.provincia&&c.provincia!=='nan'&&c.provincia.trim()!==''?c.provincia.trim():'SIN PROVINCIA';
       if(!provincias[prov]) provincias[prov]=[];
-      provincias[prov].push({...c, vendedor:v});
+      provincias[prov].push({...c, total_anio: totMes, vendedor:v});
     });
   });
   const provOrdenadas=Object.entries(provincias)
-    .map(([nombre,clientes])=>({nombre,clientes:clientes.sort((a,b)=>b.total-a.total),total:clientes.reduce((a,c)=>a+c.total,0),num_clientes:clientes.length}))
+    .map(([nombre,clientes])=>({nombre,clientes:clientes.sort((a,b)=>b.total_anio-a.total_anio),total:clientes.reduce((a,c)=>a+c.total_anio,0),num_clientes:clientes.length}))
     .sort((a,b)=>b.total-a.total);
 
   if(!provSeleccionada){
