@@ -1004,34 +1004,41 @@ function renderMarcasPanel(){
 
   const vendedoras = Object.keys(DATA);
 
-  // Ventas por marca por mes (todo el año para el gráfico)
+  // Ventas por marca por mes filtradas por año
   function getVentasMarcaMes(marca, mes){
     let t=0;
     vendedoras.forEach(v=>DATA[v].forEach(c=>{
       const mCli = c.marcas.find(m=>m.marca===marca);
       if(!mCli) return;
-      const ratio = c.total>0 ? mCli.total/c.total : 0;
-      const totMes = (c.frecuencia.find(f=>f.mes===mes)||{total:0}).total;
+      // Usar ratio marca/total del año seleccionado
+      const totAnio = c.frecuencia.filter(f=>f.anio===ventasFiltroAnio).reduce((a,f)=>a+f.total,0);
+      if(totAnio===0) return;
+      const ratio = mCli.total/c.total;
+      const totMes = (c.frecuencia.find(f=>f.mes===mes&&f.anio===ventasFiltroAnio)||{total:0}).total;
       t += totMes * ratio;
     }));
     return t;
   }
 
-  // Ventas totales por marca (todo el año)
+  // Ventas totales por marca filtradas por año seleccionado
   const todasMarcasData = {};
   vendedoras.forEach(v=>DATA[v].forEach(c=>{
+    const totAnio = c.frecuencia.filter(f=>f.anio===ventasFiltroAnio).reduce((a,f)=>a+f.total,0);
+    if(totAnio===0) return;
+    const ratio = c.total>0 ? totAnio/c.total : 0;
     c.marcas.forEach(m=>{
-      todasMarcasData[m.marca]=(todasMarcasData[m.marca]||0)+m.total;
+      todasMarcasData[m.marca]=(todasMarcasData[m.marca]||0)+(m.total*ratio);
     });
   }));
   const marcasOrdenadas = Object.entries(todasMarcasData).sort((a,b)=>b[1]-a[1]);
   const totalAnual = marcasOrdenadas.reduce((a,[,t])=>a+t, 0);
 
-  // Meses con datos
+  // Meses con datos del año seleccionado
   const mesesDisp=[];
   for(let m=1;m<=12;m++){
-    if(vendedoras.some(v=>DATA[v].some(c=>c.frecuencia.some(f=>f.mes===m&&f.total>0)))) mesesDisp.push(m);
+    if(vendedoras.some(v=>DATA[v].some(c=>c.frecuencia.some(f=>f.mes===m&&f.anio===ventasFiltroAnio&&f.total>0)))) mesesDisp.push(m);
   }
+
 
   // Series para gráfico de líneas
   const seriesMarcas = marcasOrdenadas.map(([marca])=>({
