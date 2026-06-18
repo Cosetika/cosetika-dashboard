@@ -6,16 +6,50 @@ const { Pool } = require('pg');
 const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.CONTIFICO_API_KEY || '';
 
-// Mapa de provincia por código RUC (primeros 2 dígitos)
-const RUC_PROVINCIA = {
-  '01':'AZUAY','02':'BOLÍVAR','03':'CAÑAR','04':'CARCHI','05':'COTOPAXI',
-  '06':'CHIMBORAZO','07':'EL ORO','08':'ESMERALDAS','09':'GUAYAS',
-  '10':'IMBABURA','11':'LOJA','12':'LOS RÍOS','13':'MANABÍ',
-  '14':'MORONA SANTIAGO','15':'NAPO','16':'PASTAZA','17':'PICHINCHA',
-  '18':'TUNGURAHUA','19':'ZAMORA CHINCHIPE','20':'GALÁPAGOS',
-  '21':'SUCUMBÍOS','22':'ORELLANA','23':'SANTO DOMINGO','24':'SANTA ELENA'
+// Inferir provincia desde dirección del cliente
+const CIUDAD_PROV = {
+  'QUITO':'PICHINCHA','TUMBACO':'PICHINCHA','CUMBAYÁ':'PICHINCHA','SANGOLQUÍ':'PICHINCHA',
+  'CAYAMBE':'PICHINCHA','MACHACHI':'PICHINCHA','MEJÍA':'PICHINCHA',
+  'GUAYAQUIL':'GUAYAS','SAMBORONDÓN':'GUAYAS','DAULE':'GUAYAS','MILAGRO':'GUAYAS','DURÁN':'GUAYAS',
+  'CUENCA':'AZUAY','GUALACEO':'AZUAY','PAUTE':'AZUAY',
+  'AMBATO':'TUNGURAHUA','BAÑOS':'TUNGURAHUA','PELILEO':'TUNGURAHUA',
+  'RIOBAMBA':'CHIMBORAZO','ALAUSI':'CHIMBORAZO','ALAUSÍ':'CHIMBORAZO',
+  'LOJA':'LOJA','CATAMAYO':'LOJA',
+  'IBARRA':'IMBABURA','OTAVALO':'IMBABURA','COTACACHI':'IMBABURA','ANTONIO ANTE':'IMBABURA',
+  'TULCÁN':'CARCHI','TULCAN':'CARCHI',
+  'LATACUNGA':'COTOPAXI','SALCEDO':'COTOPAXI','PUJILÍ':'COTOPAXI',
+  'QUEVEDO':'LOS RÍOS','BABAHOYO':'LOS RÍOS','VENTANAS':'LOS RÍOS','VINCES':'LOS RÍOS',
+  'MANTA':'MANABÍ','PORTOVIEJO':'MANABÍ','BAHÍA DE CARÁQUEZ':'MANABÍ','PEDERNALES':'MANABÍ','CHONE':'MANABÍ',
+  'MACHALA':'EL ORO','PASAJE':'EL ORO','SANTA ROSA':'EL ORO','HUAQUILLAS':'EL ORO',
+  'ESMERALDAS':'ESMERALDAS','ATACAMES':'ESMERALDAS','QUININDÉ':'ESMERALDAS',
+  'SANTO DOMINGO':'SANTO DOMINGO',
+  'PUYO':'PASTAZA',
+  'TENA':'NAPO','ARCHIDONA':'NAPO',
+  'LAGO AGRIO':'SUCUMBÍOS','NUEVA LOJA':'SUCUMBÍOS','SHUSHUFINDI':'SUCUMBÍOS',
+  'COCA':'ORELLANA','FRANCISCO DE ORELLANA':'ORELLANA',
+  'MACAS':'MORONA SANTIAGO','SUCÚA':'MORONA SANTIAGO',
+  'ZAMORA':'ZAMORA CHINCHIPE',
+  'GUARANDA':'BOLÍVAR',
+  'AZOGUES':'CAÑAR','BIBLIÁN':'CAÑAR',
+  'SANTA ELENA':'SANTA ELENA','SALINAS':'SANTA ELENA','LA LIBERTAD':'SANTA ELENA',
+  'PUERTO AYORA':'GALÁPAGOS','SAN CRISTÓBAL':'GALÁPAGOS',
 };
-function provinciaDesdeRuc(ruc){ return RUC_PROVINCIA[(ruc||'').substring(0,2)] || ''; }
+const PROVINCIAS_NOMBRE = ['PICHINCHA','GUAYAS','AZUAY','TUNGURAHUA','CHIMBORAZO','LOJA',
+  'IMBABURA','CARCHI','COTOPAXI','LOS RÍOS','MANABÍ','EL ORO','ESMERALDAS',
+  'SANTO DOMINGO','PASTAZA','NAPO','SUCUMBÍOS','ORELLANA','MORONA SANTIAGO',
+  'ZAMORA CHINCHIPE','BOLÍVAR','CAÑAR','SANTA ELENA','GALÁPAGOS'];
+
+function provinciaDesdeDir(dir){
+  if(!dir) return '';
+  const d = dir.toUpperCase();
+  for(const [ciudad, prov] of Object.entries(CIUDAD_PROV)){
+    if(d.includes(ciudad)) return prov;
+  }
+  for(const prov of PROVINCIAS_NOMBRE){
+    if(d.includes(prov)) return prov;
+  }
+  return '';
+}
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -84,6 +118,7 @@ async function generarDataJson(fi, ff) {
       const cliId = doc.cliente && doc.cliente.id ? doc.cliente.id : doc.persona_id;
       const cliNom = (doc.cliente && (doc.cliente.razon_social || doc.cliente.nombre_comercial)) || '—';
       const cliRuc = (doc.cliente && (doc.cliente.ruc || doc.cliente.cedula)) || '';
+      const cliProv  = provinciaDesdeDir(doc.cliente?.direccion || '');
       const mes = parseInt((doc.fecha_emision || '').split('/')[1]) || 0;
       const totalDoc = parseFloat(doc.total || 0);
       const subDoc = parseFloat(doc.subtotal || doc.subtotal_12 || 0);
@@ -91,10 +126,10 @@ async function generarDataJson(fi, ff) {
       if (!vendedores[vendId]) vendedores[vendId] = { nombre: vendNom, clientes: {} };
       vendedores[vendId].nombre = vendNom;
       const vObj = vendedores[vendId].clientes;
-      if (!vObj[cliId]) vObj[cliId] = { id: cliId, nombre: cliNom, ruc: cliRuc, total: 0, subtotal: 0, num_compras: 0, provincia: provinciaDesdeRuc(cliRuc), marcas: {}, productos: {}, frecuencia: {} };
+      if (!vObj[cliId]) vObj[cliId] = { id: cliId, nombre: cliNom, ruc: cliRuc, total: 0, subtotal: 0, num_compras: 0, provincia: cliProv, marcas: {}, productos: {}, frecuencia: {} };
       const cli = vObj[cliId];
       cli.nombre = cliNom; cli.ruc = cliRuc;
-      if(!cli.provincia) cli.provincia = provinciaDesdeRuc(cliRuc);
+      if(!cli.provincia && cliProv) cli.provincia = cliProv;
       cli.total += totalDoc; cli.subtotal += subDoc; cli.num_compras++;
       const anioDoc = parseInt((doc.fecha_emision || '').split('/')[2]) || new Date().getFullYear();
       const freqKey = `${anioDoc}-${String(mes).padStart(2,'0')}`;
