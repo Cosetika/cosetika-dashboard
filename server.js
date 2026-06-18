@@ -586,8 +586,25 @@ const server = http.createServer(async (req, res) => {
   // VER CAMPOS DE CLIENTE EN CONTIFICO
   if (urlPath === '/api/ver-cliente-campos' && req.method === 'GET') {
     try {
-      const personaId = 'BleXkGyPWij1JdrN'; // ID del cliente de prueba
-      const url = `https://api.contifico.com/sistema/api/v1/persona/${personaId}/`;
+      // Buscar persona por cédula para ver campos provincia/canton
+      const urls = [
+        'https://api.contifico.com/sistema/api/v1/persona/?cedula=1207822287&page_size=1',
+        'https://api.contifico.com/sistema/api/v2/persona/?cedula=1207822287&page_size=1',
+        'https://api.contifico.com/sistema/api/v1/persona/BleXkGyPWij1JdrN/',
+        'https://api.contifico.com/sistema/api/v2/persona/BleXkGyPWij1JdrN/',
+      ];
+      const resultados = {};
+      for(const url of urls){
+        try{
+          const r = await fetch(url, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
+          const txt = await r.text();
+          resultados[url] = { status: r.status, preview: txt.substring(0,300) };
+        }catch(e){ resultados[url] = {error: e.message}; }
+      }
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify(resultados, null, 2));
+      return;
+      const url = urls[0];
       const resp = await fetch(url, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
       const data = await resp.json();
       const cli = (data.results||[]).find(d=>d.tipo_registro==='CLI'&&d.cliente);
