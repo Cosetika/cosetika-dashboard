@@ -1133,6 +1133,8 @@ function renderVentasPanel(){
       ? DATA[v].reduce((a,c)=>a+c.frecuencia.filter(f=>(f.anio||ventasFiltroAnio)===ventasFiltroAnio).reduce((s,f)=>s+f.compras,0),0)
       : getFacturasMes(DATA[v],ventasFiltroMes,ventasFiltroAnio)
   })).filter(v=>v.total>0).sort((a,b)=>b.total-a.total);
+  console.log('porVend completo:', porVend.map(v=>({n:v.nombre, t:v.total})));
+  console.log('Fernando en porVend:', porVend.find(v=>v.nombre.includes('Fernando')));
 
   const totalConIva = porVend.reduce((a,v)=>a+v.total,0);
   const totalSinIva = totalConIva/1.12;
