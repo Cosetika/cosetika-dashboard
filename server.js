@@ -586,7 +586,8 @@ const server = http.createServer(async (req, res) => {
   // VER CAMPOS DE CLIENTE EN CONTIFICO
   if (urlPath === '/api/ver-cliente-campos' && req.method === 'GET') {
     try {
-      const url = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=01/05/2026&fecha_final=31/05/2026&page_size=20`;
+      const personaId = 'BleXkGyPWij1JdrN'; // ID del cliente de prueba
+      const url = `https://api.contifico.com/sistema/api/v1/persona/${personaId}/`;
       const resp = await fetch(url, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
       const data = await resp.json();
       const cli = (data.results||[]).find(d=>d.tipo_registro==='CLI'&&d.cliente);
