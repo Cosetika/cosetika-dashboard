@@ -6,6 +6,17 @@ const { Pool } = require('pg');
 const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.CONTIFICO_API_KEY || '';
 
+// Mapa de provincia por código RUC (primeros 2 dígitos)
+const RUC_PROVINCIA = {
+  '01':'AZUAY','02':'BOLÍVAR','03':'CAÑAR','04':'CARCHI','05':'COTOPAXI',
+  '06':'CHIMBORAZO','07':'EL ORO','08':'ESMERALDAS','09':'GUAYAS',
+  '10':'IMBABURA','11':'LOJA','12':'LOS RÍOS','13':'MANABÍ',
+  '14':'MORONA SANTIAGO','15':'NAPO','16':'PASTAZA','17':'PICHINCHA',
+  '18':'TUNGURAHUA','19':'ZAMORA CHINCHIPE','20':'GALÁPAGOS',
+  '21':'SUCUMBÍOS','22':'ORELLANA','23':'SANTO DOMINGO','24':'SANTA ELENA'
+};
+function provinciaDesdeRuc(ruc){ return RUC_PROVINCIA[(ruc||'').substring(0,2)] || ''; }
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false }
@@ -80,9 +91,10 @@ async function generarDataJson(fi, ff) {
       if (!vendedores[vendId]) vendedores[vendId] = { nombre: vendNom, clientes: {} };
       vendedores[vendId].nombre = vendNom;
       const vObj = vendedores[vendId].clientes;
-      if (!vObj[cliId]) vObj[cliId] = { id: cliId, nombre: cliNom, ruc: cliRuc, total: 0, subtotal: 0, num_compras: 0, provincia: '', marcas: {}, productos: {}, frecuencia: {} };
+      if (!vObj[cliId]) vObj[cliId] = { id: cliId, nombre: cliNom, ruc: cliRuc, total: 0, subtotal: 0, num_compras: 0, provincia: provinciaDesdeRuc(cliRuc), marcas: {}, productos: {}, frecuencia: {} };
       const cli = vObj[cliId];
       cli.nombre = cliNom; cli.ruc = cliRuc;
+      if(!cli.provincia) cli.provincia = provinciaDesdeRuc(cliRuc);
       cli.total += totalDoc; cli.subtotal += subDoc; cli.num_compras++;
       const anioDoc = parseInt((doc.fecha_emision || '').split('/')[2]) || new Date().getFullYear();
       const freqKey = `${anioDoc}-${String(mes).padStart(2,'0')}`;
@@ -593,18 +605,19 @@ const server = http.createServer(async (req, res) => {
         'https://api.contifico.com/sistema/api/v1/persona/BleXkGyPWij1JdrN/',
         'https://api.contifico.com/sistema/api/v2/persona/BleXkGyPWij1JdrN/',
       ];
-      const resultados = {};
-      for(const url of urls){
-        try{
-          const r = await fetch(url, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
-          const txt = await r.text();
-          resultados[url] = { status: r.status, preview: txt.substring(0,300) };
-        }catch(e){ resultados[url] = {error: e.message}; }
-      }
+      // Buscar todos los campos del endpoint de persona v1
+      const url = 'https://api.contifico.com/sistema/api/v1/persona/?es_cliente=true&page_size=2';
+      const respP = await fetch(url, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
+      const dataP = await respP.json();
+      const primer = Array.isArray(dataP) ? dataP[0] : dataP.results?.[0] || dataP[0];
       res.writeHead(200,{'Content-Type':'application/json'});
-      res.end(JSON.stringify(resultados, null, 2));
+      res.end(JSON.stringify({
+        campos: primer ? Object.keys(primer) : [],
+        primer_cliente: primer,
+        total: dataP.count || (Array.isArray(dataP) ? dataP.length : '?')
+      }, null, 2));
       return;
-      const url = urls[0];
+      const url2 = url;
       const resp = await fetch(url, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
       const data = await resp.json();
       const cli = (data.results||[]).find(d=>d.tipo_registro==='CLI'&&d.cliente);
