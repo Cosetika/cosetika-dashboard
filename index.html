@@ -1104,18 +1104,13 @@ function renderVentasPanel(){
 
   function getVentasMes(clientes,mes,anio){
     return clientes.reduce((a,c)=>{
-      // Buscar con año si está disponible, sino por mes solamente
-      const f = anio
-        ? c.frecuencia.find(x=>x.mes===mes && (x.anio===anio || (!x.anio && anio===new Date().getFullYear())))
-        : c.frecuencia.find(x=>x.mes===mes);
+      const f = c.frecuencia.find(x=>x.mes===mes && x.anio===anio);
       return a+(f?f.total:0);
     },0);
   }
   function getFacturasMes(clientes,mes,anio){
     return clientes.reduce((a,c)=>{
-      const f = anio
-        ? c.frecuencia.find(x=>x.mes===mes && (x.anio===anio || (!x.anio && anio===new Date().getFullYear())))
-        : c.frecuencia.find(x=>x.mes===mes);
+      const f = c.frecuencia.find(x=>x.mes===mes && x.anio===anio);
       return a+(f?f.compras:0);
     },0);
   }
@@ -1125,10 +1120,10 @@ function renderVentasPanel(){
   const porVend = vendedoras.map(v=>({
     nombre:v,
     total: ventasFiltroTodo
-      ? DATA[v].reduce((a,c)=>a+c.frecuencia.filter(f=>(f.anio||ventasFiltroAnio)===ventasFiltroAnio).reduce((s,f)=>s+f.total,0),0)
+      ? DATA[v].reduce((a,c)=>a+c.frecuencia.filter(f=>f.anio===ventasFiltroAnio).reduce((s,f)=>s+f.total,0),0)
       : getVentasMes(DATA[v],ventasFiltroMes,ventasFiltroAnio),
     facturas: ventasFiltroTodo
-      ? DATA[v].reduce((a,c)=>a+c.frecuencia.filter(f=>(f.anio||ventasFiltroAnio)===ventasFiltroAnio).reduce((s,f)=>s+f.compras,0),0)
+      ? DATA[v].reduce((a,c)=>a+c.frecuencia.filter(f=>f.anio===ventasFiltroAnio).reduce((s,f)=>s+f.compras,0),0)
       : getFacturasMes(DATA[v],ventasFiltroMes,ventasFiltroAnio)
   })).filter(v=>v.total>0).sort((a,b)=>b.total-a.total);
 
@@ -1138,10 +1133,10 @@ function renderVentasPanel(){
 
   const porMarca={};
   vendedoras.forEach(v=>DATA[v].forEach(c=>{
-    const totAnio = c.frecuencia.filter(f=>(f.anio||ventasFiltroAnio)===ventasFiltroAnio).reduce((a,f)=>a+f.total,0);
+    const totAnio = c.frecuencia.filter(f=>f.anio===ventasFiltroAnio).reduce((a,f)=>a+f.total,0);
     const rat = ventasFiltroTodo
       ? (c.total>0 ? totAnio/c.total : 0)
-      : (c.total>0?(c.frecuencia.find(x=>x.mes===ventasFiltroMes&&(x.anio||ventasFiltroAnio)===ventasFiltroAnio)||{total:0}).total/c.total:0);
+      : (c.total>0?(c.frecuencia.find(x=>x.mes===ventasFiltroMes&&x.anio===ventasFiltroAnio)||{total:0}).total/c.total:0);
     if(rat===0) return;
     c.marcas.forEach(m=>{ porMarca[m.marca]=(porMarca[m.marca]||0)+(m.total*rat); });
   }));
@@ -1331,16 +1326,16 @@ function renderHome(){
   const anioCliActivo = window._clientesAnio || anioActual2;
   function getClis(v){
     if(!clientesFiltroMes) return (DATA[v]||[]).filter(c=>
-      c.frecuencia.some(f=>(f.anio||anioActual2)===anioCliActivo && f.total>0)
+      c.frecuencia.some(f=>f.anio===anioCliActivo && f.total>0)
     );
     return (DATA[v]||[]).filter(c=>c.frecuencia.some(f=>
-      f.mes===clientesFiltroMes && (f.anio||anioActual2)===anioCliActivo && f.total>0
+      f.mes===clientesFiltroMes && f.anio===anioCliActivo && f.total>0
     ));
   }
 
   const totalGlobal=vendedoras.reduce((a,v)=>a+(clientesFiltroMes
-    ? getClis(v).reduce((s,c)=>s+(c.frecuencia.find(f=>f.mes===clientesFiltroMes&&(f.anio||anioActual2)===anioCliActivo)||{total:0}).total,0)
-    : getClis(v).reduce((s,c)=>s+c.frecuencia.filter(f=>(f.anio||anioActual2)===anioCliActivo).reduce((x,f)=>x+f.total,0),0)
+    ? getClis(v).reduce((s,c)=>s+(c.frecuencia.find(f=>f.mes===clientesFiltroMes&&f.anio===anioCliActivo)||{total:0}).total,0)
+    : getClis(v).reduce((s,c)=>s+c.frecuencia.filter(f=>f.anio===anioCliActivo).reduce((x,f)=>x+f.total,0),0)
   ),0);
   const totalClientes=vendedoras.reduce((a,v)=>a+getClis(v).length,0);
   const totalFacturas=vendedoras.reduce((a,v)=>a+getClis(v).reduce((b,c)=>b+c.num_compras,0),0);
@@ -1352,10 +1347,10 @@ function renderHome(){
   const ranking=vendedoras.map(v=>({
     nombre:v,
     total: clientesFiltroMes
-      ? getClis(v).reduce((a,c)=>a+(c.frecuencia.find(f=>f.mes===clientesFiltroMes&&(f.anio||anioCliActivo)===anioCliActivo)||{total:0}).total,0)
-      : getClis(v).reduce((a,c)=>a+c.frecuencia.filter(f=>(f.anio||anioCliActivo)===anioCliActivo).reduce((s,f)=>s+f.total,0),0),
+      ? getClis(v).reduce((a,c)=>a+(c.frecuencia.find(f=>f.mes===clientesFiltroMes&&f.anio===anioCliActivo)||{total:0}).total,0)
+      : getClis(v).reduce((a,c)=>a+c.frecuencia.filter(f=>f.anio===anioCliActivo).reduce((s,f)=>s+f.total,0),0),
     clientes: getClis(v).length,
-    facturas: getClis(v).reduce((a,c)=>a+c.frecuencia.filter(f=>(f.anio||anioCliActivo)===anioCliActivo).reduce((s,f)=>s+f.compras,0),0)
+    facturas: getClis(v).reduce((a,c)=>a+c.frecuencia.filter(f=>f.anio===anioCliActivo).reduce((s,f)=>s+f.compras,0),0)
   })).filter(v=>v.total>0).sort((a,b)=>b.total-a.total);
   const maxVend=ranking[0]?.total||1;
 
@@ -1365,7 +1360,7 @@ function renderHome(){
   const mesesConDataC = new Set();
   Object.values(DATA).forEach(clientes=>clientes.forEach(c=>
     (c.frecuencia||[]).forEach(f=>{
-      if((f.anio||anioActual2)===anioClientes && f.total>0) mesesConDataC.add(f.mes);
+      if(f.anio===anioClientes && f.total>0) mesesConDataC.add(f.mes);
     })
   ));
   const mesesOptsC=MESES_CORTO2.slice(1).map((l,i)=>{
