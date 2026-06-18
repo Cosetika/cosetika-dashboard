@@ -583,6 +583,25 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // VER CAMPOS DE CLIENTE EN CONTIFICO
+  if (urlPath === '/api/ver-cliente-campos' && req.method === 'GET') {
+    try {
+      const url = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=01/06/2026&fecha_final=16/06/2026&page_size=5`;
+      const resp = await fetch(url, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
+      const data = await resp.json();
+      const cli = (data.results||[]).find(d=>d.tipo_registro==='CLI'&&d.cliente);
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({
+        cliente_completo: cli?.cliente,
+        campos_cliente: cli?.cliente ? Object.keys(cli.cliente) : []
+      }, null, 2));
+    } catch(e) {
+      res.writeHead(500,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({error:e.message}));
+    }
+    return;
+  }
+
   // LISTAR VENDEDORES EXACTOS EN DATA_CACHE
   if (urlPath === '/api/lista-vendedores') {
     res.writeHead(200,{'Content-Type':'application/json'});
