@@ -63,6 +63,39 @@ let cache = { documentos: [], ultima_sync: null, sincronizando: false };
 let catalogoProductos = {};
 let catalogoSyncedAt = null;
 
+// ─── CATÁLOGO DE CLIENTES (id → provincia) ───────────────────
+let catalogoClientes = {}; // { persona_id: provincia }
+let catalogoClientesSyncedAt = null;
+
+async function sincronizarCatalogoClientes() {
+  try {
+    console.log('Sincronizando catálogo de clientes...');
+    let nuevoCatalogo = {};
+    let nextUrl = 'https://api.contifico.com/sistema/api/v1/persona/?es_cliente=true&page_size=100';
+    let paginas = 0;
+    while (nextUrl && paginas < 50) {
+      const resp = await fetch(nextUrl, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
+      if (!resp.ok) break;
+      const data = await resp.json();
+      const results = Array.isArray(data) ? data : (data.results || []);
+      results.forEach(p => {
+        if (p.id && p.direccion) {
+          nuevoCatalogo[p.id] = provinciaDesdeDir(p.direccion);
+        }
+      });
+      nextUrl = Array.isArray(data) ? null : (data.next || null);
+      paginas++;
+    }
+    if (Object.keys(nuevoCatalogo).length > 0) {
+      catalogoClientes = nuevoCatalogo;
+      catalogoClientesSyncedAt = new Date().toISOString();
+      console.log('Catálogo clientes: ' + Object.keys(catalogoClientes).length + ' clientes con provincia');
+    }
+  } catch(e) { console.error('Error catálogo clientes:', e.message); }
+}
+sincronizarCatalogoClientes().catch(e => console.error(e));
+setInterval(() => sincronizarCatalogoClientes().catch(e => console.error(e)), 24 * 60 * 60 * 1000);
+
 async function sincronizarCatalogo() {
   try {
     let nuevosCatalogo = {};
@@ -118,7 +151,8 @@ async function generarDataJson(fi, ff) {
       const cliId = doc.cliente && doc.cliente.id ? doc.cliente.id : doc.persona_id;
       const cliNom = (doc.cliente && (doc.cliente.razon_social || doc.cliente.nombre_comercial)) || '—';
       const cliRuc = (doc.cliente && (doc.cliente.ruc || doc.cliente.cedula)) || '';
-      const cliProv  = provinciaDesdeDir(doc.cliente?.direccion || '');
+      // Buscar provincia: primero en catálogo, luego inferir de dirección
+      const cliProv = catalogoClientes[cliId] || provinciaDesdeDir(doc.cliente?.direccion || '');
       const mes = parseInt((doc.fecha_emision || '').split('/')[1]) || 0;
       const totalDoc = parseFloat(doc.total || 0);
       const subDoc = parseFloat(doc.subtotal || doc.subtotal_12 || 0);
