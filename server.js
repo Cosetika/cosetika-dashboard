@@ -152,6 +152,8 @@ async function generarDataJson(fi, ff) {
       if (d.tipo_registro !== 'CLI') return false;  // solo clientes
       if (d.anulado) return false;                   // excluir anulados
       if (d.tipo_documento === 'NC') return false;   // excluir notas de crédito
+      if (d.tipo_documento === 'COT') return false;  // excluir cotizaciones (no son ventas reales)
+      if (d.tipo_documento === 'PRO') return false;  // excluir proformas
       // Si no hay objeto vendedor pero hay identificación, lo incluimos como "Sin asignar"
       if (!d.vendedor && !d.vendedor_id && !d.vendedor_identificacion) return false;
       // Excluir autoconsumo: facturas al cliente Corporación Cosétika (RUC 1793143660001)
@@ -242,7 +244,7 @@ async function sincronizarHoy() {
       paginas++;
       console.log(`Página ${paginas}: ${(data.results||[]).length} docs, total: ${todos.length}`);
     }
-    const clientes = todos.filter(d => d.tipo_registro === 'CLI' && !d.anulado && d.tipo_documento !== 'NC');
+    const clientes = todos.filter(d => d.tipo_registro === 'CLI' && !d.anulado && d.tipo_documento !== 'NC' && d.tipo_documento !== 'COT' && d.tipo_documento !== 'PRO');
     // Agregar cliente_nombre directo desde el objeto cliente
     clientes.forEach(d => {
       d.cliente_nombre = d.cliente?.razon_social || d.cliente?.nombre_comercial || d.persona_id || '—';
@@ -600,6 +602,23 @@ const server = http.createServer(async (req, res) => {
       });
       res.writeHead(200,{'Content-Type':'application/json'});
       res.end(JSON.stringify({periodo:`${desde}→${hasta}`,vendedores},null,2));
+    } catch(e) {
+      res.writeHead(500,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({error:e.message}));
+    }
+    return;
+  }
+
+  // VER FACTURAS DE UN VENDEDOR A UN CLIENTE ESPECÍFICO (rápido, usa caché)
+  if (urlPath === '/api/ver-facturas-fernando-daniela' && req.method === 'GET') {
+    try {
+      const clientes = DATA_CACHE['Fernando Espíndola'] || [];
+      const daniela = clientes.find(c => c.nombre.includes('Daniela Villegas'));
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({
+        encontrado: !!daniela,
+        detalle: daniela || null
+      }, null, 2));
     } catch(e) {
       res.writeHead(500,{'Content-Type':'application/json'});
       res.end(JSON.stringify({error:e.message}));
