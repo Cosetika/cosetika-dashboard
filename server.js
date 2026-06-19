@@ -609,6 +609,43 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // VER DESCRIPCIÓN DE FACTURAS DE FERNANDO A ASESORAS
+  if (urlPath === '/api/ver-facturas-fernando-desc' && req.method === 'GET') {
+    try {
+      const desde = urlObj.searchParams.get('desde') || '01/01/2026';
+      const hasta = urlObj.searchParams.get('hasta') || fmtDateEC(new Date());
+      let encontrados = [];
+      let nextUrl = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${desde}&fecha_final=${hasta}&page_size=100`;
+      let paginas = 0;
+      while(nextUrl && paginas < 10) {
+        const resp = await fetch(nextUrl, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
+        const data = await resp.json();
+        const filtrados = (data.results||[]).filter(d => {
+          const vendNom = (d.vendedor?.razon_social || '').toLowerCase();
+          return vendNom.includes('fernando') && d.tipo_registro === 'CLI' && !d.anulado;
+        }).map(d => ({
+          documento: d.documento,
+          tipo_doc: d.tipo_documento,
+          fecha: d.fecha_emision,
+          cliente: d.cliente?.razon_social,
+          descripcion: d.descripcion,
+          referencia: d.referencia,
+          total: d.total,
+          detalles: (d.detalles||[]).map(det=>det.producto_nombre)
+        }));
+        encontrados = encontrados.concat(filtrados);
+        nextUrl = data.next || null;
+        paginas++;
+      }
+      res.writeHead(200, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({ total: encontrados.length, encontrados }, null, 2));
+    } catch(e) {
+      res.writeHead(500,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({error: e.message}));
+    }
+    return;
+  }
+
   // VER FACTURAS DE UN VENDEDOR A UN CLIENTE ESPECÍFICO (rápido, usa caché)
   if (urlPath === '/api/ver-facturas-fernando-daniela' && req.method === 'GET') {
     try {
