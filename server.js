@@ -324,10 +324,22 @@ async function initDB() {
         cliente VARCHAR(255), coordinado BOOLEAN DEFAULT false,
         created_at TIMESTAMP DEFAULT NOW()
       );
+      CREATE TABLE IF NOT EXISTS asesor_zonas (
+        id SERIAL PRIMARY KEY, asesora VARCHAR(255) NOT NULL,
+        zona VARCHAR(255) NOT NULL, sector VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(asesora, zona, sector)
+      );
+      CREATE TABLE IF NOT EXISTS asesor_provincias (
+        id SERIAL PRIMARY KEY, asesora VARCHAR(255) NOT NULL,
+        provincia VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(asesora, provincia)
+      );
     `);
     const usuarios = [
       { nombre: 'Fernando Espíndola', usuario: 'Fernando', password: '1234', rol: 'admin', modulos: 'ventas,visitas,kpis,inventario,config' },
-      { nombre: 'Giovanna Portilla', usuario: 'Giovanna', password: '1234', rol: 'jefa_ventas', modulos: 'ventas,visitas,kpis,inventario' },
+      { nombre: 'Giovanna Portilla', usuario: 'Giovanna', password: '1234', rol: 'jefa_ventas', modulos: 'ventas,visitas,kpis,inventario,editar_visitas' },
       { nombre: 'Daniela Villegas Chamorro', usuario: 'Daniela', password: '1234', rol: 'asesora', modulos: 'ventas,visitas,kpis,inventario' },
       { nombre: 'Liseth Gavilanes', usuario: 'Liseth', password: '1234', rol: 'asesora', modulos: 'ventas,visitas,kpis,inventario' },
       { nombre: 'Karen Rebeca Mora', usuario: 'Karen', password: '1234', rol: 'asesora', modulos: 'ventas,visitas,kpis,inventario' },
@@ -423,6 +435,63 @@ const server = http.createServer(async (req, res) => {
       const {lugar,tipo,asesora,notas} = await bodyJSON(req);
       const r = await pool.query('INSERT INTO visitas(lugar,tipo,asesora,notas) VALUES($1,$2,$3,$4) RETURNING *',[lugar,tipo,asesora,notas||null]);
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.rows[0]));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+
+  // ACTUALIZAR PERMISO editar_visitas PARA FERNANDO Y GIOVANNA (una sola vez)
+  if (urlPath === '/api/fix-permisos-visitas' && req.method === 'GET') {
+    try {
+      const r1 = await pool.query("UPDATE usuarios SET modulos = modulos || ',editar_visitas' WHERE usuario IN ('Fernando','Giovanna') AND modulos NOT LIKE '%editar_visitas%' RETURNING nombre, modulos");
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ actualizados: r1.rows }));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+
+  // ASESOR ZONAS/SECTORES Y PROVINCIAS — overrides editables sobre ASESOR_DATA
+  if (urlPath === '/api/asesor-config' && req.method === 'GET') {
+    try {
+      const zonas = await pool.query('SELECT asesora, zona, sector FROM asesor_zonas ORDER BY id');
+      const provincias = await pool.query('SELECT asesora, provincia FROM asesor_provincias ORDER BY id');
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ zonas: zonas.rows, provincias: provincias.rows }));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+  if (urlPath === '/api/asesor-zona' && req.method === 'POST') {
+    try {
+      const {asesora, zona, sector} = await bodyJSON(req);
+      await pool.query('INSERT INTO asesor_zonas(asesora,zona,sector) VALUES($1,$2,$3) ON CONFLICT DO NOTHING',[asesora,zona,sector]);
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+  if (urlPath === '/api/asesor-zona' && req.method === 'DELETE') {
+    try {
+      const {asesora, zona, sector} = await bodyJSON(req);
+      if (sector) {
+        await pool.query('DELETE FROM asesor_zonas WHERE asesora=$1 AND zona=$2 AND sector=$3',[asesora,zona,sector]);
+      } else {
+        await pool.query('DELETE FROM asesor_zonas WHERE asesora=$1 AND zona=$2',[asesora,zona]);
+      }
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+  if (urlPath === '/api/asesor-provincia' && req.method === 'POST') {
+    try {
+      const {asesora, provincia} = await bodyJSON(req);
+      await pool.query('INSERT INTO asesor_provincias(asesora,provincia) VALUES($1,$2) ON CONFLICT DO NOTHING',[asesora,provincia]);
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+  if (urlPath === '/api/asesor-provincia' && req.method === 'DELETE') {
+    try {
+      const {asesora, provincia} = await bodyJSON(req);
+      await pool.query('DELETE FROM asesor_provincias WHERE asesora=$1 AND provincia=$2',[asesora,provincia]);
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
     return;
   }
