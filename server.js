@@ -242,7 +242,7 @@ async function sincronizarHoy() {
       paginas++;
       console.log(`Página ${paginas}: ${(data.results||[]).length} docs, total: ${todos.length}`);
     }
-    const clientes = todos.filter(d => d.tipo_registro === 'CLI');
+    const clientes = todos.filter(d => d.tipo_registro === 'CLI' && !d.anulado && d.tipo_documento !== 'NC');
     // Agregar cliente_nombre directo desde el objeto cliente
     clientes.forEach(d => {
       d.cliente_nombre = d.cliente?.razon_social || d.cliente?.nombre_comercial || d.persona_id || '—';
