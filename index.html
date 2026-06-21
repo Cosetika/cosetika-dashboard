@@ -2520,9 +2520,15 @@ document.addEventListener('DOMContentLoaded', function() {
 
 async function regenerarData(){
   const st = document.getElementById('sync-status');
-  if(st) st.innerHTML='<i class="ti ti-loader"></i> Regenerando... esto puede tomar 1-2 minutos';
+  if(st) st.innerHTML='<i class="ti ti-loader"></i> Regenerando... esto puede tomar varios minutos';
   try{
-    const r = await fetch('/api/regenerar-data');
+    const hoy = new Date();
+    const anioPasado = hoy.getFullYear() - 1;
+    const desde = `01/01/${anioPasado}`;
+    const dd = String(hoy.getDate()).padStart(2,'0');
+    const mm = String(hoy.getMonth()+1).padStart(2,'0');
+    const hasta = `${dd}/${mm}/${hoy.getFullYear()}`;
+    const r = await fetch(`/api/regenerar-data?desde=${desde}&hasta=${hasta}`);
     const d = await r.json();
     if(st) st.innerHTML='<span style="color:#166534">✓ '+d.msg+'</span>';
     setTimeout(()=>{ if(st) st.innerHTML=''; }, 8000);
