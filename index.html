@@ -1054,31 +1054,41 @@ function renderMarcasPanel(){
 
   const vendedoras = Object.keys(DATA);
 
-  // Ventas por marca por mes filtradas por año
+  // Ventas por marca por mes filtradas por año — usa marcas_mes exacto (sin ratio)
   function getVentasMarcaMes(marca, mes){
     let t=0;
     vendedoras.forEach(v=>DATA[v].forEach(c=>{
-      const mCli = c.marcas.find(m=>m.marca===marca);
-      if(!mCli) return;
-      // Usar ratio marca/total del año seleccionado
-      const totAnio = c.frecuencia.filter(f=>f.anio===ventasFiltroAnio).reduce((a,f)=>a+f.total,0);
-      if(totAnio===0) return;
-      const ratio = mCli.total/c.total;
-      const totMes = (c.frecuencia.find(f=>f.mes===mes&&f.anio===ventasFiltroAnio)||{total:0}).total;
-      t += totMes * ratio;
+      if(c.marcas_mes && c.marcas_mes.length){
+        const reg = c.marcas_mes.find(x=>x.marca===marca&&x.mes===mes&&x.anio===ventasFiltroAnio);
+        if(reg) t += reg.total;
+      } else {
+        // Fallback (datos antiguos sin desglose): aproximación por ratio
+        const mCli = c.marcas.find(m=>m.marca===marca);
+        if(!mCli || !c.total) return;
+        const ratio = mCli.total/c.total;
+        const totMes = (c.frecuencia.find(f=>f.mes===mes&&f.anio===ventasFiltroAnio)||{total:0}).total;
+        t += totMes * ratio;
+      }
     }));
     return t;
   }
 
-  // Ventas totales por marca filtradas por año seleccionado
+  // Ventas totales por marca filtradas por año seleccionado — usa marcas_anio exacto (sin ratio)
   const todasMarcasData = {};
   vendedoras.forEach(v=>DATA[v].forEach(c=>{
-    const totAnio = c.frecuencia.filter(f=>f.anio===ventasFiltroAnio).reduce((a,f)=>a+f.total,0);
-    if(totAnio===0) return;
-    const ratio = c.total>0 ? totAnio/c.total : 0;
-    c.marcas.forEach(m=>{
-      todasMarcasData[m.marca]=(todasMarcasData[m.marca]||0)+(m.total*ratio);
-    });
+    if(c.marcas_anio && c.marcas_anio.length){
+      c.marcas_anio.filter(x=>x.anio===ventasFiltroAnio).forEach(x=>{
+        todasMarcasData[x.marca]=(todasMarcasData[x.marca]||0)+x.total;
+      });
+    } else {
+      // Fallback (datos antiguos sin desglose): aproximación por ratio
+      const totAnio = c.frecuencia.filter(f=>f.anio===ventasFiltroAnio).reduce((a,f)=>a+f.total,0);
+      if(totAnio===0 || !c.total) return;
+      const ratio = totAnio/c.total;
+      c.marcas.forEach(m=>{
+        todasMarcasData[m.marca]=(todasMarcasData[m.marca]||0)+(m.total*ratio);
+      });
+    }
   }));
   const marcasOrdenadas = Object.entries(todasMarcasData).sort((a,b)=>b[1]-a[1]);
   const totalAnual = marcasOrdenadas.reduce((a,[,t])=>a+t, 0);
@@ -1257,12 +1267,20 @@ function renderVentasPanel(){
 
   const porMarca={};
   vendedoras.forEach(v=>DATA[v].forEach(c=>{
-    const totAnio = c.frecuencia.filter(f=>f.anio===ventasFiltroAnio).reduce((a,f)=>a+f.total,0);
-    const rat = ventasFiltroTodo
-      ? (c.total>0 ? totAnio/c.total : 0)
-      : (c.total>0?(c.frecuencia.find(x=>x.mes===ventasFiltroMes&&x.anio===ventasFiltroAnio)||{total:0}).total/c.total:0);
-    if(rat===0) return;
-    c.marcas.forEach(m=>{ porMarca[m.marca]=(porMarca[m.marca]||0)+(m.total*rat); });
+    if(c.marcas_anio && c.marcas_anio.length){
+      if(ventasFiltroTodo){
+        c.marcas_anio.filter(x=>x.anio===ventasFiltroAnio).forEach(x=>{ porMarca[x.marca]=(porMarca[x.marca]||0)+x.total; });
+      } else if(c.marcas_mes){
+        c.marcas_mes.filter(x=>x.anio===ventasFiltroAnio&&x.mes===ventasFiltroMes).forEach(x=>{ porMarca[x.marca]=(porMarca[x.marca]||0)+x.total; });
+      }
+    } else {
+      const totAnio = c.frecuencia.filter(f=>f.anio===ventasFiltroAnio).reduce((a,f)=>a+f.total,0);
+      const rat = ventasFiltroTodo
+        ? (c.total>0 ? totAnio/c.total : 0)
+        : (c.total>0?(c.frecuencia.find(x=>x.mes===ventasFiltroMes&&x.anio===ventasFiltroAnio)||{total:0}).total/c.total:0);
+      if(rat===0) return;
+      c.marcas.forEach(m=>{ porMarca[m.marca]=(porMarca[m.marca]||0)+(m.total*rat); });
+    }
   }));
   const marcasArr=Object.entries(porMarca).sort((a,b)=>b[1]-a[1]);
   const maxMarca=marcasArr[0]?.[1]||1;

@@ -176,7 +176,7 @@ async function generarDataJson(fi, ff) {
       if (!vendedores[vendId]) vendedores[vendId] = { nombre: vendNom, clientes: {} };
       vendedores[vendId].nombre = vendNom;
       const vObj = vendedores[vendId].clientes;
-      if (!vObj[cliId]) vObj[cliId] = { id: cliId, nombre: cliNom, ruc: cliRuc, total: 0, subtotal: 0, num_compras: 0, provincia: cliProv, marcas: {}, productos: {}, frecuencia: {} };
+      if (!vObj[cliId]) vObj[cliId] = { id: cliId, nombre: cliNom, ruc: cliRuc, total: 0, subtotal: 0, num_compras: 0, provincia: cliProv, marcas: {}, marcasPorAnio: {}, marcasPorMes: {}, productos: {}, frecuencia: {} };
       const cli = vObj[cliId];
       cli.nombre = cliNom; cli.ruc = cliRuc;
       if(!cli.provincia && cliProv) cli.provincia = cliProv;
@@ -197,7 +197,18 @@ async function generarDataJson(fi, ff) {
         cli.productos[prodId].nombre = nom;
         cli.productos[prodId].cantidad += cantidad;
         cli.productos[prodId].total += base;
-        if (marca) cli.marcas[marca] = (cli.marcas[marca] || 0) + base;
+        if (marca) {
+          cli.marcas[marca] = (cli.marcas[marca] || 0) + base;
+          // Desglose exacto por año y mes (sin necesidad de ratio en el frontend)
+          const mkKey = `${anioDoc}-${marca}`;
+          if (!cli.marcasPorAnio) cli.marcasPorAnio = {};
+          if (!cli.marcasPorAnio[mkKey]) cli.marcasPorAnio[mkKey] = { anio: anioDoc, marca, total: 0 };
+          cli.marcasPorAnio[mkKey].total += base;
+          const mkMesKey = `${anioDoc}-${mes}-${marca}`;
+          if (!cli.marcasPorMes) cli.marcasPorMes = {};
+          if (!cli.marcasPorMes[mkMesKey]) cli.marcasPorMes[mkMesKey] = { anio: anioDoc, mes, marca, total: 0 };
+          cli.marcasPorMes[mkMesKey].total += base;
+        }
       });
     });
     nextUrl = data.next || null;
@@ -211,6 +222,8 @@ async function generarDataJson(fi, ff) {
       subtotal: Math.round(cli.subtotal * 100) / 100,
       num_compras: cli.num_compras, provincia: cli.provincia,
       marcas: Object.entries(cli.marcas).map(([m,t]) => ({ marca: m, total: Math.round(t*100)/100 })).sort((a,b) => b.total-a.total),
+      marcas_anio: Object.values(cli.marcasPorAnio||{}).map(x => ({ anio: x.anio, marca: x.marca, total: Math.round(x.total*100)/100 })),
+      marcas_mes: Object.values(cli.marcasPorMes||{}).map(x => ({ anio: x.anio, mes: x.mes, marca: x.marca, total: Math.round(x.total*100)/100 })),
       productos: Object.values(cli.productos).map(p => ({ id: p.id, nombre: p.nombre, codigo: p.codigo, marca: p.marca, cantidad: Math.round(p.cantidad), total: Math.round(p.total*100)/100 })).sort((a,b) => b.cantidad-a.cantidad),
       frecuencia: Object.values(cli.frecuencia).map(f => ({ anio: f.anio, mes: f.mes, total: Math.round(f.total*100)/100, subtotal: Math.round(f.subtotal*100)/100, compras: f.compras })).sort((a,b) => a.anio!==b.anio ? a.anio-b.anio : a.mes-b.mes)
     })).sort((a,b) => b.total-a.total);
