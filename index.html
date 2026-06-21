@@ -104,6 +104,9 @@
     .leyenda-vend-item{opacity:1}
     .leyenda-vend-item.atenuada{opacity:0.3}
     .leyenda-vend-item:hover{background:#faf9f8}
+    .leyenda-marca-item{opacity:1}
+    .leyenda-marca-item.atenuada{opacity:0.3}
+    .leyenda-marca-item:hover{background:#faf9f8}
     @media(min-width:900px){
       .grafico-ventas-canvas{height:420px !important}
     }
@@ -1104,11 +1107,11 @@ function renderMarcasPanel(){
     <div class="card" style="margin-bottom:12px">
       <div class="card-title"><i class="ti ti-chart-line"></i> Evolución mensual por marca — ${anioActual}</div>
       <div style="width:100%;overflow-x:auto">
-        <canvas id="grafico-marcas" style="display:block;width:100%;min-width:480px;height:240px"></canvas>
+        <canvas id="grafico-marcas" class="grafico-ventas-canvas" style="display:block;width:100%;min-width:480px;height:260px"></canvas>
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:10px;justify-content:center">
-        ${seriesMarcas.map(s=>`
-          <div style="display:flex;align-items:center;gap:5px">
+        ${seriesMarcas.map((s,i)=>`
+          <div class="leyenda-marca-item" data-idx="${i}" onclick="toggleLineaMarca(${i})" style="display:flex;align-items:center;gap:5px;cursor:pointer;padding:3px 8px;border-radius:12px;transition:background 0.15s">
             <div style="width:20px;height:3px;border-radius:2px;background:${s.color}"></div>
             <span style="font-size:11px;color:var(--text)">${s.nombre}</span>
           </div>`).join('')}
@@ -1132,7 +1135,74 @@ function renderMarcasPanel(){
         </div>`).join('')}
     </div>`;
 
-  requestAnimationFrame(()=>dibujarGraficoLineas('grafico-marcas', seriesMarcas, mesesDisp));
+  requestAnimationFrame(()=>dibujarGraficoMarcas(seriesMarcas, mesesDisp));
+}
+
+let _marcaSeleccionadaIdx = null;
+
+function toggleLineaMarca(idx){
+  _marcaSeleccionadaIdx = (_marcaSeleccionadaIdx===idx) ? null : idx;
+  document.querySelectorAll('.leyenda-marca-item').forEach(el=>{
+    const i = parseInt(el.dataset.idx);
+    el.classList.toggle('atenuada', _marcaSeleccionadaIdx!==null && i!==_marcaSeleccionadaIdx);
+  });
+  if(window._ultimaSerieMarcas) dibujarGraficoMarcas(window._ultimaSerieMarcas.series, window._ultimaSerieMarcas.meses);
+}
+
+function dibujarGraficoMarcas(series, meses){
+  window._ultimaSerieMarcas = {series, meses};
+  const canvas = document.getElementById('grafico-marcas');
+  if(!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio||1;
+  const W = canvas.offsetWidth||700;
+  const H = canvas.offsetHeight||260;
+  canvas.width = W*dpr; canvas.height = H*dpr;
+  ctx.scale(dpr,dpr);
+  ctx.clearRect(0,0,W,H);
+  const MESES_N=['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const pad={top:34,right:18,bottom:42,left:62};
+  const w=W-pad.left-pad.right, h=H-pad.top-pad.bottom;
+  const allVals=series.flatMap(s=>s.valores).filter(v=>v>0);
+  const maxVal=Math.max(...allVals,1);
+  const xPos=(i)=>pad.left+(meses.length>1?i*(w/(meses.length-1)):w/2);
+  const yPos=(v)=>pad.top+h-(v/maxVal)*h;
+  for(let i=0;i<=5;i++){
+    const val=(maxVal/5)*i, y=yPos(val);
+    ctx.strokeStyle='#f0ede9'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(pad.left,y); ctx.lineTo(W-pad.right,y); ctx.stroke();
+    ctx.fillStyle='#9ca3af'; ctx.font='11px system-ui'; ctx.textAlign='right';
+    ctx.fillText(val>=1000?'$'+(val/1000).toFixed(0)+'K':'$'+Math.round(val),pad.left-6,y+4);
+  }
+  ctx.textAlign='center'; ctx.fillStyle='#6b7280'; ctx.font='11px system-ui';
+  meses.forEach((m,i)=>ctx.fillText(MESES_N[m],xPos(i),H-pad.bottom+16));
+  const indices = series.map((s,i)=>i);
+  const orden = _marcaSeleccionadaIdx===null ? indices : [...indices.filter(i=>i!==_marcaSeleccionadaIdx), _marcaSeleccionadaIdx];
+  orden.forEach(i=>{
+    const s = series[i];
+    const esActiva = _marcaSeleccionadaIdx===null || i===_marcaSeleccionadaIdx;
+    ctx.globalAlpha = esActiva ? 1 : 0.15;
+    ctx.strokeStyle=s.color; ctx.lineWidth=esActiva?3:2; ctx.lineJoin='round';
+    ctx.beginPath();
+    let first=true;
+    s.valores.forEach((v,j)=>{
+      if(v===null||v===undefined) return;
+      if(first){ctx.moveTo(xPos(j),yPos(v));first=false;}
+      else ctx.lineTo(xPos(j),yPos(v));
+    });
+    ctx.stroke();
+    if(esActiva){
+      s.valores.forEach((v,j)=>{
+        if(v===null||v===undefined||v===0) return;
+        const x=xPos(j),y=yPos(v);
+        ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(x,y,5,0,Math.PI*2); ctx.fill();
+        ctx.strokeStyle=s.color; ctx.lineWidth=2.5; ctx.beginPath(); ctx.arc(x,y,5,0,Math.PI*2); ctx.stroke();
+        ctx.fillStyle=s.color; ctx.font='bold 11px system-ui'; ctx.textAlign='center';
+        ctx.fillText(v>=1000?'$'+(v/1000).toFixed(1)+'K':'$'+Math.round(v),x,y-11);
+      });
+    }
+  });
+  ctx.globalAlpha = 1;
 }
 
 // ─── TAB VENTAS: panel con filtro + vendedoras + marcas ───────────────────────
@@ -2405,6 +2475,7 @@ document.addEventListener('DOMContentLoaded', function() {
     clearTimeout(_resizeTimeout);
     _resizeTimeout = setTimeout(()=>{
       if(window._ultimaSerieVendedoras) dibujarGraficoVendedoras(window._ultimaSerieVendedoras.series, window._ultimaSerieVendedoras.meses);
+      if(window._ultimaSerieMarcas) dibujarGraficoMarcas(window._ultimaSerieMarcas.series, window._ultimaSerieMarcas.meses);
     }, 200);
   });
 });
