@@ -1598,7 +1598,6 @@ function renderHome(){
         ${aniosCliDisp.map(a=>`<option value="${a}" ${a===anioCliActivo?'selected':''}>${a}</option>`).join('')}
       </select>
       <select onchange="clientesFiltroMes=parseInt(this.value)||0;renderHome()" style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;outline:none;background:white;cursor:pointer"><option value="0" ${!clientesFiltroMes?'selected':''}>Todo el año</option>${mesesOptsC}</select>
-      ${puedeVerTodas?`<i class="ti ti-user" style="color:var(--brown);font-size:14px;margin-left:4px"></i><select onchange="clientesFiltroVend=this.value;renderHome()" style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;outline:none;background:white;cursor:pointer"><option value="" ${!clientesFiltroVend?'selected':''}>Todas las asesoras</option>${todasVendedoras.map(v=>`<option value="${v}" ${clientesFiltroVend===v?'selected':''}>` + v.split(' ')[0] + ' ' + (v.split(' ')[1]||'')+'</option>').join('')}</select>`:''}
       <span style="font-size:12px;color:var(--brown);font-weight:600">— ${etiquetaC}</span>
     </div>
     <div class="breadcrumb"><i class="ti ti-home" style="font-size:12px;color:var(--brown)"></i><span style="font-weight:500">Clientes — ${etiquetaC}</span></div>
@@ -1655,15 +1654,34 @@ function renderVendedor(nombre){
           <button class="sort-btn" id="sort-v-az" onclick="sortVend('az')">A → Z</button>
         </div>
       </div>
+      <div style="position:relative;margin-bottom:10px">
+        <i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:14px"></i>
+        <input type="text" id="buscar-cliente-input" placeholder="Buscar cliente por nombre..." oninput="filtrarClientesVendedor(this.value)"
+          style="width:100%;padding:8px 10px 8px 32px;border:1px solid var(--border);border-radius:8px;font-size:13px;outline:none">
+      </div>
       <div id="cli-list-vend">
         ${clientes.map(c=>`
-          <div class="hbar" onclick="selCliente('${c.nombre.replace(/'/g,"\\'").replace(/"/g,'\\"')}')">
+          <div class="hbar cli-item-vend" data-nombre="${c.nombre.toLowerCase()}" onclick="selCliente('${c.nombre.replace(/'/g,"\\'").replace(/"/g,'\\"')}')">
             <span class="hbar-lbl" title="${c.nombre}">${c.nombre}</span>
             <div class="hbar-track"><div class="hbar-fill" style="width:${pct(c.total,maxTotal)}%"></div></div>
             <span class="hbar-val">${fmt(c.total)}</span>
           </div>`).join('')}
       </div>
+      <div id="cli-sin-resultados" style="display:none;text-align:center;padding:16px;color:var(--muted);font-size:12px">Ningún cliente coincide con la búsqueda</div>
     </div>`;
+}
+
+function filtrarClientesVendedor(q){
+  const query = q.trim().toLowerCase();
+  const items = document.querySelectorAll('#cli-list-vend .cli-item-vend');
+  let visibles = 0;
+  items.forEach(el=>{
+    const match = !query || el.dataset.nombre.includes(query);
+    el.style.display = match ? 'flex' : 'none';
+    if(match) visibles++;
+  });
+  const sinResultados = document.getElementById('cli-sin-resultados');
+  if(sinResultados) sinResultados.style.display = visibles===0 ? 'block' : 'none';
 }
 
 function selCliente(nombre){
@@ -1901,11 +1919,13 @@ function sortVend(mode){
   else clientes.sort((a,b)=>b.total-a.total);
   const maxTotal=Math.max(...clientes.map(c=>c.total),1);
   document.getElementById('cli-list-vend').innerHTML=clientes.map(c=>`
-    <div class="hbar" onclick="selCliente('${c.nombre.replace(/'/g,"\\'")}')">
+    <div class="hbar cli-item-vend" data-nombre="${c.nombre.toLowerCase()}" onclick="selCliente('${c.nombre.replace(/'/g,"\\'")}')">
       <span class="hbar-lbl" title="${c.nombre}">${c.nombre}</span>
       <div class="hbar-track"><div class="hbar-fill" style="width:${pct(c.total,maxTotal)}%"></div></div>
       <span class="hbar-val">${fmt(c.total)}</span>
     </div>`).join('');
+  const buscarInput = document.getElementById('buscar-cliente-input');
+  if(buscarInput && buscarInput.value) filtrarClientesVendedor(buscarInput.value);
 }
 
 function sortProv(mode, provincia){
