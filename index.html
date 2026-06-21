@@ -1627,11 +1627,23 @@ function renderHome(){
 }
 
 function renderVendedor(nombre){
-  const clientes=DATA[nombre]||[];
-  const totalVend=clientes.reduce((a,c)=>a+c.total,0);
-  const maxTotal=clientes[0]?.total||1;
+  const anioActual3 = new Date().getFullYear();
+  const anioVendActivo = window._clientesAnio || anioActual3;
+  const todosClientes = DATA[nombre]||[];
+  // Filtrar clientes que tengan ventas en el año seleccionado
+  const clientes = todosClientes.filter(c=>c.frecuencia.some(f=>f.anio===anioVendActivo && f.total>0));
+  const totalVend = clientes.reduce((a,c)=>a+c.frecuencia.filter(f=>f.anio===anioVendActivo).reduce((s,f)=>s+f.total,0),0);
+  const totalesPorCliente = {}; // cliId/nombre -> total del año, para usar en barras y orden
+  clientes.forEach(c=>{ totalesPorCliente[c.nombre] = c.frecuencia.filter(f=>f.anio===anioVendActivo).reduce((s,f)=>s+f.total,0); });
+  const maxTotal = Math.max(...Object.values(totalesPorCliente), 1);
   const marcas={};
-  clientes.forEach(c=>c.marcas.forEach(m=>{marcas[m.marca]=(marcas[m.marca]||0)+m.total;}));
+  clientes.forEach(c=>{
+    if(c.marcas_anio && c.marcas_anio.length){
+      c.marcas_anio.filter(x=>x.anio===anioVendActivo).forEach(x=>{ marcas[x.marca]=(marcas[x.marca]||0)+x.total; });
+    } else {
+      c.marcas.forEach(m=>{ marcas[m.marca]=(marcas[m.marca]||0)+m.total; });
+    }
+  });
   renderMarcasSidebar(marcas);
 
   document.getElementById('main').innerHTML=`
@@ -1642,9 +1654,9 @@ function renderVendedor(nombre){
     </div>
     <div class="kpi-row">
       <div class="kpi"><div class="kpi-label">Ventas sin IVA</div><div class="kpi-val" style="color:var(--brown)">${fmt(totalVend/1.12)}</div><div class="kpi-sub">subtotal</div></div>
-      <div class="kpi"><div class="kpi-label">Ventas con IVA</div><div class="kpi-val">${fmt(totalVend)}</div><div class="kpi-sub">Ene–Jun 2026</div></div>
+      <div class="kpi"><div class="kpi-label">Ventas con IVA</div><div class="kpi-val">${fmt(totalVend)}</div><div class="kpi-sub">${anioVendActivo}</div></div>
       <div class="kpi"><div class="kpi-label">Clientes</div><div class="kpi-val">${clientes.length}</div><div class="kpi-sub">activos</div></div>
-      <div class="kpi"><div class="kpi-label">Facturas</div><div class="kpi-val">${clientes.reduce((a,c)=>a+c.num_compras,0)}</div><div class="kpi-sub">emitidas</div></div>
+      <div class="kpi"><div class="kpi-label">Facturas</div><div class="kpi-val">${clientes.reduce((a,c)=>a+c.frecuencia.filter(f=>f.anio===anioVendActivo).reduce((s,f)=>s+f.compras,0),0)}</div><div class="kpi-sub">emitidas</div></div>
     </div>
     <div class="card">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:6px">
@@ -1663,8 +1675,8 @@ function renderVendedor(nombre){
         ${clientes.map(c=>`
           <div class="hbar cli-item-vend" data-nombre="${c.nombre.toLowerCase()}" onclick="selCliente('${c.nombre.replace(/'/g,"\\'").replace(/"/g,'\\"')}')">
             <span class="hbar-lbl" title="${c.nombre}">${c.nombre}</span>
-            <div class="hbar-track"><div class="hbar-fill" style="width:${pct(c.total,maxTotal)}%"></div></div>
-            <span class="hbar-val">${fmt(c.total)}</span>
+            <div class="hbar-track"><div class="hbar-fill" style="width:${pct(totalesPorCliente[c.nombre],maxTotal)}%"></div></div>
+            <span class="hbar-val">${fmt(totalesPorCliente[c.nombre])}</span>
           </div>`).join('')}
       </div>
       <div id="cli-sin-resultados" style="display:none;text-align:center;padding:16px;color:var(--muted);font-size:12px">Ningún cliente coincide con la búsqueda</div>
@@ -1914,15 +1926,19 @@ function sortVend(mode){
   document.querySelectorAll('[id^="sort-v-"]').forEach(b=>{b.classList.remove('active-sort')});
   document.getElementById('sort-v-'+mode)?.classList.add('active-sort');
   const nombre=vendActual;
-  const clientes=[...DATA[nombre]||[]];
+  const anioVendActivo = window._clientesAnio || new Date().getFullYear();
+  const todosClientes=[...DATA[nombre]||[]];
+  const clientes = todosClientes.filter(c=>c.frecuencia.some(f=>f.anio===anioVendActivo && f.total>0));
+  const totalesPorCliente = {};
+  clientes.forEach(c=>{ totalesPorCliente[c.nombre] = c.frecuencia.filter(f=>f.anio===anioVendActivo).reduce((s,f)=>s+f.total,0); });
   if(mode==='az') clientes.sort((a,b)=>a.nombre.localeCompare(b.nombre));
-  else clientes.sort((a,b)=>b.total-a.total);
-  const maxTotal=Math.max(...clientes.map(c=>c.total),1);
+  else clientes.sort((a,b)=>totalesPorCliente[b.nombre]-totalesPorCliente[a.nombre]);
+  const maxTotal=Math.max(...Object.values(totalesPorCliente),1);
   document.getElementById('cli-list-vend').innerHTML=clientes.map(c=>`
     <div class="hbar cli-item-vend" data-nombre="${c.nombre.toLowerCase()}" onclick="selCliente('${c.nombre.replace(/'/g,"\\'")}')">
       <span class="hbar-lbl" title="${c.nombre}">${c.nombre}</span>
-      <div class="hbar-track"><div class="hbar-fill" style="width:${pct(c.total,maxTotal)}%"></div></div>
-      <span class="hbar-val">${fmt(c.total)}</span>
+      <div class="hbar-track"><div class="hbar-fill" style="width:${pct(totalesPorCliente[c.nombre],maxTotal)}%"></div></div>
+      <span class="hbar-val">${fmt(totalesPorCliente[c.nombre])}</span>
     </div>`).join('');
   const buscarInput = document.getElementById('buscar-cliente-input');
   if(buscarInput && buscarInput.value) filtrarClientesVendedor(buscarInput.value);
