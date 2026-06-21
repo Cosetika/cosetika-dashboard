@@ -221,6 +221,19 @@ function getMarcaColor(marca){
   return MARCA_COLORS[marca] || '#9ca3af';
 }
 
+// Nombres cortos personalizados para mostrar en selectores (no afecta las claves de DATA)
+const NOMBRE_CORTO = {
+  'Karen Rebeca Mora Cedeño':   'Karen Mora',
+  'Nicole Yanira Leon Marquez': 'Nicole León',
+  'Daniela Villegas Chamorro':  'Daniela Villegas',
+  'María Caridad Zea Larrea':   'María Caridad',
+  'Giovanna Portilla':          'Giovanna Portilla',
+  'Liseth Gavilanes':           'Liseth Gavilanes',
+};
+function nombreCorto(nombreCompleto){
+  return NOMBRE_CORTO[nombreCompleto] || (nombreCompleto.split(' ')[0]+' '+(nombreCompleto.split(' ')[1]||''));
+}
+
 function vendAvatar(nombre, size=28){
   const iniciales = (nombre||'').split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase();
   const color = getVendColor(nombre);
@@ -998,7 +1011,7 @@ async function renderFacturasHoy(){
             <tbody>
               ${Object.entries(porVend).sort((a,b)=>b[1].conIva-a[1].conIva).map(([v,d])=>`
                 <tr style="border-bottom:0.5px solid var(--border)">
-                  <td style="padding:8px 12px;font-weight:500">${v.split(' ')[0]} ${v.split(' ')[1]||''}</td>
+                  <td style="padding:8px 12px;font-weight:500">${nombreCorto(v)}</td>
                   <td style="padding:8px 12px;text-align:center;color:var(--muted)">${d.count}</td>
                   <td style="padding:8px 12px;text-align:right;color:var(--brown);font-weight:600">${fmt(d.sinIva)}</td>
                   <td style="padding:8px 12px;text-align:right;color:var(--muted)">${fmt(d.conIva)}</td>
@@ -1412,7 +1425,7 @@ function renderVentasPanel(){
         ${datosMensuales.map((v,i)=>`
           <div class="leyenda-vend-item" data-idx="${i}" onclick="toggleLineaVendedora(${i})" style="display:flex;align-items:center;gap:5px;cursor:pointer;padding:3px 8px;border-radius:12px;transition:background 0.15s">
             <div style="width:20px;height:3px;border-radius:2px;background:${v.color}"></div>
-            <span style="font-size:11px;color:var(--text)">${v.nombre.split(' ')[0]} ${v.nombre.split(' ')[1]||''}</span>
+            <span style="font-size:11px;color:var(--text)">${nombreCorto(v.nombre)}</span>
           </div>`).join('')}
       </div>
     </div>
@@ -1425,7 +1438,7 @@ function renderVentasPanel(){
         <div style="margin-bottom:10px">
           <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
             <div style="width:28px;height:28px;border-radius:50%;background:${getVendColor(v.nombre)};display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff;flex-shrink:0">${v.nombre.split(' ').map(w=>w[0]).join('').substring(0,2)}</div>
-            <span style="font-size:12px;flex:1;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${v.nombre.split(' ')[0]} ${v.nombre.split(' ')[1]||''}</span>
+            <span style="font-size:12px;flex:1;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${nombreCorto(v.nombre)}</span>
             <div style="text-align:right;flex-shrink:0;line-height:1.3">
               <div style="font-size:12px;color:var(--brown);font-weight:700">${fmt(v.total/1.12)}</div>
               <div style="font-size:9px;color:var(--muted)">c/IVA: <b style="color:var(--text)">${fmt(v.total)}</b></div>
@@ -1688,7 +1701,7 @@ function renderHome(){
       ${ranking.map(v=>`
         <div class="hbar" onclick="selVendedorPorNombre('${v.nombre.replace(/'/g,"\\'")}')" style="display:flex;align-items:center;gap:8px">
           ${vendAvatar(v.nombre,26)}
-          <span class="hbar-lbl" title="${v.nombre}">${v.nombre}</span>
+          <span class="hbar-lbl" title="${v.nombre}">${nombreCorto(v.nombre)}</span>
           <div class="hbar-track"><div class="hbar-fill" style="width:${pct(v.total,maxVend)}%;background:${getVendColor(v.nombre)}"></div></div>
           <span class="hbar-val">${fmt(v.total)}</span>
         </div>`).join('')}
@@ -2653,8 +2666,9 @@ function defaultComisionCfg(){
     asesoras:{
       'Liseth Gavilanes':          {pct:3.0, minimo:4000},
       'Daniela Villegas Chamorro': {pct:3.0, minimo:4000},
-      'Karen Rebeca Mora Cedeño':  {pct:3.0, minimo:4000},
-      'Nicole Yanira Leon Marquez':{pct:3.0, minimo:4000}
+      'Karen Rebeca Mora Cedeño':  {pct:4.0, minimo:4000},
+      'Nicole Yanira Leon Marquez':{pct:4.0, minimo:4000},
+      'María Caridad Zea Larrea':  {pct:4.0, minimo:4000}
     },
     giovanna:{pct_equipo:1.75},
     admin:[
@@ -2761,7 +2775,7 @@ function renderComisiones(){
           <tbody>
             ${filasAsesoras.map(r=>`
               <tr style="border-bottom:0.5px solid var(--border)">
-                <td style="padding:9px 12px;font-weight:500">${r.nombre.split(' ')[0]} ${r.nombre.split(' ')[1]||''}</td>
+                <td style="padding:9px 12px;font-weight:500">${nombreCorto(r.nombre)}</td>
                 <td style="padding:9px 12px;text-align:right;color:var(--brown);font-weight:600">${fmt(r.sinIva)}</td>
                 <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(r.conIva)}</td>
                 <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(r.minimo)}</td>
@@ -2831,7 +2845,7 @@ function editarConfigComisiones(){
         ${equipoNombres.map(n=>{
           const a=cfg.asesoras[n]; const id=n.replace(/\s+/g,'_');
           return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:0.5px solid var(--border)">
-            <span style="font-size:13px;flex:1">${n.split(' ')[0]} ${n.split(' ')[1]||''}</span>
+            <span style="font-size:13px;flex:1">${nombreCorto(n)}</span>
             <label style="font-size:11px;color:var(--muted)">Mín. $</label>
             <input type="number" id="cfg-min-${id}" value="${a.minimo}" style="width:70px;padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;text-align:right"/>
             <input type="number" id="cfg-pct-${id}" value="${a.pct}" step="0.1" style="width:50px;padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;text-align:right"/>
@@ -3007,8 +3021,8 @@ async function renderKpis(){
   const selectorAsesora = puedeVerTodas ? `
     <select id="kpi-asesora-sel" onchange="window._kpiAsesora=this.value;renderKpis()"
       style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;outline:none;background:white">
-      ${asesoras.map(a=>`<option value="${a}" ${a===asesoraKpi?'selected':''}>${a.split(' ')[0]} ${a.split(' ')[1]||''}</option>`).join('')}
-    </select>` : `<span style="font-size:13px;font-weight:500;color:var(--brown)">${asesoraKpi.split(' ')[0]}</span>`;
+      ${asesoras.map(a=>`<option value="${a}" ${a===asesoraKpi?'selected':''}>${nombreCorto(a)}</option>`).join('')}
+    </select>` : `<span style="font-size:13px;font-weight:500;color:var(--brown)">${nombreCorto(asesoraKpi)}</span>`;
 
   const selectorMes = `
     <select id="kpi-mes-sel" onchange="window._kpiMes=parseInt(this.value.split('-')[1]);window._kpiAnio=parseInt(this.value.split('-')[0]);renderKpis()"
