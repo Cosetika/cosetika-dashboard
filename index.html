@@ -942,7 +942,7 @@ async function renderFacturasHoy(){
 
       <!-- Comparativo anual -->
       <div class="card" style="margin-bottom:12px">
-        <div class="card-title"><i class="ti ti-chart-line"></i> Ventas por mes — 2025 vs 2026</div>
+        <div class="card-title"><i class="ti ti-chart-line"></i> Ventas por mes sin IVA — ${new Date().getFullYear()-1} vs ${new Date().getFullYear()}</div>
         <div style="width:100%;overflow-x:auto">
           <canvas id="grafico-comparativo-anual" style="display:block;width:100%;min-width:480px;height:240px"></canvas>
         </div>
@@ -1017,7 +1017,7 @@ async function renderFacturasHoy(){
       let t=0;
       vendedoras.forEach(v=>DATA[v].forEach(c=>{
         const f=c.frecuencia.find(x=>x.mes===mes&&x.anio===anio);
-        if(f) t+=f.total;
+        if(f) t+=(f.subtotal!==undefined ? f.subtotal : f.total/1.12);
       }));
       return t;
     }
