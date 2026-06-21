@@ -932,24 +932,28 @@ async function renderFacturasHoy(){
     });
 
     document.getElementById('facturas-content').innerHTML=`
+      <!-- Comparativo anual -->
+      <div class="card" style="margin-bottom:12px">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:4px">
+          <div class="card-title" style="margin-bottom:0"><i class="ti ti-chart-line"></i> Ventas por mes sin IVA</div>
+          <select id="select-anios-comparativo" onchange="cambiarAniosComparativo(this.value)" style="padding:5px 10px;border:1px solid var(--border);border-radius:8px;font-size:11px;outline:none;background:white;cursor:pointer">
+            <option value="ultimos2" selected>Últimos 2 años</option>
+            ${window._aniosDisponiblesFacturas ? window._aniosDisponiblesFacturas.map(a=>`<option value="${a}">Solo ${a}</option>`).join('') : ''}
+            <option value="todos">Todos los años</option>
+          </select>
+        </div>
+        <div style="width:100%;overflow-x:auto">
+          <canvas id="grafico-comparativo-anual" style="display:block;width:100%;min-width:480px;height:260px"></canvas>
+        </div>
+        <div id="leyenda-comparativo" style="display:flex;flex-wrap:wrap;gap:14px;margin-top:10px;justify-content:center"></div>
+      </div>
+
       <!-- KPIs del día -->
       <div class="kpi-row">
         <div class="kpi"><div class="kpi-label">Total sin IVA</div><div class="kpi-val" style="color:var(--brown)">${fmt(totalSinIva)}</div><div class="kpi-sub">subtotal</div></div>
         <div class="kpi"><div class="kpi-label">Total con IVA</div><div class="kpi-val">${fmt(totalConIva)}</div><div class="kpi-sub">hoy</div></div>
         <div class="kpi"><div class="kpi-label">Facturas</div><div class="kpi-val">${docs.length}</div><div class="kpi-sub">emitidas hoy</div></div>
         <div class="kpi"><div class="kpi-label">Última sync</div><div class="kpi-val" style="font-size:15px">${lastSync}</div><div class="kpi-sub">hora</div></div>
-      </div>
-
-      <!-- Comparativo anual -->
-      <div class="card" style="margin-bottom:12px">
-        <div class="card-title"><i class="ti ti-chart-line"></i> Ventas por mes sin IVA — ${new Date().getFullYear()-1} vs ${new Date().getFullYear()}</div>
-        <div style="width:100%;overflow-x:auto">
-          <canvas id="grafico-comparativo-anual" style="display:block;width:100%;min-width:480px;height:240px"></canvas>
-        </div>
-        <div style="display:flex;flex-wrap:wrap;gap:14px;margin-top:10px;justify-content:center">
-          <div style="display:flex;align-items:center;gap:5px"><div style="width:20px;height:3px;border-radius:2px;background:#c4b5fd"></div><span style="font-size:11px;color:var(--text)" id="leyenda-anio-pasado">${new Date().getFullYear()-1}</span></div>
-          <div style="display:flex;align-items:center;gap:5px"><div style="width:20px;height:3px;border-radius:2px;background:#A0684A"></div><span style="font-size:11px;color:var(--text)" id="leyenda-anio-actual">${new Date().getFullYear()}</span></div>
-        </div>
       </div>
 
       <!-- Resumen por vendedora -->
@@ -1012,7 +1016,6 @@ async function renderFacturasHoy(){
 
     // Calcular series 2025 vs 2026 desde DATA para el comparativo anual
     const vendedoras = Object.keys(DATA);
-    const MESES_N=['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
     function totalMesAnio(mes, anio){
       let t=0;
       vendedoras.forEach(v=>DATA[v].forEach(c=>{
@@ -1021,18 +1024,58 @@ async function renderFacturasHoy(){
       }));
       return t;
     }
-    // Comparativo: año anterior completo (12 meses) + año actual solo hasta el mes en curso
-    const anioActualReal = new Date().getFullYear();
-    const anioPasado = anioActualReal - 1;
-    const mesActualReal = new Date().getMonth()+1;
-    const mesesConDatos=[];
-    for(let m=1;m<=12;m++) mesesConDatos.push(m);
-    const serieAnterior={ nombre:String(anioPasado), color:'#c4b5fd', valores: mesesConDatos.map(m=>totalMesAnio(m,anioPasado)) };
-    const serieActual={ nombre:String(anioActualReal), color:'#A0684A', valores: mesesConDatos.map(m=>m<=mesActualReal?totalMesAnio(m,anioActualReal):null) };
-    requestAnimationFrame(()=>dibujarGraficoLineas('grafico-comparativo-anual', [serieAnterior, serieActual], mesesConDatos));
+    // Detectar todos los años disponibles en los datos
+    const aniosSet = new Set();
+    vendedoras.forEach(v=>DATA[v].forEach(c=>c.frecuencia.forEach(f=>{ if(f.anio) aniosSet.add(f.anio); })));
+    window._aniosDisponiblesFacturas = [...aniosSet].sort((a,b)=>b-a);
+    window._totalMesAnioFn = totalMesAnio;
+    // Repoblar el select con los años reales detectados
+    const selectAnios = document.getElementById('select-anios-comparativo');
+    if(selectAnios){
+      selectAnios.innerHTML = `<option value="ultimos2">Últimos 2 años</option>` +
+        window._aniosDisponiblesFacturas.map(a=>`<option value="${a}">Solo ${a}</option>`).join('') +
+        `<option value="todos">Todos los años</option>`;
+    }
+    dibujarComparativoAnual('ultimos2');
   }catch(e){
     document.getElementById('facturas-content').innerHTML=`<div class="coming"><i class="ti ti-wifi-off"></i><p style="font-size:13px">No se pudo conectar con la API</p><span style="font-size:12px">${e.message}</span></div>`;
   }
+}
+
+function cambiarAniosComparativo(modo){
+  dibujarComparativoAnual(modo);
+}
+
+function dibujarComparativoAnual(modo){
+  const totalMesAnio = window._totalMesAnioFn;
+  if(!totalMesAnio) return;
+  const anioActualReal = new Date().getFullYear();
+  const mesActualReal = new Date().getMonth()+1;
+  const COLORES = ['#A0684A','#c4b5fd','#7dd3fc','#fdba74','#5eead4','#fda4af','#bef264'];
+  let aniosAMostrar = [];
+  if(modo==='todos') aniosAMostrar = [...window._aniosDisponiblesFacturas].sort((a,b)=>a-b);
+  else if(modo==='ultimos2') aniosAMostrar = [anioActualReal-1, anioActualReal];
+  else aniosAMostrar = [parseInt(modo)];
+
+  const mesesConDatos=[]; for(let m=1;m<=12;m++) mesesConDatos.push(m);
+  const series = aniosAMostrar.map((anio,i)=>({
+    nombre: String(anio),
+    color: anio===anioActualReal ? '#A0684A' : COLORES[(i+1)%COLORES.length],
+    valores: mesesConDatos.map(m=>{
+      if(anio===anioActualReal && m>mesActualReal) return null;
+      return totalMesAnio(m,anio);
+    })
+  }));
+
+  const leyenda = document.getElementById('leyenda-comparativo');
+  if(leyenda){
+    leyenda.innerHTML = series.map(s=>`
+      <div style="display:flex;align-items:center;gap:5px">
+        <div style="width:20px;height:3px;border-radius:2px;background:${s.color}"></div>
+        <span style="font-size:11px;color:var(--text)">${s.nombre}</span>
+      </div>`).join('');
+  }
+  requestAnimationFrame(()=>dibujarGraficoLineas('grafico-comparativo-anual', series, mesesConDatos));
 }
 
 
