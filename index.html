@@ -100,6 +100,13 @@
 
     .sort-btn{padding:4px 10px;font-size:10px;border-radius:6px;border:1px solid var(--border);background:#fff;color:var(--muted);cursor:pointer;transition:all 0.2s}
     .sort-btn.active-sort{background:var(--brown);color:#fff;border-color:var(--brown)}
+    .grafico-ventas-canvas{height:260px}
+    .leyenda-vend-item{opacity:1}
+    .leyenda-vend-item.atenuada{opacity:0.3}
+    .leyenda-vend-item:hover{background:#faf9f8}
+    @media(min-width:900px){
+      .grafico-ventas-canvas{height:420px !important}
+    }
     @media(max-width:640px){
       .body{grid-template-columns:1fr}
       .sidebar{display:none}
@@ -1115,13 +1122,13 @@ function renderMarcasPanel(){
         <div style="margin-bottom:10px;cursor:pointer;padding:6px 8px;border-radius:8px;transition:background 0.15s" onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='transparent'" onclick="window._prodMarcaSel='${m}';window._prodTodoAnio=true;renderProductosPorMarca()">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">
             <span style="font-size:13px;font-weight:700;color:${getMarcaColor(m)};flex:1">${m} <i class="ti ti-chevron-right" style="font-size:10px"></i></span>
-            <span style="font-size:13px;color:var(--text);font-weight:600">${fmt(t)}</span>
+            <span style="font-size:13px;color:var(--brown);font-weight:700">${fmt(t/1.12)}</span>
             <span style="font-size:11px;color:var(--muted);min-width:32px;text-align:right">${Math.round(t/totalAnual*100)||0}%</span>
           </div>
           <div style="height:10px;background:#f5f3f0;border-radius:5px;overflow:hidden">
             <div style="height:100%;border-radius:5px;background:${getMarcaColor(m)};width:${Math.round(t/marcasOrdenadas[0][1]*100)}%;transition:width 0.5s"></div>
           </div>
-          <div style="font-size:10px;color:var(--muted);margin-top:3px">s/IVA: ${fmt(t/1.12)}</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:3px;text-align:right">c/IVA: ${fmt(t)}</div>
         </div>`).join('')}
     </div>`;
 
@@ -1191,12 +1198,12 @@ function renderVentasPanel(){
   const maxMarca=marcasArr[0]?.[1]||1;
 
 
-  // Datos mensuales para gráfico (siempre todo el año)
+  // Datos mensuales para gráfico (siempre todo el año) — valores SIN IVA
   const mesesDisponibles=[];
   for(let m=1;m<=12;m++){ if(vendedoras.some(v=>getVentasMes(DATA[v],m,ventasFiltroAnio)>0)) mesesDisponibles.push(m); }
   const datosMensuales=vendedoras.map(v=>({
     nombre:v, color:getVendColor(v),
-    valores:mesesDisponibles.map(m=>getVentasMes(DATA[v],m,ventasFiltroAnio))
+    valores:mesesDisponibles.map(m=>getVentasMes(DATA[v],m,ventasFiltroAnio)/1.12)
   })).filter(v=>v.valores.some(x=>x>0));
 
   const etiqueta = ventasFiltroTodo ? `Todo ${ventasFiltroAnio}` : `${MESES_LABELS[ventasFiltroMes]} ${ventasFiltroAnio}`;
@@ -1239,13 +1246,13 @@ function renderVentasPanel(){
 
     <!-- Gráfico de líneas -->
     <div class="card" style="margin-bottom:12px">
-      <div class="card-title"><i class="ti ti-chart-line"></i> Evolución mensual por vendedora — ${ventasFiltroAnio}</div>
+      <div class="card-title"><i class="ti ti-chart-line"></i> Evolución mensual por vendedora (sin IVA) — ${ventasFiltroAnio}</div>
       <div style="width:100%;overflow-x:auto">
-        <canvas id="grafico-ventas" style="display:block;width:100%;min-width:480px;height:260px"></canvas>
+        <canvas id="grafico-ventas" class="grafico-ventas-canvas" style="display:block;width:100%;min-width:480px;height:260px"></canvas>
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:14px;margin-top:10px;justify-content:center">
-        ${datosMensuales.map(v=>`
-          <div style="display:flex;align-items:center;gap:5px">
+        ${datosMensuales.map((v,i)=>`
+          <div class="leyenda-vend-item" data-idx="${i}" onclick="toggleLineaVendedora(${i})" style="display:flex;align-items:center;gap:5px;cursor:pointer;padding:3px 8px;border-radius:12px;transition:background 0.15s">
             <div style="width:20px;height:3px;border-radius:2px;background:${v.color}"></div>
             <span style="font-size:11px;color:var(--text)">${v.nombre.split(' ')[0]} ${v.nombre.split(' ')[1]||''}</span>
           </div>`).join('')}
@@ -1275,7 +1282,77 @@ function renderVentasPanel(){
 
   `;
 
-  requestAnimationFrame(()=>dibujarGraficoLineas('grafico-ventas', datosMensuales, mesesDisponibles));
+  requestAnimationFrame(()=>dibujarGraficoVendedoras(datosMensuales, mesesDisponibles));
+}
+
+let _vendSeleccionadaIdx = null;
+
+function toggleLineaVendedora(idx){
+  _vendSeleccionadaIdx = (_vendSeleccionadaIdx===idx) ? null : idx;
+  document.querySelectorAll('.leyenda-vend-item').forEach(el=>{
+    const i = parseInt(el.dataset.idx);
+    el.classList.toggle('atenuada', _vendSeleccionadaIdx!==null && i!==_vendSeleccionadaIdx);
+  });
+  if(window._ultimaSerieVendedoras) dibujarGraficoVendedoras(window._ultimaSerieVendedoras.series, window._ultimaSerieVendedoras.meses);
+}
+
+function dibujarGraficoVendedoras(series, meses){
+  window._ultimaSerieVendedoras = {series, meses};
+  const canvas = document.getElementById('grafico-ventas');
+  if(!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio||1;
+  const W = canvas.offsetWidth||700;
+  const H = canvas.offsetHeight||260;
+  canvas.width = W*dpr; canvas.height = H*dpr;
+  ctx.scale(dpr,dpr);
+  ctx.clearRect(0,0,W,H);
+  const MESES_N=['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const pad={top:34,right:18,bottom:42,left:62};
+  const w=W-pad.left-pad.right, h=H-pad.top-pad.bottom;
+  const allVals=series.flatMap(s=>s.valores).filter(v=>v>0);
+  const maxVal=Math.max(...allVals,1);
+  const xPos=(i)=>pad.left+(meses.length>1?i*(w/(meses.length-1)):w/2);
+  const yPos=(v)=>pad.top+h-(v/maxVal)*h;
+  // Grid
+  for(let i=0;i<=5;i++){
+    const val=(maxVal/5)*i, y=yPos(val);
+    ctx.strokeStyle='#f0ede9'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(pad.left,y); ctx.lineTo(W-pad.right,y); ctx.stroke();
+    ctx.fillStyle='#9ca3af'; ctx.font='11px system-ui'; ctx.textAlign='right';
+    ctx.fillText(val>=1000?'$'+(val/1000).toFixed(0)+'K':'$'+Math.round(val),pad.left-6,y+4);
+  }
+  // Eje X
+  ctx.textAlign='center'; ctx.fillStyle='#6b7280'; ctx.font='11px system-ui';
+  meses.forEach((m,i)=>ctx.fillText(MESES_N[m],xPos(i),H-pad.bottom+16));
+  // Dibujar primero las NO seleccionadas (atenuadas), luego la seleccionada encima
+  const indices = series.map((s,i)=>i);
+  const orden = _vendSeleccionadaIdx===null ? indices : [...indices.filter(i=>i!==_vendSeleccionadaIdx), _vendSeleccionadaIdx];
+  orden.forEach(i=>{
+    const s = series[i];
+    const esActiva = _vendSeleccionadaIdx===null || i===_vendSeleccionadaIdx;
+    ctx.globalAlpha = esActiva ? 1 : 0.15;
+    ctx.strokeStyle=s.color; ctx.lineWidth=esActiva?3:2; ctx.lineJoin='round';
+    ctx.beginPath();
+    let first=true;
+    s.valores.forEach((v,j)=>{
+      if(v===null||v===undefined) return;
+      if(first){ctx.moveTo(xPos(j),yPos(v));first=false;}
+      else ctx.lineTo(xPos(j),yPos(v));
+    });
+    ctx.stroke();
+    if(esActiva){
+      s.valores.forEach((v,j)=>{
+        if(v===null||v===undefined||v===0) return;
+        const x=xPos(j),y=yPos(v);
+        ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(x,y,5,0,Math.PI*2); ctx.fill();
+        ctx.strokeStyle=s.color; ctx.lineWidth=2.5; ctx.beginPath(); ctx.arc(x,y,5,0,Math.PI*2); ctx.stroke();
+        ctx.fillStyle=s.color; ctx.font='bold 11px system-ui'; ctx.textAlign='center';
+        ctx.fillText(v>=1000?'$'+(v/1000).toFixed(1)+'K':'$'+Math.round(v),x,y-11);
+      });
+    }
+  });
+  ctx.globalAlpha = 1;
 }
 
 function dibujarGraficoLineas(canvasId, series, meses){
@@ -2322,6 +2399,14 @@ document.addEventListener('DOMContentLoaded', function() {
     btnRef.style.display = window.innerWidth<768?'flex':'none';
     window.addEventListener('resize',()=>{ btnRef.style.display=window.innerWidth<768?'flex':'none'; });
   }
+  // Redibujar gráfico de vendedoras al cambiar tamaño de pantalla
+  let _resizeTimeout;
+  window.addEventListener('resize', ()=>{
+    clearTimeout(_resizeTimeout);
+    _resizeTimeout = setTimeout(()=>{
+      if(window._ultimaSerieVendedoras) dibujarGraficoVendedoras(window._ultimaSerieVendedoras.series, window._ultimaSerieVendedoras.meses);
+    }, 200);
+  });
 });
 
 async function regenerarData(){
