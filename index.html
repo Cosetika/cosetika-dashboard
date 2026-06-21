@@ -937,8 +937,8 @@ async function renderFacturasHoy(){
           <canvas id="grafico-comparativo-anual" style="display:block;width:100%;min-width:480px;height:240px"></canvas>
         </div>
         <div style="display:flex;flex-wrap:wrap;gap:14px;margin-top:10px;justify-content:center">
-          <div style="display:flex;align-items:center;gap:5px"><div style="width:20px;height:3px;border-radius:2px;background:#c4b5fd"></div><span style="font-size:11px;color:var(--text)">2025</span></div>
-          <div style="display:flex;align-items:center;gap:5px"><div style="width:20px;height:3px;border-radius:2px;background:#A0684A"></div><span style="font-size:11px;color:var(--text)">2026</span></div>
+          <div style="display:flex;align-items:center;gap:5px"><div style="width:20px;height:3px;border-radius:2px;background:#c4b5fd"></div><span style="font-size:11px;color:var(--text)" id="leyenda-anio-pasado">${new Date().getFullYear()-1}</span></div>
+          <div style="display:flex;align-items:center;gap:5px"><div style="width:20px;height:3px;border-radius:2px;background:#A0684A"></div><span style="font-size:11px;color:var(--text)" id="leyenda-anio-actual">${new Date().getFullYear()}</span></div>
         </div>
       </div>
 
@@ -1011,14 +1011,15 @@ async function renderFacturasHoy(){
       }));
       return t;
     }
-    const mesActualReal = new Date().getMonth()+1; // mes transcurrido hasta hoy
+    // Comparativo: año anterior completo (12 meses) + año actual solo hasta el mes en curso
+    const anioActualReal = new Date().getFullYear();
+    const anioPasado = anioActualReal - 1;
+    const mesActualReal = new Date().getMonth()+1;
     const mesesConDatos=[];
-    for(let m=1;m<=mesActualReal;m++){
-      mesesConDatos.push(m);
-    }
-    const serie2025={ nombre:'2025', color:'#c4b5fd', valores: mesesConDatos.map(m=>totalMesAnio(m,2025)) };
-    const serie2026={ nombre:'2026', color:'#A0684A', valores: mesesConDatos.map(m=>totalMesAnio(m,2026)) };
-    requestAnimationFrame(()=>dibujarGraficoLineas('grafico-comparativo-anual', [serie2025, serie2026], mesesConDatos));
+    for(let m=1;m<=12;m++) mesesConDatos.push(m);
+    const serieAnterior={ nombre:String(anioPasado), color:'#c4b5fd', valores: mesesConDatos.map(m=>totalMesAnio(m,anioPasado)) };
+    const serieActual={ nombre:String(anioActualReal), color:'#A0684A', valores: mesesConDatos.map(m=>m<=mesActualReal?totalMesAnio(m,anioActualReal):null) };
+    requestAnimationFrame(()=>dibujarGraficoLineas('grafico-comparativo-anual', [serieAnterior, serieActual], mesesConDatos));
   }catch(e){
     document.getElementById('facturas-content').innerHTML=`<div class="coming"><i class="ti ti-wifi-off"></i><p style="font-size:13px">No se pudo conectar con la API</p><span style="font-size:12px">${e.message}</span></div>`;
   }
@@ -1290,7 +1291,7 @@ function dibujarGraficoLineas(canvasId, series, meses){
   const MESES_N=['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
   const pad={top:28,right:16,bottom:38,left:58};
   const w=W-pad.left-pad.right, h=H-pad.top-pad.bottom;
-  const allVals=series.flatMap(s=>s.valores).filter(v=>v>0);
+  const allVals=series.flatMap(s=>s.valores).filter(v=>v!==null&&v!==undefined&&v>0);
   const maxVal=Math.max(...allVals,1);
   const xPos=(i)=>pad.left+(meses.length>1?i*(w/(meses.length-1)):w/2);
   const yPos=(v)=>pad.top+h-(v/maxVal)*h;
@@ -1305,18 +1306,19 @@ function dibujarGraficoLineas(canvasId, series, meses){
   // Eje X
   ctx.textAlign='center'; ctx.fillStyle='#6b7280'; ctx.font='10px system-ui';
   meses.forEach((m,i)=>ctx.fillText(MESES_N[m],xPos(i),H-pad.bottom+14));
-  // Series
+  // Series — null/undefined corta la línea (no dibuja más allá del mes en curso)
   series.forEach(s=>{
     ctx.strokeStyle=s.color; ctx.lineWidth=2.5; ctx.lineJoin='round';
     ctx.beginPath();
     let first=true;
     s.valores.forEach((v,i)=>{
+      if(v===null||v===undefined) return;
       if(first){ctx.moveTo(xPos(i),yPos(v));first=false;}
       else ctx.lineTo(xPos(i),yPos(v));
     });
     ctx.stroke();
     s.valores.forEach((v,i)=>{
-      if(v===0) return;
+      if(v===null||v===undefined||v===0) return;
       const x=xPos(i),y=yPos(v);
       ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(x,y,4,0,Math.PI*2); ctx.fill();
       ctx.strokeStyle=s.color; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(x,y,4,0,Math.PI*2); ctx.stroke();
