@@ -4,6 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Cosétika — Panel de Ventas</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2232%22%20r%3D%2232%22%20fill%3D%22%23A0684A%22/%3E%3Ctext%20x%3D%2232%22%20y%3D%2244%22%20font-family%3D%22Georgia%2C%20serif%22%20font-style%3D%22italic%22%20font-weight%3D%22700%22%20font-size%3D%2234%22%20fill%3D%22%23ffffff%22%20text-anchor%3D%22middle%22%3EC%3C/text%3E%3C/svg%3E"/>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.44.0/tabler-icons.min.css"/>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
@@ -141,10 +142,10 @@
 </div>
 
 <div class="submenu" id="submenu-ventas" style="border-radius:0">
-  <div class="stab" id="stab-facturas" onclick="setSubtab('facturas')" style="padding:10px 6px;font-size:11px">Facturas</div>
+  <div class="stab active" id="stab-facturas" onclick="setSubtab('facturas')" style="background:var(--brown);color:#fff;padding:10px 6px;font-size:11px">Facturas</div>
   <div class="stab" id="stab-marcas" onclick="setSubtab('marcas')" style="padding:10px 6px;font-size:11px">Marcas</div>
   <div class="stab" id="stab-ventas" onclick="setSubtab('ventas')" style="padding:10px 6px;font-size:11px">Ventas</div>
-  <div class="stab active" id="stab-cpf" onclick="setSubtab('cpf')" style="background:var(--brown);color:#fff;padding:10px 6px;font-size:11px">Clientes</div>
+  <div class="stab" id="stab-cpf" onclick="setSubtab('cpf')" style="padding:10px 6px;font-size:11px">Clientes</div>
   <div class="stab" id="stab-prov" onclick="setSubtab('prov')" style="padding:10px 6px;font-size:11px">Provincias</div>
 </div>
 
@@ -221,7 +222,7 @@ function vendAvatar(nombre, size=28){
 let DATA={};
 let vendActual=null;
 let modActual='ventas';
-let subtabActual='home'; // home = resumen general
+let subtabActual='facturas'; // facturas = pantalla inicial
 
 function setMod(mod){
   document.querySelectorAll('.mod').forEach(m=>m.classList.remove('active'));
@@ -449,6 +450,7 @@ async function cargarData(){
 
     initVendedoras();
     mostrarVentasHoy();
+    setSubtab('facturas');
   }catch(e){
     document.getElementById('main').innerHTML='<div class="loader"><p>Error: '+e.message+'</p></div>';
   }
@@ -928,6 +930,18 @@ async function renderFacturasHoy(){
         <div class="kpi"><div class="kpi-label">Última sync</div><div class="kpi-val" style="font-size:15px">${lastSync}</div><div class="kpi-sub">hora</div></div>
       </div>
 
+      <!-- Comparativo anual -->
+      <div class="card" style="margin-bottom:12px">
+        <div class="card-title"><i class="ti ti-chart-line"></i> Ventas por mes — 2025 vs 2026</div>
+        <div style="width:100%;overflow-x:auto">
+          <canvas id="grafico-comparativo-anual" style="display:block;width:100%;min-width:480px;height:240px"></canvas>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:14px;margin-top:10px;justify-content:center">
+          <div style="display:flex;align-items:center;gap:5px"><div style="width:20px;height:3px;border-radius:2px;background:#c4b5fd"></div><span style="font-size:11px;color:var(--text)">2025</span></div>
+          <div style="display:flex;align-items:center;gap:5px"><div style="width:20px;height:3px;border-radius:2px;background:#A0684A"></div><span style="font-size:11px;color:var(--text)">2026</span></div>
+        </div>
+      </div>
+
       <!-- Resumen por vendedora -->
       ${Object.keys(porVend).length>0?`
       <div class="card" style="margin-bottom:12px">
@@ -985,6 +999,26 @@ async function renderFacturasHoy(){
           </table>
         </div>`}
       </div>`;
+
+    // Calcular series 2025 vs 2026 desde DATA para el comparativo anual
+    const vendedoras = Object.keys(DATA);
+    const MESES_N=['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+    function totalMesAnio(mes, anio){
+      let t=0;
+      vendedoras.forEach(v=>DATA[v].forEach(c=>{
+        const f=c.frecuencia.find(x=>x.mes===mes&&x.anio===anio);
+        if(f) t+=f.total;
+      }));
+      return t;
+    }
+    const mesesConDatos=[];
+    for(let m=1;m<=12;m++){
+      const t25=totalMesAnio(m,2025), t26=totalMesAnio(m,2026);
+      if(t25>0||t26>0) mesesConDatos.push(m);
+    }
+    const serie2025={ nombre:'2025', color:'#c4b5fd', valores: mesesConDatos.map(m=>totalMesAnio(m,2025)) };
+    const serie2026={ nombre:'2026', color:'#A0684A', valores: mesesConDatos.map(m=>totalMesAnio(m,2026)) };
+    requestAnimationFrame(()=>dibujarGraficoLineas('grafico-comparativo-anual', [serie2025, serie2026], mesesConDatos));
   }catch(e){
     document.getElementById('facturas-content').innerHTML=`<div class="coming"><i class="ti ti-wifi-off"></i><p style="font-size:13px">No se pudo conectar con la API</p><span style="font-size:12px">${e.message}</span></div>`;
   }
