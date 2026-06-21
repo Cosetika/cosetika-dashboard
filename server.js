@@ -142,8 +142,10 @@ setInterval(() => sincronizarCatalogo().catch(e => console.error(e)), 24 * 60 * 
 // ─── GENERADOR DATA.JSON ──────────────────────────────────────
 async function generarDataJson(fi, ff) {
   const vendedores = {};
+  const documentosVistos = new Set(); // evita procesar el mismo documento dos veces (ej: si la API repite en paginación)
   let nextUrl = 'https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=' + fi + '&fecha_final=' + ff + '&page_size=100';
   let paginas = 0;
+  let duplicadosOmitidos = 0;
   while (nextUrl && paginas < 200) {
     const resp = await fetch(nextUrl, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
     if (!resp.ok) break;
@@ -159,6 +161,10 @@ async function generarDataJson(fi, ff) {
       // Excluir autoconsumo: facturas al cliente Corporación Cosétika (RUC 1793143660001)
       const cliRuc = (d.cliente?.ruc || d.cliente?.cedula || '').trim();
       if (cliRuc === '1793143660001') return false;
+      // Evitar procesar el mismo documento dos veces
+      const docKey = d.id || d.documento;
+      if (documentosVistos.has(docKey)) { duplicadosOmitidos++; return false; }
+      documentosVistos.add(docKey);
       return true;
     });
     docs.forEach(doc => {
@@ -228,6 +234,7 @@ async function generarDataJson(fi, ff) {
       frecuencia: Object.values(cli.frecuencia).map(f => ({ anio: f.anio, mes: f.mes, total: Math.round(f.total*100)/100, subtotal: Math.round(f.subtotal*100)/100, compras: f.compras })).sort((a,b) => a.anio!==b.anio ? a.anio-b.anio : a.mes-b.mes)
     })).sort((a,b) => b.total-a.total);
   });
+  console.log(`Generación completa. Duplicados omitidos: ${duplicadosOmitidos}`);
   return resultado;
 }
 
