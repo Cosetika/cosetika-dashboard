@@ -695,32 +695,40 @@ function detectarMarcaProducto(nombre, marcaDirecta){
 }
 
 // Construir ranking de productos con filtro de marca y periodo
-function buildProductosRanking(marcaFiltro, mesFiltro, todoAnio){
+function buildProductosRanking(marcaFiltro, mesFiltro, todoAnio, anioFiltro){
   const vendedoras = vendActual ? [vendActual] : Object.keys(DATA);
   const productos = {};
+  const anio = anioFiltro || new Date().getFullYear();
 
   vendedoras.forEach(v=>{
     (DATA[v]||[]).forEach(cli=>{
-      // Solo incluir clientes que compraron en el mes filtrado
+      // Solo incluir clientes que compraron en el período filtrado (año, y mes si aplica)
+      const freqAnio = cli.frecuencia.filter(f=>f.anio===anio);
+      if(freqAnio.length===0) return;
       if(!todoAnio){
-        const freqMes = cli.frecuencia.find(f=>f.mes===mesFiltro);
+        const freqMes = freqAnio.find(f=>f.mes===mesFiltro);
         if(!freqMes || freqMes.total===0) return;
       }
-      // Solo incluir clientes que compraron la marca filtrada
+      // Solo incluir clientes que compraron la marca filtrada (verificado por año si hay datos exactos)
       if(marcaFiltro!=='TODAS'){
-        const mCli = cli.marcas.find(m=>m.marca===marcaFiltro);
-        if(!mCli) return;
+        if(cli.marcas_anio && cli.marcas_anio.length){
+          const tieneMarcaAnio = cli.marcas_anio.some(x=>x.marca===marcaFiltro && x.anio===anio && x.total>0);
+          if(!tieneMarcaAnio) return;
+        } else {
+          const mCli = cli.marcas.find(m=>m.marca===marcaFiltro);
+          if(!mCli) return;
+        }
       }
-      // Ratio para prorratear cantidades al mes
-      const ratioMes = todoAnio ? 1 : (cli.total>0
-        ? (cli.frecuencia.find(f=>f.mes===mesFiltro)||{total:0}).total / cli.total : 0);
+      // Ratio para prorratear cantidades — total del año / total histórico
+      const totalAnioCliente = freqAnio.reduce((a,f)=>a+f.total,0);
+      const ratioAnio = cli.total>0 ? totalAnioCliente/cli.total : 0;
+      const ratioMes = todoAnio ? ratioAnio : (cli.total>0
+        ? (freqAnio.find(f=>f.mes===mesFiltro)||{total:0}).total / cli.total : 0);
 
       cli.productos.forEach(p=>{
         if(p.nombre==='Transporte') return;
-        // Usar marca directa del producto si viene en el data.json nuevo
         const marcaProd = detectarMarcaProducto(p.nombre, p.marca);
         if(marcaFiltro!=='TODAS' && marcaProd!==marcaFiltro) return;
-        // Usar id del producto como clave si existe, sino el nombre
         const key = p.id || p.nombre;
         if(!productos[key]) productos[key]={nombre:p.nombre, cantidad:0, marca:marcaProd};
         else productos[key].marca = productos[key].marca || marcaProd;
@@ -742,6 +750,14 @@ function renderProductosPorMarca(marcaSeleccionada, totalMarcaIn){
   const marcaSel = window._prodMarcaSel || 'TODAS';
   let prodMesFiltro = window._prodMesFiltro !== undefined ? window._prodMesFiltro : (new Date().getMonth()+1);
   let prodTodoAnio  = window._prodTodoAnio  !== undefined ? window._prodTodoAnio  : false;
+  let prodAnioFiltro = window._prodAnioFiltro !== undefined ? window._prodAnioFiltro : anioActual;
+
+  // Años disponibles en los datos
+  const aniosProdSet = new Set();
+  Object.values(DATA).forEach(clientes=>clientes.forEach(c=>c.frecuencia.forEach(f=>{ if(f.anio) aniosProdSet.add(f.anio); })));
+  const aniosProdDisp = aniosProdSet.size>0 ? [...aniosProdSet].sort((a,b)=>b-a) : [anioActual];
+  if(!aniosProdDisp.includes(prodAnioFiltro)) prodAnioFiltro = aniosProdDisp[0];
+  window._prodAnioFiltro = prodAnioFiltro;
 
   // Marcas disponibles: desde catálogo cargado, o desde DATA directamente
   let marcasEnCatalogo = [...new Set(Object.values(PRODUCTO_MARCA))].filter(Boolean).sort();
@@ -760,33 +776,41 @@ function renderProductosPorMarca(marcaSeleccionada, totalMarcaIn){
   }
   const todasMarcas = ['TODAS', ...marcasEnCatalogo];
 
-  // Calcular total de la marca seleccionada según período
-  function calcTotalMarca(marca, mes, todoAnio){
+  // Calcular total de la marca seleccionada según período — usa datos exactos por año cuando existen
+  function calcTotalMarca(marca, mes, todoAnio, anio){
     const vendedoras = vendActual ? [vendActual] : Object.keys(DATA);
     let t=0;
     vendedoras.forEach(v=>(DATA[v]||[]).forEach(cli=>{
       if(marca==='TODAS'){
-        if(todoAnio) t+=cli.total;
-        else t+=(cli.frecuencia.find(f=>f.mes===mes)||{total:0}).total;
+        if(todoAnio) t+=cli.frecuencia.filter(f=>f.anio===anio).reduce((a,f)=>a+f.total,0);
+        else t+=(cli.frecuencia.find(f=>f.mes===mes&&f.anio===anio)||{total:0}).total;
+      } else if(cli.marcas_anio && cli.marcas_anio.length){
+        if(todoAnio){
+          cli.marcas_anio.filter(x=>x.marca===marca&&x.anio===anio).forEach(x=>{ t+=x.total; });
+        } else if(cli.marcas_mes){
+          cli.marcas_mes.filter(x=>x.marca===marca&&x.anio===anio&&x.mes===mes).forEach(x=>{ t+=x.total; });
+        }
       } else {
+        // Fallback ratio (datos antiguos sin desglose exacto)
         const mCli = cli.marcas.find(m=>m.marca===marca);
-        if(!mCli) return;
-        const ratioMarca = cli.total>0 ? mCli.total/cli.total : 0;
-        const totMes = todoAnio ? cli.total : (cli.frecuencia.find(f=>f.mes===mes)||{total:0}).total;
+        if(!mCli || !cli.total) return;
+        const ratioMarca = mCli.total/cli.total;
+        const totAnioCli = cli.frecuencia.filter(f=>f.anio===anio).reduce((a,f)=>a+f.total,0);
+        const totMes = todoAnio ? totAnioCli : (cli.frecuencia.find(f=>f.mes===mes&&f.anio===anio)||{total:0}).total;
         t += totMes*ratioMarca;
       }
     }));
     return t;
   }
 
-  const lista = buildProductosRanking(marcaSel, prodMesFiltro, prodTodoAnio);
-  const totalMarca = calcTotalMarca(marcaSel, prodMesFiltro, prodTodoAnio);
+  const lista = buildProductosRanking(marcaSel, prodMesFiltro, prodTodoAnio, prodAnioFiltro);
+  const totalMarca = calcTotalMarca(marcaSel, prodMesFiltro, prodTodoAnio, prodAnioFiltro);
   const maxQ = lista[0]?.cantidad||1;
 
   const MESES_LABELS=['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-  const etiqueta = prodTodoAnio ? `Todo ${anioActual}` : `${MESES_LABELS[prodMesFiltro]} ${anioActual}`;
+  const etiqueta = prodTodoAnio ? `Todo ${prodAnioFiltro}` : `${MESES_LABELS[prodMesFiltro]} ${prodAnioFiltro}`;
   const mesesOpts=[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>
-    `<option value="m${m}" ${!prodTodoAnio&&prodMesFiltro===m?'selected':''}>${MESES_LABELS[m]} ${anioActual}</option>`
+    `<option value="m${m}" ${!prodTodoAnio&&prodMesFiltro===m?'selected':''}>${MESES_LABELS[m]}</option>`
   ).join('');
 
   const MARCA_COLORS={'BIOSKIN':'#a5b4fc','ERAYBA':'#fcd34d','ZIAJA':'#6ee7b7','ZIAJA PRO':'#f9a8d4','TODAS':'#c4a882'};
@@ -804,13 +828,16 @@ function renderProductosPorMarca(marcaSeleccionada, totalMarcaIn){
       </div>
     </div>
 
-    <!-- FILTRO 1: Período (primero) -->
+    <!-- FILTRO 1: Período (año + mes) -->
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 14px;background:white;border-radius:10px;border:1px solid var(--border);margin-bottom:10px">
       <i class="ti ti-calendar" style="color:var(--brown);font-size:14px"></i>
       <span style="font-size:12px;color:var(--muted);font-weight:500">Período:</span>
+      <select onchange="window._prodAnioFiltro=parseInt(this.value);renderProductosPorMarca()" style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;outline:none;background:white;cursor:pointer">
+        ${aniosProdDisp.map(a=>`<option value="${a}" ${a===prodAnioFiltro?'selected':''}>${a}</option>`).join('')}
+      </select>
       <select onchange="if(this.value==='todo'){window._prodTodoAnio=true;}else{window._prodTodoAnio=false;window._prodMesFiltro=parseInt(this.value.replace('m',''));}renderProductosPorMarca()"
         style="padding:6px 12px;border:1px solid var(--border);border-radius:8px;font-size:12px;outline:none;background:white;cursor:pointer">
-        <option value="todo" ${prodTodoAnio?'selected':''}>Todo ${anioActual}</option>
+        <option value="todo" ${prodTodoAnio?'selected':''}>Todo el año</option>
         ${mesesOpts}
       </select>
       <span style="font-size:13px;font-weight:600;color:var(--brown)">${etiqueta}</span>
