@@ -826,8 +826,8 @@ function renderProductosPorMarca(marcaSeleccionada, totalMarcaIn){
         <div class="kpi-val" style="font-size:13px;color:${MARCA_COLORS[marcaSel]||'var(--brown)'}">${marcaSel}</div>
         <div class="kpi-sub">${etiqueta}</div>
       </div>
+      <div class="kpi"><div class="kpi-label">Ventas s/IVA</div><div class="kpi-val" style="color:var(--brown)">${fmt(totalMarca/1.12)}</div><div class="kpi-sub">subtotal</div></div>
       <div class="kpi"><div class="kpi-label">Ventas c/IVA</div><div class="kpi-val">${fmt(totalMarca)}</div><div class="kpi-sub">período</div></div>
-      <div class="kpi"><div class="kpi-label">Ventas s/IVA</div><div class="kpi-val">${fmt(totalMarca/1.12)}</div><div class="kpi-sub">subtotal</div></div>
       <div class="kpi"><div class="kpi-label">Productos</div><div class="kpi-val">${lista.length}</div><div class="kpi-sub">distintos</div></div>
     </div>
 
@@ -1231,8 +1231,8 @@ function renderVentasPanel(){
     </div>
 
     <div class="kpi-row">
+      <div class="kpi"><div class="kpi-label">Ventas sin IVA</div><div class="kpi-val" style="color:var(--brown)">${fmt(totalSinIva)}</div><div class="kpi-sub">subtotal</div></div>
       <div class="kpi"><div class="kpi-label">Ventas con IVA</div><div class="kpi-val">${fmt(totalConIva)}</div><div class="kpi-sub">${etiqueta}</div></div>
-      <div class="kpi"><div class="kpi-label">Ventas sin IVA</div><div class="kpi-val">${fmt(totalSinIva)}</div><div class="kpi-sub">subtotal</div></div>
       <div class="kpi"><div class="kpi-label">Facturas</div><div class="kpi-val">${porVend.reduce((a,v)=>a+v.facturas,0)}</div><div class="kpi-sub">emitidas</div></div>
       <div class="kpi"><div class="kpi-label">Ticket prom.</div><div class="kpi-val">${fmt(totalConIva/Math.max(porVend.reduce((a,v)=>a+v.facturas,0),1))}</div><div class="kpi-sub">por factura</div></div>
     </div>
@@ -1438,8 +1438,8 @@ function renderHome(){
     </div>
     <div class="breadcrumb"><i class="ti ti-home" style="font-size:12px;color:var(--brown)"></i><span style="font-weight:500">Clientes — ${etiquetaC}</span></div>
     <div class="kpi-row">
+      <div class="kpi"><div class="kpi-label">Ventas sin IVA</div><div class="kpi-val" style="color:var(--brown)">${fmt(totalGlobal/1.12)}</div><div class="kpi-sub">subtotal</div></div>
       <div class="kpi"><div class="kpi-label">Ventas con IVA</div><div class="kpi-val">${fmt(totalGlobal)}</div><div class="kpi-sub">${etiquetaC}</div></div>
-      <div class="kpi"><div class="kpi-label">Ventas sin IVA</div><div class="kpi-val">${fmt(totalGlobal/1.12)}</div><div class="kpi-sub">subtotal</div></div>
       <div class="kpi"><div class="kpi-label">Clientes</div><div class="kpi-val">${totalClientes}</div><div class="kpi-sub">únicos</div></div>
       <div class="kpi"><div class="kpi-label">Facturas</div><div class="kpi-val">${totalFacturas}</div><div class="kpi-sub">emitidas</div></div>
     </div>
@@ -1477,8 +1477,8 @@ function renderVendedor(nombre){
       <span style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${nombre}</span>
     </div>
     <div class="kpi-row">
+      <div class="kpi"><div class="kpi-label">Ventas sin IVA</div><div class="kpi-val" style="color:var(--brown)">${fmt(totalVend/1.12)}</div><div class="kpi-sub">subtotal</div></div>
       <div class="kpi"><div class="kpi-label">Ventas con IVA</div><div class="kpi-val">${fmt(totalVend)}</div><div class="kpi-sub">Ene–Jun 2026</div></div>
-      <div class="kpi"><div class="kpi-label">Ventas sin IVA</div><div class="kpi-val">${fmt(totalVend/1.12)}</div><div class="kpi-sub">subtotal</div></div>
       <div class="kpi"><div class="kpi-label">Clientes</div><div class="kpi-val">${clientes.length}</div><div class="kpi-sub">activos</div></div>
       <div class="kpi"><div class="kpi-label">Facturas</div><div class="kpi-val">${clientes.reduce((a,c)=>a+c.num_compras,0)}</div><div class="kpi-sub">emitidas</div></div>
     </div>
@@ -2451,9 +2451,9 @@ function renderComisiones(){
         ${mesesOpts}
       </select>
       <span style="font-size:12px;color:var(--muted)">Ventas totales:</span>
-      <span style="font-size:12px;font-weight:600;color:var(--brown)">c/IVA ${fmt(totalConIvaGlobal)}</span>
+      <span style="font-size:12px;font-weight:600;color:var(--brown)">s/IVA ${fmt(totalSinIvaGlobal)}</span>
       <span style="font-size:12px;color:var(--muted)">·</span>
-      <span style="font-size:12px;font-weight:600">s/IVA ${fmt(totalSinIvaGlobal)}</span>
+      <span style="font-size:12px;font-weight:600">c/IVA ${fmt(totalConIvaGlobal)}</span>
     </div>
 
     <div class="card" style="margin-bottom:12px">
@@ -2465,8 +2465,8 @@ function renderComisiones(){
         <table style="width:100%;border-collapse:collapse;font-size:12px">
           <thead><tr style="background:#faf9f8;border-bottom:1px solid var(--border)">
             <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--muted)">Asesora</th>
-            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Vtas c/IVA</th>
             <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Subtotal s/IVA</th>
+            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Vtas c/IVA</th>
             <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Mínimo</th>
             <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">%</th>
             <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Base</th>
@@ -2476,8 +2476,8 @@ function renderComisiones(){
             ${filasAsesoras.map(r=>`
               <tr style="border-bottom:0.5px solid var(--border)">
                 <td style="padding:9px 12px;font-weight:500">${r.nombre.split(' ')[0]} ${r.nombre.split(' ')[1]||''}</td>
+                <td style="padding:9px 12px;text-align:right;color:var(--brown);font-weight:600">${fmt(r.sinIva)}</td>
                 <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(r.conIva)}</td>
-                <td style="padding:9px 12px;text-align:right">${fmt(r.sinIva)}</td>
                 <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(r.minimo)}</td>
                 <td style="padding:9px 12px;text-align:right;color:var(--muted)">${r.pct}%</td>
                 <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(r.base)}</td>
@@ -2485,8 +2485,8 @@ function renderComisiones(){
               </tr>`).join('')}
             <tr style="border-bottom:0.5px solid var(--border);background:rgba(160,104,74,0.04)">
               <td style="padding:9px 12px;font-weight:500">Giovanna Portilla <span style="font-size:10px;color:var(--muted)">(Jefa)</span></td>
+              <td style="padding:9px 12px;text-align:right;color:var(--brown);font-weight:600">${fmt(vGiovanna.sinIva)}</td>
               <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(vGiovanna.conIva)}</td>
-              <td style="padding:9px 12px;text-align:right">${fmt(vGiovanna.sinIva)}</td>
               <td style="padding:9px 12px;text-align:right;color:var(--muted)">—</td>
               <td style="padding:9px 12px;text-align:right;color:var(--muted)">${cfg.giovanna.pct_equipo}% <span style="font-size:10px">(equipo+propio)</span></td>
               <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(vGiovanna.sinIva+totalEquipoSinIva)}</td>
@@ -2750,7 +2750,7 @@ async function renderKpis(){
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
         <div style="background:#faf9f8;border-radius:10px;padding:14px;text-align:center;border:1px solid var(--border)">
           <div style="font-size:11px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">Ventas sin IVA</div>
-          <div style="font-size:22px;font-weight:700;color:var(--text)">${fmt(vAsesora.sinIva)}</div>
+          <div style="font-size:22px;font-weight:700;color:var(--brown)">${fmt(vAsesora.sinIva)}</div>
           <div style="font-size:11px;color:var(--muted);margin-top:2px">Con IVA: ${fmt(vAsesora.conIva)}</div>
         </div>
         <div style="background:${comision>0?'#f0fdf4':'#faf9f8'};border-radius:10px;padding:14px;text-align:center;border:1px solid ${comision>0?'#86efac':'var(--border)'}">
