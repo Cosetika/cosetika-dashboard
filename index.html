@@ -2656,8 +2656,23 @@ async function sincronizarCatalogoBtnClick(){
 const COMISIONES_KEY = 'cosetika_comisiones_cfg';
 
 function getComisionCfg(){
-  try{ return JSON.parse(localStorage.getItem(COMISIONES_KEY)) || defaultComisionCfg(); }
-  catch(e){ return defaultComisionCfg(); }
+  const defaults = defaultComisionCfg();
+  try{
+    const guardado = JSON.parse(localStorage.getItem(COMISIONES_KEY));
+    if(!guardado) return defaults;
+    // Merge: completar asesoras que falten en lo guardado (ej: María Caridad agregada después)
+    guardado.asesoras = { ...defaults.asesoras, ...(guardado.asesoras||{}) };
+    // Corrección puntual: Karen y Nicole pasaron de 3% a 4% — si siguen en el valor viejo, actualizar
+    ['Karen Rebeca Mora Cedeño','Nicole Yanira Leon Marquez'].forEach(n=>{
+      if(guardado.asesoras[n] && guardado.asesoras[n].pct === 3.0){
+        guardado.asesoras[n] = {...guardado.asesoras[n], pct: 4.0};
+      }
+    });
+    guardado.giovanna = guardado.giovanna || defaults.giovanna;
+    guardado.admin = guardado.admin && guardado.admin.length ? guardado.admin : defaults.admin;
+    return guardado;
+  }
+  catch(e){ return defaults; }
 }
 function saveComisionCfg(cfg){ localStorage.setItem(COMISIONES_KEY, JSON.stringify(cfg)); }
 
