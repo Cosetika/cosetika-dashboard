@@ -217,6 +217,8 @@ function getVendColor(nombre){
   return '#c4a882';
 }
 
+const MESES_NOMBRE = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+
 function getMarcaColor(marca){
   return MARCA_COLORS[marca] || '#9ca3af';
 }
@@ -1027,6 +1029,15 @@ async function renderFacturasHoy(){
         </div>
       </div>`:''}
 
+      <!-- Ventas del mes en curso por día -->
+      <div class="card" style="margin-bottom:12px">
+        <div class="card-title"><i class="ti ti-chart-line"></i> Ventas de ${MESES_NOMBRE[new Date().getMonth()]} por día (sin IVA)</div>
+        <div style="width:100%;overflow-x:auto">
+          <canvas id="grafico-ventas-mes-dia" style="display:block;width:100%;min-width:480px;height:220px"></canvas>
+        </div>
+        <div id="ventas-mes-dia-status" style="text-align:center;font-size:11px;color:var(--muted);margin-top:6px"></div>
+      </div>
+
       <!-- Detalle de facturas -->
       <div class="card">
         <div class="card-title"><i class="ti ti-list"></i> Detalle de facturas — ${new Date().toLocaleDateString('es-EC',{day:'2-digit',month:'long',year:'numeric'})}</div>
@@ -1077,6 +1088,7 @@ async function renderFacturasHoy(){
         `<option value="todos">Todos los años</option>`;
     }
     dibujarComparativoAnual('ultimos2');
+    cargarYDibujarVentasMesDia();
   }catch(e){
     document.getElementById('facturas-content').innerHTML=`<div class="coming"><i class="ti ti-wifi-off"></i><p style="font-size:13px">No se pudo conectar con la API</p><span style="font-size:12px">${e.message}</span></div>`;
   }
@@ -1116,6 +1128,71 @@ function dibujarComparativoAnual(modo){
       </div>`).join('');
   }
   requestAnimationFrame(()=>dibujarGraficoLineas('grafico-comparativo-anual', series, mesesConDatos));
+}
+
+async function cargarYDibujarVentasMesDia(){
+  const statusEl = document.getElementById('ventas-mes-dia-status');
+  if(statusEl) statusEl.textContent = 'Cargando...';
+  try{
+    const r = await fetch('/api/ventas-mes-actual');
+    const data = await r.json();
+    const dias = data.dias || [];
+    const hoyDia = new Date().getDate();
+    // Eje X: todos los días del 1 al día actual (rellenando ceros si no hay ventas ese día)
+    const ejeDias = []; for(let d=1; d<=hoyDia; d++) ejeDias.push(d);
+    const valoresPorDia = {}; dias.forEach(d=>{ valoresPorDia[d.dia] = d.subtotal; });
+    const serie = { nombre:'Sin IVA', color:'#A0684A', valores: ejeDias.map(d=>valoresPorDia[d] ?? 0) };
+    if(statusEl) statusEl.textContent = '';
+    requestAnimationFrame(()=>dibujarGraficoDiario('grafico-ventas-mes-dia', [serie], ejeDias));
+  }catch(e){
+    if(statusEl) statusEl.textContent = 'No se pudo cargar este gráfico.';
+  }
+}
+
+function dibujarGraficoDiario(canvasId, series, dias){
+  const canvas = document.getElementById(canvasId);
+  if(!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio||1;
+  const W = canvas.offsetWidth||700;
+  const H = canvas.offsetHeight||220;
+  canvas.width = W*dpr; canvas.height = H*dpr;
+  ctx.scale(dpr,dpr);
+  ctx.clearRect(0,0,W,H);
+  const pad={top:24,right:14,bottom:28,left:58};
+  const w=W-pad.left-pad.right, h=H-pad.top-pad.bottom;
+  const allVals=series.flatMap(s=>s.valores).filter(v=>v>0);
+  const maxVal=Math.max(...allVals,1);
+  const xPos=(i)=>pad.left+(dias.length>1?i*(w/(dias.length-1)):w/2);
+  const yPos=(v)=>pad.top+h-(v/maxVal)*h;
+  for(let i=0;i<=4;i++){
+    const val=(maxVal/4)*i, y=yPos(val);
+    ctx.strokeStyle='#f0ede9'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(pad.left,y); ctx.lineTo(W-pad.right,y); ctx.stroke();
+    ctx.fillStyle='#9ca3af'; ctx.font='10px system-ui'; ctx.textAlign='right';
+    ctx.fillText(val>=1000?'$'+(val/1000).toFixed(1)+'K':'$'+Math.round(val),pad.left-6,y+3);
+  }
+  // Eje X: solo el número del día, mostrando cada uno si hay espacio, o salteando si son muchos
+  ctx.textAlign='center'; ctx.fillStyle='#6b7280'; ctx.font='9px system-ui';
+  const saltar = dias.length>20 ? 2 : 1;
+  dias.forEach((d,i)=>{ if(i%saltar===0) ctx.fillText(String(d),xPos(i),H-pad.bottom+14); });
+  series.forEach(s=>{
+    ctx.strokeStyle=s.color; ctx.lineWidth=2.5; ctx.lineJoin='round';
+    ctx.beginPath();
+    let first=true;
+    s.valores.forEach((v,i)=>{
+      if(v===null||v===undefined) return;
+      if(first){ctx.moveTo(xPos(i),yPos(v));first=false;}
+      else ctx.lineTo(xPos(i),yPos(v));
+    });
+    ctx.stroke();
+    s.valores.forEach((v,i)=>{
+      if(v===null||v===undefined||v===0) return;
+      const x=xPos(i),y=yPos(v);
+      ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(x,y,3,0,Math.PI*2); ctx.fill();
+      ctx.strokeStyle=s.color; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(x,y,3,0,Math.PI*2); ctx.stroke();
+    });
+  });
 }
 
 
