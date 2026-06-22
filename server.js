@@ -318,6 +318,36 @@ async function guardarDataEnDB(data) {
   } catch(e) { console.error('Error guardando DATA en DB:', e.message); }
 }
 
+// ─── REGENERACIÓN AUTOMÁTICA DIARIA (madrugada, hora Ecuador) ───────────────
+// Trae desde el 1 de enero del año anterior hasta hoy, igual que el botón manual.
+// Corre una vez al día (no cada 30 min) para no saturar la API de Contifico ni el servidor.
+async function regenerarDataAutomatico() {
+  try {
+    const hoy = new Date();
+    const anioPasado = hoy.getFullYear() - 1;
+    const fi = `01/01/${anioPasado}`;
+    const ff = fmtDateEC(hoy);
+    console.log(`⏰ Regeneración automática diaria: ${fi} al ${ff}`);
+    const data = await generarDataJson(fi, ff);
+    await guardarDataEnDB(data);
+    try { fs.writeFileSync(path.join(__dirname, 'data.json'), JSON.stringify(data, null, 2)); } catch(e) {}
+    console.log('✓ Regeneración automática completada: ' + Object.keys(data).length + ' vendedoras');
+  } catch(e) { console.error('Error en regeneración automática:', e.message); }
+}
+// Programar para correr a las 2:00 AM hora Ecuador (UTC-5) cada día
+function programarRegeneracionDiaria() {
+  const ahora = new Date();
+  const proxima = new Date(ahora);
+  proxima.setUTCHours(7, 0, 0, 0); // 2:00 AM Ecuador = 7:00 AM UTC
+  if (proxima <= ahora) proxima.setUTCDate(proxima.getUTCDate() + 1);
+  const msHastaProxima = proxima - ahora;
+  setTimeout(() => {
+    regenerarDataAutomatico();
+    setInterval(regenerarDataAutomatico, 24 * 60 * 60 * 1000);
+  }, msHastaProxima);
+  console.log(`⏰ Próxima regeneración automática programada: ${proxima.toISOString()}`);
+}
+
 async function initDB() {
   try {
     await pool.query(`
@@ -376,6 +406,7 @@ async function initDB() {
   } catch(e) { console.error('Error DB:', e.message); }
 }
 initDB().then(() => cargarDataDesdeDB()).catch(e => console.error('Error init:', e.message));
+programarRegeneracionDiaria();
 
 const MIME = { '.html':'text/html','.js':'application/javascript','.css':'text/css','.json':'application/json','.png':'image/png','.jpg':'image/jpeg','.ico':'image/x-icon' };
 
