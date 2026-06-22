@@ -578,6 +578,57 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // VENTAS DEL MES EN CURSO POR DÍA (para gráfico de líneas día 1 al día actual)
+  if (urlPath === '/api/ventas-mes-actual' && req.method === 'GET') {
+    try {
+      const ahora = new Date();
+      const anio = ahora.getFullYear();
+      const mes = ahora.getMonth(); // 0-indexed
+      const desde = fmtDateEC(new Date(anio, mes, 1));
+      const hasta = fmtDateEC(ahora);
+      const porDia = {}; // { '1': {total, subtotal}, '2': {...}, ... }
+      let nextUrl = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${desde}&fecha_final=${hasta}&page_size=100`;
+      let paginas = 0;
+      const vistos = new Set();
+      while(nextUrl && paginas < 100) {
+        const resp = await fetch(nextUrl, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
+        if (!resp.ok) break;
+        const data = await resp.json();
+        (data.results||[]).forEach(d => {
+          if (d.tipo_registro !== 'CLI') return;
+          if (d.anulado) return;
+          if (d.tipo_documento === 'NC') return;
+          if (d.tipo_documento === 'COT') return;
+          if (d.tipo_documento === 'PRO') return;
+          if (!d.vendedor && !d.vendedor_id && !d.vendedor_identificacion) return;
+          const cliRuc = (d.cliente?.ruc || d.cliente?.cedula || '').trim();
+          if (cliRuc === '1793143660001') return;
+          const docKey = d.id || d.documento;
+          if (vistos.has(docKey)) return;
+          vistos.add(docKey);
+          const dia = parseInt((d.fecha_emision||'').split('/')[0]) || 0;
+          if (!dia) return;
+          if (!porDia[dia]) porDia[dia] = { total: 0, subtotal: 0 };
+          porDia[dia].total += parseFloat(d.total || 0);
+          porDia[dia].subtotal += parseFloat(d.subtotal || 0);
+        });
+        nextUrl = data.next || null;
+        paginas++;
+      }
+      const diasArr = Object.keys(porDia).map(d=>parseInt(d)).sort((a,b)=>a-b).map(d=>({
+        dia: d,
+        total: Math.round(porDia[d].total*100)/100,
+        subtotal: Math.round(porDia[d].subtotal*100)/100
+      }));
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ anio, mes: mes+1, dias: diasArr }));
+    } catch(e) {
+      res.writeHead(500,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({error: e.message}));
+    }
+    return;
+  }
+
   // SYNC MANUAL
   if (urlPath === '/api/sync' && req.method === 'GET') {
     sincronizarHoy().catch(e => console.error(e));
