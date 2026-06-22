@@ -762,7 +762,7 @@ const server = http.createServer(async (req, res) => {
       let encontrados = [];
       let nextUrl = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${desde}&fecha_final=${hasta}&page_size=100`;
       let paginas = 0;
-      while(nextUrl && paginas < 5) {
+      while(nextUrl && paginas < 30) {
         const resp = await fetch(nextUrl, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
         const data = await resp.json();
         const filtrados = (data.results||[]).filter(d => {
