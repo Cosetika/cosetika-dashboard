@@ -752,6 +752,55 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // BUSCAR DOCUMENTO EXACTO POR NÚMERO (diagnóstico puntual)
+  if (urlPath === '/api/ver-documento' && req.method === 'GET') {
+    try {
+      const numDoc = urlObj.searchParams.get('numero') || '';
+      const desde = urlObj.searchParams.get('desde') || '01/06/2026';
+      const hasta = urlObj.searchParams.get('hasta') || fmtDateEC(new Date());
+      let encontrados = [];
+      let nextUrl = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${desde}&fecha_final=${hasta}&page_size=100`;
+      let paginas = 0;
+      while(nextUrl && paginas < 50) {
+        const resp = await fetch(nextUrl, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
+        const data = await resp.json();
+        const filtrados = (data.results||[]).filter(d => (d.documento||'').includes(numDoc));
+        encontrados = encontrados.concat(filtrados.map(d => ({
+          documento: d.documento,
+          tipo_doc: d.tipo_documento,
+          cliente: d.cliente?.razon_social,
+          anulado: d.anulado,
+          total: d.total,
+          subtotal: d.subtotal,
+          subtotal_0: d.subtotal_0,
+          subtotal_12: d.subtotal_12,
+          subtotal_15: d.subtotal_15,
+          iva: d.iva,
+          descuento: d.descuento,
+          detalles: (d.detalles||[]).map(det=>({
+            producto: det.producto_nombre,
+            cantidad: det.cantidad,
+            precio: det.precio,
+            porcentaje_iva: det.porcentaje_iva,
+            base_gravable: det.base_gravable,
+            base_cero: det.base_cero,
+            base_no_objeto: det.base_no_objeto
+          })),
+          campos_raiz_disponibles: Object.keys(d)
+        })));
+        nextUrl = data.next || null;
+        paginas++;
+        if(encontrados.length>0 && paginas>5) break; // ya encontramos, no seguir innecesariamente
+      }
+      res.writeHead(200, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({ numero: numDoc, paginas_revisadas: paginas, encontrados }, null, 2));
+    } catch(e) {
+      res.writeHead(500,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({error: e.message}));
+    }
+    return;
+  }
+
   // BUSCAR CLIENTE O VENDEDOR EN CONTIFICO
   if (urlPath === '/api/buscar-cliente' && req.method === 'GET') {
     try {

@@ -876,7 +876,7 @@ function renderProductosPorMarca(marcaSeleccionada, totalMarcaIn){
         <div class="kpi-val" style="font-size:13px;color:${MARCA_COLORS[marcaSel]||'var(--brown)'}">${marcaSel}</div>
         <div class="kpi-sub">${etiqueta}</div>
       </div>
-      <div class="kpi"><div class="kpi-label">Ventas s/IVA</div><div class="kpi-val" style="color:var(--brown)">${fmt(totalMarca/1.12)}</div><div class="kpi-sub">subtotal</div></div>
+      <div class="kpi"><div class="kpi-label">Ventas s/IVA</div><div class="kpi-val" style="color:var(--brown)">${fmt(totalMarca/1.15)}</div><div class="kpi-sub">subtotal</div></div>
       <div class="kpi"><div class="kpi-label">Ventas c/IVA</div><div class="kpi-val">${fmt(totalMarca)}</div><div class="kpi-sub">período</div></div>
       <div class="kpi"><div class="kpi-label">Productos</div><div class="kpi-val">${lista.length}</div><div class="kpi-sub">distintos</div></div>
     </div>
@@ -958,7 +958,7 @@ async function renderFacturasHoy(){
     const data = await r.json();
     const docs = data.documentos || [];
     const totalConIva = docs.reduce((a,d)=>a+parseFloat(d.total||0),0);
-    const totalSinIva = docs.reduce((a,d)=>a+parseFloat(d.subtotal||d.total/1.12||0),0);
+    const totalSinIva = docs.reduce((a,d)=>a+parseFloat(d.subtotal||d.total/1.15||0),0);
     const lastSync = data.ultima_sync ? new Date(data.ultima_sync).toLocaleTimeString('es-EC',{hour:'2-digit',minute:'2-digit'}) : '—';
 
     // Agrupar por vendedora para totales
@@ -967,7 +967,7 @@ async function renderFacturasHoy(){
       const v=(d.vendedor?.razon_social||d.vendedor?.nombre||'Sin asignar').trim();
       if(!porVend[v]) porVend[v]={conIva:0,sinIva:0,count:0};
       porVend[v].conIva+=parseFloat(d.total||0);
-      porVend[v].sinIva+=parseFloat(d.subtotal||d.total/1.12||0);
+      porVend[v].sinIva+=parseFloat(d.subtotal||d.total/1.15||0);
       porVend[v].count++;
     });
 
@@ -1046,7 +1046,7 @@ async function renderFacturasHoy(){
                   <td style="padding:7px 12px;color:var(--muted);font-size:11px;white-space:nowrap">${d.documento||'—'}</td>
                   <td style="padding:7px 12px;font-weight:500;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${d.cliente_nombre||''}">${d.cliente_nombre||'—'}</td>
                   <td style="padding:7px 12px;color:var(--muted);white-space:nowrap">${(d.vendedor?.razon_social||d.vendedor?.nombre||'—').split(' ')[0]}</td>
-                  <td style="padding:7px 12px;text-align:right;color:var(--brown);font-weight:600">${fmt(parseFloat(d.subtotal||d.total/1.12||0))}</td>
+                  <td style="padding:7px 12px;text-align:right;color:var(--brown);font-weight:600">${fmt(parseFloat(d.subtotal||d.total/1.15||0))}</td>
                   <td style="padding:7px 12px;text-align:right;color:var(--muted)">${fmt(parseFloat(d.total||0))}</td>
                 </tr>`).join('')}
             </tbody>
@@ -1060,7 +1060,7 @@ async function renderFacturasHoy(){
       let t=0;
       vendedoras.forEach(v=>DATA[v].forEach(c=>{
         const f=c.frecuencia.find(x=>x.mes===mes&&x.anio===anio);
-        if(f) t+=(f.subtotal!==undefined ? f.subtotal : f.total/1.12);
+        if(f) t+=(f.subtotal!==undefined ? f.subtotal : f.total/1.15);
       }));
       return t;
     }
@@ -1218,7 +1218,7 @@ function renderMarcasPanel(){
         <div style="margin-bottom:10px;cursor:pointer;padding:6px 8px;border-radius:8px;transition:background 0.15s" onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='transparent'" onclick="window._prodMarcaSel='${m}';window._prodTodoAnio=true;renderProductosPorMarca()">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">
             <span style="font-size:13px;font-weight:700;color:${getMarcaColor(m)};flex:1">${m} <i class="ti ti-chevron-right" style="font-size:10px"></i></span>
-            <span style="font-size:13px;color:var(--brown);font-weight:700">${fmt(t/1.12)}</span>
+            <span style="font-size:13px;color:var(--brown);font-weight:700">${fmt(t/1.15)}</span>
             <span style="font-size:11px;color:var(--muted);min-width:32px;text-align:right">${Math.round(t/totalAnual*100)||0}%</span>
           </div>
           <div style="height:10px;background:#f5f3f0;border-radius:5px;overflow:hidden">
@@ -1345,7 +1345,7 @@ function renderVentasPanel(){
   })).filter(v=>v.total>0).sort((a,b)=>b.total-a.total);
 
   const totalConIva = porVend.reduce((a,v)=>a+v.total,0);
-  const totalSinIva = totalConIva/1.12;
+  const totalSinIva = totalConIva/1.15;
   const maxVend = porVend[0]?.total||1;
 
   const porMarca={};
@@ -1374,7 +1374,7 @@ function renderVentasPanel(){
   for(let m=1;m<=12;m++){ if(vendedoras.some(v=>getVentasMes(DATA[v],m,ventasFiltroAnio)>0)) mesesDisponibles.push(m); }
   const datosMensuales=vendedoras.map(v=>({
     nombre:v, color:getVendColor(v),
-    valores:mesesDisponibles.map(m=>getVentasMes(DATA[v],m,ventasFiltroAnio)/1.12)
+    valores:mesesDisponibles.map(m=>getVentasMes(DATA[v],m,ventasFiltroAnio)/1.15)
   })).filter(v=>v.valores.some(x=>x>0));
 
   const etiqueta = ventasFiltroTodo ? `Todo ${ventasFiltroAnio}` : `${MESES_LABELS[ventasFiltroMes]} ${ventasFiltroAnio}`;
@@ -1440,7 +1440,7 @@ function renderVentasPanel(){
             <div style="width:28px;height:28px;border-radius:50%;background:${getVendColor(v.nombre)};display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff;flex-shrink:0">${v.nombre.split(' ').map(w=>w[0]).join('').substring(0,2)}</div>
             <span style="font-size:12px;flex:1;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${nombreCorto(v.nombre)}</span>
             <div style="text-align:right;flex-shrink:0;line-height:1.3">
-              <div style="font-size:12px;color:var(--brown);font-weight:700">${fmt(v.total/1.12)}</div>
+              <div style="font-size:12px;color:var(--brown);font-weight:700">${fmt(v.total/1.15)}</div>
               <div style="font-size:9px;color:var(--muted)">c/IVA: <b style="color:var(--text)">${fmt(v.total)}</b></div>
             </div>
           </div>
@@ -1685,7 +1685,7 @@ function renderHome(){
     </div>
     <div class="breadcrumb"><i class="ti ti-home" style="font-size:12px;color:var(--brown)"></i><span style="font-weight:500">Clientes — ${etiquetaC}</span></div>
     <div class="kpi-row">
-      <div class="kpi"><div class="kpi-label">Ventas sin IVA</div><div class="kpi-val" style="color:var(--brown)">${fmt(totalGlobal/1.12)}</div><div class="kpi-sub">subtotal</div></div>
+      <div class="kpi"><div class="kpi-label">Ventas sin IVA</div><div class="kpi-val" style="color:var(--brown)">${fmt(totalGlobal/1.15)}</div><div class="kpi-sub">subtotal</div></div>
       <div class="kpi"><div class="kpi-label">Ventas con IVA</div><div class="kpi-val">${fmt(totalGlobal)}</div><div class="kpi-sub">${etiquetaC}</div></div>
       <div class="kpi"><div class="kpi-label">Clientes</div><div class="kpi-val">${totalClientes}</div><div class="kpi-sub">únicos</div></div>
       <div class="kpi"><div class="kpi-label">Facturas</div><div class="kpi-val">${totalFacturas}</div><div class="kpi-sub">emitidas</div></div>
@@ -1736,7 +1736,7 @@ function renderVendedor(nombre){
       <span style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${nombre}</span>
     </div>
     <div class="kpi-row">
-      <div class="kpi"><div class="kpi-label">Ventas sin IVA</div><div class="kpi-val" style="color:var(--brown)">${fmt(totalVend/1.12)}</div><div class="kpi-sub">subtotal</div></div>
+      <div class="kpi"><div class="kpi-label">Ventas sin IVA</div><div class="kpi-val" style="color:var(--brown)">${fmt(totalVend/1.15)}</div><div class="kpi-sub">subtotal</div></div>
       <div class="kpi"><div class="kpi-label">Ventas con IVA</div><div class="kpi-val">${fmt(totalVend)}</div><div class="kpi-sub">${anioVendActivo}</div></div>
       <div class="kpi"><div class="kpi-label">Clientes</div><div class="kpi-val">${clientes.length}</div><div class="kpi-sub">activos</div></div>
       <div class="kpi"><div class="kpi-label">Facturas</div><div class="kpi-val">${clientes.reduce((a,c)=>a+c.frecuencia.filter(f=>f.anio===anioVendActivo).reduce((s,f)=>s+f.compras,0),0)}</div><div class="kpi-sub">emitidas</div></div>
@@ -2728,7 +2728,7 @@ function renderComisiones(){
     let conIva=0, sinIva=0;
     clientes.forEach(c=>{
       const f=c.frecuencia.find(x=>x.mes===mes);
-      if(f){ conIva+=f.total||0; sinIva+=f.subtotal||(f.total/1.12)||0; }
+      if(f){ conIva+=f.total||0; sinIva+=f.subtotal||(f.total/1.15)||0; }
     });
     return {conIva, sinIva};
   }
@@ -2984,7 +2984,7 @@ async function renderKpis(){
     let conIva=0, sinIva=0;
     clientes.forEach(c=>{
       const f=c.frecuencia.find(x=>x.mes===mes&&(!anio||!x.anio||x.anio===anio));
-      if(f){ conIva+=f.total||0; sinIva+=f.subtotal||(f.total/1.12)||0; }
+      if(f){ conIva+=f.total||0; sinIva+=f.subtotal||(f.total/1.15)||0; }
     });
     return {conIva, sinIva};
   }
