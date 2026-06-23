@@ -1186,6 +1186,40 @@ const server = http.createServer(async (req, res) => {
   }
 
   // ESTADO DE LA DATA
+  // DIAGNÓSTICO TEMPORAL: sumar lo que HAY GUARDADO en DATA_CACHE para un mes/año (sin llamar a Contifico)
+  if (urlPath === '/api/diagnostico-cache' && req.method === 'GET') {
+    const anio = parseInt(urlObj.searchParams.get('anio')) || new Date().getFullYear();
+    const mes = parseInt(urlObj.searchParams.get('mes')) || (new Date().getMonth()+1);
+    let totalConIva = 0, totalSinIva = 0, totalCompras = 0;
+    const porVendedora = {};
+    Object.entries(DATA_CACHE||{}).forEach(([vendNom, clientes]) => {
+      let vConIva=0, vSinIva=0, vCompras=0;
+      clientes.forEach(cli => {
+        (cli.frecuencia||[]).forEach(f => {
+          if (f.anio===anio && f.mes===mes) {
+            vConIva += f.total||0; vSinIva += f.subtotal||0; vCompras += f.compras||0;
+          }
+        });
+      });
+      if (vConIva>0 || vSinIva>0) {
+        porVendedora[vendNom] = { con_iva: Math.round(vConIva*100)/100, sin_iva: Math.round(vSinIva*100)/100, compras: vCompras };
+        totalConIva += vConIva; totalSinIva += vSinIva; totalCompras += vCompras;
+      }
+    });
+    res.writeHead(200, {'Content-Type':'application/json'});
+    res.end(JSON.stringify({
+      mes, anio,
+      total_en_cache: {
+        con_iva: Math.round(totalConIva*100)/100,
+        sin_iva: Math.round(totalSinIva*100)/100,
+        compras: totalCompras
+      },
+      por_vendedora: porVendedora,
+      cache_actualizado: DATA_CACHE_TS
+    }, null, 2));
+    return;
+  }
+
   if (urlPath === '/api/data-status') {
     const muestra = {};
     Object.entries(DATA_CACHE||{}).slice(0,2).forEach(([v,clientes])=>{
