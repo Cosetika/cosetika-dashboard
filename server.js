@@ -281,6 +281,104 @@ async function sincronizarHoy() {
 sincronizarHoy().catch(e => console.error('Error sync inicial:', e.message));
 setInterval(() => sincronizarHoy().catch(e => console.error('Error sync:', e.message)), 60 * 60 * 1000);
 
+// ─── FUSIÓN INCREMENTAL: ventas del MES EN CURSO dentro de DATA_CACHE (cada 15 min) ──
+// Recalcula desde cero el mes actual completo (rápido: solo ese mes, no 18 meses) y
+// reemplaza limpiamente esa porción en cada cliente, dejando el resto del historial intacto.
+function consolidarMarcasAnio(lista){
+  const mapa = {};
+  lista.forEach(x=>{
+    const k = x.anio+'|'+x.marca;
+    if(!mapa[k]) mapa[k] = { anio:x.anio, marca:x.marca, total:0 };
+    mapa[k].total += x.total;
+  });
+  return Object.values(mapa).map(x=>({...x, total: Math.round(x.total*100)/100}));
+}
+function consolidarMarcasMes(lista){
+  const mapa = {};
+  lista.forEach(x=>{
+    const k = x.anio+'|'+x.mes+'|'+x.marca;
+    if(!mapa[k]) mapa[k] = { anio:x.anio, mes:x.mes, marca:x.marca, total:0 };
+    mapa[k].total += x.total;
+  });
+  return Object.values(mapa).map(x=>({...x, total: Math.round(x.total*100)/100}));
+}
+
+let regenerandoEnProceso = false;
+
+async function fusionarMesActualEnCache() {
+  if (!DATA_CACHE || Object.keys(DATA_CACHE).length === 0) return; // esperar a que haya data base cargada
+  if (regenerandoEnProceso) { console.log('Fusión incremental omitida: regeneración manual en curso'); return; }
+  regenerandoEnProceso = true;
+  try {
+    const hoy = new Date();
+    const anioActual = hoy.getFullYear();
+    const mesActual = hoy.getMonth() + 1;
+    const desde = fmtDateEC(new Date(anioActual, hoy.getMonth(), 1));
+    const hasta = fmtDateEC(hoy);
+    const dataMes = await generarDataJson(desde, hasta); // solo el mes en curso, rápido
+
+    // Paso 1: quitar de DATA_CACHE cualquier dato del mes/año actual (será reemplazado limpio)
+    Object.keys(DATA_CACHE).forEach(vendNom => {
+      DATA_CACHE[vendNom].forEach(cli => {
+        const freqMesViejo = (cli.frecuencia||[]).find(f=>f.anio===anioActual&&f.mes===mesActual);
+        if (freqMesViejo) {
+          cli.total = Math.round((cli.total - freqMesViejo.total)*100)/100;
+          cli.subtotal = Math.round((cli.subtotal - freqMesViejo.subtotal)*100)/100;
+          cli.num_compras = Math.max(0, (cli.num_compras||0) - freqMesViejo.compras);
+        }
+        cli.frecuencia = (cli.frecuencia||[]).filter(f => !(f.anio===anioActual && f.mes===mesActual));
+        // Restar del año actual lo que correspondía al mes actual (para no perder otros meses del mismo año)
+        const marcasMesViejo = (cli.marcas_mes||[]).filter(x=>x.anio===anioActual&&x.mes===mesActual);
+        cli.marcas_anio = (cli.marcas_anio||[]).map(ma=>{
+          if(ma.anio!==anioActual) return ma;
+          const aRestar = marcasMesViejo.find(m=>m.marca===ma.marca);
+          return aRestar ? {...ma, total: Math.round((ma.total-aRestar.total)*100)/100} : ma;
+        }).filter(ma=>ma.total>0 || ma.anio!==anioActual);
+        cli.marcas_mes = (cli.marcas_mes||[]).filter(x => !(x.anio===anioActual && x.mes===mesActual));
+      });
+    });
+
+    // Paso 2: insertar los datos frescos del mes en curso
+    Object.entries(dataMes).forEach(([vendNom, clientesMes]) => {
+      if (!DATA_CACHE[vendNom]) DATA_CACHE[vendNom] = [];
+      const porId = {}; DATA_CACHE[vendNom].forEach(c => { porId[c.id] = c; });
+      const nuevos = [];
+      clientesMes.forEach(cliMes => {
+        let cli = porId[cliMes.id];
+        if (!cli) { nuevos.push(cliMes); return; }
+        cli.total = Math.round((cli.total + cliMes.total) * 100) / 100;
+        cli.subtotal = Math.round((cli.subtotal + cliMes.subtotal) * 100) / 100;
+        cli.num_compras = (cli.num_compras||0) + cliMes.num_compras;
+        cli.frecuencia = (cli.frecuencia||[]).concat(cliMes.frecuencia);
+        cli.marcas_anio = consolidarMarcasAnio((cli.marcas_anio||[]).concat(cliMes.marcas_anio));
+        cli.marcas_mes = consolidarMarcasMes((cli.marcas_mes||[]).concat(cliMes.marcas_mes));
+        cli.marcas = consolidarMarcasAnio((cli.marcas||[]).map(m=>({anio:0,marca:m.marca,total:m.total})).concat(cliMes.marcas.map(m=>({anio:0,marca:m.marca,total:m.total})))).map(m=>({marca:m.marca,total:m.total})).sort((a,b)=>b.total-a.total);
+        // Productos: sumar cantidades y totales
+        const prodMap = {}; (cli.productos||[]).forEach(p=>{ prodMap[p.id||p.nombre] = {...p}; });
+        (cliMes.productos||[]).forEach(p=>{
+          const k = p.id||p.nombre;
+          if(prodMap[k]){ prodMap[k].cantidad += p.cantidad; prodMap[k].total = Math.round((prodMap[k].total+p.total)*100)/100; }
+          else prodMap[k] = {...p};
+        });
+        cli.productos = Object.values(prodMap).sort((a,b)=>b.cantidad-a.cantidad);
+      });
+      DATA_CACHE[vendNom] = Object.values(porId).concat(nuevos);
+    });
+
+    // Reordenar por total descendente
+    Object.keys(DATA_CACHE).forEach(v => DATA_CACHE[v].sort((a,b)=>b.total-a.total));
+    // Persistir en PostgreSQL para que sobreviva deploys/reinicios
+    await guardarDataEnDB(DATA_CACHE);
+
+    console.log(`✓ Fusión incremental del mes en curso completada (${desde} - ${hasta})`);
+  } catch(e) {
+    console.error('Error fusionando mes actual:', e.message);
+  }
+  regenerandoEnProceso = false;
+}
+setInterval(() => fusionarMesActualEnCache().catch(e => console.error(e)), 15 * 60 * 1000);
+setTimeout(() => fusionarMesActualEnCache().catch(e => console.error(e)), 20 * 1000);
+
 // ─── DB ───────────────────────────────────────────────────────
 // ─── CACHÉ DE DATA EN MEMORIA (cargada desde PostgreSQL al arrancar) ─────────
 let DATA_CACHE = null;
@@ -739,13 +837,15 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200,{'Content-Type':'application/json'});
     res.end(JSON.stringify({ msg: 'Regenerando data.json del ' + fi + ' al ' + ff, ok: true }));
     generarDataJson(fi, ff).then(async data => {
+      regenerandoEnProceso = true;
       await guardarDataEnDB(data);
       // También actualizar data.json como backup
       try {
         fs.writeFileSync(path.join(__dirname, 'data.json'), JSON.stringify(data, null, 2));
       } catch(e) { /* OK si no se puede escribir */ }
       console.log('✓ Regeneración completada: ' + Object.keys(data).length + ' vendedoras');
-    }).catch(e => console.error('Error regenerar:', e.message));
+      regenerandoEnProceso = false;
+    }).catch(e => { console.error('Error regenerar:', e.message); regenerandoEnProceso = false; });
     return;
   }
 
