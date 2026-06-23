@@ -989,14 +989,6 @@ async function renderFacturasHoy(){
         <div id="leyenda-comparativo" style="display:flex;flex-wrap:wrap;gap:14px;margin-top:10px;justify-content:center"></div>
       </div>
 
-      <!-- KPIs del día -->
-      <div class="kpi-row">
-        <div class="kpi"><div class="kpi-label">Total sin IVA</div><div class="kpi-val" style="color:var(--brown)">${fmt(totalSinIva)}</div><div class="kpi-sub">subtotal</div></div>
-        <div class="kpi"><div class="kpi-label">Total con IVA</div><div class="kpi-val">${fmt(totalConIva)}</div><div class="kpi-sub">hoy</div></div>
-        <div class="kpi"><div class="kpi-label">Facturas</div><div class="kpi-val">${docs.length}</div><div class="kpi-sub">emitidas hoy</div></div>
-        <div class="kpi"><div class="kpi-label">Última sync</div><div class="kpi-val" style="font-size:15px">${lastSync}</div><div class="kpi-sub">hora</div></div>
-      </div>
-
       <!-- Ventas del mes en curso por día -->
       <div class="card" style="margin-bottom:12px">
         <div class="card-title"><i class="ti ti-chart-line"></i> Ventas de ${MESES_NOMBRE[new Date().getMonth()]} por día (sin IVA)</div>
@@ -1004,6 +996,14 @@ async function renderFacturasHoy(){
           <canvas id="grafico-ventas-mes-dia" style="display:block;width:100%;min-width:480px;height:220px"></canvas>
         </div>
         <div id="ventas-mes-dia-status" style="text-align:center;font-size:11px;color:var(--muted);margin-top:6px"></div>
+      </div>
+
+      <!-- KPIs del día -->
+      <div class="kpi-row">
+        <div class="kpi"><div class="kpi-label">Total sin IVA</div><div class="kpi-val" style="color:var(--brown)">${fmt(totalSinIva)}</div><div class="kpi-sub">subtotal</div></div>
+        <div class="kpi"><div class="kpi-label">Total con IVA</div><div class="kpi-val">${fmt(totalConIva)}</div><div class="kpi-sub">hoy</div></div>
+        <div class="kpi"><div class="kpi-label">Facturas</div><div class="kpi-val">${docs.length}</div><div class="kpi-sub">emitidas hoy</div></div>
+        <div class="kpi"><div class="kpi-label">Última sync</div><div class="kpi-val" style="font-size:15px">${lastSync}</div><div class="kpi-sub">hora</div></div>
       </div>
 
       <!-- Resumen por vendedora -->
