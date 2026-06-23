@@ -950,7 +950,6 @@ async function renderFacturasHoy(){
   document.getElementById('main').innerHTML=`
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
       <div class="breadcrumb" style="margin-bottom:0"><i class="ti ti-receipt" style="color:var(--brown);font-size:12px"></i><span style="font-weight:500">Facturas del día</span></div>
-      <button onclick="renderFacturasHoy()" style="padding:4px 12px;font-size:11px;border:1px solid var(--brown);background:rgba(160,104,74,0.1);color:var(--brown);border-radius:20px;cursor:pointer">↻ Actualizar</button>
     </div>
     <div id="facturas-content" style="margin-top:12px">
       <div style="font-size:13px;color:var(--muted);padding:20px 0">Cargando facturas...</div>
@@ -998,6 +997,15 @@ async function renderFacturasHoy(){
         <div class="kpi"><div class="kpi-label">Última sync</div><div class="kpi-val" style="font-size:15px">${lastSync}</div><div class="kpi-sub">hora</div></div>
       </div>
 
+      <!-- Ventas del mes en curso por día -->
+      <div class="card" style="margin-bottom:12px">
+        <div class="card-title"><i class="ti ti-chart-line"></i> Ventas de ${MESES_NOMBRE[new Date().getMonth()]} por día (sin IVA)</div>
+        <div style="width:100%;overflow-x:auto">
+          <canvas id="grafico-ventas-mes-dia" style="display:block;width:100%;min-width:480px;height:220px"></canvas>
+        </div>
+        <div id="ventas-mes-dia-status" style="text-align:center;font-size:11px;color:var(--muted);margin-top:6px"></div>
+      </div>
+
       <!-- Resumen por vendedora -->
       ${Object.keys(porVend).length>0?`
       <div class="card" style="margin-bottom:12px">
@@ -1028,15 +1036,6 @@ async function renderFacturasHoy(){
           </table>
         </div>
       </div>`:''}
-
-      <!-- Ventas del mes en curso por día -->
-      <div class="card" style="margin-bottom:12px">
-        <div class="card-title"><i class="ti ti-chart-line"></i> Ventas de ${MESES_NOMBRE[new Date().getMonth()]} por día (sin IVA)</div>
-        <div style="width:100%;overflow-x:auto">
-          <canvas id="grafico-ventas-mes-dia" style="display:block;width:100%;min-width:480px;height:220px"></canvas>
-        </div>
-        <div id="ventas-mes-dia-status" style="text-align:center;font-size:11px;color:var(--muted);margin-top:6px"></div>
-      </div>
 
       <!-- Detalle de facturas -->
       <div class="card">
