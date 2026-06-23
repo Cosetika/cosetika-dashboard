@@ -983,6 +983,85 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // DIAGNÓSTICO TEMPORAL: comparar totales/conteos del dashboard vs Contifico para un rango
+  if (urlPath === '/api/diagnostico-mes' && req.method === 'GET') {
+    try {
+      const desde = urlObj.searchParams.get('desde') || '01/06/2026';
+      const hasta = urlObj.searchParams.get('hasta') || fmtDateEC(new Date());
+      let todos = [];
+      let nextUrl = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${desde}&fecha_final=${hasta}&page_size=100`;
+      let paginas = 0;
+      while (nextUrl && paginas < 200) {
+        const resp = await fetch(nextUrl, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
+        if (!resp.ok) break;
+        const data = await resp.json();
+        todos = todos.concat(data.results || []);
+        nextUrl = data.next || null;
+        paginas++;
+      }
+
+      const porTipo = {}; // conteo y suma cruda por tipo_documento, sin filtrar nada
+      let totalAnulados = 0, sumaAnulados = 0;
+      todos.forEach(d => {
+        const t = d.tipo_documento || '—';
+        if (!porTipo[t]) porTipo[t] = { count: 0, total: 0, subtotal: 0 };
+        porTipo[t].count++;
+        porTipo[t].total += parseFloat(d.total || 0);
+        porTipo[t].subtotal += parseFloat(d.subtotal || d.subtotal_12 || 0);
+        if (d.anulado) { totalAnulados++; sumaAnulados += parseFloat(d.total||0); }
+      });
+
+      // Aplicar EXACTAMENTE el mismo filtro que generarDataJson
+      const documentosVistos = new Set();
+      let duplicados = 0;
+      let sinVendedor = 0, sumaSinVendedor = 0;
+      let cosetikaExcluidos = 0, sumaCosetika = 0;
+      let usaronFallbackSubtotal12 = 0;
+      const filtrados = todos.filter(d => {
+        if (d.tipo_registro !== 'CLI') return false;
+        if (d.anulado) return false;
+        if (d.tipo_documento === 'NC') return false;
+        if (d.tipo_documento === 'COT') return false;
+        if (d.tipo_documento === 'PRO') return false;
+        if (!d.vendedor && !d.vendedor_id && !d.vendedor_identificacion) { sinVendedor++; sumaSinVendedor += parseFloat(d.total||0); return false; }
+        const cliRuc = (d.cliente?.ruc || d.cliente?.cedula || '').trim();
+        if (cliRuc === '1793143660001') { cosetikaExcluidos++; sumaCosetika += parseFloat(d.total||0); return false; }
+        const docKey = d.id || d.documento;
+        if (documentosVistos.has(docKey)) { duplicados++; return false; }
+        documentosVistos.add(docKey);
+        if (!d.subtotal && d.subtotal_12) usaronFallbackSubtotal12++;
+        return true;
+      });
+
+      const sumaTotalFiltrado = filtrados.reduce((a,d)=>a+parseFloat(d.total||0),0);
+      const sumaSubtotalFiltrado = filtrados.reduce((a,d)=>a+parseFloat(d.subtotal||d.subtotal_12||0),0);
+
+      res.writeHead(200, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({
+        rango: { desde, hasta },
+        total_documentos_crudos_api: todos.length,
+        por_tipo_documento_crudo: porTipo,
+        anulados_en_crudo: { count: totalAnulados, suma_total: Math.round(sumaAnulados*100)/100 },
+        despues_de_filtros: {
+          count: filtrados.length,
+          suma_total_con_iva: Math.round(sumaTotalFiltrado*100)/100,
+          suma_subtotal_sin_iva: Math.round(sumaSubtotalFiltrado*100)/100
+        },
+        excluidos_por_filtro: {
+          duplicados_omitidos: duplicados,
+          sin_vendedor: { count: sinVendedor, suma_total: Math.round(sumaSinVendedor*100)/100 },
+          cosetika_autoconsumo: { count: cosetikaExcluidos, suma_total: Math.round(sumaCosetika*100)/100 }
+        },
+        documentos_que_usaron_fallback_subtotal_12: usaronFallbackSubtotal12
+      }, null, 2));
+    } catch(e) {
+      res.writeHead(500,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({error: e.message}));
+    }
+    return;
+  }
+
+
   // BUSCAR CLIENTE O VENDEDOR EN CONTIFICO
   if (urlPath === '/api/buscar-cliente' && req.method === 'GET') {
     try {
