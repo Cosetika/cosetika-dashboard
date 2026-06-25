@@ -424,6 +424,73 @@ async function fusionarMesActualEnCache() {
   regenerandoEnProceso = false;
 }
 setInterval(() => fusionarMesActualEnCache().catch(e => console.error(e)), 15 * 60 * 1000);
+
+// ─── FUSIÓN: AÑO EN CURSO completo dentro de DATA_CACHE (regeneración diaria 2 AM) ──
+// Misma idea que fusionarMesActualEnCache, pero reemplaza el AÑO actual completo en vez de
+// solo el mes en curso. Así la regeneración nocturna corrige cualquier dato retroactivo del
+// año en curso (ej. una factura de marzo editada/anulada en Contifico) sin tener que volver
+// a traer ni tocar años anteriores (2025 y previos), que ya están cerrados y no cambian.
+async function fusionarAnioActualEnCache(anioActual, dataAnio) {
+  // Paso 1: quitar de DATA_CACHE cualquier dato del año actual (será reemplazado limpio)
+  Object.keys(DATA_CACHE).forEach(vendNom => {
+    DATA_CACHE[vendNom].forEach(cli => {
+      const freqAnioViejo = (cli.frecuencia||[]).filter(f=>f.anio===anioActual);
+      const totalAnioViejo = freqAnioViejo.reduce((a,f)=>a+f.total,0);
+      const subtotalAnioViejo = freqAnioViejo.reduce((a,f)=>a+f.subtotal,0);
+      const comprasAnioViejo = freqAnioViejo.reduce((a,f)=>a+f.compras,0);
+      cli.total = Math.round((cli.total - totalAnioViejo)*100)/100;
+      cli.subtotal = Math.round((cli.subtotal - subtotalAnioViejo)*100)/100;
+      cli.num_compras = Math.max(0, (cli.num_compras||0) - comprasAnioViejo);
+      cli.frecuencia = (cli.frecuencia||[]).filter(f => f.anio!==anioActual);
+      cli.frecuencia_dia = (cli.frecuencia_dia||[]).filter(f => f.anio!==anioActual);
+      cli.marcas_anio = (cli.marcas_anio||[]).filter(ma => ma.anio!==anioActual);
+      cli.marcas_mes = (cli.marcas_mes||[]).filter(x => x.anio!==anioActual);
+      cli.productos_mes = (cli.productos_mes||[]).filter(x => x.anio!==anioActual);
+    });
+  });
+
+  // Paso 2: insertar los datos frescos del año actual completo
+  Object.entries(dataAnio).forEach(([vendNom, clientesAnio]) => {
+    if (!DATA_CACHE[vendNom]) DATA_CACHE[vendNom] = [];
+    const porId = {}; DATA_CACHE[vendNom].forEach(c => { porId[c.id] = c; });
+    const nuevos = [];
+    clientesAnio.forEach(cliAnio => {
+      let cli = porId[cliAnio.id];
+      if (!cli) { nuevos.push(cliAnio); return; }
+      cli.total = Math.round((cli.total + cliAnio.total) * 100) / 100;
+      cli.subtotal = Math.round((cli.subtotal + cliAnio.subtotal) * 100) / 100;
+      cli.num_compras = (cli.num_compras||0) + cliAnio.num_compras;
+      cli.frecuencia = (cli.frecuencia||[]).concat(cliAnio.frecuencia);
+      cli.frecuencia_dia = (cli.frecuencia_dia||[]).concat(cliAnio.frecuencia_dia||[]);
+      cli.marcas_anio = (cli.marcas_anio||[]).concat(cliAnio.marcas_anio);
+      cli.marcas_mes = (cli.marcas_mes||[]).concat(cliAnio.marcas_mes);
+      cli.productos_mes = (cli.productos_mes||[]).concat(cliAnio.productos_mes||[]);
+      cli.marcas = consolidarMarcasAnio((cli.marcas||[]).map(m=>({anio:0,marca:m.marca,total:m.total})).concat(cliAnio.marcas.map(m=>({anio:0,marca:m.marca,total:m.total})))).map(m=>({marca:m.marca,total:m.total})).sort((a,b)=>b.total-a.total);
+      // Productos: reconstruir desde productos_mes (ya filtrado/concatenado arriba con los años
+      // anteriores intactos + el año actual fresco) en vez de sumar incrementalmente sobre
+      // cli.productos — así se evita cualquier riesgo de doble conteo, sin depender de un
+      // campo "histórico" separado que podría quedar desincronizado entre regeneraciones.
+      const prodMap = {};
+      (cli.productos_mes||[]).forEach(pm=>{
+        const k = pm.id||pm.nombre;
+        if(!prodMap[k]) prodMap[k] = { id: pm.id, nombre: pm.nombre, codigo: '', marca: pm.marca, cantidad: 0, total: 0 };
+        prodMap[k].cantidad += pm.cantidad;
+        prodMap[k].total = Math.round((prodMap[k].total + pm.total)*100)/100;
+      });
+      // Conservar el "codigo" si ya existía en cli.productos (productos_mes no lo guarda)
+      (cli.productos||[]).forEach(p=>{ const k=p.id||p.nombre; if(prodMap[k] && p.codigo) prodMap[k].codigo = p.codigo; });
+      cli.productos = Object.values(prodMap).map(p=>({...p, cantidad: Math.round(p.cantidad)})).sort((a,b)=>b.cantidad-a.cantidad);
+      // Reset de los acumuladores de la fusión mensual (15 min): tras una fusión anual,
+      // el "histórico" para la próxima fusión mensual debe ser este productos recién calculado.
+      cli.productos_historico = null;
+      cli.productos_historico_anio = null;
+      cli.productos_historico_mes = null;
+    });
+    DATA_CACHE[vendNom] = Object.values(porId).concat(nuevos);
+  });
+
+  Object.keys(DATA_CACHE).forEach(v => DATA_CACHE[v].sort((a,b)=>b.total-a.total));
+}
 setTimeout(() => fusionarMesActualEnCache().catch(e => console.error(e)), 20 * 1000);
 
 // ─── DB ───────────────────────────────────────────────────────
@@ -464,20 +531,32 @@ async function guardarDataEnDB(data) {
 }
 
 // ─── REGENERACIÓN AUTOMÁTICA DIARIA (madrugada, hora Ecuador) ───────────────
-// Trae desde el 1 de enero del año anterior hasta hoy, igual que el botón manual.
-// Corre una vez al día (no cada 30 min) para no saturar la API de Contifico ni el servidor.
+// Trae desde el 1 de enero del año EN CURSO hasta hoy (no años anteriores: esos ya están
+// cerrados contablemente y no cambian, así que regenerarlos cada noche sería trabajo
+// desperdiciado — solo agrega tiempo de ejecución y carga sobre Contifico sin beneficio).
+// Si en algún momento se necesita corregir datos de años anteriores, usar el botón manual
+// de Configuración indicando el rango de fechas que corresponda.
 async function regenerarDataAutomatico() {
+  if (regenerandoEnProceso) { console.log('Regeneración automática diaria omitida: otra regeneración en curso'); return; }
+  regenerandoEnProceso = true;
   try {
     const hoy = new Date();
-    const anioPasado = hoy.getFullYear() - 1;
-    const fi = `01/01/${anioPasado}`;
+    const anioActual = hoy.getFullYear();
+    const fi = `01/01/${anioActual}`;
     const ff = fmtDateEC(hoy);
     console.log(`⏰ Regeneración automática diaria: ${fi} al ${ff}`);
-    const data = await generarDataJson(fi, ff);
-    await guardarDataEnDB(data);
-    try { fs.writeFileSync(path.join(__dirname, 'data.json'), JSON.stringify(data, null, 2)); } catch(e) {}
-    console.log('✓ Regeneración automática completada: ' + Object.keys(data).length + ' vendedoras');
+    const dataAnio = await generarDataJson(fi, ff);
+    if (!DATA_CACHE || Object.keys(DATA_CACHE).length === 0) {
+      // No hay caché previo (primer arranque): usar el resultado tal cual, sin fusión
+      await guardarDataEnDB(dataAnio);
+    } else {
+      await fusionarAnioActualEnCache(anioActual, dataAnio);
+      await guardarDataEnDB(DATA_CACHE);
+    }
+    try { fs.writeFileSync(path.join(__dirname, 'data.json'), JSON.stringify(DATA_CACHE, null, 2)); } catch(e) {}
+    console.log('✓ Regeneración automática completada (año ' + anioActual + ' refrescado, años anteriores intactos)');
   } catch(e) { console.error('Error en regeneración automática:', e.message); }
+  regenerandoEnProceso = false;
 }
 // Programar para correr a las 2:00 AM hora Ecuador (UTC-5) cada día
 function programarRegeneracionDiaria() {
@@ -861,18 +940,34 @@ const server = http.createServer(async (req, res) => {
 
   // REGENERAR DATA.JSON
   if (urlPath === '/api/regenerar-data' && req.method === 'GET') {
-    const fi = urlObj.searchParams.get('desde') || fmtDateEC(new Date(new Date().getFullYear(),0,1));
+    const desdeParam = urlObj.searchParams.get('desde');
+    const anioActual = new Date().getFullYear();
+    const fi = desdeParam || fmtDateEC(new Date(anioActual,0,1));
     const ff = urlObj.searchParams.get('hasta') || fmtDateEC(new Date());
+    // El rango solicitado empieza en el año en curso (o después) → fusión segura, no toca
+    // años anteriores. Si el rango pedido incluye años anteriores (ej. desde 2025), se
+    // interpreta como intención deliberada de corregir histórico y se reemplaza todo el rango.
+    const anioInicioSolicitado = parseInt(fi.split('/')[2]) || anioActual;
+    const usarSoloAnioActual = anioInicioSolicitado >= anioActual;
     res.writeHead(200,{'Content-Type':'application/json'});
-    res.end(JSON.stringify({ msg: 'Regenerando data.json del ' + fi + ' al ' + ff, ok: true }));
+    res.end(JSON.stringify({
+      msg: usarSoloAnioActual
+        ? `Regenerando año ${anioActual} (${fi} al ${ff}) — años anteriores no se tocan`
+        : `Regenerando data.json del ${fi} al ${ff} (rango completo, reemplaza todo)`,
+      ok: true
+    }));
     generarDataJson(fi, ff).then(async data => {
       regenerandoEnProceso = true;
-      await guardarDataEnDB(data);
-      // También actualizar data.json como backup
-      try {
-        fs.writeFileSync(path.join(__dirname, 'data.json'), JSON.stringify(data, null, 2));
-      } catch(e) { /* OK si no se puede escribir */ }
-      console.log('✓ Regeneración completada: ' + Object.keys(data).length + ' vendedoras');
+      if (usarSoloAnioActual && DATA_CACHE && Object.keys(DATA_CACHE).length > 0) {
+        await fusionarAnioActualEnCache(anioActual, data);
+        await guardarDataEnDB(DATA_CACHE);
+        try { fs.writeFileSync(path.join(__dirname, 'data.json'), JSON.stringify(DATA_CACHE, null, 2)); } catch(e) {}
+        console.log(`✓ Regeneración (solo año ${anioActual}) completada — años anteriores intactos`);
+      } else {
+        await guardarDataEnDB(data);
+        try { fs.writeFileSync(path.join(__dirname, 'data.json'), JSON.stringify(data, null, 2)); } catch(e) {}
+        console.log('✓ Regeneración completa (rango total) completada: ' + Object.keys(data).length + ' vendedoras');
+      }
       regenerandoEnProceso = false;
     }).catch(e => { console.error('Error regenerar:', e.message); regenerandoEnProceso = false; });
     return;

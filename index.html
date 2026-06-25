@@ -2886,11 +2886,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
 async function regenerarData(){
   const st = document.getElementById('sync-status');
-  if(st) st.innerHTML='<i class="ti ti-loader"></i> Regenerando... esto puede tomar varios minutos';
+  if(st) st.innerHTML='<i class="ti ti-loader"></i> Regenerando año en curso... esto puede tomar un par de minutos';
   try{
+    // Por defecto, el botón regenera SOLO el año en curso (rápido, y el backend fusiona
+    // esto sobre el caché existente sin tocar años anteriores ya cerrados, como 2025).
+    // Si alguna vez se necesita corregir un dato histórico de años previos, usar
+    // directamente la URL /api/regenerar-data?desde=01/01/AAAA&hasta=... en el navegador.
     const hoy = new Date();
-    const anioPasado = hoy.getFullYear() - 1;
-    const desde = `01/01/${anioPasado}`;
+    const desde = `01/01/${hoy.getFullYear()}`;
     const dd = String(hoy.getDate()).padStart(2,'0');
     const mm = String(hoy.getMonth()+1).padStart(2,'0');
     const hasta = `${dd}/${mm}/${hoy.getFullYear()}`;
