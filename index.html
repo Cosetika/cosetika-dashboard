@@ -761,63 +761,110 @@ function buildProductosRanking(marcaFiltro, mesFiltro, todoAnio, anioFiltro){
     .sort((a,b)=>b.cantidad-a.cantidad);
 }
 
-// Serie mensual (unidades) de un producto específico, para el acordeón del ranking
-function buildSerieMensualProducto(productoId, productoNombre, anio){
+// Serie mensual (unidades) por producto — devuelve { productoKey: {1:cant,...,12:cant} }
+// para todos los productos de la lista dada (usado en el gráfico de líneas general)
+function buildSeriesMensualesProductos(lista, anio){
   const vendedoras = vendActual ? [vendActual] : Object.keys(DATA);
-  const porMes = {}; // mes -> cantidad
-  for(let m=1;m<=12;m++) porMes[m]=0;
+  const series = {}; // key (id||nombre) -> {1:0,...,12:0}
+  lista.forEach(p=>{ const k=p.id||p.nombre; series[k]={}; for(let m=1;m<=12;m++) series[k][m]=0; });
+  const porKey = {}; lista.forEach(p=>{ porKey[p.id||p.nombre]=true; });
   vendedoras.forEach(v=>{
     (DATA[v]||[]).forEach(cli=>{
       (cli.productos_mes||[]).forEach(pm=>{
         if(pm.anio!==anio) return;
-        const matchId = productoId && pm.id===productoId;
-        const matchNombre = !productoId && pm.nombre===productoNombre;
-        if(!matchId && !matchNombre) return;
-        porMes[pm.mes] = (porMes[pm.mes]||0) + (pm.cantidad||0);
+        const k = pm.id||pm.nombre;
+        if(!porKey[k]) return;
+        series[k][pm.mes] = (series[k][pm.mes]||0) + (pm.cantidad||0);
       });
     });
   });
-  return porMes;
+  return series;
 }
 
-function toggleProductoAcordeon(idx, productoId, productoNombre, anio){
-  const fila = document.getElementById('prod-row-'+idx);
-  const existente = document.getElementById('prod-chart-'+idx);
-  if(existente){ existente.remove(); fila?.querySelector('.acordeon-caret')?.classList.remove('ti-chevron-up'); fila?.querySelector('.acordeon-caret')?.classList.add('ti-chevron-down'); return; }
-  // Cerrar cualquier otro acordeón abierto
-  document.querySelectorAll('[id^=prod-chart-]').forEach(el=>el.remove());
-  document.querySelectorAll('.acordeon-caret').forEach(c=>{c.classList.remove('ti-chevron-up');c.classList.add('ti-chevron-down');});
+const PALETA_LINEAS=['#a5b4fc','#fcd34d','#6ee7b7','#f9a8d4','#fca5a5','#93c5fd','#fdba74','#c4b5fd','#86efac','#fde047','#67e8f9','#f0abfc','#bef264','#fb923c','#5eead4','#f472b6','#a3a3a3','#7dd3fc','#d9f99d','#e879f9'];
 
-  const porMes = buildSerieMensualProducto(productoId, productoNombre, anio);
-  const MESES_LABELS=['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-  const maxMes = Math.max(...Object.values(porMes), 1);
-  const barras = [1,2,3,4,5,6,7,8,9,10,11,12].map(m=>{
-    const v = Math.round(porMes[m]||0);
-    const h = Math.max(Math.round(v/maxMes*60),v>0?3:0);
-    return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;min-width:0">
-      <span style="font-size:10px;color:var(--text);font-weight:600">${v||''}</span>
-      <div style="width:100%;max-width:22px;height:60px;display:flex;align-items:flex-end">
-        <div style="width:100%;background:var(--brown);border-radius:3px 3px 0 0;height:${h}px;transition:height 0.3s"></div>
-      </div>
-      <span style="font-size:9px;color:var(--muted)">${MESES_LABELS[m]}</span>
-    </div>`;
+function renderGraficoLineasProductos(lista, anio){
+  const MESES_LABELS=['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const series = buildSeriesMensualesProductos(lista, anio);
+  // Estado de visibilidad: por defecto, top 8 visibles, el resto oculto (evita ilegibilidad inicial)
+  if(!window._lineasProdVisibles) window._lineasProdVisibles = {};
+  lista.forEach((p,i)=>{
+    const k=p.id||p.nombre;
+    if(window._lineasProdVisibles[k]===undefined) window._lineasProdVisibles[k] = i<8;
+  });
+
+  const W=1200,H=300,padL=46,padR=10,padT=14,padB=26;
+  const innerW=W-padL-padR, innerH=H-padT-padB;
+  let maxVal=1;
+  lista.forEach(p=>{ const k=p.id||p.nombre; if(!window._lineasProdVisibles[k]) return; Object.values(series[k]).forEach(v=>{ if(v>maxVal) maxVal=v; }); });
+
+  const xStep = innerW/11;
+  const yFor = v => padT + innerH - (v/maxVal*innerH);
+  const xFor = mIdx => padL + mIdx*xStep;
+
+  const gridLines = [0,0.25,0.5,0.75,1].map(f=>{
+    const y = padT + innerH - f*innerH;
+    return `<line x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}" stroke="#ece8e3" stroke-width="1"/>
+      <text x="${padL-8}" y="${y+3}" font-size="9" fill="#9c958c" text-anchor="end">${Math.round(maxVal*f)}</text>`;
+  }).join('');
+  const xLabels = MESES_LABELS.map((lab,i)=>`<text x="${xFor(i)}" y="${H-8}" font-size="9" fill="#9c958c" text-anchor="middle">${lab}</text>`).join('');
+
+  const paths = lista.map((p,i)=>{
+    const k=p.id||p.nombre;
+    if(!window._lineasProdVisibles[k]) return '';
+    const color = PALETA_LINEAS[i%PALETA_LINEAS.length];
+    const pts = [1,2,3,4,5,6,7,8,9,10,11,12].map((m,idx)=>`${xFor(idx)},${yFor(series[k][m]||0)}`).join(' ');
+    const dots = [1,2,3,4,5,6,7,8,9,10,11,12].map((m,idx)=>`<circle cx="${xFor(idx)}" cy="${yFor(series[k][m]||0)}" r="2.5" fill="${color}"/>`).join('');
+    return `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2"/>${dots}`;
   }).join('');
 
-  const wrapper = document.createElement('div');
-  wrapper.id = 'prod-chart-'+idx;
-  wrapper.style = 'padding:14px 10px 6px;background:#faf9f8;border-bottom:0.5px solid var(--border);animation:fadeIn 0.2s';
-  wrapper.innerHTML = `
-    <div style="font-size:11px;color:var(--muted);font-weight:600;margin-bottom:8px">Unidades vendidas por mes — ${anio}</div>
-    <div style="display:flex;gap:4px;align-items:flex-end">${barras}</div>
+  const svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">${gridLines}${xLabels}${paths}</svg>`;
+
+  const checkboxes = lista.map((p,i)=>{
+    const k=p.id||p.nombre;
+    const color = PALETA_LINEAS[i%PALETA_LINEAS.length];
+    const activo = window._lineasProdVisibles[k];
+    return `<label style="display:flex;align-items:center;gap:5px;font-size:10.5px;cursor:pointer;padding:3px 7px;border-radius:6px;background:${activo?color+'18':'transparent'};border:1px solid ${activo?color+'50':'transparent'}" onclick="event.preventDefault();toggleLineaProducto('${(k+'').replace(/'/g,"\\'")}')">
+      <span style="width:9px;height:9px;border-radius:50%;background:${color};flex-shrink:0;opacity:${activo?1:0.3}"></span>
+      <span style="color:${activo?'var(--text)':'var(--muted)'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:170px" title="${p.nombre}">${p.nombre}</span>
+    </label>`;
+  }).join('');
+
+  return `
+    <div class="card" id="grafico-lineas-productos-wrap">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+        <div class="card-title" style="margin-bottom:0"><i class="ti ti-chart-line"></i> Unidades vendidas por mes — ${anio}</div>
+        <div style="display:flex;gap:6px">
+          <button onclick="todasLineasProductos(true)" style="font-size:10px;padding:4px 9px;border-radius:6px;border:1px solid var(--border);background:white;cursor:pointer;color:var(--muted)">Ver todas</button>
+          <button onclick="todasLineasProductos(false)" style="font-size:10px;padding:4px 9px;border-radius:6px;border:1px solid var(--border);background:white;cursor:pointer;color:var(--muted)">Ocultar todas</button>
+        </div>
+      </div>
+      <div id="grafico-lineas-productos-svg">${svg}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:12px;max-height:130px;overflow-y:auto;padding-top:10px;border-top:1px solid var(--border)">${checkboxes}</div>
+    </div>
   `;
-  fila?.insertAdjacentElement('afterend', wrapper);
-  fila?.querySelector('.acordeon-caret')?.classList.remove('ti-chevron-down');
-  fila?.querySelector('.acordeon-caret')?.classList.add('ti-chevron-up');
+}
+
+function toggleLineaProducto(key){
+  window._lineasProdVisibles[key] = !window._lineasProdVisibles[key];
+  rerenderGraficoLineasProductos();
+}
+function todasLineasProductos(valor){
+  Object.keys(window._lineasProdVisibles||{}).forEach(k=>{ window._lineasProdVisibles[k]=valor; });
+  rerenderGraficoLineasProductos();
+}
+function rerenderGraficoLineasProductos(){
+  const lista = window._productosMarcaCache||[];
+  const anio = window._prodAnioFiltro || new Date().getFullYear();
+  const html = renderGraficoLineasProductos(lista, anio);
+  const cont = document.getElementById('grafico-lineas-productos-wrap');
+  if(cont && cont.parentElement) cont.outerHTML = html;
 }
 
 function renderProductosPorMarca(marcaSeleccionada, totalMarcaIn){
   const anioActual = new Date().getFullYear();
   // Estado del filtro
+
   if(marcaSeleccionada !== undefined) window._prodMarcaSel = marcaSeleccionada;
   const marcaSel = window._prodMarcaSel || 'TODAS';
   let prodMesFiltro = window._prodMesFiltro !== undefined ? window._prodMesFiltro : (new Date().getMonth()+1);
@@ -928,6 +975,9 @@ function renderProductosPorMarca(marcaSeleccionada, totalMarcaIn){
       </div>
     </div>
 
+    <!-- Gráfico de líneas: unidades vendidas por mes, todos los productos del filtro actual -->
+    ${renderGraficoLineasProductos(lista, prodAnioFiltro)}
+
     <!-- KPIs -->
     <div class="kpi-row">
       <div class="kpi" style="border-left:3px solid ${MARCA_COLORS[marcaSel]||'var(--brown)'}">
@@ -955,10 +1005,7 @@ function renderProductosPorMarca(marcaSeleccionada, totalMarcaIn){
               const marcaColor = MARCA_COLORS[p.marca]||'#9ca3af';
               const cantDisplay = Math.round(p.cantidad);
               const pctBar = Math.min(Math.round(p.cantidad/maxQ*100),100);
-              const pid = (p.id||'').replace(/'/g,"\\'");
-              const pnombre = (p.nombre||'').replace(/'/g,"\\'");
-              return `<div id="prod-row-${i}" style="display:flex;align-items:center;gap:8px;padding:8px 6px;border-bottom:0.5px solid var(--border);transition:background 0.1s;cursor:pointer" onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='transparent'" onclick="toggleProductoAcordeon(${i},'${pid}','${pnombre}',${prodAnioFiltro})">
-                <i class="ti ti-chevron-down acordeon-caret" style="font-size:12px;color:var(--muted);flex-shrink:0"></i>
+              return `<div style="display:flex;align-items:center;gap:8px;padding:8px 6px;border-bottom:0.5px solid var(--border);transition:background 0.1s" onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='transparent'">
                 <span style="font-size:11px;color:var(--muted);min-width:22px;text-align:right;font-weight:700">${i+1}</span>
                 ${p.marca?`<span style="font-size:9px;padding:2px 7px;border-radius:10px;background:${marcaColor}18;color:${marcaColor};font-weight:700;white-space:nowrap;min-width:54px;text-align:center;border:1px solid ${marcaColor}40">${p.marca}</span>`:''}
                 <span style="flex:1;font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p.nombre}">${p.nombre}</span>
@@ -991,11 +1038,7 @@ function sortProductosMarca(criterio){
         const mc=MC[p.marca]||'#9ca3af';
         const cd=Math.round(p.cantidad);
         const pb=Math.min(Math.round(p.cantidad/maxQ*100),100);
-        const pid = (p.id||'').replace(/'/g,"\\'");
-        const pnombre = (p.nombre||'').replace(/'/g,"\\'");
-        const anio = window._prodAnioFiltro || new Date().getFullYear();
-        return `<div id="prod-row-${i}" style="display:flex;align-items:center;gap:8px;padding:8px 6px;border-bottom:0.5px solid var(--border);transition:background 0.1s;cursor:pointer" onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='transparent'" onclick="toggleProductoAcordeon(${i},'${pid}','${pnombre}',${anio})">
-          <i class="ti ti-chevron-down acordeon-caret" style="font-size:12px;color:var(--muted);flex-shrink:0"></i>
+        return `<div style="display:flex;align-items:center;gap:8px;padding:8px 6px;border-bottom:0.5px solid var(--border);transition:background 0.1s" onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='transparent'">
           <span style="font-size:11px;color:var(--muted);min-width:22px;text-align:right;font-weight:700">${i+1}</span>
           ${p.marca?`<span style="font-size:9px;padding:2px 7px;border-radius:10px;background:${mc}18;color:${mc};font-weight:700;white-space:nowrap;min-width:54px;text-align:center;border:1px solid ${mc}40">${p.marca}</span>`:''}
           <span style="flex:1;font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p.nombre}">${p.nombre}</span>
