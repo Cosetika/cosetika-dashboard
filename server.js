@@ -191,6 +191,16 @@ async function generarDataJson(fi, ff) {
       const freqKey = `${anioDoc}-${String(mes).padStart(2,'0')}`;
       if (!cli.frecuencia[freqKey]) cli.frecuencia[freqKey] = { anio: anioDoc, mes, total: 0, subtotal: 0, compras: 0 };
       cli.frecuencia[freqKey].total += totalDoc; cli.frecuencia[freqKey].subtotal += subDoc; cli.frecuencia[freqKey].compras++;
+      // Desglose exacto por día — para el gráfico "ventas del mes por día" (instantáneo, sin pegarle a Contifico en vivo)
+      const diaDoc = parseInt((doc.fecha_emision || '').split('/')[0]) || 0;
+      if (diaDoc) {
+        const diaKey = `${anioDoc}-${String(mes).padStart(2,'0')}-${String(diaDoc).padStart(2,'0')}`;
+        if (!cli.frecuenciaPorDia) cli.frecuenciaPorDia = {};
+        if (!cli.frecuenciaPorDia[diaKey]) cli.frecuenciaPorDia[diaKey] = { anio: anioDoc, mes, dia: diaDoc, total: 0, subtotal: 0, compras: 0 };
+        cli.frecuenciaPorDia[diaKey].total += totalDoc;
+        cli.frecuenciaPorDia[diaKey].subtotal += subDoc;
+        cli.frecuenciaPorDia[diaKey].compras++;
+      }
       (doc.detalles || []).forEach(det => {
         const prodId = det.producto_id || '';
         const cantidad = parseFloat(det.cantidad || 0);
@@ -238,7 +248,8 @@ async function generarDataJson(fi, ff) {
       marcas_mes: Object.values(cli.marcasPorMes||{}).map(x => ({ anio: x.anio, mes: x.mes, marca: x.marca, total: Math.round(x.total*100)/100 })),
       productos: Object.values(cli.productos).map(p => ({ id: p.id, nombre: p.nombre, codigo: p.codigo, marca: p.marca, cantidad: Math.round(p.cantidad), total: Math.round(p.total*100)/100 })).sort((a,b) => b.cantidad-a.cantidad),
       productos_mes: Object.values(cli.productosPorMes||{}).map(x => ({ anio: x.anio, mes: x.mes, id: x.id, nombre: x.nombre, marca: x.marca, cantidad: Math.round(x.cantidad*100)/100, total: Math.round(x.total*100)/100 })),
-      frecuencia: Object.values(cli.frecuencia).map(f => ({ anio: f.anio, mes: f.mes, total: Math.round(f.total*100)/100, subtotal: Math.round(f.subtotal*100)/100, compras: f.compras })).sort((a,b) => a.anio!==b.anio ? a.anio-b.anio : a.mes-b.mes)
+      frecuencia: Object.values(cli.frecuencia).map(f => ({ anio: f.anio, mes: f.mes, total: Math.round(f.total*100)/100, subtotal: Math.round(f.subtotal*100)/100, compras: f.compras })).sort((a,b) => a.anio!==b.anio ? a.anio-b.anio : a.mes-b.mes),
+      frecuencia_dia: Object.values(cli.frecuenciaPorDia||{}).map(f => ({ anio: f.anio, mes: f.mes, dia: f.dia, total: Math.round(f.total*100)/100, subtotal: Math.round(f.subtotal*100)/100, compras: f.compras }))
     })).sort((a,b) => b.total-a.total);
   });
   console.log(`Generación completa. Duplicados omitidos: ${duplicadosOmitidos}`);
@@ -345,6 +356,8 @@ async function fusionarMesActualEnCache() {
           cli.num_compras = Math.max(0, (cli.num_compras||0) - freqMesViejo.compras);
         }
         cli.frecuencia = (cli.frecuencia||[]).filter(f => !(f.anio===anioActual && f.mes===mesActual));
+        // frecuencia_dia: igual que frecuencia, se quita la porción del mes actual (será reemplazada limpia en el Paso 2)
+        cli.frecuencia_dia = (cli.frecuencia_dia||[]).filter(f => !(f.anio===anioActual && f.mes===mesActual));
         // Restar del año actual lo que correspondía al mes actual (para no perder otros meses del mismo año)
         const marcasMesViejo = (cli.marcas_mes||[]).filter(x=>x.anio===anioActual&&x.mes===mesActual);
         cli.marcas_anio = (cli.marcas_anio||[]).map(ma=>{
@@ -370,6 +383,7 @@ async function fusionarMesActualEnCache() {
         cli.subtotal = Math.round((cli.subtotal + cliMes.subtotal) * 100) / 100;
         cli.num_compras = (cli.num_compras||0) + cliMes.num_compras;
         cli.frecuencia = (cli.frecuencia||[]).concat(cliMes.frecuencia);
+        cli.frecuencia_dia = (cli.frecuencia_dia||[]).concat(cliMes.frecuencia_dia||[]);
         cli.marcas_anio = consolidarMarcasAnio((cli.marcas_anio||[]).concat(cliMes.marcas_anio));
         cli.marcas_mes = consolidarMarcasMes((cli.marcas_mes||[]).concat(cliMes.marcas_mes));
         cli.productos_mes = consolidarProductosMes((cli.productos_mes||[]).concat(cliMes.productos_mes||[]));
@@ -710,49 +724,31 @@ const server = http.createServer(async (req, res) => {
   }
 
   // VENTAS DEL MES EN CURSO POR DÍA (para gráfico de líneas día 1 al día actual)
+  // Lee de DATA_CACHE (ya mantenido por fusionarMesActualEnCache cada 15 min) — instantáneo,
+  // sin pegarle a Contifico en vivo cada vez que alguien abre la pestaña Facturas.
   if (urlPath === '/api/ventas-mes-actual' && req.method === 'GET') {
     try {
       const ahora = new Date();
       const anio = ahora.getFullYear();
-      const mes = ahora.getMonth(); // 0-indexed
-      const desde = fmtDateEC(new Date(anio, mes, 1));
-      const hasta = fmtDateEC(ahora);
-      const porDia = {}; // { '1': {total, subtotal}, '2': {...}, ... }
-      let nextUrl = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${desde}&fecha_final=${hasta}&page_size=100`;
-      let paginas = 0;
-      const vistos = new Set();
-      while(nextUrl && paginas < 100) {
-        const resp = await fetch(nextUrl, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
-        if (!resp.ok) break;
-        const data = await resp.json();
-        (data.results||[]).forEach(d => {
-          if (d.tipo_registro !== 'CLI') return;
-          if (d.anulado) return;
-          if (d.tipo_documento === 'NC') return;
-          if (d.tipo_documento === 'COT') return;
-          if (d.tipo_documento === 'PRO') return;
-          if (!d.vendedor && !d.vendedor_id && !d.vendedor_identificacion) return;
-          const cliRuc = (d.cliente?.ruc || d.cliente?.cedula || '').trim();
-          if (cliRuc === '1793143660001') return;
-          const docKey = d.id || d.documento;
-          if (vistos.has(docKey)) return;
-          vistos.add(docKey);
-          const dia = parseInt((d.fecha_emision||'').split('/')[0]) || 0;
-          if (!dia) return;
-          if (!porDia[dia]) porDia[dia] = { total: 0, subtotal: 0 };
-          porDia[dia].total += parseFloat(d.total || 0);
-          porDia[dia].subtotal += parseFloat(d.subtotal || 0);
+      const mes = ahora.getMonth() + 1; // 1-indexed, igual que frecuencia_dia
+      const porDia = {}; // { dia: {total, subtotal} }
+      Object.values(DATA_CACHE||{}).forEach(clientes => {
+        (clientes||[]).forEach(cli => {
+          (cli.frecuencia_dia||[]).forEach(f => {
+            if (f.anio !== anio || f.mes !== mes) return;
+            if (!porDia[f.dia]) porDia[f.dia] = { total: 0, subtotal: 0 };
+            porDia[f.dia].total += f.total;
+            porDia[f.dia].subtotal += f.subtotal;
+          });
         });
-        nextUrl = data.next || null;
-        paginas++;
-      }
+      });
       const diasArr = Object.keys(porDia).map(d=>parseInt(d)).sort((a,b)=>a-b).map(d=>({
         dia: d,
         total: Math.round(porDia[d].total*100)/100,
         subtotal: Math.round(porDia[d].subtotal*100)/100
       }));
       res.writeHead(200,{'Content-Type':'application/json'});
-      res.end(JSON.stringify({ anio, mes: mes+1, dias: diasArr }));
+      res.end(JSON.stringify({ anio, mes, dias: diasArr }));
     } catch(e) {
       res.writeHead(500,{'Content-Type':'application/json'});
       res.end(JSON.stringify({error: e.message}));
