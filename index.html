@@ -745,8 +745,8 @@ function buildProductosRanking(marcaFiltro, mesFiltro, todoAnio, anioFiltro){
         if(p.nombre==='Transporte') return;
         const marcaProd = detectarMarcaProducto(p.nombre, p.marca);
         if(marcaFiltro!=='TODAS' && marcaProd!==marcaFiltro) return;
-        // Excluir "PROMOS" de ZIAJA: no son productos reales, son combos/promociones
-        if(marcaProd==='ZIAJA' && p.nombre && p.nombre.trim().toUpperCase().startsWith('PROMO')) return;
+        // Excluir "PROMOS": no son productos reales, son combos/promociones (en cualquier marca)
+        if(p.nombre && p.nombre.trim().toUpperCase().startsWith('PROMO')) return;
         const key = p.id || p.nombre;
         if(!productos[key]) productos[key]={nombre:p.nombre, cantidad:0, marca:marcaProd, id:p.id};
         else productos[key].marca = productos[key].marca || marcaProd;
@@ -784,7 +784,14 @@ function buildSeriesMensualesProductos(lista, anio){
 const PALETA_LINEAS=['#a5b4fc','#fcd34d','#6ee7b7','#f9a8d4','#fca5a5','#93c5fd','#fdba74','#c4b5fd','#86efac','#fde047','#67e8f9','#f0abfc','#bef264','#fb923c','#5eead4','#f472b6','#a3a3a3','#7dd3fc','#d9f99d','#e879f9'];
 
 function renderGraficoLineasProductos(lista, anio){
-  const MESES_LABELS=['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const MESES_LABELS_FULL=['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const hoy = new Date();
+  const anioActual = hoy.getFullYear();
+  const mesActual = hoy.getMonth()+1; // 1-12
+  // Cuántos meses mostrar: si es el año en curso, solo hasta el mes actual (no meses futuros);
+  // si es un año pasado, los 12 completos; si fuera un año futuro, ninguno (caso defensivo).
+  const numMeses = anio < anioActual ? 12 : (anio === anioActual ? mesActual : 0);
+  const MESES_LABELS = MESES_LABELS_FULL.slice(0, numMeses);
   const series = buildSeriesMensualesProductos(lista, anio);
   // Estado de visibilidad: por defecto, top 8 visibles, el resto oculto (evita ilegibilidad inicial)
   if(!window._lineasProdVisibles) window._lineasProdVisibles = {};
@@ -793,12 +800,19 @@ function renderGraficoLineasProductos(lista, anio){
     if(window._lineasProdVisibles[k]===undefined) window._lineasProdVisibles[k] = i<8;
   });
 
+  if(numMeses===0){
+    return `<div class="card" id="grafico-lineas-productos-wrap">
+      <div class="card-title"><i class="ti ti-chart-line"></i> Unidades vendidas por mes — ${anio}</div>
+      <p style="font-size:13px;color:var(--muted);padding:10px 0">Sin datos para este período</p>
+    </div>`;
+  }
+
   const W=1200,H=300,padL=46,padR=10,padT=14,padB=26;
   const innerW=W-padL-padR, innerH=H-padT-padB;
   let maxVal=1;
-  lista.forEach(p=>{ const k=p.id||p.nombre; if(!window._lineasProdVisibles[k]) return; Object.values(series[k]).forEach(v=>{ if(v>maxVal) maxVal=v; }); });
+  lista.forEach(p=>{ const k=p.id||p.nombre; if(!window._lineasProdVisibles[k]) return; for(let m=1;m<=numMeses;m++){ const v=series[k][m]||0; if(v>maxVal) maxVal=v; } });
 
-  const xStep = innerW/11;
+  const xStep = numMeses>1 ? innerW/(numMeses-1) : 0;
   const yFor = v => padT + innerH - (v/maxVal*innerH);
   const xFor = mIdx => padL + mIdx*xStep;
 
@@ -809,12 +823,13 @@ function renderGraficoLineasProductos(lista, anio){
   }).join('');
   const xLabels = MESES_LABELS.map((lab,i)=>`<text x="${xFor(i)}" y="${H-8}" font-size="9" fill="#9c958c" text-anchor="middle">${lab}</text>`).join('');
 
+  const mesesArr = Array.from({length:numMeses}, (_,idx)=>idx+1);
   const paths = lista.map((p,i)=>{
     const k=p.id||p.nombre;
     if(!window._lineasProdVisibles[k]) return '';
     const color = PALETA_LINEAS[i%PALETA_LINEAS.length];
-    const pts = [1,2,3,4,5,6,7,8,9,10,11,12].map((m,idx)=>`${xFor(idx)},${yFor(series[k][m]||0)}`).join(' ');
-    const dots = [1,2,3,4,5,6,7,8,9,10,11,12].map((m,idx)=>`<circle cx="${xFor(idx)}" cy="${yFor(series[k][m]||0)}" r="2.5" fill="${color}"/>`).join('');
+    const pts = mesesArr.map((m,idx)=>`${xFor(idx)},${yFor(series[k][m]||0)}`).join(' ');
+    const dots = mesesArr.map((m,idx)=>`<circle cx="${xFor(idx)}" cy="${yFor(series[k][m]||0)}" r="2.5" fill="${color}"/>`).join('');
     return `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2"/>${dots}`;
   }).join('');
 
@@ -865,8 +880,6 @@ function renderProductosPorMarca(marcaSeleccionada, totalMarcaIn){
   const anioActual = new Date().getFullYear();
   // Estado del filtro
 
-  if(marcaSeleccionada !== undefined) window._prodMarcaSel = marcaSeleccionada;
-  const marcaSel = window._prodMarcaSel || 'TODAS';
   let prodMesFiltro = window._prodMesFiltro !== undefined ? window._prodMesFiltro : (new Date().getMonth()+1);
   let prodTodoAnio  = window._prodTodoAnio  !== undefined ? window._prodTodoAnio  : false;
   let prodAnioFiltro = window._prodAnioFiltro !== undefined ? window._prodAnioFiltro : anioActual;
@@ -893,7 +906,13 @@ function renderProductosPorMarca(marcaSeleccionada, totalMarcaIn){
     );
     marcasEnCatalogo = [...marcasSet].sort();
   }
-  const todasMarcas = ['TODAS', ...marcasEnCatalogo];
+  // Botón "TODAS" eliminado: solo se filtra por marca específica
+  const todasMarcas = marcasEnCatalogo;
+
+  if(marcaSeleccionada !== undefined) window._prodMarcaSel = marcaSeleccionada;
+  // Si no hay marca seleccionada o quedó en 'TODAS' (estado obsoleto), usar la primera marca disponible
+  if(!window._prodMarcaSel || window._prodMarcaSel==='TODAS') window._prodMarcaSel = marcasEnCatalogo[0] || 'TODAS';
+  const marcaSel = window._prodMarcaSel;
 
   // Calcular total de la marca seleccionada según período — usa datos exactos por año cuando existen
   function calcTotalMarca(marca, mes, todoAnio, anio){
