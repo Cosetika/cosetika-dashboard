@@ -203,6 +203,12 @@ async function generarDataJson(fi, ff) {
         cli.productos[prodId].nombre = nom;
         cli.productos[prodId].cantidad += cantidad;
         cli.productos[prodId].total += base;
+        // Desglose exacto por año y mes para gráficos mensuales por producto
+        const pmKey = `${anioDoc}-${mes}-${prodId}`;
+        if (!cli.productosPorMes) cli.productosPorMes = {};
+        if (!cli.productosPorMes[pmKey]) cli.productosPorMes[pmKey] = { anio: anioDoc, mes, id: prodId, nombre: nom, marca, cantidad: 0, total: 0 };
+        cli.productosPorMes[pmKey].cantidad += cantidad;
+        cli.productosPorMes[pmKey].total += base;
         if (marca) {
           cli.marcas[marca] = (cli.marcas[marca] || 0) + base;
           // Desglose exacto por año y mes (sin necesidad de ratio en el frontend)
@@ -231,6 +237,7 @@ async function generarDataJson(fi, ff) {
       marcas_anio: Object.values(cli.marcasPorAnio||{}).map(x => ({ anio: x.anio, marca: x.marca, total: Math.round(x.total*100)/100 })),
       marcas_mes: Object.values(cli.marcasPorMes||{}).map(x => ({ anio: x.anio, mes: x.mes, marca: x.marca, total: Math.round(x.total*100)/100 })),
       productos: Object.values(cli.productos).map(p => ({ id: p.id, nombre: p.nombre, codigo: p.codigo, marca: p.marca, cantidad: Math.round(p.cantidad), total: Math.round(p.total*100)/100 })).sort((a,b) => b.cantidad-a.cantidad),
+      productos_mes: Object.values(cli.productosPorMes||{}).map(x => ({ anio: x.anio, mes: x.mes, id: x.id, nombre: x.nombre, marca: x.marca, cantidad: Math.round(x.cantidad*100)/100, total: Math.round(x.total*100)/100 })),
       frecuencia: Object.values(cli.frecuencia).map(f => ({ anio: f.anio, mes: f.mes, total: Math.round(f.total*100)/100, subtotal: Math.round(f.subtotal*100)/100, compras: f.compras })).sort((a,b) => a.anio!==b.anio ? a.anio-b.anio : a.mes-b.mes)
     })).sort((a,b) => b.total-a.total);
   });
@@ -303,6 +310,17 @@ function consolidarMarcasMes(lista){
   return Object.values(mapa).map(x=>({...x, total: Math.round(x.total*100)/100}));
 }
 
+function consolidarProductosMes(lista){
+  const mapa = {};
+  lista.forEach(x=>{
+    const k = x.anio+'|'+x.mes+'|'+(x.id||x.nombre);
+    if(!mapa[k]) mapa[k] = { anio:x.anio, mes:x.mes, id:x.id, nombre:x.nombre, marca:x.marca, cantidad:0, total:0 };
+    mapa[k].cantidad += x.cantidad;
+    mapa[k].total += x.total;
+  });
+  return Object.values(mapa).map(x=>({...x, cantidad: Math.round(x.cantidad*100)/100, total: Math.round(x.total*100)/100}));
+}
+
 let regenerandoEnProceso = false;
 
 async function fusionarMesActualEnCache() {
@@ -335,6 +353,8 @@ async function fusionarMesActualEnCache() {
           return aRestar ? {...ma, total: Math.round((ma.total-aRestar.total)*100)/100} : ma;
         }).filter(ma=>ma.total>0 || ma.anio!==anioActual);
         cli.marcas_mes = (cli.marcas_mes||[]).filter(x => !(x.anio===anioActual && x.mes===mesActual));
+        // productos_mes: igual que marcas_mes, se quita la porción del mes actual (será reemplazada limpia en el Paso 2)
+        cli.productos_mes = (cli.productos_mes||[]).filter(x => !(x.anio===anioActual && x.mes===mesActual));
       });
     });
 
@@ -352,6 +372,7 @@ async function fusionarMesActualEnCache() {
         cli.frecuencia = (cli.frecuencia||[]).concat(cliMes.frecuencia);
         cli.marcas_anio = consolidarMarcasAnio((cli.marcas_anio||[]).concat(cliMes.marcas_anio));
         cli.marcas_mes = consolidarMarcasMes((cli.marcas_mes||[]).concat(cliMes.marcas_mes));
+        cli.productos_mes = consolidarProductosMes((cli.productos_mes||[]).concat(cliMes.productos_mes||[]));
         cli.marcas = consolidarMarcasAnio((cli.marcas||[]).map(m=>({anio:0,marca:m.marca,total:m.total})).concat(cliMes.marcas.map(m=>({anio:0,marca:m.marca,total:m.total})))).map(m=>({marca:m.marca,total:m.total})).sort((a,b)=>b.total-a.total);
         // Productos: NO se pueden sumar incrementalmente como antes (eso causaba doble conteo
         // cada 15 min, acumulando el mismo mes sobre sí mismo). En vez de eso, se reconstruye
