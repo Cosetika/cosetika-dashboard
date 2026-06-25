@@ -353,11 +353,23 @@ async function fusionarMesActualEnCache() {
         cli.marcas_anio = consolidarMarcasAnio((cli.marcas_anio||[]).concat(cliMes.marcas_anio));
         cli.marcas_mes = consolidarMarcasMes((cli.marcas_mes||[]).concat(cliMes.marcas_mes));
         cli.marcas = consolidarMarcasAnio((cli.marcas||[]).map(m=>({anio:0,marca:m.marca,total:m.total})).concat(cliMes.marcas.map(m=>({anio:0,marca:m.marca,total:m.total})))).map(m=>({marca:m.marca,total:m.total})).sort((a,b)=>b.total-a.total);
-        // Productos: sumar cantidades y totales
-        const prodMap = {}; (cli.productos||[]).forEach(p=>{ prodMap[p.id||p.nombre] = {...p}; });
+        // Productos: NO se pueden sumar incrementalmente como antes (eso causaba doble conteo
+        // cada 15 min, acumulando el mismo mes sobre sí mismo). En vez de eso, se reconstruye
+        // cli.productos = productos_historico (todo excepto el mes en curso) + productos del
+        // mes actual recién calculado desde cero. productos_historico se actualiza solo cuando
+        // cambia el mes (ver más abajo), nunca durante el mes en curso.
+        if (!cli.productos_historico_anio || !cli.productos_historico_mes ||
+            cli.productos_historico_anio !== anioActual || cli.productos_historico_mes !== mesActual) {
+          // Cambió el mes (o es la primera fusión tras un deploy/regeneración):
+          // todo lo que había en cli.productos hasta ahora pasa a ser histórico.
+          cli.productos_historico = (cli.productos||[]).map(p=>({...p}));
+          cli.productos_historico_anio = anioActual;
+          cli.productos_historico_mes = mesActual;
+        }
+        const prodMap = {}; (cli.productos_historico||[]).forEach(p=>{ prodMap[p.id||p.nombre] = {...p}; });
         (cliMes.productos||[]).forEach(p=>{
           const k = p.id||p.nombre;
-          if(prodMap[k]){ prodMap[k].cantidad += p.cantidad; prodMap[k].total = Math.round((prodMap[k].total+p.total)*100)/100; }
+          if(prodMap[k]){ prodMap[k] = {...prodMap[k], cantidad: prodMap[k].cantidad + p.cantidad, total: Math.round((prodMap[k].total+p.total)*100)/100}; }
           else prodMap[k] = {...p};
         });
         cli.productos = Object.values(prodMap).sort((a,b)=>b.cantidad-a.cantidad);
