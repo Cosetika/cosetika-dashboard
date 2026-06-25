@@ -665,7 +665,7 @@ function renderMarcasSidebar(marcas){
   document.getElementById('marcas-sb').innerHTML=Object.entries(marcas)
     .sort((a,b)=>b[1]-a[1])
     .map(([m,t])=>`
-      <div class="marca-row" onclick="window._prodMarcaSel='${m}';window._prodTodoAnio=false;window._prodMesFiltro=new Date().getMonth()+1;renderProductosPorMarca()" style="cursor:pointer;border-radius:6px;padding:2px;transition:background 0.15s" title="Ver productos de ${m}" onmouseover="this.style.background='#f5f0eb'" onmouseout="this.style.background='transparent'">
+      <div class="marca-row" onclick="window._prodMarcaSel='${m}';renderProductosPorMarca()" style="cursor:pointer;border-radius:6px;padding:2px;transition:background 0.15s" title="Ver productos de ${m}" onmouseover="this.style.background='#f5f0eb'" onmouseout="this.style.background='transparent'">
         <div class="marca-hdr"><span class="marca-name" style="color:${getMarcaColor(m)};font-weight:600">${m} <i class="ti ti-chevron-right" style="font-size:9px"></i></span><span class="marca-val">${fmt(t)}</span></div>
         <div class="marca-track"><div class="marca-fill" style="width:${pct(t,maxM)}%;background:${getMarcaColor(m)}"></div></div>
       </div>`).join('');
@@ -938,8 +938,7 @@ function renderProductosPorMarca(marcaSeleccionada, totalMarcaIn){
   const anioActual = new Date().getFullYear();
   // Estado del filtro
 
-  let prodMesFiltro = window._prodMesFiltro !== undefined ? window._prodMesFiltro : (new Date().getMonth()+1);
-  let prodTodoAnio  = window._prodTodoAnio  !== undefined ? window._prodTodoAnio  : false;
+  let prodTodoAnio  = true; // se quitó el selector de mes: esta vista siempre muestra el año completo
   let prodAnioFiltro = window._prodAnioFiltro !== undefined ? window._prodAnioFiltro : anioActual;
 
   // Años disponibles en los datos
@@ -999,15 +998,13 @@ function renderProductosPorMarca(marcaSeleccionada, totalMarcaIn){
     return t;
   }
 
-  const lista = buildProductosRanking(marcaSel, prodMesFiltro, prodTodoAnio, prodAnioFiltro);
-  const totalMarca = calcTotalMarca(marcaSel, prodMesFiltro, prodTodoAnio, prodAnioFiltro);
+  const lista = buildProductosRanking(marcaSel, null, prodTodoAnio, prodAnioFiltro);
+  const totalMarca = calcTotalMarca(marcaSel, null, prodTodoAnio, prodAnioFiltro);
   const maxQ = lista[0]?.cantidad||1;
 
   const MESES_LABELS=['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-  const etiqueta = prodTodoAnio ? `Todo ${prodAnioFiltro}` : `${MESES_LABELS[prodMesFiltro]} ${prodAnioFiltro}`;
-  const mesesOpts=[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>
-    `<option value="m${m}" ${!prodTodoAnio&&prodMesFiltro===m?'selected':''}>${MESES_LABELS[m]}</option>`
-  ).join('');
+  const etiqueta = `Todo ${prodAnioFiltro}`;
+
 
   const MARCA_COLORS={'BIOSKIN':'#a5b4fc','ERAYBA':'#fcd34d','ZIAJA':'#6ee7b7','ZIAJA PRO':'#f9a8d4','TODAS':'#c4a882'};
 
@@ -1015,7 +1012,7 @@ function renderProductosPorMarca(marcaSeleccionada, totalMarcaIn){
     <!-- Breadcrumb + volver -->
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
       <div class="breadcrumb" style="margin-bottom:0">
-        <span class="crumb" onclick="${vendActual?'renderVendedor(\''+vendActual.replace(/'/g,"\\'")+'\')':"renderHome()"}">
+        <span class="crumb" onclick="setSubtab('marcas')">
           <i class="ti ti-arrow-left" style="font-size:12px"></i> Volver
         </span>
         <span> › </span>
@@ -1024,19 +1021,14 @@ function renderProductosPorMarca(marcaSeleccionada, totalMarcaIn){
       </div>
     </div>
 
-    <!-- FILTRO 1: Período (año + mes) -->
+    <!-- FILTRO 1: Período (solo año; siempre se ve el año completo) -->
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 14px;background:white;border-radius:10px;border:1px solid var(--border);margin-bottom:10px">
       <i class="ti ti-calendar" style="color:var(--brown);font-size:14px"></i>
       <span style="font-size:12px;color:var(--muted);font-weight:500">Período:</span>
       <select onchange="window._prodAnioFiltro=parseInt(this.value);renderProductosPorMarca()" style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;outline:none;background:white;cursor:pointer">
         ${aniosProdDisp.map(a=>`<option value="${a}" ${a===prodAnioFiltro?'selected':''}>${a}</option>`).join('')}
       </select>
-      <select onchange="if(this.value==='todo'){window._prodTodoAnio=true;}else{window._prodTodoAnio=false;window._prodMesFiltro=parseInt(this.value.replace('m',''));}renderProductosPorMarca()"
-        style="padding:6px 12px;border:1px solid var(--border);border-radius:8px;font-size:12px;outline:none;background:white;cursor:pointer">
-        <option value="todo" ${prodTodoAnio?'selected':''}>Todo el año</option>
-        ${mesesOpts}
-      </select>
-      <span style="font-size:13px;font-weight:600;color:var(--brown)">${etiqueta}</span>
+      <span style="font-size:13px;font-weight:600;color:var(--brown)">Todo ${prodAnioFiltro}</span>
     </div>
 
     <!-- FILTRO 2: Marca (segundo, depende del período) -->
