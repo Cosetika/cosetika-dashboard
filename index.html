@@ -876,6 +876,64 @@ function rerenderGraficoLineasProductos(){
   if(cont && cont.parentElement) cont.outerHTML = html;
 }
 
+// Serie mensual (unidades) de un producto específico, para el acordeón del ranking
+function buildSerieMensualProducto(productoId, productoNombre, anio){
+  const vendedoras = vendActual ? [vendActual] : Object.keys(DATA);
+  const porMes = {}; // mes -> cantidad
+  for(let m=1;m<=12;m++) porMes[m]=0;
+  vendedoras.forEach(v=>{
+    (DATA[v]||[]).forEach(cli=>{
+      (cli.productos_mes||[]).forEach(pm=>{
+        if(pm.anio!==anio) return;
+        const matchId = productoId && pm.id===productoId;
+        const matchNombre = !productoId && pm.nombre===productoNombre;
+        if(!matchId && !matchNombre) return;
+        porMes[pm.mes] = (porMes[pm.mes]||0) + (pm.cantidad||0);
+      });
+    });
+  });
+  return porMes;
+}
+
+function toggleProductoAcordeon(idx, productoId, productoNombre, anio){
+  const fila = document.getElementById('prod-row-'+idx);
+  const existente = document.getElementById('prod-chart-'+idx);
+  if(existente){ existente.remove(); fila?.querySelector('.acordeon-caret')?.classList.remove('ti-chevron-up'); fila?.querySelector('.acordeon-caret')?.classList.add('ti-chevron-down'); return; }
+  // Cerrar cualquier otro acordeón abierto
+  document.querySelectorAll('[id^=prod-chart-]').forEach(el=>el.remove());
+  document.querySelectorAll('.acordeon-caret').forEach(c=>{c.classList.remove('ti-chevron-up');c.classList.add('ti-chevron-down');});
+
+  // Igual que en el gráfico general: no mostrar meses futuros si el año es el actual
+  const hoy = new Date();
+  const numMeses = anio < hoy.getFullYear() ? 12 : (anio === hoy.getFullYear() ? hoy.getMonth()+1 : 0);
+  const porMes = buildSerieMensualProducto(productoId, productoNombre, anio);
+  const MESES_LABELS=['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const mesesArr = Array.from({length:numMeses}, (_,idx)=>idx+1);
+  const maxMes = Math.max(...mesesArr.map(m=>porMes[m]||0), 1);
+  const barras = mesesArr.map(m=>{
+    const v = Math.round(porMes[m]||0);
+    const h = Math.max(Math.round(v/maxMes*60),v>0?3:0);
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;min-width:0">
+      <span style="font-size:10px;color:var(--text);font-weight:600">${v||''}</span>
+      <div style="width:100%;max-width:22px;height:60px;display:flex;align-items:flex-end">
+        <div style="width:100%;background:var(--brown);border-radius:3px 3px 0 0;height:${h}px;transition:height 0.3s"></div>
+      </div>
+      <span style="font-size:9px;color:var(--muted)">${MESES_LABELS[m]}</span>
+    </div>`;
+  }).join('');
+
+  const wrapper = document.createElement('div');
+  wrapper.id = 'prod-chart-'+idx;
+  wrapper.style = 'padding:14px 10px 6px;background:#faf9f8;border-bottom:0.5px solid var(--border);animation:fadeIn 0.2s';
+  wrapper.innerHTML = numMeses===0
+    ? `<p style="font-size:12px;color:var(--muted)">Sin datos para este período</p>`
+    : `<div style="font-size:11px;color:var(--muted);font-weight:600;margin-bottom:8px">Unidades vendidas por mes — ${anio}</div>
+       <div style="display:flex;gap:4px;align-items:flex-end">${barras}</div>`;
+  fila?.insertAdjacentElement('afterend', wrapper);
+  fila?.querySelector('.acordeon-caret')?.classList.remove('ti-chevron-down');
+  fila?.querySelector('.acordeon-caret')?.classList.add('ti-chevron-up');
+}
+
 function renderProductosPorMarca(marcaSeleccionada, totalMarcaIn){
   const anioActual = new Date().getFullYear();
   // Estado del filtro
@@ -1024,7 +1082,10 @@ function renderProductosPorMarca(marcaSeleccionada, totalMarcaIn){
               const marcaColor = MARCA_COLORS[p.marca]||'#9ca3af';
               const cantDisplay = Math.round(p.cantidad);
               const pctBar = Math.min(Math.round(p.cantidad/maxQ*100),100);
-              return `<div style="display:flex;align-items:center;gap:8px;padding:8px 6px;border-bottom:0.5px solid var(--border);transition:background 0.1s" onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='transparent'">
+              const pid = (p.id||'').replace(/'/g,"\\'");
+              const pnombre = (p.nombre||'').replace(/'/g,"\\'");
+              return `<div id="prod-row-${i}" style="display:flex;align-items:center;gap:8px;padding:8px 6px;border-bottom:0.5px solid var(--border);transition:background 0.1s;cursor:pointer" onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='transparent'" onclick="toggleProductoAcordeon(${i},'${pid}','${pnombre}',${prodAnioFiltro})">
+                <i class="ti ti-chevron-down acordeon-caret" style="font-size:12px;color:var(--muted);flex-shrink:0"></i>
                 <span style="font-size:11px;color:var(--muted);min-width:22px;text-align:right;font-weight:700">${i+1}</span>
                 ${p.marca?`<span style="font-size:9px;padding:2px 7px;border-radius:10px;background:${marcaColor}18;color:${marcaColor};font-weight:700;white-space:nowrap;min-width:54px;text-align:center;border:1px solid ${marcaColor}40">${p.marca}</span>`:''}
                 <span style="flex:1;font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p.nombre}">${p.nombre}</span>
@@ -1057,7 +1118,11 @@ function sortProductosMarca(criterio){
         const mc=MC[p.marca]||'#9ca3af';
         const cd=Math.round(p.cantidad);
         const pb=Math.min(Math.round(p.cantidad/maxQ*100),100);
-        return `<div style="display:flex;align-items:center;gap:8px;padding:8px 6px;border-bottom:0.5px solid var(--border);transition:background 0.1s" onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='transparent'">
+        const pid = (p.id||'').replace(/'/g,"\\'");
+        const pnombre = (p.nombre||'').replace(/'/g,"\\'");
+        const anio = window._prodAnioFiltro || new Date().getFullYear();
+        return `<div id="prod-row-${i}" style="display:flex;align-items:center;gap:8px;padding:8px 6px;border-bottom:0.5px solid var(--border);transition:background 0.1s;cursor:pointer" onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='transparent'" onclick="toggleProductoAcordeon(${i},'${pid}','${pnombre}',${anio})">
+          <i class="ti ti-chevron-down acordeon-caret" style="font-size:12px;color:var(--muted);flex-shrink:0"></i>
           <span style="font-size:11px;color:var(--muted);min-width:22px;text-align:right;font-weight:700">${i+1}</span>
           ${p.marca?`<span style="font-size:9px;padding:2px 7px;border-radius:10px;background:${mc}18;color:${mc};font-weight:700;white-space:nowrap;min-width:54px;text-align:center;border:1px solid ${mc}40">${p.marca}</span>`:''}
           <span style="flex:1;font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p.nombre}">${p.nombre}</span>
