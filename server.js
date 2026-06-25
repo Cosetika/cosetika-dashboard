@@ -1186,6 +1186,92 @@ const server = http.createServer(async (req, res) => {
   }
 
 
+  // DIAGNÓSTICO POR PRODUCTO: compara unidades crudas de Contifico vs. las que sobreviven
+  // el filtro de generarDataJson (cantidad===0 || base===0), para un nombre de producto dado.
+  if (urlPath === '/api/diagnostico-producto' && req.method === 'GET') {
+    try {
+      const nombreBuscado = (urlObj.searchParams.get('nombre') || '').toUpperCase().trim();
+      const desde = urlObj.searchParams.get('desde') || '01/01/2026';
+      const hasta = urlObj.searchParams.get('hasta') || fmtDateEC(new Date());
+      let todos = [];
+      let nextUrl = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${desde}&fecha_final=${hasta}&page_size=100`;
+      let paginas = 0;
+      while (nextUrl && paginas < 200) {
+        const resp = await fetch(nextUrl, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
+        if (!resp.ok) break;
+        const data = await resp.json();
+        todos = todos.concat(data.results || []);
+        nextUrl = data.next || null;
+        paginas++;
+      }
+      // Mismo filtro de documento que generarDataJson (sin excluir por base/cantidad todavía)
+      const documentosVistos = new Set();
+      const docsFiltrados = todos.filter(d => {
+        if (d.tipo_registro !== 'CLI') return false;
+        if (d.anulado) return false;
+        if (d.tipo_documento === 'NC') return false;
+        if (d.tipo_documento === 'COT') return false;
+        if (d.tipo_documento === 'PRO') return false;
+        if (!d.vendedor && !d.vendedor_id && !d.vendedor_identificacion) return false;
+        const cliRuc = (d.cliente?.ruc || d.cliente?.cedula || '').trim();
+        if (cliRuc === '1793143660001') return false;
+        const docKey = d.id || d.documento;
+        if (documentosVistos.has(docKey)) return false;
+        documentosVistos.add(docKey);
+        return true;
+      });
+
+      let cantidadTotalCruda = 0, cantidadConBaseValida = 0, cantidadConBaseCero = 0;
+      let lineasCrudas = 0, lineasConBaseCero = 0;
+      const productIdsVistos = new Set();
+      const ejemplosBaseCero = [];
+      const porMesCrudo = {}, porMesFiltrado = {};
+      docsFiltrados.forEach(doc => {
+        const mes = parseInt((doc.fecha_emision || '').split('/')[1]) || 0;
+        (doc.detalles || []).forEach(det => {
+          const nombreDet = (det.producto_nombre || '').toUpperCase().trim();
+          if (nombreDet !== nombreBuscado) return;
+          lineasCrudas++;
+          const cantidad = parseFloat(det.cantidad || 0);
+          const base = parseFloat(det.base_gravable || det.base_cero || 0);
+          productIdsVistos.add(det.producto_id || '(sin id)');
+          cantidadTotalCruda += cantidad;
+          porMesCrudo[mes] = (porMesCrudo[mes]||0) + cantidad;
+          if (!det.producto_id || cantidad === 0 || base === 0) {
+            lineasConBaseCero++;
+            cantidadConBaseCero += cantidad;
+            if (ejemplosBaseCero.length < 5) {
+              ejemplosBaseCero.push({ doc: doc.documento || doc.id, fecha: doc.fecha_emision, cantidad, base_gravable: det.base_gravable, base_cero: det.base_cero, producto_id: det.producto_id||null, precio_unitario: det.precio_unitario, descuento: det.descuento });
+            }
+          } else {
+            cantidadConBaseValida += cantidad;
+            porMesFiltrado[mes] = (porMesFiltrado[mes]||0) + cantidad;
+          }
+        });
+      });
+
+      res.writeHead(200, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({
+        producto_buscado: nombreBuscado,
+        rango: { desde, hasta },
+        producto_ids_distintos_encontrados: [...productIdsVistos],
+        lineas_de_detalle_encontradas: lineasCrudas,
+        cantidad_total_cruda_sin_filtrar: cantidadTotalCruda,
+        cantidad_que_SOBREVIVE_el_filtro_actual: cantidadConBaseValida,
+        cantidad_EXCLUIDA_por_filtro_base_o_cantidad_cero: cantidadConBaseCero,
+        lineas_excluidas_count: lineasConBaseCero,
+        ejemplos_de_lineas_excluidas: ejemplosBaseCero,
+        por_mes_cantidad_cruda: porMesCrudo,
+        por_mes_cantidad_que_sobrevive_filtro: porMesFiltrado
+      }, null, 2));
+    } catch(e) {
+      res.writeHead(500,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({error: e.message}));
+    }
+    return;
+  }
+
+
   // BUSCAR CLIENTE O VENDEDOR EN CONTIFICO
   if (urlPath === '/api/buscar-cliente' && req.method === 'GET') {
     try {
