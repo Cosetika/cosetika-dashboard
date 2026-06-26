@@ -175,8 +175,9 @@ async function generarDataJson(fi, ff) {
       const cliId = doc.cliente && doc.cliente.id ? doc.cliente.id : doc.persona_id;
       const cliNom = (doc.cliente && (doc.cliente.razon_social || doc.cliente.nombre_comercial)) || '—';
       const cliRuc = (doc.cliente && (doc.cliente.ruc || doc.cliente.cedula)) || '';
-      // Buscar provincia: primero en catálogo, luego inferir de dirección
-      const cliProv = catalogoClientes[cliId] || provinciaDesdeDir(doc.cliente?.direccion || '');
+      // Buscar provincia con prioridad: override manual por RUC/Cédula (Excel) > catálogo
+      // sincronizado de Contifico (por persona_id) > inferencia por dirección.
+      const cliProv = resolverProvinciaCliente(cliRuc, cliId, doc.cliente?.direccion || '');
       const mes = parseInt((doc.fecha_emision || '').split('/')[1]) || 0;
       const totalDoc = parseFloat(doc.total || 0);
       const subDoc = parseFloat(doc.subtotal || doc.subtotal_12 || 0);
@@ -672,6 +673,90 @@ let DATA_CACHE_TS = null;
 let INVENTARIO_CACHE = null;
 let INVENTARIO_CACHE_TS = null;
 
+// ─── OVERRIDE DE PROVINCIAS POR CLIENTE (subido manualmente por Fernando) ───
+// Estructura: { [rucOCedula]: 'NOMBRE_PROVINCIA' }. Tiene prioridad máxima sobre
+// catalogoClientes (sync automático de Contifico) y sobre provinciaDesdeDir
+// (inferencia por palabras clave en la dirección) — ver resolverProvinciaCliente().
+let PROVINCIAS_OVERRIDE = {};
+let PROVINCIAS_OVERRIDE_TS = null;
+
+async function cargarProvinciasOverrideDesdeDB() {
+  try {
+    const r = await pool.query("SELECT datos FROM provincias_override ORDER BY actualizado_at DESC LIMIT 1");
+    if (r.rows.length > 0) {
+      PROVINCIAS_OVERRIDE = JSON.parse(r.rows[0].datos);
+      PROVINCIAS_OVERRIDE_TS = new Date().toISOString();
+      console.log('✓ Override de provincias cargado desde PostgreSQL: ' + Object.keys(PROVINCIAS_OVERRIDE).length + ' clientes');
+    } else {
+      PROVINCIAS_OVERRIDE = {};
+      console.log('Sin override de provincias todavía (esperando primera carga de Excel)');
+    }
+  } catch(e) { console.error('Error cargando override de provincias:', e.message); PROVINCIAS_OVERRIDE = {}; }
+}
+
+async function guardarProvinciasOverrideEnDB(data) {
+  try {
+    const json = JSON.stringify(data);
+    await pool.query(`
+      INSERT INTO provincias_override (datos, actualizado_at) VALUES ($1, NOW())
+      ON CONFLICT (id_unico) DO UPDATE SET datos = $1, actualizado_at = NOW()
+    `, [json]);
+    PROVINCIAS_OVERRIDE = data;
+    PROVINCIAS_OVERRIDE_TS = new Date().toISOString();
+    console.log('✓ Override de provincias guardado en PostgreSQL: ' + Object.keys(data).length + ' clientes');
+  } catch(e) { console.error('Error guardando override de provincias:', e.message); }
+}
+
+// Resuelve la provincia de un cliente con la prioridad: override por RUC/Cédula (Excel)
+// > catalogoClientes (sync de Contifico por persona_id) > inferencia por dirección.
+function resolverProvinciaCliente(ruc, personaId, direccion){
+  const rucLimpio = (ruc||'').trim();
+  if(rucLimpio && PROVINCIAS_OVERRIDE[rucLimpio]) return PROVINCIAS_OVERRIDE[rucLimpio];
+  if(personaId && catalogoClientes[personaId]) return catalogoClientes[personaId];
+  return provinciaDesdeDir(direccion || '');
+}
+
+// Parsea el Excel de Personas/Clientes de Contifico (formato .xls o .xlsx), extrayendo
+// RUC/Cédula + Provincia. Encabezados en la fila que contiene 'RUC' y 'Provincia'.
+function parsearExcelProvincias(buffer) {
+  const wb = XLSX.read(buffer, { type: 'buffer' });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const filas = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+
+  let filaEncabezado = -1;
+  for (let i = 0; i < Math.min(10, filas.length); i++) {
+    const fila = filas[i] || [];
+    if (fila.includes('RUC') && fila.includes('Provincia')) { filaEncabezado = i; break; }
+  }
+  if (filaEncabezado === -1) throw new Error('No se encontró la fila de encabezados (RUC/Provincia) en el Excel');
+
+  const encabezados = filas[filaEncabezado];
+  const idxRuc = encabezados.indexOf('RUC');
+  const idxCedula = encabezados.indexOf('Cédula');
+  const idxRazonSocial = encabezados.indexOf('Razón Social');
+  const idxProvincia = encabezados.indexOf('Provincia');
+  if (idxProvincia === -1) throw new Error('No se encontró la columna Provincia');
+
+  const overrides = {};
+  let filasConProvincia = 0, filasSinIdentificador = 0;
+  for (let i = filaEncabezado + 1; i < filas.length; i++) {
+    const fila = filas[i];
+    if (!fila) continue;
+    const razonSocial = idxRazonSocial !== -1 ? (fila[idxRazonSocial]||'').toString().trim() : '';
+    if (!razonSocial) continue; // fila vacía o de otro tipo
+    const ruc = idxRuc !== -1 ? (fila[idxRuc]||'').toString().trim() : '';
+    const cedula = idxCedula !== -1 ? (fila[idxCedula]||'').toString().trim() : '';
+    const identificador = ruc || cedula;
+    const provincia = (fila[idxProvincia]||'').toString().trim().toUpperCase();
+    if (!identificador) { filasSinIdentificador++; continue; }
+    if (!provincia) continue; // sin provincia en el Excel: no sobreescribir nada
+    overrides[identificador] = provincia;
+    filasConProvincia++;
+  }
+  return { overrides, filasConProvincia, filasSinIdentificador, totalFilas: filas.length - filaEncabezado - 1 };
+}
+
+
 async function cargarInventarioDesdeDB() {
   try {
     const r = await pool.query("SELECT datos, fecha_corte FROM inventario_data ORDER BY actualizado_at DESC LIMIT 1");
@@ -843,6 +928,12 @@ async function initDB() {
         id_unico VARCHAR(10) DEFAULT 'principal' UNIQUE,
         ultima_descarga TIMESTAMP
       );
+      CREATE TABLE IF NOT EXISTS provincias_override (
+        id SERIAL PRIMARY KEY,
+        id_unico VARCHAR(10) DEFAULT 'principal' UNIQUE,
+        datos TEXT NOT NULL,
+        actualizado_at TIMESTAMP DEFAULT NOW()
+      );
       CREATE TABLE IF NOT EXISTS visitas (
         id SERIAL PRIMARY KEY, lugar VARCHAR(255) NOT NULL,
         tipo VARCHAR(50) NOT NULL, asesora VARCHAR(255) NOT NULL,
@@ -891,7 +982,7 @@ async function initDB() {
     console.log('DB inicializada');
   } catch(e) { console.error('Error DB:', e.message); }
 }
-initDB().then(() => cargarDataDesdeDB()).then(() => cargarInventarioDesdeDB()).catch(e => console.error('Error init:', e.message));
+initDB().then(() => cargarDataDesdeDB()).then(() => cargarInventarioDesdeDB()).then(() => cargarProvinciasOverrideDesdeDB()).catch(e => console.error('Error init:', e.message));
 programarRegeneracionDiaria();
 
 const MIME = { '.html':'text/html','.js':'application/javascript','.css':'text/css','.json':'application/json','.png':'image/png','.jpg':'image/jpeg','.ico':'image/x-icon' };
@@ -1837,6 +1928,43 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(500, {'Content-Type':'application/json'});
       res.end(JSON.stringify({ ok:false, error: e.message }));
     }
+    return;
+  }
+
+  // SUBIR EXCEL DE PROVINCIAS POR CLIENTE (multipart/form-data, campo 'file')
+  if (urlPath === '/api/provincias/subir' && req.method === 'POST') {
+    try {
+      const buf = await bodyBuffer(req);
+      const archivo = parseMultipartFile(buf, req.headers['content-type']);
+      if (!archivo) {
+        res.writeHead(400, {'Content-Type':'application/json'});
+        res.end(JSON.stringify({ ok:false, error: 'No se encontró el archivo en la solicitud (campo "file")' }));
+        return;
+      }
+      const { overrides, filasConProvincia, filasSinIdentificador, totalFilas } = parsearExcelProvincias(archivo.buffer);
+      await guardarProvinciasOverrideEnDB(overrides);
+      res.writeHead(200, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({
+        ok: true,
+        clientes_cargados: filasConProvincia,
+        filas_sin_identificador: filasSinIdentificador,
+        total_filas_excel: totalFilas
+      }));
+    } catch(e) {
+      res.writeHead(500, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:false, error: e.message }));
+    }
+    return;
+  }
+
+  // ESTADO DEL OVERRIDE DE PROVINCIAS
+  if (urlPath === '/api/provincias/estado' && req.method === 'GET') {
+    res.writeHead(200, {'Content-Type':'application/json'});
+    res.end(JSON.stringify({
+      ok: true,
+      clientes_con_override: Object.keys(PROVINCIAS_OVERRIDE).length,
+      actualizado_en: PROVINCIAS_OVERRIDE_TS
+    }));
     return;
   }
 
