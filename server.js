@@ -79,39 +79,6 @@ let cache = { documentos: [], ultima_sync: null, sincronizando: false };
 let catalogoProductos = {};
 let catalogoSyncedAt = null;
 
-// ─── CATÁLOGO DE CLIENTES (id → provincia) ───────────────────
-let catalogoClientes = {}; // { persona_id: provincia }
-let catalogoClientesSyncedAt = null;
-
-async function sincronizarCatalogoClientes() {
-  try {
-    console.log('Sincronizando catálogo de clientes...');
-    let nuevoCatalogo = {};
-    let nextUrl = 'https://api.contifico.com/sistema/api/v1/persona/?es_cliente=true&page_size=100';
-    let paginas = 0;
-    while (nextUrl && paginas < 50) {
-      const resp = await fetch(nextUrl, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
-      if (!resp.ok) break;
-      const data = await resp.json();
-      const results = Array.isArray(data) ? data : (data.results || []);
-      results.forEach(p => {
-        if (p.id && p.direccion) {
-          nuevoCatalogo[p.id] = provinciaDesdeDir(p.direccion);
-        }
-      });
-      nextUrl = Array.isArray(data) ? null : (data.next || null);
-      paginas++;
-    }
-    if (Object.keys(nuevoCatalogo).length > 0) {
-      catalogoClientes = nuevoCatalogo;
-      catalogoClientesSyncedAt = new Date().toISOString();
-      console.log('Catálogo clientes: ' + Object.keys(catalogoClientes).length + ' clientes con provincia');
-    }
-  } catch(e) { console.error('Error catálogo clientes:', e.message); }
-}
-sincronizarCatalogoClientes().catch(e => console.error(e));
-setInterval(() => sincronizarCatalogoClientes().catch(e => console.error(e)), 24 * 60 * 60 * 1000);
-
 async function sincronizarCatalogo() {
   try {
     let nuevosCatalogo = {};
@@ -688,8 +655,8 @@ let INVENTARIO_CACHE_TS = null;
 
 // ─── OVERRIDE DE PROVINCIAS POR CLIENTE (subido manualmente por Fernando) ───
 // Estructura: { [rucOCedula]: 'NOMBRE_PROVINCIA' }. Tiene prioridad máxima sobre
-// catalogoClientes (sync automático de Contifico) y sobre provinciaDesdeDir
-// (inferencia por palabras clave en la dirección) — ver resolverProvinciaCliente().
+// provinciaDesdeDir (inferencia por palabras clave en la dirección, que se usa
+// solo como respaldo cuando el cliente no aparece en el Excel) — ver resolverProvinciaCliente().
 let PROVINCIAS_OVERRIDE = {};
 let PROVINCIAS_OVERRIDE_TS = null;
 
@@ -720,12 +687,12 @@ async function guardarProvinciasOverrideEnDB(data) {
   } catch(e) { console.error('Error guardando override de provincias:', e.message); }
 }
 
-// Resuelve la provincia de un cliente con la prioridad: override por RUC/Cédula (Excel)
-// > catalogoClientes (sync de Contifico por persona_id) > inferencia por dirección.
+// Resuelve la provincia de un cliente con la prioridad: override por RUC/Cédula (Excel,
+// subido manualmente por Fernando) > inferencia por palabras clave en la dirección
+// (Contifico no expone un campo "provincia" directo en la API, solo dirección de texto).
 function resolverProvinciaCliente(ruc, personaId, direccion){
   const rucLimpio = (ruc||'').trim();
   if(rucLimpio && PROVINCIAS_OVERRIDE[rucLimpio]) return PROVINCIAS_OVERRIDE[rucLimpio];
-  if(personaId && catalogoClientes[personaId]) return catalogoClientes[personaId];
   return provinciaDesdeDir(direccion || '');
 }
 
