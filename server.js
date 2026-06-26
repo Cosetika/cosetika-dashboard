@@ -205,7 +205,10 @@ async function generarDataJson(fi, ff) {
         const prodId = det.producto_id || '';
         const cantidad = parseFloat(det.cantidad || 0);
         const base = parseFloat(det.base_gravable || det.base_cero || 0);
-        if (!prodId || cantidad === 0 || base === 0) return;
+        // Solo se descarta si no hay producto identificable o si la cantidad es cero.
+        // base===0 es válido (regalos, cortesías, descuento 100%): se cuenta la unidad
+        // vendida/entregada, simplemente no aporta nada al total en $.
+        if (!prodId || cantidad === 0) return;
         const cat = catalogoProductos[prodId] || {};
         const marca = cat.marca || '';
         const nom = cat.nombre || det.producto_nombre || '';
