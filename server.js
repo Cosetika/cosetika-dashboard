@@ -1239,14 +1239,27 @@ const server = http.createServer(async (req, res) => {
       let lineasCrudas = 0, lineasExcluidas = 0;
       const productIdsVistos = new Set();
       const ejemplosExcluidos = [];
-      const ejemplosSinCoincidirId = [];
       const porMesCrudo = {}, porMesFiltrado = {};
       const docsConEsteProducto = new Set();
       const idsBuscados = new Set(idsCoincidentes.map(x=>x.id));
+      // Líneas que mencionan este nombre por texto (det.producto_nombre) pero cuyo producto_id
+      // NO está en el catálogo resuelto arriba — estas se pierden silenciosamente en generarDataJson,
+      // que también resuelve el nombre vía catalogoProductos[producto_id], no por texto crudo.
+      let cantidadPorNombreSinIdEnCatalogo = 0;
+      const ejemplosPorNombreSinIdEnCatalogo = [];
       docsFiltrados.forEach(doc => {
         const mes = parseInt((doc.fecha_emision || '').split('/')[1]) || 0;
         (doc.detalles || []).forEach(det => {
-          if (!idsBuscados.has(det.producto_id)) return;
+          const nombreDetNorm = (det.producto_nombre||'').toUpperCase().trim().replace(/\s+/g,' ');
+          const coincidePorId = idsBuscados.has(det.producto_id);
+          const coincidePorNombre = nombreDetNorm === nombreBuscado;
+          if (!coincidePorId && coincidePorNombre) {
+            cantidadPorNombreSinIdEnCatalogo += parseFloat(det.cantidad||0);
+            if (ejemplosPorNombreSinIdEnCatalogo.length < 5) {
+              ejemplosPorNombreSinIdEnCatalogo.push({ doc: doc.documento||doc.id, fecha: doc.fecha_emision, cantidad: det.cantidad, producto_id: det.producto_id||null, producto_nombre_crudo: det.producto_nombre });
+            }
+          }
+          if (!coincidePorId) return;
           lineasCrudas++;
           const cantidad = parseFloat(det.cantidad || 0);
           const base = parseFloat(det.base_gravable || det.base_cero || 0);
@@ -1275,7 +1288,8 @@ const server = http.createServer(async (req, res) => {
       Object.values(DATA_CACHE||{}).forEach(clientes=>{
         (clientes||[]).forEach(cli=>{
           (cli.productos_mes||[]).forEach(pm=>{
-            if (pm.anio===anioConsulta && (pm.nombre||'').toUpperCase().trim()===nombreBuscado) {
+            const nombrePmNorm = (pm.nombre||'').toUpperCase().trim().replace(/\s+/g,' ');
+            if (pm.anio===anioConsulta && nombrePmNorm===nombreBuscado) {
               cantidadEnCacheActual += pm.cantidad||0;
             }
           });
@@ -1297,6 +1311,8 @@ const server = http.createServer(async (req, res) => {
         ejemplos_de_lineas_excluidas: ejemplosExcluidos,
         cantidad_actualmente_en_DATA_CACHE_productos_mes: cantidadEnCacheActual,
         diferencia_entre_calculo_en_vivo_y_DATA_CACHE: Math.round((cantidadConFiltroNuevo - cantidadEnCacheActual)*100)/100,
+        cantidad_con_nombre_coincidente_pero_SIN_id_en_catalogo: cantidadPorNombreSinIdEnCatalogo,
+        ejemplos_nombre_coincidente_sin_id_en_catalogo: ejemplosPorNombreSinIdEnCatalogo,
         por_mes_cantidad_cruda: porMesCrudo,
         por_mes_cantidad_que_sobrevive_filtro: porMesFiltrado
       }, null, 2));
