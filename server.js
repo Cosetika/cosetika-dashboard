@@ -403,6 +403,9 @@ function construirInventarioPorMarca(marcaFiltro) {
     const stock = inv ? inv.cantidad : 0;
     const rotacionMensual = rotacion[id] || 0;
     const cobertura = rotacionMensual > 0 ? stock / rotacionMensual : (stock > 0 ? 99 : 0);
+    // Cobertura 12 meses: cuántas unidades faltan (o sobran, si es negativo) para
+    // tener cubierto todo el año a partir de la rotación actual.
+    const necesidad12Meses = (rotacionMensual * 12) - stock;
     return {
       id,
       sku: info.codigo || (inv ? inv.sku : ''),
@@ -411,6 +414,7 @@ function construirInventarioPorMarca(marcaFiltro) {
       stock: Math.round(stock*100)/100,
       rotacion_mensual: Math.round(rotacionMensual*100)/100,
       cobertura_meses: Math.round(cobertura*10)/10,
+      necesidad_12_meses: Math.round(necesidad12Meses),
       semaforo: calcularSemaforo(marcaFiltro, cobertura)
     };
   }).sort((a,b) => a.cobertura_meses - b.cobertura_meses);
