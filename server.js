@@ -1191,14 +1191,16 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // VENTAS DEL MES EN CURSO POR DÍA (para gráfico de líneas día 1 al día actual)
+  // VENTAS POR DÍA DE UN MES (para gráfico de líneas día 1 al último día del mes,
+  // o hasta hoy si es el mes en curso). Acepta ?anio= y ?mes= opcionales; por defecto
+  // usa el mes/año actuales del servidor (comportamiento original).
   // Lee de DATA_CACHE (ya mantenido por fusionarMesActualEnCache cada 15 min) — instantáneo,
   // sin pegarle a Contifico en vivo cada vez que alguien abre la pestaña Facturas.
   if (urlPath === '/api/ventas-mes-actual' && req.method === 'GET') {
     try {
       const ahora = new Date();
-      const anio = ahora.getFullYear();
-      const mes = ahora.getMonth() + 1; // 1-indexed, igual que frecuencia_dia
+      const anio = parseInt(urlObj.searchParams.get('anio')) || ahora.getFullYear();
+      const mes = parseInt(urlObj.searchParams.get('mes')) || (ahora.getMonth() + 1); // 1-indexed, igual que frecuencia_dia
       const porDia = {}; // { dia: {total, subtotal} }
       Object.values(DATA_CACHE||{}).forEach(clientes => {
         (clientes||[]).forEach(cli => {

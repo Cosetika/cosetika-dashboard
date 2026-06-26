@@ -1514,9 +1514,20 @@ async function renderFacturasHoy(){
         <div id="leyenda-comparativo" style="display:flex;flex-wrap:wrap;gap:14px;margin-top:10px;justify-content:center"></div>
       </div>
 
-      <!-- Ventas del mes en curso por día -->
+      <!-- Ventas por día (filtrable por mes del año en curso) -->
       <div class="card" style="margin-bottom:12px">
-        <div class="card-title"><i class="ti ti-chart-line"></i> Ventas de ${MESES_NOMBRE[new Date().getMonth()]} por día (sin IVA)</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:4px">
+          <div class="card-title" style="margin-bottom:0"><i class="ti ti-chart-line"></i> Ventas por día (sin IVA)</div>
+          <select id="select-mes-ventas-dia" onchange="window._ventasDiaMes=parseInt(this.value);cargarYDibujarVentasMesDia()" style="padding:5px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;outline:none;background:white;cursor:pointer">
+            ${MESES_NOMBRE.map((nombreMes,idx)=>{
+              const numMes = idx+1;
+              const mesActualReal = new Date().getMonth()+1;
+              // No se muestran meses futuros del año en curso (todavía no hay datos)
+              if(numMes>mesActualReal) return '';
+              return `<option value="${numMes}" ${numMes===mesActualReal?'selected':''}>${nombreMes}</option>`;
+            }).join('')}
+          </select>
+        </div>
         <div style="width:100%;overflow-x:auto">
           <canvas id="grafico-ventas-mes-dia" style="display:block;width:100%;min-width:480px;height:220px"></canvas>
         </div>
@@ -1658,12 +1669,18 @@ async function cargarYDibujarVentasMesDia(){
   const statusEl = document.getElementById('ventas-mes-dia-status');
   if(statusEl) statusEl.textContent = 'Cargando...';
   try{
-    const r = await fetch('/api/ventas-mes-actual');
+    const anioActualReal = new Date().getFullYear();
+    const mesActualReal = new Date().getMonth()+1;
+    const mesSeleccionado = window._ventasDiaMes || mesActualReal;
+    const r = await fetch(`/api/ventas-mes-actual?anio=${anioActualReal}&mes=${mesSeleccionado}`);
     const data = await r.json();
     const dias = data.dias || [];
-    const hoyDia = new Date().getDate();
-    // Eje X: todos los días del 1 al día actual (rellenando ceros si no hay ventas ese día)
-    const ejeDias = []; for(let d=1; d<=hoyDia; d++) ejeDias.push(d);
+    // Si es el mes en curso, el eje llega solo hasta hoy; si es un mes pasado ya
+    // cerrado, llega hasta el último día real de ese mes.
+    const ultimoDiaDelMes = new Date(anioActualReal, mesSeleccionado, 0).getDate();
+    const ultimoDia = mesSeleccionado===mesActualReal ? new Date().getDate() : ultimoDiaDelMes;
+    // Eje X: todos los días del 1 al último día correspondiente (rellenando ceros si no hay ventas ese día)
+    const ejeDias = []; for(let d=1; d<=ultimoDia; d++) ejeDias.push(d);
     const valoresPorDia = {}; dias.forEach(d=>{ valoresPorDia[d.dia] = d.subtotal; });
     const serie = { nombre:'Sin IVA', color:'#A0684A', valores: ejeDias.map(d=>valoresPorDia[d] ?? 0) };
     if(statusEl) statusEl.textContent = '';
