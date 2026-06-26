@@ -547,7 +547,11 @@ async function fusionarMesActualEnCache() {
         cli.marcas_anio = consolidarMarcasAnio((cli.marcas_anio||[]).concat(cliMes.marcas_anio));
         cli.marcas_mes = consolidarMarcasMes((cli.marcas_mes||[]).concat(cliMes.marcas_mes));
         cli.productos_mes = consolidarProductosMes((cli.productos_mes||[]).concat(cliMes.productos_mes||[]));
-        cli.marcas = consolidarMarcasAnio((cli.marcas||[]).map(m=>({anio:0,marca:m.marca,total:m.total})).concat(cliMes.marcas.map(m=>({anio:0,marca:m.marca,total:m.total})))).map(m=>({marca:m.marca,total:m.total})).sort((a,b)=>b.total-a.total);
+        // cli.marcas: reconstruir COMPLETO desde marcas_anio (que ya está bien mantenido,
+        // con resta/suma correcta del mes actual arriba) — NUNCA acumular sobre el cli.marcas
+        // anterior, porque ese campo no tenía el mismo tratamiento y se duplicaba cada 15 min.
+        cli.marcas = consolidarMarcasAnio((cli.marcas_anio||[]).map(ma=>({anio:0,marca:ma.marca,total:ma.total})))
+          .map(m=>({marca:m.marca,total:m.total})).sort((a,b)=>b.total-a.total);
         // Productos: NO se pueden sumar incrementalmente como antes (eso causaba doble conteo
         // cada 15 min, acumulando el mismo mes sobre sí mismo). En vez de eso, se reconstruye
         // cli.productos = productos_historico (todo excepto el mes en curso) + productos del
@@ -625,7 +629,10 @@ async function fusionarAnioActualEnCache(anioActual, dataAnio) {
       cli.marcas_anio = (cli.marcas_anio||[]).concat(cliAnio.marcas_anio);
       cli.marcas_mes = (cli.marcas_mes||[]).concat(cliAnio.marcas_mes);
       cli.productos_mes = (cli.productos_mes||[]).concat(cliAnio.productos_mes||[]);
-      cli.marcas = consolidarMarcasAnio((cli.marcas||[]).map(m=>({anio:0,marca:m.marca,total:m.total})).concat(cliAnio.marcas.map(m=>({anio:0,marca:m.marca,total:m.total})))).map(m=>({marca:m.marca,total:m.total})).sort((a,b)=>b.total-a.total);
+      // cli.marcas: reconstruir COMPLETO desde marcas_anio (ya correctamente filtrado/
+      // reinsertado arriba), nunca acumular sobre el cli.marcas anterior.
+      cli.marcas = consolidarMarcasAnio((cli.marcas_anio||[]).map(ma=>({anio:0,marca:ma.marca,total:ma.total})))
+        .map(m=>({marca:m.marca,total:m.total})).sort((a,b)=>b.total-a.total);
       // Productos: reconstruir desde productos_mes (ya filtrado/concatenado arriba con los años
       // anteriores intactos + el año actual fresco) en vez de sumar incrementalmente sobre
       // cli.productos — así se evita cualquier riesgo de doble conteo, sin depender de un
