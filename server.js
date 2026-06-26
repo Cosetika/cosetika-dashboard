@@ -1233,7 +1233,7 @@ const server = http.createServer(async (req, res) => {
           const nombreCat = (info.nombre||'').toUpperCase().trim().replace(/\s+/g,' ');
           return nombreCat.includes(nombreBuscado) || nombreBuscado.includes(nombreCat);
         })
-        .map(([id, info]) => ({ id, nombre: info.nombre, marca: info.marca }));
+        .map(([id, info]) => ({ id, nombre: info.nombre, marca: info.marca, codigo: info.codigo }));
 
       let cantidadTotalCruda = 0, cantidadConFiltroNuevo = 0, cantidadExcluidaPorCantidadCero = 0;
       let lineasCrudas = 0, lineasExcluidas = 0;
