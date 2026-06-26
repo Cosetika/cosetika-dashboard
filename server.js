@@ -2008,6 +2008,59 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // DIAGNÓSTICO: comparar el total de una marca en vivo (recalculado desde Contifico)
+  // contra lo que hay actualmente en DATA_CACHE (marcas_anio), para detectar pérdida
+  // de datos en la fusión incremental/anual.
+  if (urlPath === '/api/diagnostico-marca-total' && req.method === 'GET') {
+    try {
+      const marcaBuscada = (urlObj.searchParams.get('marca') || '').toUpperCase().trim();
+      const anio = parseInt(urlObj.searchParams.get('anio')) || new Date().getFullYear();
+      const desde = urlObj.searchParams.get('desde') || `01/01/${anio}`;
+      const hasta = urlObj.searchParams.get('hasta') || fmtDateEC(new Date());
+
+      // 1) Calcular EN VIVO desde Contifico (rehace generarDataJson para el rango)
+      const dataEnVivo = await generarDataJson(desde, hasta);
+      let totalEnVivo = 0;
+      Object.values(dataEnVivo).forEach(clientes => {
+        clientes.forEach(cli => {
+          (cli.marcas_anio||[]).filter(x=>x.marca===marcaBuscada && x.anio===anio).forEach(x=>{ totalEnVivo += x.total; });
+        });
+      });
+
+      // 2) Leer lo que HAY ACTUALMENTE en DATA_CACHE
+      let totalEnCache = 0;
+      let entradasConTotalCero = 0;
+      let clientesConLaMarca = 0;
+      Object.values(DATA_CACHE||{}).forEach(clientes => {
+        (clientes||[]).forEach(cli => {
+          const entradas = (cli.marcas_anio||[]).filter(x=>x.marca===marcaBuscada && x.anio===anio);
+          if (entradas.length>0) clientesConLaMarca++;
+          entradas.forEach(x=>{
+            totalEnCache += x.total;
+            if (x.total<=0) entradasConTotalCero++;
+          });
+        });
+      });
+
+      res.writeHead(200, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({
+        marca_buscada: marcaBuscada,
+        anio,
+        rango_consultado_en_vivo: { desde, hasta },
+        total_EN_VIVO_recalculado_desde_Contifico: Math.round(totalEnVivo*100)/100,
+        total_actual_en_DATA_CACHE: Math.round(totalEnCache*100)/100,
+        diferencia: Math.round((totalEnVivo-totalEnCache)*100)/100,
+        clientes_con_esta_marca_en_cache: clientesConLaMarca,
+        entradas_con_total_cero_o_negativo_en_cache: entradasConTotalCero,
+        data_cache_actualizado_en: DATA_CACHE_TS
+      }, null, 2));
+    } catch(e) {
+      res.writeHead(500, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({error: e.message}));
+    }
+    return;
+  }
+
   // DIAGNÓSTICO: probar resolverProvinciaCliente con un RUC/Cédula específico
   if (urlPath === '/api/provincias/diagnostico' && req.method === 'GET') {
     const identificador = (urlObj.searchParams.get('id')||'').trim();
