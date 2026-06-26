@@ -2494,7 +2494,7 @@ function renderProvincias(provSeleccionada){
           <div class="hbar" onclick="renderProvincias('${p.nombre.replace(/'/g,"\\'")}')">
             <span class="hbar-lbl" title="${p.nombre}">${p.nombre}</span>
             <div class="hbar-track"><div class="hbar-fill brown" style="width:${pct(p.total,maxProv)}%"></div></div>
-            <span class="hbar-val">${fmt(p.total)}</span>
+            <span class="hbar-val" style="min-width:130px;max-width:150px">${fmt(p.total)} <span style="font-size:11px;color:var(--muted);font-weight:400">(${totalGlobal>0?Math.round(p.total/totalGlobal*1000)/10:0}%)</span></span>
           </div>`).join('')}
       </div>`;
   } else {
