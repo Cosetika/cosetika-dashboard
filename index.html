@@ -134,6 +134,9 @@
   </div>
   <div class="hdr-right">
 
+    <div class="icon-btn" id="btn-backup" title="Descargar backup" style="display:none" onclick="descargarBackupDB()">
+      <i class="ti ti-database-export"></i>
+    </div>
     <div class="icon-btn" id="btn-config" title="Configuración" style="display:none" onclick="setMod('config')"><i class="ti ti-settings"></i></div>
     <div style="display:flex;align-items:center;gap:8px">
       <div id="hdr-avatar" style="width:32px;height:32px;border-radius:50%;background:var(--brown);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;flex-shrink:0;transition:background 0.3s;cursor:pointer" title="Cerrar sesión" onclick="if(confirm('¿Cerrar sesión?')){sessionStorage.clear();window.location.href='/login';}"></div>
@@ -479,6 +482,52 @@ function descargarInventarioExcel(marca, fechaCorteFmt){
   XLSX.utils.book_append_sheet(wb, ws, marca.substring(0,31));
   const nombreArchivo = `Inventario_${marca.replace(/\s+/g,'_')}_${fechaCorteFmt.replace(/\//g,'-')}.xlsx`;
   XLSX.writeFile(wb, nombreArchivo);
+}
+
+// ─── BACKUP DE BASE DE DATOS (descarga manual, recordatorio semanal) ────────
+async function actualizarEstadoBotonBackup(){
+  const btn = document.getElementById('btn-backup');
+  if(!btn) return;
+  try{
+    const r = await fetch('/api/backup/estado');
+    const data = await r.json();
+    if(!data.ok) return;
+    if(data.necesita_backup){
+      btn.style.color = '#E24B4A';
+      btn.title = data.ultima_descarga
+        ? `Descargar backup — han pasado ${data.dias_desde_ultima_descarga} días desde la última descarga`
+        : 'Descargar backup — todavía no se ha hecho ninguna descarga';
+    } else {
+      btn.style.color = '';
+      btn.title = `Descargar backup — última descarga hace ${data.dias_desde_ultima_descarga} día(s)`;
+    }
+  }catch(e){ /* silencioso: si falla la consulta, el botón se queda en su estado por defecto */ }
+}
+
+async function descargarBackupDB(){
+  const btn = document.getElementById('btn-backup');
+  const iconoOriginal = btn ? btn.innerHTML : '';
+  if(btn) btn.innerHTML = '<i class="ti ti-loader"></i>';
+  try{
+    const res = await fetch('/api/backup/descargar');
+    if(!res.ok){ alert('Error al generar el backup'); return; }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const fecha = new Date();
+    const fechaStr = `${String(fecha.getDate()).padStart(2,'0')}-${String(fecha.getMonth()+1).padStart(2,'0')}-${fecha.getFullYear()}`;
+    a.href = url;
+    a.download = `backup_cosetika_${fechaStr}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    await actualizarEstadoBotonBackup();
+  }catch(e){
+    alert('Error al descargar el backup: ' + e.message);
+  }finally{
+    if(btn) btn.innerHTML = iconoOriginal;
+  }
 }
 
 function renderModVisitas(){
@@ -3056,6 +3105,8 @@ document.addEventListener('DOMContentLoaded', function() {
     if(btnCfg) btnCfg.style.display = 'flex';
     const modRep = document.getElementById('mod-reportes');
     if(modRep) modRep.style.display = 'flex';
+    const btnBackup = document.getElementById('btn-backup');
+    if(btnBackup){ btnBackup.style.display = 'flex'; actualizarEstadoBotonBackup(); }
   }
 
   // Módulos según permisos — config y reportes controlados arriba
