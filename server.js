@@ -2,6 +2,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { Pool } = require('pg');
+const XLSX = require('xlsx');
 
 const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.CONTIFICO_API_KEY || '';
@@ -266,6 +267,151 @@ function fmtDateEC(d) {
   return `${dd}/${mm}/${yyyy}`;
 }
 
+// ─── INVENTARIO: parseo del Excel "Reporte de Saldos de Inventario por Bodega" ──
+// Lee SKU (columna 'Código'), suma 'Bodega POS' + 'BODEGA CASA', e ignora el resto
+// de bodegas/personas. Hace match contra catalogoProductos por código (SKU corto),
+// que ya viene poblado desde la API de productos de Contifico (p.codigo).
+function parsearExcelInventario(buffer) {
+  const wb = XLSX.read(buffer, { type: 'buffer' });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const filas = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+
+  // Fecha de corte: buscar en las primeras filas una celda que diga "Fecha de Corte: YYYY-MM-DD"
+  let fechaCorte = null;
+  for (let i = 0; i < Math.min(6, filas.length); i++) {
+    const celda = (filas[i] || []).find(c => typeof c === 'string' && c.includes('Fecha de Corte'));
+    if (celda) {
+      const m = /(\d{4}-\d{2}-\d{2})/.exec(celda);
+      if (m) fechaCorte = m[1];
+    }
+  }
+  if (!fechaCorte) fechaCorte = fmtDateEC(new Date()).split('/').reverse().join('-'); // fallback: hoy
+
+  // Encontrar la fila de encabezados: la que contiene 'Código' y 'Producto'
+  let filaEncabezado = -1;
+  for (let i = 0; i < Math.min(15, filas.length); i++) {
+    const fila = filas[i] || [];
+    if (fila.includes('Código') && fila.includes('Producto')) { filaEncabezado = i; break; }
+  }
+  if (filaEncabezado === -1) throw new Error('No se encontró la fila de encabezados (Código/Producto) en el Excel');
+
+  const encabezados = filas[filaEncabezado];
+  const idxCodigo = encabezados.indexOf('Código');
+  const idxProducto = encabezados.indexOf('Producto');
+  const idxMarca = encabezados.indexOf('Marca');
+  const idxPOS = encabezados.indexOf('Bodega POS');
+  const idxCasa = encabezados.findIndex(h => (h||'').toString().toUpperCase().trim() === 'BODEGA CASA');
+  if (idxCodigo === -1) throw new Error('No se encontró la columna Código');
+  if (idxPOS === -1 && idxCasa === -1) throw new Error('No se encontraron las columnas Bodega POS / BODEGA CASA');
+
+  const filasProducto = [];
+  for (let i = filaEncabezado + 1; i < filas.length; i++) {
+    const fila = filas[i];
+    if (!fila || fila[idxCodigo] === null || fila[idxCodigo] === undefined || fila[idxCodigo] === '') continue; // fila de totales u otra vacía
+    const sku = String(fila[idxCodigo]).trim();
+    const nombre = idxProducto !== -1 ? (fila[idxProducto]||'').toString().trim() : '';
+    const marca = idxMarca !== -1 ? (fila[idxMarca]||'').toString().trim().toUpperCase() : '';
+    const cantPOS = idxPOS !== -1 ? (parseFloat(fila[idxPOS]) || 0) : 0;
+    const cantCasa = idxCasa !== -1 ? (parseFloat(fila[idxCasa]) || 0) : 0;
+    filasProducto.push({ sku, nombre, marca, cantidad: cantPOS + cantCasa });
+  }
+  return { fechaCorte, filasProducto };
+}
+
+// Resuelve cada fila del Excel (por SKU) contra catalogoProductos (por p.codigo),
+// devolviendo { productos: { [producto_id]: {cantidad, sku, nombre, marca} }, sinMatch: [...] }
+function resolverInventarioContraCatalogo(filasProducto) {
+  const skuAProductoId = {};
+  Object.entries(catalogoProductos).forEach(([id, info]) => {
+    const cod = (info.codigo||'').trim();
+    if (cod) skuAProductoId[cod] = id;
+  });
+  const productos = {};
+  const sinMatch = [];
+  filasProducto.forEach(f => {
+    const prodId = skuAProductoId[f.sku];
+    if (prodId) {
+      productos[prodId] = { cantidad: f.cantidad, sku: f.sku, nombre: f.nombre, marca: f.marca };
+    } else {
+      sinMatch.push(f);
+    }
+  });
+  return { productos, sinMatch };
+}
+
+// Rotación mensual: promedio de unidades vendidas en los 6 meses anteriores a fechaCorte
+// (sin incluir el mes de corte, que normalmente está incompleto), usando productos_mes
+// ya calculado en DATA_CACHE. Devuelve { [producto_id]: rotacionPromedioMensual }
+function calcularRotacionMensual(fechaCorte) {
+  const [anioCorte, mesCorte] = fechaCorte.split('-').map(Number); // YYYY-MM-DD
+  // Construir lista de los 6 (anio,mes) anteriores al mes de corte (sin incluir el de corte)
+  const mesesAtras = [];
+  let a = anioCorte, m = mesCorte;
+  for (let i = 0; i < 6; i++) {
+    m -= 1;
+    if (m === 0) { m = 12; a -= 1; }
+    mesesAtras.push({ anio: a, mes: m });
+  }
+  const acumulado = {}; // producto_id -> total unidades en esos 6 meses
+  Object.values(DATA_CACHE||{}).forEach(clientes => {
+    (clientes||[]).forEach(cli => {
+      (cli.productos_mes||[]).forEach(pm => {
+        const matchMes = mesesAtras.some(x => x.anio===pm.anio && x.mes===pm.mes);
+        if (!matchMes) return;
+        const key = pm.id || pm.nombre;
+        acumulado[key] = (acumulado[key]||0) + (pm.cantidad||0);
+      });
+    });
+  });
+  const rotacion = {};
+  Object.entries(acumulado).forEach(([id, total]) => { rotacion[id] = total / 6; });
+  return rotacion;
+}
+
+// Mínimo de seguridad y umbral de alerta amarilla, por marca (en meses de cobertura)
+const INVENTARIO_REGLAS_MARCA = {
+  'BIOSKIN':   { minimo: 1, amarillo: 1.5 },
+  'ZIAJA':     { minimo: 3, amarillo: 4 },
+  'ZIAJA PRO': { minimo: 3, amarillo: 4 },
+  'ERAYBA':    { minimo: 3, amarillo: 4 }
+};
+
+function calcularSemaforo(marca, coberturaMeses) {
+  const reglas = INVENTARIO_REGLAS_MARCA[marca] || { minimo: 3, amarillo: 4 };
+  if (coberturaMeses < reglas.minimo) return 'rojo';
+  if (coberturaMeses < reglas.amarillo) return 'amarillo';
+  return 'verde';
+}
+
+// Construye la lista completa de inventario por marca: todos los productos del catálogo
+// de esa marca, con su inventario actual (0 si no está en el Excel cargado), rotación
+// mensual, cobertura en meses, y semáforo.
+function construirInventarioPorMarca(marcaFiltro) {
+  if (!INVENTARIO_CACHE) return { fecha_corte: null, productos: [] };
+  const rotacion = calcularRotacionMensual(INVENTARIO_CACHE.fecha_corte);
+  const productosDelCatalogo = Object.entries(catalogoProductos)
+    .filter(([id, info]) => (info.marca||'').toUpperCase() === marcaFiltro);
+
+  const lista = productosDelCatalogo.map(([id, info]) => {
+    const inv = INVENTARIO_CACHE.productos[id];
+    const stock = inv ? inv.cantidad : 0;
+    const rotacionMensual = rotacion[id] || 0;
+    const cobertura = rotacionMensual > 0 ? stock / rotacionMensual : (stock > 0 ? 99 : 0);
+    return {
+      id,
+      sku: info.codigo || (inv ? inv.sku : ''),
+      nombre: info.nombre,
+      marca: marcaFiltro,
+      stock: Math.round(stock*100)/100,
+      rotacion_mensual: Math.round(rotacionMensual*100)/100,
+      cobertura_meses: Math.round(cobertura*10)/10,
+      semaforo: calcularSemaforo(marcaFiltro, cobertura)
+    };
+  }).sort((a,b) => a.cobertura_meses - b.cobertura_meses);
+
+  return { fecha_corte: INVENTARIO_CACHE.fecha_corte, productos: lista };
+}
+
 async function sincronizarHoy() {
   if (cache.sincronizando) return;
   cache.sincronizando = true;
@@ -501,6 +647,40 @@ setTimeout(() => fusionarMesActualEnCache().catch(e => console.error(e)), 20 * 1
 let DATA_CACHE = null;
 let DATA_CACHE_TS = null;
 
+// ─── CACHÉ DE INVENTARIO (snapshot de bodega, subido manualmente por Fernando) ──
+// Estructura: { fecha_corte: 'YYYY-MM-DD', productos: { [producto_id]: cantidad } }
+// productos_id es el mismo id que usa catalogoProductos (no el SKU corto del Excel,
+// que solo se usa para hacer el match en el momento de la carga).
+let INVENTARIO_CACHE = null;
+let INVENTARIO_CACHE_TS = null;
+
+async function cargarInventarioDesdeDB() {
+  try {
+    const r = await pool.query("SELECT datos, fecha_corte FROM inventario_data ORDER BY actualizado_at DESC LIMIT 1");
+    if (r.rows.length > 0) {
+      INVENTARIO_CACHE = JSON.parse(r.rows[0].datos);
+      INVENTARIO_CACHE_TS = new Date().toISOString();
+      console.log('✓ Inventario cargado desde PostgreSQL: ' + Object.keys(INVENTARIO_CACHE.productos||{}).length + ' productos, corte ' + INVENTARIO_CACHE.fecha_corte);
+    } else {
+      INVENTARIO_CACHE = null;
+      console.log('Sin inventario cargado todavía (esperando primera carga de Excel)');
+    }
+  } catch(e) { console.error('Error cargando inventario:', e.message); INVENTARIO_CACHE = null; }
+}
+
+async function guardarInventarioEnDB(data) {
+  try {
+    const json = JSON.stringify(data);
+    await pool.query(`
+      INSERT INTO inventario_data (datos, fecha_corte, actualizado_at) VALUES ($1, $2, NOW())
+      ON CONFLICT (id_unico) DO UPDATE SET datos = $1, fecha_corte = $2, actualizado_at = NOW()
+    `, [json, data.fecha_corte || null]);
+    INVENTARIO_CACHE = data;
+    INVENTARIO_CACHE_TS = new Date().toISOString();
+    console.log('✓ Inventario guardado en PostgreSQL: ' + Object.keys(data.productos||{}).length + ' productos');
+  } catch(e) { console.error('Error guardando inventario:', e.message); }
+}
+
 async function cargarDataDesdeDB() {
   try {
     const r = await pool.query("SELECT datos FROM ventas_data ORDER BY actualizado_at DESC LIMIT 1");
@@ -584,6 +764,13 @@ async function initDB() {
         datos TEXT NOT NULL,
         actualizado_at TIMESTAMP DEFAULT NOW()
       );
+      CREATE TABLE IF NOT EXISTS inventario_data (
+        id SERIAL PRIMARY KEY,
+        id_unico VARCHAR(10) DEFAULT 'principal' UNIQUE,
+        fecha_corte DATE,
+        datos TEXT NOT NULL,
+        actualizado_at TIMESTAMP DEFAULT NOW()
+      );
       CREATE TABLE IF NOT EXISTS visitas (
         id SERIAL PRIMARY KEY, lugar VARCHAR(255) NOT NULL,
         tipo VARCHAR(50) NOT NULL, asesora VARCHAR(255) NOT NULL,
@@ -632,7 +819,7 @@ async function initDB() {
     console.log('DB inicializada');
   } catch(e) { console.error('Error DB:', e.message); }
 }
-initDB().then(() => cargarDataDesdeDB()).catch(e => console.error('Error init:', e.message));
+initDB().then(() => cargarDataDesdeDB()).then(() => cargarInventarioDesdeDB()).catch(e => console.error('Error init:', e.message));
 programarRegeneracionDiaria();
 
 const MIME = { '.html':'text/html','.js':'application/javascript','.css':'text/css','.json':'application/json','.png':'image/png','.jpg':'image/jpeg','.ico':'image/x-icon' };
@@ -644,6 +831,44 @@ function bodyJSON(req) {
     req.on('end', () => { try { resolve(JSON.parse(body)); } catch(e) { reject(e); } });
     req.on('error', reject);
   });
+}
+
+function bodyBuffer(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    req.on('data', chunk => chunks.push(chunk));
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
+
+// Parser mínimo de multipart/form-data: extrae el primer archivo subido (campo 'file')
+// como Buffer, usando el boundary del header Content-Type. No depende de librerías externas.
+function parseMultipartFile(buffer, contentType) {
+  const boundaryMatch = /boundary=(?:"([^"]+)"|([^;]+))/i.exec(contentType || '');
+  if (!boundaryMatch) return null;
+  const boundary = '--' + (boundaryMatch[1] || boundaryMatch[2]).trim();
+  const boundaryBuf = Buffer.from(boundary);
+  const parts = [];
+  let start = buffer.indexOf(boundaryBuf, 0);
+  while (start !== -1) {
+    const next = buffer.indexOf(boundaryBuf, start + boundaryBuf.length);
+    if (next === -1) break;
+    parts.push(buffer.slice(start + boundaryBuf.length, next));
+    start = next;
+  }
+  for (const part of parts) {
+    const headerEnd = part.indexOf('\r\n\r\n');
+    if (headerEnd === -1) continue;
+    const headerStr = part.slice(0, headerEnd).toString('utf8');
+    if (!/name="file"/i.test(headerStr)) continue;
+    // El contenido va desde después de los headers hasta antes del \r\n final de la parte
+    let content = part.slice(headerEnd + 4);
+    if (content.slice(-2).toString() === '\r\n') content = content.slice(0, -2);
+    const filenameMatch = /filename="([^"]*)"/i.exec(headerStr);
+    return { buffer: content, filename: filenameMatch ? filenameMatch[1] : 'archivo' };
+  }
+  return null;
 }
 
 const server = http.createServer(async (req, res) => {
@@ -1511,6 +1736,54 @@ const server = http.createServer(async (req, res) => {
       clientes_con_al_menos_una_linea_productos_mes: clientesConProductosMes,
       muestra_estructura: muestra
     }));
+    return;
+  }
+
+  // SUBIR EXCEL DE INVENTARIO (multipart/form-data, campo 'file')
+  if (urlPath === '/api/inventario/subir' && req.method === 'POST') {
+    try {
+      const buf = await bodyBuffer(req);
+      const archivo = parseMultipartFile(buf, req.headers['content-type']);
+      if (!archivo) {
+        res.writeHead(400, {'Content-Type':'application/json'});
+        res.end(JSON.stringify({ ok:false, error: 'No se encontró el archivo en la solicitud (campo "file")' }));
+        return;
+      }
+      const { fechaCorte, filasProducto } = parsearExcelInventario(archivo.buffer);
+      const { productos, sinMatch } = resolverInventarioContraCatalogo(filasProducto);
+      const data = { fecha_corte: fechaCorte, productos };
+      await guardarInventarioEnDB(data);
+      res.writeHead(200, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({
+        ok: true,
+        fecha_corte: fechaCorte,
+        productos_cargados: Object.keys(productos).length,
+        productos_sin_match: sinMatch.length,
+        ejemplos_sin_match: sinMatch.slice(0, 10)
+      }));
+    } catch(e) {
+      res.writeHead(500, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:false, error: e.message }));
+    }
+    return;
+  }
+
+  // CONSULTAR INVENTARIO POR MARCA: /api/inventario?marca=ZIAJA
+  if (urlPath === '/api/inventario' && req.method === 'GET') {
+    try {
+      const marca = (urlObj.searchParams.get('marca')||'').toUpperCase().trim();
+      if (!marca) {
+        res.writeHead(400, {'Content-Type':'application/json'});
+        res.end(JSON.stringify({ ok:false, error: 'Falta el parámetro marca' }));
+        return;
+      }
+      const resultado = construirInventarioPorMarca(marca);
+      res.writeHead(200, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:true, marca, ...resultado }));
+    } catch(e) {
+      res.writeHead(500, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:false, error: e.message }));
+    }
     return;
   }
 
