@@ -705,6 +705,21 @@ async function renderConfig(){
         </div>
         <div id="provincias-upload-status" style="margin-top:12px;font-size:12px;color:var(--muted)"></div>
       </div>
+      <div class="card" style="margin-top:12px">
+        <div class="card-title"><i class="ti ti-package"></i> Cantidad de productos por marca</div>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:12px">Define manualmente cuántos SKU tiene cada marca (con o sin ventas). Se usa para calcular el KPI "Rendimiento por NSOS" en la pestaña Marcas.</p>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;max-width:600px">
+          ${Object.keys(SKU_POR_MARCA_DEFAULT).map(m=>`
+            <div>
+              <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">${m}</label>
+              <input type="number" min="0" id="sku-marca-${m.replace(/\s+/g,'-')}" value="${getSkuPorMarca()[m]}" style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;outline:none">
+            </div>`).join('')}
+        </div>
+        <button onclick="guardarSkuPorMarca()" style="margin-top:14px;padding:8px 18px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500">
+          <i class="ti ti-device-floppy"></i> Guardar cantidades
+        </button>
+        <div id="sku-marca-status" style="margin-top:10px;font-size:12px;color:var(--muted)"></div>
+      </div>
     </div>`;
   cargarEstadoProvincias();
 }
@@ -1349,6 +1364,11 @@ function renderProductosPorMarca(marcaSeleccionada, totalMarcaIn){
   const totalMarca = calcTotalMarca(marcaSel, null, prodTodoAnio, prodAnioFiltro);
   const maxQ = lista[0]?.cantidad||1;
 
+  // Cantidad de SKU del catálogo de esta marca: valor ingresado manualmente en
+  // Configuración (no se calcula automático, porque el catálogo de Contifico no
+  // siempre refleja con precisión qué productos están realmente activos).
+  const totalSkuMarca = getSkuPorMarca()[marcaSel] || 0;
+
   const MESES_LABELS=['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
   const etiqueta = `Todo ${prodAnioFiltro}`;
 
@@ -1403,7 +1423,7 @@ function renderProductosPorMarca(marcaSeleccionada, totalMarcaIn){
       </div>
       <div class="kpi"><div class="kpi-label">Ventas s/IVA</div><div class="kpi-val" style="color:var(--brown)">${fmt(totalMarca/1.15)}</div><div class="kpi-sub">subtotal</div></div>
       <div class="kpi"><div class="kpi-label">Ventas c/IVA</div><div class="kpi-val">${fmt(totalMarca)}</div><div class="kpi-sub">período</div></div>
-      <div class="kpi"><div class="kpi-label">Venta x Producto</div><div class="kpi-val" style="color:var(--brown)">${fmt(lista.length>0?totalMarca/lista.length:0)}</div><div class="kpi-sub">${lista.length} productos</div></div>
+      <div class="kpi"><div class="kpi-label">Rendimiento por NSOS</div><div class="kpi-val" style="color:var(--brown)">${fmt(totalSkuMarca>0?totalMarca/totalSkuMarca:0)}</div><div class="kpi-sub">${totalSkuMarca} productos</div></div>
     </div>
 
     <!-- Ranking — solo cantidades, sin montos -->
@@ -3331,6 +3351,31 @@ async function subirExcelProvincias(event){
 // ══════════════════════════════════════════════════════════════════
 // MÓDULO REPORTES — solo admin
 // ══════════════════════════════════════════════════════════════════
+// ─── CANTIDAD DE SKU POR MARCA (manual, para el KPI "Rendimiento por NSOS") ────
+const SKU_POR_MARCA_KEY = 'cosetika_sku_por_marca';
+const SKU_POR_MARCA_DEFAULT = { 'BIOSKIN': 0, 'ERAYBA': 0, 'ZIAJA': 0, 'ZIAJA PRO': 0 };
+
+function getSkuPorMarca(){
+  try{
+    const guardado = JSON.parse(localStorage.getItem(SKU_POR_MARCA_KEY));
+    return { ...SKU_POR_MARCA_DEFAULT, ...(guardado||{}) };
+  }catch(e){ return { ...SKU_POR_MARCA_DEFAULT }; }
+}
+
+function guardarSkuPorMarca(){
+  const nuevo = {};
+  Object.keys(SKU_POR_MARCA_DEFAULT).forEach(m=>{
+    const el = document.getElementById('sku-marca-'+m.replace(/\s+/g,'-'));
+    nuevo[m] = el ? (parseInt(el.value)||0) : 0;
+  });
+  localStorage.setItem(SKU_POR_MARCA_KEY, JSON.stringify(nuevo));
+  const statusEl = document.getElementById('sku-marca-status');
+  if(statusEl){
+    statusEl.innerHTML = '<span style="color:#166534">✓ Cantidades guardadas</span>';
+    setTimeout(()=>{ statusEl.innerHTML=''; }, 4000);
+  }
+}
+
 const COMISIONES_KEY = 'cosetika_comisiones_cfg';
 
 function getComisionCfg(){
