@@ -919,6 +919,11 @@ function setSubtab(tab){
     renderFacturasHoy();
   } else if(tab==='marcas'){
     sidebar.classList.add('hidden'); body.classList.add('full-width');
+    // Marcas siempre muestra el total de TODA la empresa — no debe heredar un filtro
+    // de vendedora que haya quedado activo de una navegación anterior por Clientes
+    // (ese filtro fantasma hacía que los totales de marca aparecieran muy por debajo
+    // de lo real, sin ningún indicador visible de que estaba filtrando).
+    vendActual = null;
     renderMarcasPanel();
   } else if(tab==='ventas'){
     sidebar.classList.add('hidden'); body.classList.add('full-width');
