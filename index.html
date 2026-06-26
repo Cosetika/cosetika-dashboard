@@ -3403,21 +3403,36 @@ function renderComisiones(){
     return {nombre, conIva:v.conIva, sinIva:v.sinIva, pct:c.pct, minimo:c.minimo, base, comision:base*(c.pct/100)};
   });
 
+  // Ventas propias de Giovanna (informativo en la tabla; ya no es parte de la fórmula
+  // de su comisión, que ahora usa el total general de la empresa — ver más abajo).
   const vGiovanna = ventasMes('Giovanna Portilla', mesFiltro);
-  const totalEquipoSinIva = filasAsesoras.reduce((a,r)=>a+r.sinIva,0);
-  const comisionGiovanna = (vGiovanna.sinIva+totalEquipoSinIva)*(cfg.giovanna.pct_equipo/100);
 
-  // Total general: mismo cálculo que usa Inicio → Ventas (consistente en toda la app),
-  // en vez de un cálculo paralelo que podía desviarse del resto del dashboard.
+  // Total general: mismo cálculo que usa Inicio → Ventas (consistente en toda la app).
+  // Se calcula por vendedora para poder mostrar separado lo que no corresponde a
+  // ninguna de las personas de la tabla (ej. ventas sin vendedor asignado, o de
+  // alguien que ya no está en el equipo) en vez de que quede "escondido" en el total.
   const todasVends = Object.keys(DATA);
-  let totalConIvaGlobal = 0;
+  const nombresConocidos = equipoNombres.concat(['Giovanna Portilla']);
+  let totalConIvaGlobal = 0, otrasVentasConIva = 0;
   todasVends.forEach(v => {
+    let subtotalVend = 0;
     (DATA[v]||[]).forEach(c => {
       const f = c.frecuencia.find(x=>x.mes===mesFiltro && x.anio===anioActual);
-      if(f) totalConIvaGlobal += f.total||0;
+      if(f) subtotalVend += f.total||0;
     });
+    totalConIvaGlobal += subtotalVend;
+    if(!nombresConocidos.includes(v)) otrasVentasConIva += subtotalVend;
   });
   const totalSinIvaGlobal = totalConIvaGlobal/1.15;
+  const otrasVentasSinIva = otrasVentasConIva/1.15;
+
+  // Comisión de Giovanna: base = TOTAL GENERAL de la empresa menos las ventas de
+  // María Caridad (única exclusión explícita pedida) — no la suma manual de cada
+  // asesora, así se incluyen automáticamente "otras ventas" no atribuidas a nadie.
+  const NOMBRE_MARIA_CARIDAD = 'María Caridad Zea Larrea';
+  const vMariaCaridad = filasAsesoras.find(r=>r.nombre===NOMBRE_MARIA_CARIDAD);
+  const baseGiovannaSinIva = Math.max(0, totalSinIvaGlobal - (vMariaCaridad?vMariaCaridad.sinIva:0));
+  const comisionGiovanna = baseGiovannaSinIva*(cfg.giovanna.pct_equipo/100);
 
   const filasAdmin = cfg.admin.map(a=>{
     const base=Math.max(0, totalSinIvaGlobal-a.minimo);
@@ -3473,10 +3488,17 @@ function renderComisiones(){
               <td style="padding:9px 12px;text-align:right;color:var(--brown);font-weight:600">${fmt(vGiovanna.sinIva)}</td>
               <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(vGiovanna.conIva)}</td>
               <td style="padding:9px 12px;text-align:right;color:var(--muted)">—</td>
-              <td style="padding:9px 12px;text-align:right;color:var(--muted)">${cfg.giovanna.pct_equipo}% <span style="font-size:10px">(equipo+propio)</span></td>
-              <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(vGiovanna.sinIva+totalEquipoSinIva)}</td>
+              <td style="padding:9px 12px;text-align:right;color:var(--muted)">${cfg.giovanna.pct_equipo}% <span style="font-size:10px">(total empresa − Mª Caridad)</span></td>
+              <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(baseGiovannaSinIva)}</td>
               <td style="padding:9px 12px;text-align:right;font-weight:700;font-size:14px;color:${comisionGiovanna>0?'#166534':'var(--muted)'}">${fmt(comisionGiovanna)}</td>
             </tr>
+            ${otrasVentasSinIva>0?`
+            <tr>
+              <td colspan="7" style="padding:8px 12px;font-size:11px;color:var(--muted);background:#faf9f8">
+                <i class="ti ti-info-circle" style="font-size:12px;vertical-align:-1px;margin-right:3px"></i>
+                Incluye ${fmt(otrasVentasSinIva)} (s/IVA) en ventas no atribuidas a ninguna de las personas de esta tabla (ej. sin vendedor asignado en Contifico) — sí forman parte del total general y de la base de Giovanna.
+              </td>
+            </tr>`:''}
           </tbody>
         </table>
       </div>
