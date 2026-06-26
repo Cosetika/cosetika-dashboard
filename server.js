@@ -188,7 +188,12 @@ async function generarDataJson(fi, ff) {
       if (!vObj[cliId]) vObj[cliId] = { id: cliId, nombre: cliNom, ruc: cliRuc, total: 0, subtotal: 0, num_compras: 0, provincia: cliProv, marcas: {}, marcasPorAnio: {}, marcasPorMes: {}, productos: {}, frecuencia: {} };
       const cli = vObj[cliId];
       cli.nombre = cliNom; cli.ruc = cliRuc;
-      if(!cli.provincia && cliProv) cli.provincia = cliProv;
+      // La provincia se recalcula siempre con el valor más reciente de cliProv, en vez de
+      // quedarse fija con el primer valor calculado. Esto es necesario porque el override
+      // manual de provincias (Excel subido por Fernando) puede actualizarse en cualquier
+      // momento, y de lo contrario un cliente que ya tenía un valor (aunque fuera "Sin
+      // provincia" o uno inferido incorrectamente) nunca reflejaría la corrección.
+      if(cliProv) cli.provincia = cliProv;
       cli.total += totalDoc; cli.subtotal += subDoc; cli.num_compras++;
       const anioDoc = parseInt((doc.fecha_emision || '').split('/')[2]) || new Date().getFullYear();
       const freqKey = `${anioDoc}-${String(mes).padStart(2,'0')}`;
