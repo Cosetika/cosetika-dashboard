@@ -3,9 +3,19 @@ const fs = require('fs');
 const path = require('path');
 const { Pool } = require('pg');
 const XLSX = require('xlsx');
+const nodemailer = require('nodemailer');
 
 const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.CONTIFICO_API_KEY || '';
+// Correo emisor del backup semanal (SMTP) y destinatario.
+// Por defecto apunta a DreamHost (smtp.dreamhost.com, puerto 587 con STARTTLS),
+// pero se puede sobreescribir con BACKUP_SMTP_HOST/BACKUP_SMTP_PORT si se usa otro proveedor.
+const BACKUP_EMAIL_USER = process.env.BACKUP_EMAIL_USER || '';
+const BACKUP_EMAIL_PASS = process.env.BACKUP_EMAIL_PASS || '';
+const BACKUP_EMAIL_TO = process.env.BACKUP_EMAIL_TO || '';
+const BACKUP_SMTP_HOST = process.env.BACKUP_SMTP_HOST || 'smtp.dreamhost.com';
+const BACKUP_SMTP_PORT = parseInt(process.env.BACKUP_SMTP_PORT) || 587;
+
 
 // Inferir provincia desde dirección — mapa basado en datos reales de clientes Cosétika
 // Ordenado de más específico a más general (longer match first)
@@ -690,6 +700,82 @@ async function guardarInventarioEnDB(data) {
     console.log('✓ Inventario guardado en PostgreSQL: ' + Object.keys(data.productos||{}).length + ' productos');
   } catch(e) { console.error('Error guardando inventario:', e.message); }
 }
+
+// ─── BACKUP SEMANAL DE BASE DE DATOS (por correo) ───────────────────────────
+// Exporta las tablas operativas que NO tienen respaldo en otro lugar (Contifico
+// no las tiene): inventario, usuarios, visitas, planificación, zonas/provincias
+// por asesora. ventas_data se incluye también por completitud, aunque en
+// principio es recuperable regenerando desde Contifico si se perdiera.
+const TABLAS_BACKUP = ['inventario_data', 'usuarios', 'visitas', 'planificacion', 'asesor_zonas', 'asesor_provincias', 'ventas_data'];
+
+async function generarBackupCompleto() {
+  const backup = { generado_en: new Date().toISOString(), tablas: {} };
+  for (const tabla of TABLAS_BACKUP) {
+    try {
+      const r = await pool.query(`SELECT * FROM ${tabla}`);
+      backup.tablas[tabla] = r.rows;
+    } catch(e) {
+      backup.tablas[tabla] = { error: e.message };
+    }
+  }
+  return backup;
+}
+
+async function enviarBackupPorCorreo() {
+  if (!BACKUP_EMAIL_USER || !BACKUP_EMAIL_PASS || !BACKUP_EMAIL_TO) {
+    console.log('Backup por correo omitido: faltan variables de entorno BACKUP_EMAIL_USER / BACKUP_EMAIL_PASS / BACKUP_EMAIL_TO (y opcionalmente BACKUP_SMTP_HOST / BACKUP_SMTP_PORT, por defecto smtp.dreamhost.com:587)');
+    return { ok: false, error: 'Variables de entorno de correo no configuradas' };
+  }
+  try {
+    const backup = await generarBackupCompleto();
+    const json = JSON.stringify(backup, null, 2);
+    const fecha = new Date();
+    const fechaStr = fmtDateEC(fecha).split('/').join('-');
+
+    const transporter = nodemailer.createTransport({
+      host: BACKUP_SMTP_HOST,
+      port: BACKUP_SMTP_PORT,
+      secure: BACKUP_SMTP_PORT === 465, // true = SSL directo (465), false = STARTTLS (587, el recomendado por DreamHost)
+      auth: { user: BACKUP_EMAIL_USER, pass: BACKUP_EMAIL_PASS }
+    });
+
+    const resumen = TABLAS_BACKUP.map(t => `${t}: ${Array.isArray(backup.tablas[t]) ? backup.tablas[t].length : 'error'} filas`).join('\n');
+
+    await transporter.sendMail({
+      from: BACKUP_EMAIL_USER,
+      to: BACKUP_EMAIL_TO,
+      subject: `Backup Cosétika Dashboard — ${fechaStr}`,
+      text: `Backup semanal automático de la base de datos del dashboard Cosétika.\n\nFecha: ${fechaStr}\n\nResumen de filas por tabla:\n${resumen}\n\nEl archivo adjunto contiene el respaldo completo en formato JSON.`,
+      attachments: [{ filename: `backup_cosetika_${fechaStr}.json`, content: json, contentType: 'application/json' }]
+    });
+    console.log('✓ Backup enviado por correo a ' + BACKUP_EMAIL_TO);
+    return { ok: true };
+  } catch(e) {
+    console.error('Error enviando backup por correo:', e.message);
+    return { ok: false, error: e.message };
+  }
+}
+
+// Cron semanal: todos los lunes a las 3 AM hora Ecuador. Se revisa cada 15 min si
+// ya toca enviar (en vez de cada hora exacta, para no depender de que el setInterval
+// esté alineado con el inicio de la hora), usando un flag para no enviar dos veces el mismo día.
+let ultimoBackupEnviadoFecha = null;
+function programarBackupSemanal() {
+  setInterval(async () => {
+    const ahora = new Date();
+    const horaEcuador = ahora.getUTCHours() - 5; // Ecuador es UTC-5, sin horario de verano
+    const horaNormalizada = ((horaEcuador % 24) + 24) % 24;
+    const esLunes = ahora.getUTCDay() === 1;
+    const fechaHoy = ahora.toISOString().split('T')[0];
+    if (esLunes && horaNormalizada === 3 && ultimoBackupEnviadoFecha !== fechaHoy) {
+      ultimoBackupEnviadoFecha = fechaHoy;
+      console.log('⏰ Enviando backup semanal programado...');
+      await enviarBackupPorCorreo();
+    }
+  }, 15 * 60 * 1000); // revisar cada 15 minutos
+}
+programarBackupSemanal();
+
 
 async function cargarDataDesdeDB() {
   try {
@@ -1790,6 +1876,19 @@ const server = http.createServer(async (req, res) => {
       const resultado = construirInventarioPorMarca(marca);
       res.writeHead(200, {'Content-Type':'application/json'});
       res.end(JSON.stringify({ ok:true, marca, ...resultado }));
+    } catch(e) {
+      res.writeHead(500, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:false, error: e.message }));
+    }
+    return;
+  }
+
+  // ENVIAR BACKUP MANUALMENTE (para probar la configuración de correo sin esperar al cron)
+  if (urlPath === '/api/backup/enviar' && req.method === 'GET') {
+    try {
+      const resultado = await enviarBackupPorCorreo();
+      res.writeHead(resultado.ok ? 200 : 500, {'Content-Type':'application/json'});
+      res.end(JSON.stringify(resultado));
     } catch(e) {
       res.writeHead(500, {'Content-Type':'application/json'});
       res.end(JSON.stringify({ ok:false, error: e.message }));
