@@ -1193,7 +1193,7 @@ const server = http.createServer(async (req, res) => {
   // el filtro de generarDataJson (cantidad===0 || base===0), para un nombre de producto dado.
   if (urlPath === '/api/diagnostico-producto' && req.method === 'GET') {
     try {
-      const nombreBuscado = (urlObj.searchParams.get('nombre') || '').toUpperCase().trim();
+      const nombreBuscado = (urlObj.searchParams.get('nombre') || '').toUpperCase().trim().replace(/\s+/g,' ');
       const desde = urlObj.searchParams.get('desde') || '01/01/2026';
       const hasta = urlObj.searchParams.get('hasta') || fmtDateEC(new Date());
       let todos = [];
@@ -1229,7 +1229,10 @@ const server = http.createServer(async (req, res) => {
       // puede venir vacío o distinto — el nombre real que se muestra en el dashboard sale
       // de catalogoProductos[producto_id].nombre).
       const idsCoincidentes = Object.entries(catalogoProductos)
-        .filter(([id, info]) => (info.nombre||'').toUpperCase().trim().includes(nombreBuscado) || nombreBuscado.includes((info.nombre||'').toUpperCase().trim()))
+        .filter(([id, info]) => {
+          const nombreCat = (info.nombre||'').toUpperCase().trim().replace(/\s+/g,' ');
+          return nombreCat.includes(nombreBuscado) || nombreBuscado.includes(nombreCat);
+        })
         .map(([id, info]) => ({ id, nombre: info.nombre, marca: info.marca }));
 
       let cantidadTotalCruda = 0, cantidadConFiltroNuevo = 0, cantidadExcluidaPorCantidadCero = 0;
@@ -1471,11 +1474,25 @@ const server = http.createServer(async (req, res) => {
         ejemplo_frecuencia: clientes[0]?.frecuencia?.slice(0,3) || []
       };
     });
+    const anioActual = new Date().getFullYear();
+    let totalLineasProductosMes = 0, totalLineasProductosMesAnioActual = 0, clientesConProductosMes = 0;
+    Object.values(DATA_CACHE||{}).forEach(clientes=>{
+      (clientes||[]).forEach(cli=>{
+        const pm = cli.productos_mes||[];
+        if (pm.length>0) clientesConProductosMes++;
+        totalLineasProductosMes += pm.length;
+        totalLineasProductosMesAnioActual += pm.filter(x=>x.anio===anioActual).length;
+      });
+    });
     res.writeHead(200, {'Content-Type':'application/json'});
     res.end(JSON.stringify({
       vendedoras: Object.keys(DATA_CACHE||{}).length,
       actualizado: DATA_CACHE_TS,
       fuente: DATA_CACHE && Object.keys(DATA_CACHE).length > 0 ? 'postgresql' : 'vacia',
+      regenerando_en_proceso_AHORA: regenerandoEnProceso,
+      total_lineas_productos_mes_TODOS_los_anios: totalLineasProductosMes,
+      total_lineas_productos_mes_anio_actual: totalLineasProductosMesAnioActual,
+      clientes_con_al_menos_una_linea_productos_mes: clientesConProductosMes,
       muestra_estructura: muestra
     }));
     return;
