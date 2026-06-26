@@ -1224,17 +1224,26 @@ const server = http.createServer(async (req, res) => {
         return true;
       });
 
+      // Resolver el/los producto_id correspondientes al nombre buscado, usando el MISMO
+      // catálogo que usa generarDataJson (no el nombre crudo de la línea de detalle, que
+      // puede venir vacío o distinto — el nombre real que se muestra en el dashboard sale
+      // de catalogoProductos[producto_id].nombre).
+      const idsCoincidentes = Object.entries(catalogoProductos)
+        .filter(([id, info]) => (info.nombre||'').toUpperCase().trim().includes(nombreBuscado) || nombreBuscado.includes((info.nombre||'').toUpperCase().trim()))
+        .map(([id, info]) => ({ id, nombre: info.nombre, marca: info.marca }));
+
       let cantidadTotalCruda = 0, cantidadConFiltroNuevo = 0, cantidadExcluidaPorCantidadCero = 0;
       let lineasCrudas = 0, lineasExcluidas = 0;
       const productIdsVistos = new Set();
       const ejemplosExcluidos = [];
+      const ejemplosSinCoincidirId = [];
       const porMesCrudo = {}, porMesFiltrado = {};
       const docsConEsteProducto = new Set();
+      const idsBuscados = new Set(idsCoincidentes.map(x=>x.id));
       docsFiltrados.forEach(doc => {
         const mes = parseInt((doc.fecha_emision || '').split('/')[1]) || 0;
         (doc.detalles || []).forEach(det => {
-          const nombreDet = (det.producto_nombre || '').toUpperCase().trim();
-          if (nombreDet !== nombreBuscado) return;
+          if (!idsBuscados.has(det.producto_id)) return;
           lineasCrudas++;
           const cantidad = parseFloat(det.cantidad || 0);
           const base = parseFloat(det.base_gravable || det.base_cero || 0);
@@ -1273,6 +1282,7 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, {'Content-Type':'application/json'});
       res.end(JSON.stringify({
         producto_buscado: nombreBuscado,
+        productos_en_catalogo_que_coinciden: idsCoincidentes,
         rango: { desde, hasta },
         producto_ids_distintos_encontrados: [...productIdsVistos],
         documentos_distintos_con_este_producto: docsConEsteProducto.size,
