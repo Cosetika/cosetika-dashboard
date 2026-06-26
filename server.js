@@ -390,7 +390,10 @@ function construirInventarioPorMarca(marcaFiltro) {
   if (!INVENTARIO_CACHE) return { fecha_corte: null, productos: [] };
   const rotacion = calcularRotacionMensual(INVENTARIO_CACHE.fecha_corte);
   const productosDelCatalogo = Object.entries(catalogoProductos)
-    .filter(([id, info]) => (info.marca||'').toUpperCase() === marcaFiltro);
+    .filter(([id, info]) => (info.marca||'').toUpperCase() === marcaFiltro)
+    // Excluir "PROMOS": son combos armados a partir de otros productos, no tienen
+    // stock propio ni rotación real — no aplica pedir reabastecimiento de ellos.
+    .filter(([id, info]) => !(info.nombre||'').trim().toUpperCase().startsWith('PROMO'));
 
   const lista = productosDelCatalogo.map(([id, info]) => {
     const inv = INVENTARIO_CACHE.productos[id];
