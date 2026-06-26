@@ -3315,6 +3315,14 @@ function getComisionCfg(){
     if(!guardado) return defaults;
     // Merge: completar asesoras que falten en lo guardado (ej: María Caridad agregada después)
     guardado.asesoras = { ...defaults.asesoras, ...(guardado.asesoras||{}) };
+    // Limpieza: eliminar claves de asesoras que NO sean exactamente uno de los nombres
+    // completos oficiales (ej. "Karen Mora" o "Nicole León" en vez del nombre completo
+    // real) — esas claves duplicadas quedaban de versiones anteriores de la config y
+    // aparecían como filas extra vacías en la tabla de comisiones.
+    const nombresOficiales = Object.keys(defaults.asesoras);
+    Object.keys(guardado.asesoras).forEach(nombre=>{
+      if(!nombresOficiales.includes(nombre)) delete guardado.asesoras[nombre];
+    });
     // Corrección puntual: Karen y Nicole pasaron de 3% a 4% — si siguen en el valor viejo, actualizar
     ['Karen Rebeca Mora Cedeño','Nicole Yanira Leon Marquez'].forEach(n=>{
       if(guardado.asesoras[n] && guardado.asesoras[n].pct === 3.0){
@@ -3323,6 +3331,7 @@ function getComisionCfg(){
     });
     guardado.giovanna = guardado.giovanna || defaults.giovanna;
     guardado.admin = guardado.admin && guardado.admin.length ? guardado.admin : defaults.admin;
+    saveComisionCfg(guardado); // persistir la limpieza, para no repetirla cada carga
     return guardado;
   }
   catch(e){ return defaults; }
