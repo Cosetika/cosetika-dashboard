@@ -3728,7 +3728,12 @@ async function renderKpis(){
   // Admin y jefa ven selector de asesora; asesoras solo su propia
   const puedeVerTodas = (rol==='admin'||rol==='jefa_ventas');
   const asesoras = ['Daniela Villegas Chamorro','Liseth Gavilanes','Karen Rebeca Mora Cedeño','Nicole Yanira Leon Marquez','Giovanna Portilla','María Caridad Zea Larrea'];
-  let asesoraKpi = window._kpiAsesora || (puedeVerTodas ? asesoras[0] : nombre);
+  // Para una asesora, resolver su nombre real contra DATA (puede diferir del nombre
+  // guardado en la tabla usuarios, ej. sin segundo apellido) — mismo patrón ya usado
+  // en Visitas y Clientes (ver resolverNombreReal). Sin esto, el nombre incompleto no
+  // encuentra ningún registro en DATA y todos los montos del KPI salen en $0.
+  const nombreResuelto = resolverNombreReal(nombre, DATA) || nombre;
+  let asesoraKpi = window._kpiAsesora || (puedeVerTodas ? asesoras[0] : nombreResuelto);
   window._kpiAsesora = asesoraKpi;
 
   let mesFiltro = window._kpiMes || mesActual;
