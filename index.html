@@ -3398,9 +3398,17 @@ function renderComisiones(){
   const totalEquipoSinIva = filasAsesoras.reduce((a,r)=>a+r.sinIva,0);
   const comisionGiovanna = (vGiovanna.sinIva+totalEquipoSinIva)*(cfg.giovanna.pct_equipo/100);
 
+  // Total general: mismo cálculo que usa Inicio → Ventas (consistente en toda la app),
+  // en vez de un cálculo paralelo que podía desviarse del resto del dashboard.
   const todasVends = Object.keys(DATA);
-  let totalConIvaGlobal=0, totalSinIvaGlobal=0;
-  todasVends.forEach(v=>{ const r=ventasMes(v,mesFiltro); totalConIvaGlobal+=r.conIva; totalSinIvaGlobal+=r.sinIva; });
+  let totalConIvaGlobal = 0;
+  todasVends.forEach(v => {
+    (DATA[v]||[]).forEach(c => {
+      const f = c.frecuencia.find(x=>x.mes===mesFiltro && x.anio===anioActual);
+      if(f) totalConIvaGlobal += f.total||0;
+    });
+  });
+  const totalSinIvaGlobal = totalConIvaGlobal/1.15;
 
   const filasAdmin = cfg.admin.map(a=>{
     const base=Math.max(0, totalSinIvaGlobal-a.minimo);
