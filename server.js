@@ -1957,6 +1957,22 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // DIAGNÓSTICO: probar resolverProvinciaCliente con un RUC/Cédula específico
+  if (urlPath === '/api/provincias/diagnostico' && req.method === 'GET') {
+    const identificador = (urlObj.searchParams.get('id')||'').trim();
+    res.writeHead(200, {'Content-Type':'application/json'});
+    res.end(JSON.stringify({
+      identificador_buscado: identificador,
+      existe_en_override: PROVINCIAS_OVERRIDE.hasOwnProperty(identificador),
+      valor_en_override: PROVINCIAS_OVERRIDE[identificador] || null,
+      total_claves_en_override: Object.keys(PROVINCIAS_OVERRIDE).length,
+      ejemplos_de_claves: Object.keys(PROVINCIAS_OVERRIDE).slice(0,5),
+      resultado_resolverProvinciaCliente: resolverProvinciaCliente(identificador, null, ''),
+      override_cache_ts: PROVINCIAS_OVERRIDE_TS
+    }, null, 2));
+    return;
+  }
+
   // ESTADO DEL OVERRIDE DE PROVINCIAS
   if (urlPath === '/api/provincias/estado' && req.method === 'GET') {
     res.writeHead(200, {'Content-Type':'application/json'});
