@@ -735,22 +735,34 @@ function buildProductosRanking(marcaFiltro, mesFiltro, todoAnio, anioFiltro){
           if(!mCli) return;
         }
       }
-      // Ratio para prorratear cantidades — total del año / total histórico
-      const totalAnioCliente = freqAnio.reduce((a,f)=>a+f.total,0);
-      const ratioAnio = cli.total>0 ? totalAnioCliente/cli.total : 0;
-      const ratioMes = todoAnio ? ratioAnio : (cli.total>0
-        ? (freqAnio.find(f=>f.mes===mesFiltro)||{total:0}).total / cli.total : 0);
+      // Cantidad EXACTA por producto para el año/mes filtrado, usando productos_mes
+      // (desglose real guardado por el backend) en vez del prorrateo aproximado anterior
+      // basado en proporción de $ — ese método diluía las cantidades cuando el cliente
+      // tenía historial de compras en años anteriores del mismo producto.
+      const productosMesCliente = (cli.productos_mes||[]).filter(pm =>
+        pm.anio===anio && (todoAnio || pm.mes===mesFiltro)
+      );
+      if(productosMesCliente.length===0) return;
 
-      cli.productos.forEach(p=>{
-        if(p.nombre==='Transporte') return;
-        const marcaProd = detectarMarcaProducto(p.nombre, p.marca);
+      const porProducto = {}; // id||nombre -> cantidad exacta del período filtrado
+      productosMesCliente.forEach(pm=>{
+        const k = pm.id||pm.nombre;
+        porProducto[k] = (porProducto[k]||0) + (pm.cantidad||0);
+      });
+      // Mapa de id/nombre -> objeto producto (para nombre, marca) desde cli.productos
+      const infoProducto = {};
+      (cli.productos||[]).forEach(p=>{ infoProducto[p.id||p.nombre] = p; });
+
+      Object.entries(porProducto).forEach(([key, cantidadExacta])=>{
+        const pInfo = infoProducto[key] || { nombre: key, marca: '' };
+        if(pInfo.nombre==='Transporte') return;
+        const marcaProd = detectarMarcaProducto(pInfo.nombre, pInfo.marca);
         if(marcaFiltro!=='TODAS' && marcaProd!==marcaFiltro) return;
         // Excluir "PROMOS": no son productos reales, son combos/promociones (en cualquier marca)
-        if(p.nombre && p.nombre.trim().toUpperCase().startsWith('PROMO')) return;
-        const key = p.id || p.nombre;
-        if(!productos[key]) productos[key]={nombre:p.nombre, cantidad:0, marca:marcaProd, id:p.id};
+        if(pInfo.nombre && pInfo.nombre.trim().toUpperCase().startsWith('PROMO')) return;
+        if(!productos[key]) productos[key]={nombre:pInfo.nombre, cantidad:0, marca:marcaProd, id:pInfo.id};
         else productos[key].marca = productos[key].marca || marcaProd;
-        productos[key].cantidad += (p.cantidad||0)*ratioMes;
+        productos[key].cantidad += cantidadExacta;
       });
     });
   });
