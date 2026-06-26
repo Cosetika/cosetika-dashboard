@@ -393,7 +393,10 @@ function construirInventarioPorMarca(marcaFiltro) {
     .filter(([id, info]) => (info.marca||'').toUpperCase() === marcaFiltro)
     // Excluir "PROMOS": son combos armados a partir de otros productos, no tienen
     // stock propio ni rotación real — no aplica pedir reabastecimiento de ellos.
-    .filter(([id, info]) => !(info.nombre||'').trim().toUpperCase().startsWith('PROMO'));
+    .filter(([id, info]) => !(info.nombre||'').trim().toUpperCase().startsWith('PROMO'))
+    // Excluir "Línea completa/Línea Facial/...": son agrupadores de catálogo, no
+    // productos físicos con stock propio en bodega.
+    .filter(([id, info]) => !(info.nombre||'').trim().toUpperCase().startsWith('LÍNEA') && !(info.nombre||'').trim().toUpperCase().startsWith('LINEA'));
 
   const lista = productosDelCatalogo.map(([id, info]) => {
     const inv = INVENTARIO_CACHE.productos[id];
