@@ -1403,7 +1403,7 @@ function renderProductosPorMarca(marcaSeleccionada, totalMarcaIn){
       </div>
       <div class="kpi"><div class="kpi-label">Ventas s/IVA</div><div class="kpi-val" style="color:var(--brown)">${fmt(totalMarca/1.15)}</div><div class="kpi-sub">subtotal</div></div>
       <div class="kpi"><div class="kpi-label">Ventas c/IVA</div><div class="kpi-val">${fmt(totalMarca)}</div><div class="kpi-sub">período</div></div>
-      <div class="kpi"><div class="kpi-label">Productos</div><div class="kpi-val">${lista.length}</div><div class="kpi-sub">distintos</div></div>
+      <div class="kpi"><div class="kpi-label">Venta x Producto</div><div class="kpi-val" style="color:var(--brown)">${fmt(lista.length>0?totalMarca/lista.length:0)}</div><div class="kpi-sub">${lista.length} productos</div></div>
     </div>
 
     <!-- Ranking — solo cantidades, sin montos -->
