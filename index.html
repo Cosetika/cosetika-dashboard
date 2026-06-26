@@ -185,7 +185,7 @@
 
 <script>
 const MESES={1:'Ene',2:'Feb',3:'Mar',4:'Abr',5:'May',6:'Jun',7:'Jul',8:'Ago',9:'Sep',10:'Oct',11:'Nov',12:'Dic'};
-const fmt=n=>'$'+Number(n).toLocaleString('es-EC',{minimumFractionDigits:2,maximumFractionDigits:2});
+const fmt=n=>'$'+Number(n).toLocaleString('es-EC',{minimumFractionDigits:0,maximumFractionDigits:0});
 const pct=(v,mx)=>mx?Math.min(Math.round((v/mx)*100),100):0;
 
 // ─── COLORES GLOBALES ─────────────────────────────────────────────────────────
@@ -832,7 +832,7 @@ async function mostrarVentasHoy(){
       
       content.innerHTML = `
         <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:12px">
-          <div><span style="font-size:22px;font-weight:600;color:var(--brown)">$${totalHoyReal.toLocaleString('es-EC',{minimumFractionDigits:2})}</span><span style="font-size:11px;color:var(--muted);margin-left:6px">${data.total} facturas hoy</span></div>
+          <div><span style="font-size:22px;font-weight:600;color:var(--brown)">$${totalHoyReal.toLocaleString('es-EC',{minimumFractionDigits:0,maximumFractionDigits:0})}</span><span style="font-size:11px;color:var(--muted);margin-left:6px">${data.total} facturas hoy</span></div>
           <div style="font-size:11px;color:var(--muted)">Última sync: ${data.ultima_sync ? new Date(data.ultima_sync).toLocaleTimeString('es-EC',{hour:'2-digit',minute:'2-digit'}) : '—'}</div>
           <button onclick="fetch('/api/sync').then(()=>setTimeout(()=>{mostrarVentasHoy();},5000))" style="padding:4px 12px;font-size:11px;border:1px solid var(--brown);background:var(--bl);color:var(--brown);border-radius:20px;cursor:pointer">↻ Actualizar</button>
         </div>
@@ -852,7 +852,7 @@ async function mostrarVentasHoy(){
                   <td style="padding:7px 10px;color:var(--muted);font-size:11px;white-space:nowrap">${d.documento||'—'}</td>
                   <td style="padding:7px 10px;font-weight:500;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${d.cliente_nombre||d.cliente?.razon_social||'—'}">${d.cliente_nombre||d.cliente?.razon_social||'—'}</td>
                   <td style="padding:7px 10px;color:var(--muted);white-space:nowrap">${(d.vendedor?.razon_social||d.vendedor?.nombre||'—').split(' ')[0]}</td>
-                  <td style="padding:7px 10px;text-align:right;color:var(--brown);font-weight:500;white-space:nowrap">$${parseFloat(d.total||0).toLocaleString('es-EC',{minimumFractionDigits:2})}</td>
+                  <td style="padding:7px 10px;text-align:right;color:var(--brown);font-weight:500;white-space:nowrap">$${parseFloat(d.total||0).toLocaleString('es-EC',{minimumFractionDigits:0,maximumFractionDigits:0})}</td>
                 </tr>`).join('')}
             </tbody>
           </table>
@@ -1694,7 +1694,7 @@ function dibujarGraficoDiario(canvasId, series, dias){
     ctx.strokeStyle='#f0ede9'; ctx.lineWidth=1;
     ctx.beginPath(); ctx.moveTo(pad.left,y); ctx.lineTo(W-pad.right,y); ctx.stroke();
     ctx.fillStyle='#9ca3af'; ctx.font='10px system-ui'; ctx.textAlign='right';
-    ctx.fillText(val>=1000?'$'+(val/1000).toFixed(1)+'K':'$'+Math.round(val),pad.left-6,y+3);
+    ctx.fillText(val>=1000?'$'+(val/1000).toFixed(0)+'K':'$'+Math.round(val),pad.left-6,y+3);
   }
   // Eje X: solo el número del día, mostrando cada uno si hay espacio, o salteando si son muchos
   ctx.textAlign='center'; ctx.fillStyle='#6b7280'; ctx.font='9px system-ui';
@@ -1892,7 +1892,7 @@ function dibujarGraficoMarcas(series, meses){
         ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(x,y,5,0,Math.PI*2); ctx.fill();
         ctx.strokeStyle=s.color; ctx.lineWidth=2.5; ctx.beginPath(); ctx.arc(x,y,5,0,Math.PI*2); ctx.stroke();
         ctx.fillStyle=s.color; ctx.font='bold 11px system-ui'; ctx.textAlign='center';
-        ctx.fillText(v>=1000?'$'+(v/1000).toFixed(1)+'K':'$'+Math.round(v),x,y-11);
+        ctx.fillText(v>=1000?'$'+(v/1000).toFixed(0)+'K':'$'+Math.round(v),x,y-11);
       });
     }
   });
@@ -2120,7 +2120,7 @@ function dibujarGraficoVendedoras(series, meses){
         ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(x,y,5,0,Math.PI*2); ctx.fill();
         ctx.strokeStyle=s.color; ctx.lineWidth=2.5; ctx.beginPath(); ctx.arc(x,y,5,0,Math.PI*2); ctx.stroke();
         ctx.fillStyle=s.color; ctx.font='bold 11px system-ui'; ctx.textAlign='center';
-        ctx.fillText(v>=1000?'$'+(v/1000).toFixed(1)+'K':'$'+Math.round(v),x,y-11);
+        ctx.fillText(v>=1000?'$'+(v/1000).toFixed(0)+'K':'$'+Math.round(v),x,y-11);
       });
     }
   });
@@ -2172,7 +2172,7 @@ function dibujarGraficoLineas(canvasId, series, meses){
       ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(x,y,4,0,Math.PI*2); ctx.fill();
       ctx.strokeStyle=s.color; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(x,y,4,0,Math.PI*2); ctx.stroke();
       ctx.fillStyle=s.color; ctx.font='bold 9px system-ui'; ctx.textAlign='center';
-      ctx.fillText(v>=1000?'$'+(v/1000).toFixed(1)+'K':'$'+Math.round(v),x,y-9);
+      ctx.fillText(v>=1000?'$'+(v/1000).toFixed(0)+'K':'$'+Math.round(v),x,y-9);
     });
   });
 }
@@ -2490,12 +2490,22 @@ function renderProvincias(provSeleccionada){
       </div>
       <div class="card">
         <div class="card-title"><i class="ti ti-map-pin"></i> Ventas por provincia — haz clic para ver clientes</div>
-        ${provOrdenadas.map(p=>`
-          <div class="hbar" onclick="renderProvincias('${p.nombre.replace(/'/g,"\\'")}')">
-            <span class="hbar-lbl" title="${p.nombre}">${p.nombre}</span>
-            <div class="hbar-track"><div class="hbar-fill brown" style="width:${pct(p.total,maxProv)}%"></div></div>
-            <span class="hbar-val" style="min-width:130px;max-width:150px">${fmt(p.total)} <span style="font-size:11px;color:var(--muted);font-weight:400">(${totalGlobal>0?Math.round(p.total/totalGlobal*1000)/10:0}%)</span></span>
-          </div>`).join('')}
+        ${provOrdenadas.map(p=>{
+          const porcentaje = totalGlobal>0?Math.round(p.total/totalGlobal*1000)/10:0;
+          const anchoBarra = Math.max(pct(p.total,maxProv)*0.88,2); // se deja ~12% de margen para el texto del %
+          return `
+          <div onclick="renderProvincias('${p.nombre.replace(/'/g,"\\'")}')" style="cursor:pointer;margin-bottom:10px">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span class="hbar-lbl" title="${p.nombre}">${p.nombre}</span>
+              <div class="hbar-track" style="position:relative;overflow:visible">
+                <div class="hbar-fill brown" style="width:${anchoBarra}%;position:relative">
+                  <span style="position:absolute;left:100%;top:50%;transform:translateY(-50%);margin-left:6px;font-size:10px;font-weight:600;color:var(--brown);white-space:nowrap">${porcentaje}%</span>
+                </div>
+              </div>
+              <span class="hbar-val">${fmt(p.total)}</span>
+            </div>
+          </div>`;
+        }).join('')}
       </div>`;
   } else {
     const provData=provincias[provSeleccionada]||[];
