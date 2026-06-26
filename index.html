@@ -250,6 +250,27 @@ function vendAvatar(nombre, size=28){
 
 
 let DATA={};
+
+// Resuelve el nombre real (clave completa) dentro de un objeto indexado por nombre
+// (como DATA o ASESOR_DATA), a partir de un nombre parcial/incompleto — por ejemplo,
+// el nombre guardado en la tabla "usuarios" puede no incluir el apellido materno
+// completo que sí tiene la clave real usada en los datos de Contifico/zonas.
+// Hace match si una cadena contiene a la otra (normalizando mayúsculas/acentos/espacios).
+function resolverNombreReal(nombreParcial, objetoConClaves){
+  if(!nombreParcial) return null;
+  const normalizar = s => (s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().trim().replace(/\s+/g,' ');
+  const buscado = normalizar(nombreParcial);
+  if(objetoConClaves[nombreParcial]) return nombreParcial; // coincidencia exacta, camino rápido
+  const claves = Object.keys(objetoConClaves);
+  // 1) buscar coincidencia donde una contiene a la otra completamente
+  let match = claves.find(k => { const kn=normalizar(k); return kn.includes(buscado) || buscado.includes(kn); });
+  if(match) return match;
+  // 2) fallback: coincidencia por las primeras dos palabras (nombre + primer apellido)
+  const palabrasBuscado = buscado.split(' ').slice(0,2).join(' ');
+  match = claves.find(k => normalizar(k).startsWith(palabrasBuscado));
+  return match || null;
+}
+
 let vendActual=null;
 let modActual='ventas';
 let subtabActual='facturas'; // facturas = pantalla inicial
@@ -722,6 +743,20 @@ async function cargarData(){
 
     initVendedoras();
     mostrarVentasHoy();
+
+    // Resolver el nombre real de la asesora dentro de DATA (puede diferir del
+    // nombre guardado en la tabla usuarios, ej. sin segundo apellido) y guardarlo
+    // para cuando navegue a Clientes — sin cambiar su pantalla de entrada, que
+    // sigue siendo Facturas igual que para todos los roles.
+    const usuarioLogueado = window.usuarioActual || JSON.parse(sessionStorage.getItem('cosetika_usuario')||'null');
+    if(usuarioLogueado && usuarioLogueado.rol === 'asesora'){
+      const nombreReal = resolverNombreReal(usuarioLogueado.nombre, DATA);
+      if(nombreReal){
+        window._nombreRealAsesora = nombreReal;
+      } else {
+        console.warn('No se encontró el nombre de la asesora en DATA:', usuarioLogueado.nombre);
+      }
+    }
     setSubtab('facturas');
   }catch(e){
     document.getElementById('main').innerHTML='<div class="loader"><p>Error: '+e.message+'</p></div>';
@@ -844,6 +879,9 @@ function setSubtab(tab){
     renderVentasPanel();
   } else if(tab==='cpf'){
     sidebar.classList.add('hidden'); body.classList.add('full-width');
+    // Para una asesora sin vendActual fijado aún, usar su nombre real ya resuelto
+    // (puede diferir del nombre guardado en usuarios — ver resolverNombreReal)
+    if(!vendActual && window._nombreRealAsesora) vendActual = window._nombreRealAsesora;
     if(vendActual) renderVendedor(vendActual);
     else renderHome();
   } else if(tab==='prov'){
@@ -2626,7 +2664,7 @@ async function renderVisitasRealizadas(){
   const nombre = usuario.nombre || '';
   const modulos = usuario.modulos ? usuario.modulos.split(',') : [];
   const puedeEditarSectores = rol==='admin' || modulos.includes('editar_visitas');
-  if(rol==='asesora') asesoraVisitas = nombre;
+  if(rol==='asesora') asesoraVisitas = resolverNombreReal(nombre, ASESOR_DATA) || nombre;
   const asesoraActual2 = asesoraVisitas || Object.keys(ASESOR_DATA)[0];
   const data = ASESOR_DATA[asesoraActual2];
   if(!data){ document.getElementById('visitas-content').innerHTML='<p style="color:var(--muted);font-size:13px;padding:20px">No hay sectores asignados</p>'; return; }
@@ -2665,7 +2703,7 @@ async function renderVisitasRealizadas(){
   });
   if(puedeEditarSectores) provsHtml+=`<button onclick="agregarProvincia('${asesoraActual2.replace(/'/g,"\\'")}')" style="padding:8px 16px;font-size:12px;border-radius:10px;border:1px dashed var(--brown);background:white;color:var(--brown);cursor:pointer"><i class="ti ti-plus"></i> Provincia</button>`;
   provsHtml+='</div>';
-  const recientes=[...visitasDB].filter(v=>rol==='asesora'?v.asesora===nombre:true).sort((a,b)=>new Date(b.fecha)-new Date(a.fecha)).slice(0,8);
+  const recientes=[...visitasDB].filter(v=>rol==='asesora'?v.asesora===asesoraActual2:true).sort((a,b)=>new Date(b.fecha)-new Date(a.fecha)).slice(0,8);
   const histHtml=recientes.length?recientes.map(v=>`<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:0.5px solid var(--border);font-size:12px"><i class="ti ti-${v.tipo==='provincia'?'world':'map-pin'}" style="color:#A0684A;font-size:14px;flex-shrink:0"></i><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${v.lugar}</span><span style="font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(160,104,74,0.12);color:#A0684A">${v.asesora.split(' ')[0]}</span><span style="color:var(--muted);font-size:11px;min-width:65px;text-align:right">${fmtFecha(v.fecha)}</span></div>`).join(''):'<p style="font-size:12px;color:var(--muted)">Sin visitas registradas</p>';
   document.getElementById('visitas-content').innerHTML=`
     ${asesBtns}
