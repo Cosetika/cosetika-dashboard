@@ -8,7 +8,8 @@
     "install-deps": "npm install"
   },
   "dependencies": {
-    "pg": "8.11.0"
+    "pg": "8.11.0",
+    "xlsx": "0.18.5"
   },
   "engines": {
     "node": "18.x",
