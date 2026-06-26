@@ -319,6 +319,13 @@ const SEMAFORO_COLORS = {
 };
 
 async function renderInventario(){
+  const usuarioPermiso = window.usuarioActual || {};
+  const modulosPermiso = usuarioPermiso.modulos ? usuarioPermiso.modulos.split(',') : [];
+  const tieneAcceso = usuarioPermiso.rol === 'admin' || modulosPermiso.includes('inventario');
+  if(!tieneAcceso){
+    document.getElementById('main').innerHTML = `<div class="coming"><i class="ti ti-lock"></i><p>Acceso restringido</p></div>`;
+    return;
+  }
   const marca = window._invMarcaSel || 'ZIAJA';
   const marcas = ['BIOSKIN','ERAYBA','ZIAJA','ZIAJA PRO'];
 
@@ -650,7 +657,6 @@ async function renderConfig(){
               ${MODS_LISTA.map(m=>`<th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);text-transform:uppercase">${m}</th>`).join('')}
               <th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);white-space:nowrap">Ver visitas<br>de todas</th>
               <th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);white-space:nowrap">Editar<br>sectores</th>
-              <th></th>
             </tr></thead>
             <tbody>
               ${usuarios.map(u=>{
@@ -661,11 +667,14 @@ async function renderConfig(){
                 return "<tr style=\"border-bottom:0.5px solid var(--border)\"><td style=\"padding:10px\"><div style=\"font-size:13px;font-weight:500\">" + u.nombre.split(' ')[0] + "</div><div style=\"font-size:11px;color:var(--muted)\">" + u.rol + "</div></td>" +
                   MODS_LISTA.map(m=>"<td style=\"text-align:center;padding:10px\"><input type=\"checkbox\" " + (mods.includes(m)||esAdmin?'checked':'') + " " + (esAdmin?'disabled':'') + " id=\"perm-" + u.id + "-" + m + "\" style=\"accent-color:#A0684A;width:16px;height:16px;cursor:pointer\"/></td>").join('') +
                   "<td style=\"text-align:center;padding:10px\"><input type=\"checkbox\" id=\"perm-" + u.id + "-ver_visitas_todas\" " + (verTodas?'checked':'') + " " + (esAdmin||esJefa?'disabled':'') + " style=\"accent-color:#A0684A;width:16px;height:16px;cursor:pointer\"/></td>" +
-                  "<td style=\"text-align:center;padding:10px\"><input type=\"checkbox\" id=\"perm-" + u.id + "-editar_visitas\" " + (editarSectores?'checked':'') + " " + (esAdmin?'disabled':'') + " style=\"accent-color:#A0684A;width:16px;height:16px;cursor:pointer\"/></td>" +
-                  "<td style=\"padding:10px\">" + (esAdmin?'<span style=\"font-size:11px;color:var(--muted)\">—</span>':"<button onclick=\"guardarPermisos(" + u.id + ")\" style=\"padding:5px 12px;background:var(--brown);color:white;border:none;border-radius:6px;font-size:11px;cursor:pointer\">Guardar</button>") + "</td></tr>";
+                  "<td style=\"text-align:center;padding:10px\"><input type=\"checkbox\" id=\"perm-" + u.id + "-editar_visitas\" " + (editarSectores?'checked':'') + " " + (esAdmin?'disabled':'') + " style=\"accent-color:#A0684A;width:16px;height:16px;cursor:pointer\"/></td></tr>";
               }).join('')}
             </tbody>
           </table>
+        </div>
+        <div style="margin-top:14px;display:flex;justify-content:flex-end;align-items:center;gap:10px">
+          <span id="permisos-status" style="font-size:12px;color:var(--muted)"></span>
+          <button onclick="guardarTodosPermisos()" style="padding:8px 18px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-device-floppy"></i> Guardar todos los permisos</button>
         </div>
       </div>
     </div>
@@ -715,12 +724,36 @@ async function crearUsuario(){
   try{await fetch('/api/usuarios',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nombre,usuario,password:pwd||'1234',rol,modulos:'ventas,visitas,kpis,inventario'})});alert('Usuario creado ✓');renderConfig();}catch(e){alert('Error al crear usuario');}
 }
 
-async function guardarPermisos(id){
+async function guardarTodosPermisos(){
   const MODS=['ventas','visitas','kpis','inventario'];
-  const mods=MODS.filter(m=>document.getElementById('perm-'+id+'-'+m)?.checked);
-  if(document.getElementById('perm-'+id+'-ver_visitas_todas')?.checked) mods.push('ver_visitas_todas');
-  if(document.getElementById('perm-'+id+'-editar_visitas')?.checked) mods.push('editar_visitas');
-  try{await fetch('/api/usuarios/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({modulos:mods.join(',')})});alert('Permisos guardados ✓');renderConfig();}catch(e){alert('Error al guardar');}
+  const statusEl = document.getElementById('permisos-status');
+  // Detectar todos los usuarios presentes en la tabla a partir de los ids de checkbox
+  // (id con formato "perm-{userId}-{modulo}"), evitando depender de una lista aparte.
+  const idsUsuarios = new Set();
+  document.querySelectorAll('input[id^="perm-"]').forEach(inp=>{
+    const partes = inp.id.split('-'); // ['perm', userId, modulo...]
+    if(partes.length>=3) idsUsuarios.add(partes[1]);
+  });
+  if(statusEl) statusEl.textContent = 'Guardando...';
+  try{
+    await Promise.all([...idsUsuarios].map(async id=>{
+      // Si el usuario es admin, todos sus checkboxes salen "disabled" y no aplica guardarle
+      // módulos (su acceso es total e implícito), así que se omite para no sobreescribir nada.
+      const algunCheckboxEditable = MODS.some(m=>{
+        const el = document.getElementById('perm-'+id+'-'+m);
+        return el && !el.disabled;
+      });
+      if(!algunCheckboxEditable) return;
+      const mods=MODS.filter(m=>document.getElementById('perm-'+id+'-'+m)?.checked);
+      if(document.getElementById('perm-'+id+'-ver_visitas_todas')?.checked) mods.push('ver_visitas_todas');
+      if(document.getElementById('perm-'+id+'-editar_visitas')?.checked) mods.push('editar_visitas');
+      await fetch('/api/usuarios/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({modulos:mods.join(',')})});
+    }));
+    if(statusEl) statusEl.innerHTML = '<span style="color:#166534">✓ Permisos guardados</span>';
+    setTimeout(()=>renderConfig(), 800);
+  }catch(e){
+    if(statusEl) statusEl.innerHTML = '<span style="color:#991b1b">Error al guardar</span>';
+  }
 }
 async function cargarData(){
   document.getElementById('main').innerHTML='<div class="loader"><i class="ti ti-refresh"></i><p>Cargando data...</p></div>';
