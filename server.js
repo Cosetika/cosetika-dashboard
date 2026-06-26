@@ -548,6 +548,9 @@ async function fusionarMesActualEnCache() {
         cli.total = Math.round((cli.total + cliMes.total) * 100) / 100;
         cli.subtotal = Math.round((cli.subtotal + cliMes.subtotal) * 100) / 100;
         cli.num_compras = (cli.num_compras||0) + cliMes.num_compras;
+        // Igual que en la fusión anual: copiar la provincia recién calculada (que ya
+        // respeta el override más reciente) de vuelta al cliente existente en DATA_CACHE.
+        if(cliMes.provincia) cli.provincia = cliMes.provincia;
         cli.frecuencia = (cli.frecuencia||[]).concat(cliMes.frecuencia);
         cli.frecuencia_dia = (cli.frecuencia_dia||[]).concat(cliMes.frecuencia_dia||[]);
         cli.marcas_anio = consolidarMarcasAnio((cli.marcas_anio||[]).concat(cliMes.marcas_anio));
@@ -630,6 +633,11 @@ async function fusionarAnioActualEnCache(anioActual, dataAnio) {
       cli.total = Math.round((cli.total + cliAnio.total) * 100) / 100;
       cli.subtotal = Math.round((cli.subtotal + cliAnio.subtotal) * 100) / 100;
       cli.num_compras = (cli.num_compras||0) + cliAnio.num_compras;
+      // La provincia también debe actualizarse aquí: generarDataJson ya la recalcula
+      // correctamente con el override más reciente, pero esta función nunca la copiaba
+      // de vuelta al cliente existente en DATA_CACHE (por eso un override subido después
+      // de que el cliente ya existiera en caché nunca se reflejaba, aun regenerando).
+      if(cliAnio.provincia) cli.provincia = cliAnio.provincia;
       cli.frecuencia = (cli.frecuencia||[]).concat(cliAnio.frecuencia);
       cli.frecuencia_dia = (cli.frecuencia_dia||[]).concat(cliAnio.frecuencia_dia||[]);
       cli.marcas_anio = (cli.marcas_anio||[]).concat(cliAnio.marcas_anio);
