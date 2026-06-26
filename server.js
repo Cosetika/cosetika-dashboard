@@ -2016,14 +2016,25 @@ const server = http.createServer(async (req, res) => {
   // DIAGNÓSTICO: probar resolverProvinciaCliente con un RUC/Cédula específico
   if (urlPath === '/api/provincias/diagnostico' && req.method === 'GET') {
     const identificador = (urlObj.searchParams.get('id')||'').trim();
+    // Buscar al cliente real en DATA_CACHE por su RUC, para ver qué provincia tiene
+    // GUARDADA ahí (lo que realmente usa el frontend), no solo lo que calcularía la función.
+    const clientesEncontrados = [];
+    Object.entries(DATA_CACHE||{}).forEach(([vendedora, clientes])=>{
+      (clientes||[]).forEach(cli=>{
+        if ((cli.ruc||'').trim() === identificador) {
+          clientesEncontrados.push({ vendedora, nombre: cli.nombre, id: cli.id, ruc: cli.ruc, provincia_guardada_en_DATA_CACHE: cli.provincia });
+        }
+      });
+    });
     res.writeHead(200, {'Content-Type':'application/json'});
     res.end(JSON.stringify({
       identificador_buscado: identificador,
       existe_en_override: PROVINCIAS_OVERRIDE.hasOwnProperty(identificador),
       valor_en_override: PROVINCIAS_OVERRIDE[identificador] || null,
       total_claves_en_override: Object.keys(PROVINCIAS_OVERRIDE).length,
-      ejemplos_de_claves: Object.keys(PROVINCIAS_OVERRIDE).slice(0,5),
       resultado_resolverProvinciaCliente: resolverProvinciaCliente(identificador, null, ''),
+      clientes_encontrados_en_DATA_CACHE: clientesEncontrados,
+      data_cache_actualizado_en: DATA_CACHE_TS,
       override_cache_ts: PROVINCIAS_OVERRIDE_TS
     }, null, 2));
     return;
