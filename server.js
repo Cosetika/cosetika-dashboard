@@ -731,6 +731,23 @@ function resolverProvinciaCliente(ruc, personaId, direccion){
 
 // Parsea el Excel de Personas/Clientes de Contifico (formato .xls o .xlsx), extrayendo
 // RUC/Cédula + Provincia. Encabezados en la fila que contiene 'RUC' y 'Provincia'.
+// Normaliza el texto de provincia que viene del Excel para que coincida exactamente
+// con el nombre oficial usado en PROVINCIAS_NOMBRE (ej. "MANABI" sin tilde del Excel
+// → "MANABÍ" con tilde, que es el estándar del resto del sistema). Si no encuentra
+// coincidencia, devuelve el texto tal cual vino (mejor mostrar algo que perderlo).
+function normalizarNombreProvincia(textoProvincia){
+  if(!textoProvincia) return '';
+  const sinTildes = s => (s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().trim();
+  const buscado = sinTildes(textoProvincia);
+  // 1) coincidencia exacta
+  let match = PROVINCIAS_NOMBRE.find(p => sinTildes(p) === buscado);
+  if(match) return match;
+  // 2) una contiene a la otra (ej. Excel trae "SANTO DOMINGO DE LOS TSÁCHILAS",
+  // el sistema usa solo "SANTO DOMINGO")
+  match = PROVINCIAS_NOMBRE.find(p => { const pn=sinTildes(p); return buscado.includes(pn) || pn.includes(buscado); });
+  return match || textoProvincia;
+}
+
 function parsearExcelProvincias(buffer) {
   const wb = XLSX.read(buffer, { type: 'buffer' });
   const ws = wb.Sheets[wb.SheetNames[0]];
@@ -760,7 +777,8 @@ function parsearExcelProvincias(buffer) {
     const ruc = idxRuc !== -1 ? (fila[idxRuc]||'').toString().trim() : '';
     const cedula = idxCedula !== -1 ? (fila[idxCedula]||'').toString().trim() : '';
     const identificador = ruc || cedula;
-    const provincia = (fila[idxProvincia]||'').toString().trim().toUpperCase();
+    const provinciaCruda = (fila[idxProvincia]||'').toString().trim().toUpperCase();
+    const provincia = normalizarNombreProvincia(provinciaCruda);
     if (!identificador) { filasSinIdentificador++; continue; }
     if (!provincia) continue; // sin provincia en el Excel: no sobreescribir nada
     overrides[identificador] = provincia;
