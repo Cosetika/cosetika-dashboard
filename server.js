@@ -1224,11 +1224,12 @@ const server = http.createServer(async (req, res) => {
         return true;
       });
 
-      let cantidadTotalCruda = 0, cantidadConBaseValida = 0, cantidadConBaseCero = 0;
-      let lineasCrudas = 0, lineasConBaseCero = 0;
+      let cantidadTotalCruda = 0, cantidadConFiltroNuevo = 0, cantidadExcluidaPorCantidadCero = 0;
+      let lineasCrudas = 0, lineasExcluidas = 0;
       const productIdsVistos = new Set();
-      const ejemplosBaseCero = [];
+      const ejemplosExcluidos = [];
       const porMesCrudo = {}, porMesFiltrado = {};
+      const docsConEsteProducto = new Set();
       docsFiltrados.forEach(doc => {
         const mes = parseInt((doc.fecha_emision || '').split('/')[1]) || 0;
         (doc.detalles || []).forEach(det => {
@@ -1240,16 +1241,32 @@ const server = http.createServer(async (req, res) => {
           productIdsVistos.add(det.producto_id || '(sin id)');
           cantidadTotalCruda += cantidad;
           porMesCrudo[mes] = (porMesCrudo[mes]||0) + cantidad;
-          if (!det.producto_id || cantidad === 0 || base === 0) {
-            lineasConBaseCero++;
-            cantidadConBaseCero += cantidad;
-            if (ejemplosBaseCero.length < 5) {
-              ejemplosBaseCero.push({ doc: doc.documento || doc.id, fecha: doc.fecha_emision, cantidad, base_gravable: det.base_gravable, base_cero: det.base_cero, producto_id: det.producto_id||null, precio_unitario: det.precio_unitario, descuento: det.descuento });
+          docsConEsteProducto.add(doc.documento || doc.id);
+          // Filtro ACTUAL (ya corregido): solo se excluye si no hay producto_id o cantidad===0
+          if (!det.producto_id || cantidad === 0) {
+            lineasExcluidas++;
+            cantidadExcluidaPorCantidadCero += cantidad;
+            if (ejemplosExcluidos.length < 8) {
+              ejemplosExcluidos.push({ doc: doc.documento || doc.id, fecha: doc.fecha_emision, cantidad, base_gravable: det.base_gravable, base_cero: det.base_cero, producto_id: det.producto_id||null });
             }
           } else {
-            cantidadConBaseValida += cantidad;
+            cantidadConFiltroNuevo += cantidad;
             porMesFiltrado[mes] = (porMesFiltrado[mes]||0) + cantidad;
           }
+        });
+      });
+
+      // Comparar contra lo que HOY tiene DATA_CACHE para este mismo producto (post-fusión),
+      // para ver si la pérdida ocurre en generarDataJson o después (fusión incremental/anual).
+      let cantidadEnCacheActual = 0;
+      const anioConsulta = parseInt(desde.split('/')[2]) || new Date().getFullYear();
+      Object.values(DATA_CACHE||{}).forEach(clientes=>{
+        (clientes||[]).forEach(cli=>{
+          (cli.productos_mes||[]).forEach(pm=>{
+            if (pm.anio===anioConsulta && (pm.nombre||'').toUpperCase().trim()===nombreBuscado) {
+              cantidadEnCacheActual += pm.cantidad||0;
+            }
+          });
         });
       });
 
@@ -1258,12 +1275,15 @@ const server = http.createServer(async (req, res) => {
         producto_buscado: nombreBuscado,
         rango: { desde, hasta },
         producto_ids_distintos_encontrados: [...productIdsVistos],
+        documentos_distintos_con_este_producto: docsConEsteProducto.size,
         lineas_de_detalle_encontradas: lineasCrudas,
         cantidad_total_cruda_sin_filtrar: cantidadTotalCruda,
-        cantidad_que_SOBREVIVE_el_filtro_actual: cantidadConBaseValida,
-        cantidad_EXCLUIDA_por_filtro_base_o_cantidad_cero: cantidadConBaseCero,
-        lineas_excluidas_count: lineasConBaseCero,
-        ejemplos_de_lineas_excluidas: ejemplosBaseCero,
+        cantidad_que_SOBREVIVE_filtro_actual_en_vivo: cantidadConFiltroNuevo,
+        cantidad_excluida_por_cantidad_cero_o_sin_id: cantidadExcluidaPorCantidadCero,
+        lineas_excluidas_count: lineasExcluidas,
+        ejemplos_de_lineas_excluidas: ejemplosExcluidos,
+        cantidad_actualmente_en_DATA_CACHE_productos_mes: cantidadEnCacheActual,
+        diferencia_entre_calculo_en_vivo_y_DATA_CACHE: Math.round((cantidadConFiltroNuevo - cantidadEnCacheActual)*100)/100,
         por_mes_cantidad_cruda: porMesCrudo,
         por_mes_cantidad_que_sobrevive_filtro: porMesFiltrado
       }, null, 2));
