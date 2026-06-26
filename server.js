@@ -1957,6 +1957,57 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // DIAGNÓSTICO: ver el RUC/Cédula real que trae Contifico para un cliente por nombre
+  if (urlPath === '/api/provincias/diagnostico-cliente' && req.method === 'GET') {
+    try {
+      const nombreBuscado = (urlObj.searchParams.get('nombre') || '').toUpperCase().trim();
+      const desde = urlObj.searchParams.get('desde') || '01/01/2025';
+      const hasta = urlObj.searchParams.get('hasta') || fmtDateEC(new Date());
+      let todos = [];
+      let nextUrl = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${desde}&fecha_final=${hasta}&page_size=100`;
+      let paginas = 0;
+      while (nextUrl && paginas < 200) {
+        const resp = await fetch(nextUrl, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
+        if (!resp.ok) break;
+        const data = await resp.json();
+        todos = todos.concat(data.results || []);
+        nextUrl = data.next || null;
+        paginas++;
+      }
+      const ejemplos = [];
+      const rucsVistos = new Set();
+      todos.forEach(d => {
+        const cliNom = ((d.cliente && (d.cliente.razon_social || d.cliente.nombre_comercial)) || '').toUpperCase().trim();
+        if (!cliNom.includes(nombreBuscado)) return;
+        const cliRuc = (d.cliente && (d.cliente.ruc || d.cliente.cedula)) || '';
+        const cliId = d.cliente && d.cliente.id ? d.cliente.id : d.persona_id;
+        const key = cliRuc + '|' + cliId;
+        if (rucsVistos.has(key)) return;
+        rucsVistos.add(key);
+        if (ejemplos.length < 5) {
+          ejemplos.push({
+            documento: d.documento || d.id,
+            cliente_nombre: d.cliente?.razon_social || d.cliente?.nombre_comercial,
+            cliente_ruc_crudo: d.cliente?.ruc,
+            cliente_cedula_cruda: d.cliente?.cedula,
+            ruc_o_cedula_usado: cliRuc,
+            ruc_longitud: cliRuc.length,
+            ruc_tiene_espacios: cliRuc !== cliRuc.trim(),
+            cliente_id: cliId,
+            existe_en_override: PROVINCIAS_OVERRIDE.hasOwnProperty(cliRuc.trim()),
+            resultado_resolverProvinciaCliente: resolverProvinciaCliente(cliRuc, cliId, d.cliente?.direccion || '')
+          });
+        }
+      });
+      res.writeHead(200, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({ nombre_buscado: nombreBuscado, documentos_encontrados: rucsVistos.size, ejemplos }, null, 2));
+    } catch(e) {
+      res.writeHead(500, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
   // DIAGNÓSTICO: probar resolverProvinciaCliente con un RUC/Cédula específico
   if (urlPath === '/api/provincias/diagnostico' && req.method === 'GET') {
     const identificador = (urlObj.searchParams.get('id')||'').trim();
