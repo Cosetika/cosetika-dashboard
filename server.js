@@ -718,6 +718,50 @@ async function guardarSkuPorMarcaEnDB(data) {
   } catch(e) { console.error('Error guardando SKU por marca:', e.message); }
 }
 
+// ─── METAS DE INGRESO DE CLIENTES A MERCATELY (KPI manual, por asesora) ────
+// MERCATELY_METAS: { 'Nombre completo asesora': metaMensual }. Editable en
+// cualquier momento desde Configuración. Los registros mensuales reales (cuántos
+// clientes entraron cada mes) viven en la tabla mercately_registros, separada,
+// para mantener historial completo sin sobrescribir meses anteriores.
+let MERCATELY_METAS = {};
+let MERCATELY_METAS_TS = null;
+
+async function cargarMercatelyMetasDesdeDB() {
+  try {
+    const r = await pool.query("SELECT datos FROM mercately_metas ORDER BY actualizado_at DESC LIMIT 1");
+    if (r.rows.length > 0) {
+      MERCATELY_METAS = JSON.parse(r.rows[0].datos);
+      MERCATELY_METAS_TS = new Date().toISOString();
+      console.log('✓ Metas Mercately cargadas desde PostgreSQL:', MERCATELY_METAS);
+    } else {
+      // Valores iniciales solicitados por Fernando, solo la primera vez (tabla vacía)
+      MERCATELY_METAS = {
+        'Giovanna Portilla': 0,
+        'Liseth Gavilanes': 120,
+        'Daniela Villegas Chamorro': 120,
+        'María Caridad Zea Larrea': 120,
+        'Karen Rebeca Mora Cedeño': 200,
+        'Nicole Yanira Leon Marquez': 200
+      };
+      await guardarMercatelyMetasEnDB(MERCATELY_METAS);
+      console.log('✓ Metas Mercately inicializadas con valores por defecto');
+    }
+  } catch(e) { console.error('Error cargando metas Mercately:', e.message); }
+}
+
+async function guardarMercatelyMetasEnDB(data) {
+  try {
+    const json = JSON.stringify(data);
+    await pool.query(`
+      INSERT INTO mercately_metas (datos, actualizado_at) VALUES ($1, NOW())
+      ON CONFLICT (id_unico) DO UPDATE SET datos = $1, actualizado_at = NOW()
+    `, [json]);
+    MERCATELY_METAS = data;
+    MERCATELY_METAS_TS = new Date().toISOString();
+    console.log('✓ Metas Mercately guardadas en PostgreSQL:', data);
+  } catch(e) { console.error('Error guardando metas Mercately:', e.message); }
+}
+
 // Resuelve la provincia de un cliente con la prioridad: override por RUC/Cédula (Excel,
 // subido manualmente por Fernando) > inferencia por palabras clave en la dirección
 // (Contifico no expone un campo "provincia" directo en la API, solo dirección de texto).
@@ -969,6 +1013,21 @@ async function initDB() {
         datos TEXT NOT NULL,
         actualizado_at TIMESTAMP DEFAULT NOW()
       );
+      CREATE TABLE IF NOT EXISTS mercately_metas (
+        id SERIAL PRIMARY KEY,
+        id_unico VARCHAR(10) DEFAULT 'principal' UNIQUE,
+        datos TEXT NOT NULL,
+        actualizado_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS mercately_registros (
+        id SERIAL PRIMARY KEY,
+        asesora VARCHAR(255) NOT NULL,
+        anio INTEGER NOT NULL,
+        mes INTEGER NOT NULL,
+        cantidad INTEGER NOT NULL DEFAULT 0,
+        actualizado_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(asesora, anio, mes)
+      );
       CREATE TABLE IF NOT EXISTS visitas (
         id SERIAL PRIMARY KEY, lugar VARCHAR(255) NOT NULL,
         tipo VARCHAR(50) NOT NULL, asesora VARCHAR(255) NOT NULL,
@@ -1017,7 +1076,7 @@ async function initDB() {
     console.log('DB inicializada');
   } catch(e) { console.error('Error DB:', e.message); }
 }
-initDB().then(() => cargarDataDesdeDB()).then(() => cargarInventarioDesdeDB()).then(() => cargarProvinciasOverrideDesdeDB()).then(() => cargarSkuPorMarcaDesdeDB()).catch(e => console.error('Error init:', e.message));
+initDB().then(() => cargarDataDesdeDB()).then(() => cargarInventarioDesdeDB()).then(() => cargarProvinciasOverrideDesdeDB()).then(() => cargarSkuPorMarcaDesdeDB()).then(() => cargarMercatelyMetasDesdeDB()).catch(e => console.error('Error init:', e.message));
 programarRegeneracionDiaria();
 
 const MIME = { '.html':'text/html','.js':'application/javascript','.css':'text/css','.json':'application/json','.png':'image/png','.jpg':'image/jpeg','.ico':'image/x-icon' };
@@ -2157,6 +2216,63 @@ const server = http.createServer(async (req, res) => {
       await guardarSkuPorMarcaEnDB(nuevo);
       res.writeHead(200, {'Content-Type':'application/json'});
       res.end(JSON.stringify({ ok: true, datos: SKU_POR_MARCA }));
+    } catch(e) {
+      res.writeHead(500, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok: false, error: e.message }));
+    }
+    return;
+  }
+
+  // METAS DE MERCATELY: GET para consultar, POST para guardar (objeto completo {asesora: meta})
+  if (urlPath === '/api/mercately/metas' && req.method === 'GET') {
+    res.writeHead(200, {'Content-Type':'application/json'});
+    res.end(JSON.stringify({ ok: true, metas: MERCATELY_METAS, actualizado_en: MERCATELY_METAS_TS }));
+    return;
+  }
+  if (urlPath === '/api/mercately/metas' && req.method === 'POST') {
+    try {
+      const body = await bodyJSON(req);
+      const nuevo = {};
+      Object.keys(body).forEach(asesora => { nuevo[asesora] = parseInt(body[asesora]) || 0; });
+      await guardarMercatelyMetasEnDB(nuevo);
+      res.writeHead(200, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok: true, metas: MERCATELY_METAS }));
+    } catch(e) {
+      res.writeHead(500, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok: false, error: e.message }));
+    }
+    return;
+  }
+
+  // REGISTROS MENSUALES DE MERCATELY: cuántos clientes ingresó cada asesora cada mes.
+  // GET ?anio=2026 devuelve todos los registros de ese año (para todas las asesoras).
+  // POST guarda/actualiza un registro puntual {asesora, anio, mes, cantidad}.
+  if (urlPath === '/api/mercately/registros' && req.method === 'GET') {
+    try {
+      const anio = parseInt(urlObj.searchParams.get('anio')) || new Date().getFullYear();
+      const r = await pool.query('SELECT asesora, anio, mes, cantidad FROM mercately_registros WHERE anio=$1', [anio]);
+      res.writeHead(200, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok: true, registros: r.rows }));
+    } catch(e) {
+      res.writeHead(500, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok: false, error: e.message }));
+    }
+    return;
+  }
+  if (urlPath === '/api/mercately/registros' && req.method === 'POST') {
+    try {
+      const { asesora, anio, mes, cantidad } = await bodyJSON(req);
+      if (!asesora || !anio || !mes) {
+        res.writeHead(400, {'Content-Type':'application/json'});
+        res.end(JSON.stringify({ ok: false, error: 'Faltan asesora, anio o mes' }));
+        return;
+      }
+      await pool.query(`
+        INSERT INTO mercately_registros (asesora, anio, mes, cantidad, actualizado_at) VALUES ($1, $2, $3, $4, NOW())
+        ON CONFLICT (asesora, anio, mes) DO UPDATE SET cantidad = $4, actualizado_at = NOW()
+      `, [asesora, anio, mes, parseInt(cantidad)||0]);
+      res.writeHead(200, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok: true }));
     } catch(e) {
       res.writeHead(500, {'Content-Type':'application/json'});
       res.end(JSON.stringify({ ok: false, error: e.message }));

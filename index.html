@@ -730,8 +730,104 @@ async function renderConfig(){
         </button>
         <div id="sku-marca-status" style="margin-top:10px;font-size:12px;color:var(--muted)"></div>
       </div>
+      <div class="card" style="margin-top:12px" id="card-mercately">
+        <div class="card-title"><i class="ti ti-message-circle"></i> Ingreso de clientes a Mercately</div>
+        <div id="mercately-cfg-content"><div class="loader" style="padding:20px"><i class="ti ti-loader"></i></div></div>
+      </div>
     </div>`;
   cargarEstadoProvincias();
+  renderMercatelyConfig();
+}
+
+async function renderMercatelyConfig(){
+  const cont = document.getElementById('mercately-cfg-content');
+  if(!cont) return;
+  const anio = window._mercatelyAnioCfg || new Date().getFullYear();
+  const ASESORAS_MERCATELY = ['Giovanna Portilla','Liseth Gavilanes','Daniela Villegas Chamorro','María Caridad Zea Larrea','Karen Rebeca Mora Cedeño','Nicole Yanira Leon Marquez'];
+  const MESES_CORTOS=['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  try{
+    const [rMetas, rRegs] = await Promise.all([
+      fetch('/api/mercately/metas'),
+      fetch(`/api/mercately/registros?anio=${anio}`)
+    ]);
+    const dataMetas = await rMetas.json();
+    const dataRegs = await rRegs.json();
+    const metas = dataMetas.metas || {};
+    const registrosPorAsesoraMes = {}; // "asesora|mes" -> cantidad
+    (dataRegs.registros||[]).forEach(r=>{ registrosPorAsesoraMes[r.asesora+'|'+r.mes] = r.cantidad; });
+    window._mercatelyMetasCache = metas;
+
+    cont.innerHTML = `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+        <label style="font-size:12px;color:var(--muted)">Año:</label>
+        <select onchange="window._mercatelyAnioCfg=parseInt(this.value);renderMercatelyConfig()" style="padding:5px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;outline:none">
+          ${[anio-1,anio,anio+1].map(a=>`<option value="${a}" ${a===anio?'selected':''}>${a}</option>`).join('')}
+        </select>
+      </div>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:10px">Ingresa cuántos clientes nuevos entraron cada mes en Mercately, por asesora. La meta es editable y se usa para calcular la diferencia (DIF) que se muestra en KPIs.</p>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:900px">
+          <thead><tr style="border-bottom:1px solid var(--border)">
+            <th style="text-align:left;padding:6px 8px;color:var(--muted);font-size:11px">Asesora</th>
+            <th style="text-align:center;padding:6px 8px;color:var(--muted);font-size:11px;background:#fef9c3">Meta</th>
+            ${MESES_CORTOS.map(m=>`<th style="text-align:center;padding:6px 6px;color:var(--muted);font-size:11px">${m}</th>`).join('')}
+          </tr></thead>
+          <tbody>
+            ${ASESORAS_MERCATELY.map(a=>`
+              <tr style="border-bottom:0.5px solid var(--border)">
+                <td style="padding:6px 8px;font-weight:500;white-space:nowrap">${nombreCorto(a)}</td>
+                <td style="padding:4px;background:#fefce8">
+                  <input type="number" min="0" id="mercately-meta-${a.replace(/\s+/g,'-')}" value="${metas[a]??0}" style="width:55px;padding:4px;border:1px solid var(--border);border-radius:5px;font-size:12px;text-align:center;outline:none">
+                </td>
+                ${MESES_CORTOS.map((_,idx)=>{
+                  const mesNum = idx+1;
+                  const valor = registrosPorAsesoraMes[a+'|'+mesNum] ?? '';
+                  return `<td style="padding:4px"><input type="number" id="mercately-reg-${a.replace(/\s+/g,'-')}-${mesNum}" value="${valor}" placeholder="-" style="width:48px;padding:4px;border:1px solid var(--border);border-radius:5px;font-size:12px;text-align:center;outline:none"></td>`;
+                }).join('')}
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+      <button onclick="guardarMercatelyTodo(${anio})" style="margin-top:14px;padding:8px 18px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500">
+        <i class="ti ti-device-floppy"></i> Guardar todo
+      </button>
+      <div id="mercately-status" style="margin-top:10px;font-size:12px;color:var(--muted)"></div>
+    `;
+  }catch(e){
+    cont.innerHTML = `<p style="color:#791F1F;font-size:13px">Error al cargar: ${e.message}</p>`;
+  }
+}
+
+async function guardarMercatelyTodo(anio){
+  const ASESORAS_MERCATELY = ['Giovanna Portilla','Liseth Gavilanes','Daniela Villegas Chamorro','María Caridad Zea Larrea','Karen Rebeca Mora Cedeño','Nicole Yanira Leon Marquez'];
+  const statusEl = document.getElementById('mercately-status');
+  if(statusEl) statusEl.textContent = 'Guardando...';
+  try{
+    // 1) Guardar metas (un solo POST con el objeto completo)
+    const nuevasMetas = {};
+    ASESORAS_MERCATELY.forEach(a=>{
+      const el = document.getElementById('mercately-meta-'+a.replace(/\s+/g,'-'));
+      nuevasMetas[a] = el ? (parseInt(el.value)||0) : 0;
+    });
+    await fetch('/api/mercately/metas', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(nuevasMetas) });
+
+    // 2) Guardar cada registro mensual que tenga un valor ingresado (en paralelo)
+    const llamadas = [];
+    ASESORAS_MERCATELY.forEach(a=>{
+      for(let mes=1; mes<=12; mes++){
+        const el = document.getElementById(`mercately-reg-${a.replace(/\s+/g,'-')}-${mes}`);
+        if(el && el.value!==''){
+          llamadas.push(fetch('/api/mercately/registros', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ asesora:a, anio, mes, cantidad: parseInt(el.value)||0 }) }));
+        }
+      }
+    });
+    await Promise.all(llamadas);
+    window._mercatelyMetasCache = nuevasMetas;
+    if(statusEl) statusEl.innerHTML = '<span style="color:#166534">✓ Guardado</span>';
+    setTimeout(()=>{ if(statusEl) statusEl.textContent=''; }, 4000);
+  }catch(e){
+    if(statusEl) statusEl.innerHTML = '<span style="color:#791F1F">Error: '+e.message+'</span>';
+  }
 }
 
 async function eliminarUsuario(id, nombre){
@@ -3784,6 +3880,21 @@ async function renderKpis(){
   // Datos guardados del mes
   let kpiData = getKpiData(asesoraKpi, anioFiltro, mesFiltro);
 
+  // Ingreso de clientes a Mercately (KPI manual, configurado en Configuración → Sincronización)
+  let mercatelyMeta = 0, mercatelyCantidad = null;
+  try{
+    const [rMetas, rReg] = await Promise.all([
+      window._mercatelyMetasCache ? Promise.resolve({json:()=>Promise.resolve({ok:true,metas:window._mercatelyMetasCache})}) : fetch('/api/mercately/metas'),
+      fetch(`/api/mercately/registros?anio=${anioFiltro}`)
+    ]);
+    const dataMetas = await rMetas.json();
+    const dataReg = await rReg.json();
+    if(dataMetas.ok){ window._mercatelyMetasCache = dataMetas.metas; mercatelyMeta = dataMetas.metas[asesoraKpi] || 0; }
+    const registroDelMes = (dataReg.registros||[]).find(r=>r.asesora===asesoraKpi && r.mes===mesFiltro);
+    mercatelyCantidad = registroDelMes ? registroDelMes.cantidad : null;
+  }catch(e){ /* silencioso: si falla, el bloque de Mercately simplemente no se muestra con datos */ }
+  const mercatelyDif = mercatelyCantidad!==null ? mercatelyCantidad - mercatelyMeta : null;
+
   // Comisión del mes (reutilizando lógica de renderComisiones)
   const cfg = getComisionCfg();
   function ventasMesKpi(nombreVend, mes, anio){
@@ -3923,6 +4034,32 @@ async function renderKpis(){
           <i class="ti ti-lock"></i> Cerrar mes (guardar ${clientesActuales} como base)
         </button>
       </div>`:''}
+    </div>
+
+    <!-- Ingreso de clientes a Mercately -->
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-title" style="margin-bottom:12px"><i class="ti ti-message-circle"></i> Ingreso a Mercately — ${MESES_N[mesFiltro]} ${anioFiltro}</div>
+      ${mercatelyCantidad===null ? `
+        <p style="font-size:12px;color:var(--muted)">Todavía no se ha registrado el ingreso de clientes a Mercately de este mes. Se ingresa manualmente desde Configuración → Sincronización.</p>
+      ` : `
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+          <div style="background:#faf9f8;border-radius:10px;padding:12px;text-align:center;border:1px solid var(--border)">
+            <div style="font-size:10px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">Ingresados</div>
+            <div style="font-size:20px;font-weight:700;color:var(--text)">${mercatelyCantidad}</div>
+            <div style="font-size:10px;color:var(--muted)">este mes</div>
+          </div>
+          <div style="background:#fefce8;border-radius:10px;padding:12px;text-align:center;border:1px solid #fde047">
+            <div style="font-size:10px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">Meta</div>
+            <div style="font-size:20px;font-weight:700;color:var(--text)">${mercatelyMeta}</div>
+            <div style="font-size:10px;color:var(--muted)">mensual</div>
+          </div>
+          <div style="background:${mercatelyDif>=0?'#f0fdf4':'#fef2f2'};border-radius:10px;padding:12px;text-align:center;border:1px solid ${mercatelyDif>=0?'#86efac':'#fca5a5'}">
+            <div style="font-size:10px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">Diferencia</div>
+            <div style="font-size:26px;font-weight:800;color:${mercatelyDif>=0?'#166534':'#991b1b'}">${mercatelyDif>=0?'+':''}${mercatelyDif}</div>
+            <div style="font-size:10px;color:var(--muted)">${mercatelyDif>=0?'✅ meta cumplida':'⚠️ por debajo de la meta'}</div>
+          </div>
+        </div>
+      `}
     </div>
 
     <!-- Compromisos del mes -->
