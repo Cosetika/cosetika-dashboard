@@ -603,6 +603,7 @@ async function renderConfig(){
   }
   let usuarios=[];
   try{ const r=await fetch('/api/usuarios'); usuarios=await r.json(); }catch(e){}
+  await cargarSkuPorMarcaDesdeServidor(); // refrescar por si cambió desde otro dispositivo
   const MODS_LISTA=['ventas','visitas','kpis','inventario'];
   document.getElementById('main').innerHTML=`
     <div class="breadcrumb" style="margin-bottom:12px"><i class="ti ti-settings" style="color:var(--brown);font-size:12px"></i><span style="font-weight:500">Configuración</span></div>
@@ -788,6 +789,8 @@ async function cargarData(){
   try{
     // Cargar catálogo de productos con marcas desde Contifico
     await cargarCatalogo();
+    // Cargar cantidad de SKU por marca (configurado manualmente en Configuración)
+    await cargarSkuPorMarcaDesdeServidor();
 
     const r=await fetch('/data.json');
     DATA=await r.json();
@@ -3356,27 +3359,40 @@ async function subirExcelProvincias(event){
 // MÓDULO REPORTES — solo admin
 // ══════════════════════════════════════════════════════════════════
 // ─── CANTIDAD DE SKU POR MARCA (manual, para el KPI "Rendimiento por NSOS") ────
-const SKU_POR_MARCA_KEY = 'cosetika_sku_por_marca';
+// Guardado en el servidor (no localStorage), así el valor es el mismo sin importar
+// desde qué navegador/dispositivo se entre al dashboard.
 const SKU_POR_MARCA_DEFAULT = { 'BIOSKIN': 0, 'ERAYBA': 0, 'ZIAJA': 0, 'ZIAJA PRO': 0 };
 
 function getSkuPorMarca(){
-  try{
-    const guardado = JSON.parse(localStorage.getItem(SKU_POR_MARCA_KEY));
-    return { ...SKU_POR_MARCA_DEFAULT, ...(guardado||{}) };
-  }catch(e){ return { ...SKU_POR_MARCA_DEFAULT }; }
+  // Devuelve lo último que se cargó del servidor (ver cargarSkuPorMarcaDesdeServidor),
+  // o el default en cero si todavía no se ha cargado nada en esta sesión.
+  return window._skuPorMarcaCache || { ...SKU_POR_MARCA_DEFAULT };
 }
 
-function guardarSkuPorMarca(){
+async function cargarSkuPorMarcaDesdeServidor(){
+  try{
+    const r = await fetch('/api/sku-por-marca');
+    const data = await r.json();
+    if(data.ok) window._skuPorMarcaCache = { ...SKU_POR_MARCA_DEFAULT, ...data.datos };
+  }catch(e){ /* silencioso: si falla, se usa el default en cero */ }
+}
+
+async function guardarSkuPorMarca(){
   const nuevo = {};
   Object.keys(SKU_POR_MARCA_DEFAULT).forEach(m=>{
     const el = document.getElementById('sku-marca-'+m.replace(/\s+/g,'-'));
     nuevo[m] = el ? (parseInt(el.value)||0) : 0;
   });
-  localStorage.setItem(SKU_POR_MARCA_KEY, JSON.stringify(nuevo));
   const statusEl = document.getElementById('sku-marca-status');
-  if(statusEl){
-    statusEl.innerHTML = '<span style="color:#166534">✓ Cantidades guardadas</span>';
-    setTimeout(()=>{ statusEl.innerHTML=''; }, 4000);
+  try{
+    const r = await fetch('/api/sku-por-marca', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(nuevo) });
+    const data = await r.json();
+    if(data.ok){
+      window._skuPorMarcaCache = data.datos;
+      if(statusEl){ statusEl.innerHTML = '<span style="color:#166534">✓ Cantidades guardadas</span>'; setTimeout(()=>{ statusEl.innerHTML=''; }, 4000); }
+    } else if(statusEl){ statusEl.innerHTML = '<span style="color:#791F1F">Error al guardar</span>'; }
+  }catch(e){
+    if(statusEl) statusEl.innerHTML = '<span style="color:#791F1F">Error: '+e.message+'</span>';
   }
 }
 

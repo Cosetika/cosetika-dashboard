@@ -687,6 +687,37 @@ async function guardarProvinciasOverrideEnDB(data) {
   } catch(e) { console.error('Error guardando override de provincias:', e.message); }
 }
 
+// ─── CANTIDAD DE SKU POR MARCA (configurado manualmente por Fernando) ──────
+// Estructura: { 'BIOSKIN': 39, 'ERAYBA': 23, 'ZIAJA': 39, 'ZIAJA PRO': N }.
+// Guardado en el servidor (no localStorage) para que sea el mismo valor sin
+// importar desde qué navegador/dispositivo se entre al dashboard.
+let SKU_POR_MARCA = { 'BIOSKIN': 0, 'ERAYBA': 0, 'ZIAJA': 0, 'ZIAJA PRO': 0 };
+let SKU_POR_MARCA_TS = null;
+
+async function cargarSkuPorMarcaDesdeDB() {
+  try {
+    const r = await pool.query("SELECT datos FROM sku_por_marca ORDER BY actualizado_at DESC LIMIT 1");
+    if (r.rows.length > 0) {
+      SKU_POR_MARCA = { ...SKU_POR_MARCA, ...JSON.parse(r.rows[0].datos) };
+      SKU_POR_MARCA_TS = new Date().toISOString();
+      console.log('✓ SKU por marca cargado desde PostgreSQL:', SKU_POR_MARCA);
+    }
+  } catch(e) { console.error('Error cargando SKU por marca:', e.message); }
+}
+
+async function guardarSkuPorMarcaEnDB(data) {
+  try {
+    const json = JSON.stringify(data);
+    await pool.query(`
+      INSERT INTO sku_por_marca (datos, actualizado_at) VALUES ($1, NOW())
+      ON CONFLICT (id_unico) DO UPDATE SET datos = $1, actualizado_at = NOW()
+    `, [json]);
+    SKU_POR_MARCA = data;
+    SKU_POR_MARCA_TS = new Date().toISOString();
+    console.log('✓ SKU por marca guardado en PostgreSQL:', data);
+  } catch(e) { console.error('Error guardando SKU por marca:', e.message); }
+}
+
 // Resuelve la provincia de un cliente con la prioridad: override por RUC/Cédula (Excel,
 // subido manualmente por Fernando) > inferencia por palabras clave en la dirección
 // (Contifico no expone un campo "provincia" directo en la API, solo dirección de texto).
@@ -932,6 +963,12 @@ async function initDB() {
         datos TEXT NOT NULL,
         actualizado_at TIMESTAMP DEFAULT NOW()
       );
+      CREATE TABLE IF NOT EXISTS sku_por_marca (
+        id SERIAL PRIMARY KEY,
+        id_unico VARCHAR(10) DEFAULT 'principal' UNIQUE,
+        datos TEXT NOT NULL,
+        actualizado_at TIMESTAMP DEFAULT NOW()
+      );
       CREATE TABLE IF NOT EXISTS visitas (
         id SERIAL PRIMARY KEY, lugar VARCHAR(255) NOT NULL,
         tipo VARCHAR(50) NOT NULL, asesora VARCHAR(255) NOT NULL,
@@ -980,7 +1017,7 @@ async function initDB() {
     console.log('DB inicializada');
   } catch(e) { console.error('Error DB:', e.message); }
 }
-initDB().then(() => cargarDataDesdeDB()).then(() => cargarInventarioDesdeDB()).then(() => cargarProvinciasOverrideDesdeDB()).catch(e => console.error('Error init:', e.message));
+initDB().then(() => cargarDataDesdeDB()).then(() => cargarInventarioDesdeDB()).then(() => cargarProvinciasOverrideDesdeDB()).then(() => cargarSkuPorMarcaDesdeDB()).catch(e => console.error('Error init:', e.message));
 programarRegeneracionDiaria();
 
 const MIME = { '.html':'text/html','.js':'application/javascript','.css':'text/css','.json':'application/json','.png':'image/png','.jpg':'image/jpeg','.ico':'image/x-icon' };
@@ -2096,6 +2133,27 @@ const server = http.createServer(async (req, res) => {
       clientes_con_override: Object.keys(PROVINCIAS_OVERRIDE).length,
       actualizado_en: PROVINCIAS_OVERRIDE_TS
     }));
+    return;
+  }
+
+  // SKU POR MARCA: GET para consultar, POST para guardar
+  if (urlPath === '/api/sku-por-marca' && req.method === 'GET') {
+    res.writeHead(200, {'Content-Type':'application/json'});
+    res.end(JSON.stringify({ ok: true, datos: SKU_POR_MARCA, actualizado_en: SKU_POR_MARCA_TS }));
+    return;
+  }
+  if (urlPath === '/api/sku-por-marca' && req.method === 'POST') {
+    try {
+      const body = await bodyJSON(req);
+      const nuevo = {};
+      ['BIOSKIN','ERAYBA','ZIAJA','ZIAJA PRO'].forEach(m => { nuevo[m] = parseInt(body[m]) || 0; });
+      await guardarSkuPorMarcaEnDB(nuevo);
+      res.writeHead(200, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok: true, datos: SKU_POR_MARCA }));
+    } catch(e) {
+      res.writeHead(500, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok: false, error: e.message }));
+    }
     return;
   }
 
