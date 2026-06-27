@@ -206,6 +206,13 @@ const VEND_COLORS = {
   'María Caridad Zea Larrea': '#bef264',  // lima pastel
 };
 
+// Un color pastel distinto por mes, para gráficos de barras mensuales (ej. histórico
+// de provincias) — mismo estilo pastel que MARCA_COLORS/VEND_COLORS, sin repetir tonos.
+const MES_COLORS = {
+  1:'#7dd3fc', 2:'#c4b5fd', 3:'#fdba74', 4:'#5eead4', 5:'#fda4af', 6:'#bef264',
+  7:'#a5b4fc', 8:'#fcd34d', 9:'#6ee7b7', 10:'#f9a8d4', 11:'#fcba88', 12:'#67e8f9'
+};
+
 function getVendColor(nombre){
   if(!nombre) return '#c4a882';
   // Lookup exacto
@@ -2649,12 +2656,13 @@ function toggleProvinciaAcordeon(idx, nombreProvincia, anio){
   const barras = mesesArr.map(m=>{
     const v = Math.round(porMes[m]||0);
     const h = Math.max(Math.round(v/maxMes*60), v>0?3:0);
+    const color = MES_COLORS[m] || 'var(--brown)';
     return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;min-width:0">
       <span style="font-size:9px;color:var(--text);font-weight:600">${v?fmt(v):''}</span>
       <div style="width:100%;max-width:26px;height:60px;display:flex;align-items:flex-end">
-        <div style="width:100%;background:var(--brown);border-radius:3px 3px 0 0;height:${h}px;transition:height 0.3s"></div>
+        <div style="width:100%;background:${color};border-radius:3px 3px 0 0;height:${h}px;transition:height 0.3s"></div>
       </div>
-      <span style="font-size:9px;color:var(--muted)">${MESES_LABELS[m]}</span>
+      <span style="font-size:9px;color:${color};font-weight:600">${MESES_LABELS[m]}</span>
     </div>`;
   }).join('');
 
