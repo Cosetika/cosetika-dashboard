@@ -1024,7 +1024,7 @@ async function initDB() {
         asesora VARCHAR(255) NOT NULL,
         anio INTEGER NOT NULL,
         mes INTEGER NOT NULL,
-        cantidad INTEGER NOT NULL DEFAULT 0,
+        cantidad INTEGER NOT NULL DEFAULT 0, -- ACUMULADO TOTAL de clientes en Mercately a fin de ese mes (no el "++" mensual, que se calcula restando el acumulado del mes anterior)
         actualizado_at TIMESTAMP DEFAULT NOW(),
         UNIQUE(asesora, anio, mes)
       );
@@ -2244,15 +2244,33 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // REGISTROS MENSUALES DE MERCATELY: cuántos clientes ingresó cada asesora cada mes.
-  // GET ?anio=2026 devuelve todos los registros de ese año (para todas las asesoras).
-  // POST guarda/actualiza un registro puntual {asesora, anio, mes, cantidad}.
+  // REGISTROS MENSUALES DE MERCATELY: acumulado total de clientes en Mercately a fin
+  // de cada mes, por asesora. GET ?anio=2026 devuelve, además del acumulado, el "++"
+  // (nuevos ese mes = acumulado actual - acumulado del mes anterior, consultando
+  // diciembre del año previo si el mes es enero) y el DIF (++ menos la meta).
+  // POST guarda/actualiza un registro puntual {asesora, anio, mes, cantidad=acumulado}.
   if (urlPath === '/api/mercately/registros' && req.method === 'GET') {
     try {
       const anio = parseInt(urlObj.searchParams.get('anio')) || new Date().getFullYear();
-      const r = await pool.query('SELECT asesora, anio, mes, cantidad FROM mercately_registros WHERE anio=$1', [anio]);
+      // Se trae también diciembre del año anterior, necesario para calcular el "++" de enero.
+      const r = await pool.query(
+        'SELECT asesora, anio, mes, cantidad FROM mercately_registros WHERE anio=$1 OR (anio=$2 AND mes=12)',
+        [anio, anio-1]
+      );
+      const porAsesoraMes = {}; // "asesora|anio|mes" -> acumulado
+      r.rows.forEach(row => { porAsesoraMes[row.asesora+'|'+row.anio+'|'+row.mes] = row.cantidad; });
+
+      const registros = r.rows.filter(row => row.anio===anio).map(row => {
+        const mesAnteriorAnio = row.mes===1 ? anio-1 : anio;
+        const mesAnteriorMes = row.mes===1 ? 12 : row.mes-1;
+        const acumuladoAnterior = porAsesoraMes[row.asesora+'|'+mesAnteriorAnio+'|'+mesAnteriorMes];
+        const nuevos = (acumuladoAnterior!==undefined) ? (row.cantidad - acumuladoAnterior) : null;
+        const meta = MERCATELY_METAS[row.asesora] || 0;
+        const dif = (nuevos!==null) ? (nuevos - meta) : null;
+        return { asesora: row.asesora, anio: row.anio, mes: row.mes, acumulado: row.cantidad, nuevos, dif };
+      });
       res.writeHead(200, {'Content-Type':'application/json'});
-      res.end(JSON.stringify({ ok: true, registros: r.rows }));
+      res.end(JSON.stringify({ ok: true, registros }));
     } catch(e) {
       res.writeHead(500, {'Content-Type':'application/json'});
       res.end(JSON.stringify({ ok: false, error: e.message }));

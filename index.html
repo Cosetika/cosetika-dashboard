@@ -764,13 +764,13 @@ async function renderMercatelyConfig(){
           ${[anio-1,anio,anio+1].map(a=>`<option value="${a}" ${a===anio?'selected':''}>${a}</option>`).join('')}
         </select>
       </div>
-      <p style="font-size:12px;color:var(--muted);margin-bottom:10px">Ingresa cuántos clientes nuevos entraron cada mes en Mercately, por asesora. La meta es editable y se usa para calcular la diferencia (DIF) que se muestra en KPIs.</p>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:10px">Ingresa el <b>acumulado total</b> de clientes en Mercately a fin de cada mes (el número grande de tu reporte, no el "++"). El sistema calcula solo cuántos son nuevos ese mes restando el acumulado del mes anterior, y la diferencia contra la meta — eso es lo que se muestra en KPIs.</p>
       <div style="overflow-x:auto">
         <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:900px">
           <thead><tr style="border-bottom:1px solid var(--border)">
             <th style="text-align:left;padding:6px 8px;color:var(--muted);font-size:11px">Asesora</th>
-            <th style="text-align:center;padding:6px 8px;color:var(--muted);font-size:11px;background:#fef9c3">Meta</th>
-            ${MESES_CORTOS.map(m=>`<th style="text-align:center;padding:6px 6px;color:var(--muted);font-size:11px">${m}</th>`).join('')}
+            <th style="text-align:center;padding:6px 8px;color:var(--muted);font-size:11px;background:#fef9c3">Meta<br><span style="font-weight:400">(mensual)</span></th>
+            ${MESES_CORTOS.map(m=>`<th style="text-align:center;padding:6px 6px;color:var(--muted);font-size:11px">${m}<br><span style="font-weight:400;font-size:9px">acum.</span></th>`).join('')}
           </tr></thead>
           <tbody>
             ${ASESORAS_MERCATELY.map(a=>`
@@ -3881,7 +3881,7 @@ async function renderKpis(){
   let kpiData = getKpiData(asesoraKpi, anioFiltro, mesFiltro);
 
   // Ingreso de clientes a Mercately (KPI manual, configurado en Configuración → Sincronización)
-  let mercatelyMeta = 0, mercatelyCantidad = null;
+  let mercatelyMeta = 0, mercatelyNuevos = null, mercatelyDif = null, mercatelyHistorico = [];
   try{
     const [rMetas, rReg] = await Promise.all([
       window._mercatelyMetasCache ? Promise.resolve({json:()=>Promise.resolve({ok:true,metas:window._mercatelyMetasCache})}) : fetch('/api/mercately/metas'),
@@ -3890,10 +3890,11 @@ async function renderKpis(){
     const dataMetas = await rMetas.json();
     const dataReg = await rReg.json();
     if(dataMetas.ok){ window._mercatelyMetasCache = dataMetas.metas; mercatelyMeta = dataMetas.metas[asesoraKpi] || 0; }
-    const registroDelMes = (dataReg.registros||[]).find(r=>r.asesora===asesoraKpi && r.mes===mesFiltro);
-    mercatelyCantidad = registroDelMes ? registroDelMes.cantidad : null;
+    const registrosAsesora = (dataReg.registros||[]).filter(r=>r.asesora===asesoraKpi).sort((a,b)=>a.mes-b.mes);
+    mercatelyHistorico = registrosAsesora; // [{mes, acumulado, nuevos, dif}, ...] todo el año, para el histórico debajo
+    const registroDelMes = registrosAsesora.find(r=>r.mes===mesFiltro);
+    if(registroDelMes){ mercatelyNuevos = registroDelMes.nuevos; mercatelyDif = registroDelMes.dif; }
   }catch(e){ /* silencioso: si falla, el bloque de Mercately simplemente no se muestra con datos */ }
-  const mercatelyDif = mercatelyCantidad!==null ? mercatelyCantidad - mercatelyMeta : null;
 
   // Comisión del mes (reutilizando lógica de renderComisiones)
   const cfg = getComisionCfg();
@@ -4039,13 +4040,13 @@ async function renderKpis(){
     <!-- Ingreso de clientes a Mercately -->
     <div class="card" style="margin-bottom:12px">
       <div class="card-title" style="margin-bottom:12px"><i class="ti ti-message-circle"></i> Ingreso a Mercately — ${MESES_N[mesFiltro]} ${anioFiltro}</div>
-      ${mercatelyCantidad===null ? `
-        <p style="font-size:12px;color:var(--muted)">Todavía no se ha registrado el ingreso de clientes a Mercately de este mes. Se ingresa manualmente desde Configuración → Sincronización.</p>
+      ${mercatelyNuevos===null ? `
+        <p style="font-size:12px;color:var(--muted)">Todavía no se ha registrado el acumulado de Mercately de este mes (o falta el del mes anterior para poder calcular cuántos son nuevos). Se ingresa manualmente desde Configuración → Sincronización.</p>
       ` : `
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
           <div style="background:#faf9f8;border-radius:10px;padding:12px;text-align:center;border:1px solid var(--border)">
             <div style="font-size:10px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">Ingresados</div>
-            <div style="font-size:20px;font-weight:700;color:var(--text)">${mercatelyCantidad}</div>
+            <div style="font-size:20px;font-weight:700;color:var(--text)">${mercatelyNuevos}</div>
             <div style="font-size:10px;color:var(--muted)">este mes</div>
           </div>
           <div style="background:#fefce8;border-radius:10px;padding:12px;text-align:center;border:1px solid #fde047">
@@ -4060,6 +4061,19 @@ async function renderKpis(){
           </div>
         </div>
       `}
+      ${mercatelyHistorico.filter(r=>r.nuevos!==null).length>0?`
+      <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+        <div style="font-size:11px;color:var(--muted);font-weight:600;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px">Histórico ${anioFiltro}</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          ${mercatelyHistorico.filter(r=>r.nuevos!==null).map(r=>{
+            const cumplio = r.dif>=0;
+            return `<div style="flex:1;min-width:60px;text-align:center;background:${cumplio?'#f0fdf4':'#fef2f2'};border:1px solid ${cumplio?'#86efac':'#fca5a5'};border-radius:8px;padding:8px 6px">
+              <div style="font-size:9px;color:var(--muted);text-transform:uppercase">${MESES_N[r.mes].substring(0,3)}</div>
+              <div style="font-size:16px;font-weight:700;color:${cumplio?'#166534':'#991b1b'}">${r.nuevos}</div>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>`:''}
     </div>
 
     <!-- Compromisos del mes -->
