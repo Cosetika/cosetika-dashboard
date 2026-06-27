@@ -3925,8 +3925,10 @@ async function renderKpis(){
   let asesoraKpi = window._kpiAsesora || (puedeVerTodas ? asesoras[0] : nombreResuelto);
   window._kpiAsesora = asesoraKpi;
 
-  let mesFiltro = window._kpiMes || mesActual;
-  let anioFiltro = window._kpiAnio || anioActual;
+  // Ya no hay selector de mes (se quitó: el histórico de abajo cubre esa necesidad),
+  // así que KPIs siempre muestra el mes/año actuales del calendario real.
+  let mesFiltro = mesActual;
+  let anioFiltro = anioActual;
   window._kpiMes = mesFiltro;
   window._kpiAnio = anioFiltro;
 
@@ -4016,12 +4018,6 @@ async function renderKpis(){
       ${asesoras.map(a=>`<option value="${a}" ${a===asesoraKpi?'selected':''}>${nombreCorto(a)}</option>`).join('')}
     </select>` : `<span style="font-size:13px;font-weight:500;color:var(--brown)">${nombreCorto(asesoraKpi)}</span>`;
 
-  const selectorMes = `
-    <select id="kpi-mes-sel" onchange="window._kpiMes=parseInt(this.value.split('-')[1]);window._kpiAnio=parseInt(this.value.split('-')[0]);renderKpis()"
-      style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;outline:none;background:white">
-      ${mesesOpts.map(({y,m})=>`<option value="${y}-${m}" ${y===anioFiltro&&m===mesFiltro?'selected':''}>${MESES_N[m]} ${y}</option>`).join('')}
-    </select>`;
-
   const esMesActual = (mesFiltro===mesActual && anioFiltro===anioActual);
 
   document.getElementById('main').innerHTML=`
@@ -4031,14 +4027,11 @@ async function renderKpis(){
       <span style="font-size:13px;font-weight:600">KPIs</span>
       <span style="color:var(--border)">|</span>
       ${selectorAsesora}
-      <span style="color:var(--border)">|</span>
-      ${selectorMes}
-      ${!esMesActual?`<span style="font-size:11px;padding:3px 8px;background:#fef9c3;color:#854d0e;border-radius:20px;border:1px solid #fde047">Historial</span>`:''}
     </div>
 
     <!-- Comisiones del mes -->
     <div class="card" style="margin-bottom:12px">
-      <div class="card-title" style="margin-bottom:12px"><i class="ti ti-coin"></i> Comisión generada — ${MESES_N[mesFiltro]} ${anioFiltro}</div>
+      <div class="card-title" style="margin-bottom:12px"><i class="ti ti-coin"></i> Comisión generada</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
         <div style="background:#faf9f8;border-radius:10px;padding:14px;text-align:center;border:1px solid var(--border)">
           <div style="font-size:11px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">Ventas sin IVA</div>
@@ -4055,7 +4048,7 @@ async function renderKpis(){
 
     <!-- Clientes nuevos (contado automático desde Contifico) -->
     <div class="card" style="margin-bottom:12px">
-      <div class="card-title" style="margin-bottom:12px"><i class="ti ti-user-plus"></i> Clientes nuevos — ${MESES_N[mesFiltro]} ${anioFiltro}</div>
+      <div class="card-title" style="margin-bottom:12px"><i class="ti ti-user-plus"></i> Clientes nuevos</div>
       ${clientesNuevos===null ? `
         <p style="font-size:12px;color:var(--muted)">Todavía no se ha contado el acumulado de clientes de este mes (o falta el del mes anterior para poder calcular cuántos son nuevos). Se actualiza automáticamente al subir el Excel de Personas en Configuración → Sincronización.</p>
       ` : `
@@ -4094,7 +4087,7 @@ async function renderKpis(){
 
     <!-- Ingreso de clientes a Mercately -->
     <div class="card" style="margin-bottom:12px">
-      <div class="card-title" style="margin-bottom:12px"><i class="ti ti-message-circle"></i> Ingreso a Mercately — ${MESES_N[mesFiltro]} ${anioFiltro}</div>
+      <div class="card-title" style="margin-bottom:12px"><i class="ti ti-message-circle"></i> Ingreso a Mercately</div>
       ${mercatelyNuevos===null ? `
         <p style="font-size:12px;color:var(--muted)">Todavía no se ha registrado el acumulado de Mercately de este mes (o falta el del mes anterior para poder calcular cuántos son nuevos). Se ingresa manualmente desde Configuración → Sincronización.</p>
       ` : `
@@ -4133,7 +4126,7 @@ async function renderKpis(){
 
     <!-- Compromisos del mes -->
     <div class="card">
-      <div class="card-title" style="margin-bottom:12px"><i class="ti ti-checklist"></i> Compromisos del mes — ${MESES_N[mesFiltro]} ${anioFiltro}</div>
+      <div class="card-title" style="margin-bottom:12px"><i class="ti ti-checklist"></i> Compromisos del mes</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
 
         <!-- Visita a Provincia -->
