@@ -3994,14 +3994,11 @@ async function renderKpis(){
     if(registroDelMesCli){ clientesNuevos = registroDelMesCli.nuevos; clientesDif = registroDelMesCli.dif; }
   }catch(e){ /* silencioso: si falla, el bloque simplemente no muestra datos */ }
 
-  // Meses disponibles para historial
-  // Años disponibles en datos
-  const aniosKpiSet = new Set();
-  Object.values(DATA).forEach(clientes=>clientes.forEach(c=>
-    (c.frecuencia||[]).forEach(f=>{ aniosKpiSet.add(f.anio||anioActual); })
-  ));
-  if(aniosKpiSet.size===0) aniosKpiSet.add(anioActual);
-  const aniosKpi = [...aniosKpiSet].sort((a,b)=>b-a);
+  // Meses disponibles para historial — solo 2026 en adelante (los KPIs manuales de
+  // Mercately/Clientes Nuevos no existían antes de este año, no tiene sentido mostrarlos)
+  const aniosKpi = [anioActual >= 2026 ? anioActual : 2026];
+  if(!aniosKpi.includes(2026)) aniosKpi.push(2026);
+  aniosKpi.sort((a,b)=>b-a);
 
   const mesesOpts = [];
   aniosKpi.forEach(y=>{
