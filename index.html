@@ -2612,6 +2612,64 @@ function selCliente(nombre){
 }
 
 
+// Total vendido por mes para una provincia específica, en el año dado — mismo
+// criterio de "provincia del cliente" que ya usa renderProvincias (SIN PROVINCIA
+// si no tiene), respetando el filtro de vendedora actual si hay uno activo.
+function buildSerieMensualProvincia(nombreProvincia, anio){
+  const vendedoras = vendActual ? [vendActual] : Object.keys(DATA);
+  const porMes = {};
+  for(let m=1;m<=12;m++) porMes[m]=0;
+  vendedoras.forEach(v=>{
+    (DATA[v]||[]).forEach(c=>{
+      const prov = c.provincia && c.provincia!=='nan' && c.provincia.trim()!=='' ? c.provincia.trim() : 'SIN PROVINCIA';
+      if(prov !== nombreProvincia) return;
+      (c.frecuencia||[]).forEach(f=>{
+        if(f.anio!==anio) return;
+        porMes[f.mes] = (porMes[f.mes]||0) + (f.total||0);
+      });
+    });
+  });
+  return porMes;
+}
+
+function toggleProvinciaAcordeon(idx, nombreProvincia, anio){
+  const fila = document.getElementById('prov-row-'+idx);
+  const existente = document.getElementById('prov-chart-'+idx);
+  if(existente){ existente.remove(); fila?.querySelector('.acordeon-caret')?.classList.remove('ti-chevron-up'); fila?.querySelector('.acordeon-caret')?.classList.add('ti-chevron-down'); return; }
+  // Cerrar cualquier otro acordeón de provincia abierto
+  document.querySelectorAll('[id^=prov-chart-]').forEach(el=>el.remove());
+  document.querySelectorAll('#prov-list .acordeon-caret').forEach(c=>{c.classList.remove('ti-chevron-up');c.classList.add('ti-chevron-down');});
+
+  const hoy = new Date();
+  const numMeses = anio < hoy.getFullYear() ? 12 : (anio === hoy.getFullYear() ? hoy.getMonth()+1 : 0);
+  const porMes = buildSerieMensualProvincia(nombreProvincia, anio);
+  const MESES_LABELS=['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const mesesArr = Array.from({length:numMeses}, (_,i)=>i+1);
+  const maxMes = Math.max(...mesesArr.map(m=>porMes[m]||0), 1);
+  const barras = mesesArr.map(m=>{
+    const v = Math.round(porMes[m]||0);
+    const h = Math.max(Math.round(v/maxMes*60), v>0?3:0);
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;min-width:0">
+      <span style="font-size:9px;color:var(--text);font-weight:600">${v?fmt(v):''}</span>
+      <div style="width:100%;max-width:26px;height:60px;display:flex;align-items:flex-end">
+        <div style="width:100%;background:var(--brown);border-radius:3px 3px 0 0;height:${h}px;transition:height 0.3s"></div>
+      </div>
+      <span style="font-size:9px;color:var(--muted)">${MESES_LABELS[m]}</span>
+    </div>`;
+  }).join('');
+
+  const wrapper = document.createElement('div');
+  wrapper.id = 'prov-chart-'+idx;
+  wrapper.style = 'padding:14px 10px 6px;background:#faf9f8;border-radius:8px;margin-top:-4px;margin-bottom:6px;animation:fadeIn 0.2s';
+  wrapper.innerHTML = numMeses===0
+    ? `<p style="font-size:12px;color:var(--muted)">Sin datos para este período</p>`
+    : `<div style="font-size:11px;color:var(--muted);font-weight:600;margin-bottom:8px">Ventas por mes — ${anio}</div>
+       <div style="display:flex;gap:4px;align-items:flex-end">${barras}</div>`;
+  fila?.insertAdjacentElement('afterend', wrapper);
+  fila?.querySelector('.acordeon-caret')?.classList.remove('ti-chevron-down');
+  fila?.querySelector('.acordeon-caret')?.classList.add('ti-chevron-up');
+}
+
 function renderProvincias(provSeleccionada){
   const anioActual3 = new Date().getFullYear();
   const MESES_CORTO3=['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
@@ -2661,12 +2719,14 @@ function renderProvincias(provSeleccionada){
       </div>
       <div class="card">
         <div class="card-title"><i class="ti ti-map-pin"></i> Ventas por provincia — haz clic para ver clientes</div>
-        ${provOrdenadas.map(p=>{
+        <div id="prov-list">
+        ${provOrdenadas.map((p,idx)=>{
           const porcentaje = totalGlobal>0?Math.round(p.total/totalGlobal*1000)/10:0;
           const anchoBarra = Math.max(pct(p.total,maxProv)*0.88,2); // se deja ~12% de margen para el texto del %
           return `
-          <div onclick="renderProvincias('${p.nombre.replace(/'/g,"\\'")}')" style="cursor:pointer;margin-bottom:10px">
+          <div id="prov-row-${idx}" onclick="renderProvincias('${p.nombre.replace(/'/g,"\\'")}')" style="cursor:pointer;margin-bottom:10px">
             <div style="display:flex;align-items:center;gap:8px">
+              <i class="ti ti-chevron-down acordeon-caret" style="font-size:13px;color:var(--muted);flex-shrink:0;cursor:pointer" onclick="event.stopPropagation();toggleProvinciaAcordeon(${idx},'${p.nombre.replace(/'/g,"\\'")}',${provAnio})"></i>
               <span class="hbar-lbl" title="${p.nombre}">${p.nombre}</span>
               <div class="hbar-track" style="position:relative;overflow:visible">
                 <div class="hbar-fill brown" style="width:${anchoBarra}%;position:relative">
@@ -2677,6 +2737,7 @@ function renderProvincias(provSeleccionada){
             </div>
           </div>`;
         }).join('')}
+        </div>
       </div>`;
   } else {
     const provData=provincias[provSeleccionada]||[];
