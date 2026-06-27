@@ -1118,10 +1118,17 @@ const server = http.createServer(async (req, res) => {
   }
   if (urlPath.startsWith('/api/usuarios/') && req.method === 'DELETE') {
     try {
-      const id = urlPath.split('/').pop();
-      await pool.query("DELETE FROM usuarios WHERE id=$1 AND rol!='admin'",[id]);
-      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
-    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+      const id = urlPath.split('/')[3]; // /api/usuarios/{id} — evita capturar query params con .pop()
+      const solicitanteId = urlObj.searchParams.get('solicitante');
+      if (solicitanteId && String(solicitanteId) === String(id)) {
+        res.writeHead(400,{'Content-Type':'application/json'});
+        res.end(JSON.stringify({ ok:false, error: 'No puedes eliminar tu propia cuenta' }));
+        return;
+      }
+      const r = await pool.query("DELETE FROM usuarios WHERE id=$1", [id]);
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:true, eliminado: r.rowCount>0 }));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
   }
 

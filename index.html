@@ -628,10 +628,19 @@ async function renderConfig(){
         ${usuarios.map(u=>`
           <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:0.5px solid var(--border)">
             <div style="width:34px;height:34px;border-radius:50%;background:rgba(160,104,74,0.15);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:var(--brown);flex-shrink:0">${u.nombre.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase()}</div>
-            <div style="flex:1"><div style="font-size:13px;font-weight:500">${u.nombre}</div><div style="font-size:11px;color:var(--muted)">@${u.usuario} · ${u.rol}</div></div>
+            <div style="flex:1">
+              <div style="font-size:13px;font-weight:500">${u.nombre}</div>
+              <div style="font-size:11px;color:var(--muted)">@${u.usuario}</div>
+            </div>
+            ${u.id!==usuario.id?`
+            <select id="rol-${u.id}" onchange="cambiarRol(${u.id},this.value)" style="padding:5px 8px;border:0.5px solid var(--border);border-radius:6px;font-size:12px;outline:none;background:white;cursor:pointer">
+              <option value="asesora" ${u.rol==='asesora'?'selected':''}>asesora</option>
+              <option value="jefa_ventas" ${u.rol==='jefa_ventas'?'selected':''}>jefa_ventas</option>
+              <option value="admin" ${u.rol==='admin'?'selected':''}>admin</option>
+            </select>` : `<span style="font-size:12px;color:var(--muted);padding:5px 8px">${u.rol}</span>`}
             <input type="password" id="pwd-${u.id}" placeholder="Nueva clave" style="width:120px;padding:6px 10px;border:0.5px solid var(--border);border-radius:6px;font-size:12px;outline:none"/>
             <button onclick="cambiarClave(${u.id},'pwd-${u.id}')" style="padding:6px 12px;background:var(--brown);color:white;border:none;border-radius:6px;font-size:12px;cursor:pointer">Guardar</button>
-            ${u.rol!=='admin'?`<button onclick="eliminarUsuario(${u.id},'${u.nombre}')" style="padding:6px 10px;background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;border-radius:6px;font-size:12px;cursor:pointer" title="Eliminar usuario"><i class="ti ti-trash"></i></button>`:''}
+            ${u.id!==usuario.id?`<button onclick="eliminarUsuario(${u.id},'${u.nombre}')" style="padding:6px 10px;background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;border-radius:6px;font-size:12px;cursor:pointer" title="Eliminar usuario"><i class="ti ti-trash"></i></button>`:`<span style="font-size:10px;color:var(--muted);padding:0 4px" title="No puedes eliminar tu propia cuenta">Tú</span>`}
           </div>`).join('')}
       </div>
       <div class="card" style="margin-top:12px">
@@ -727,10 +736,12 @@ async function renderConfig(){
 
 async function eliminarUsuario(id, nombre){
   if(!confirm('¿Eliminar al usuario "'+nombre+'"? Esta acción no se puede deshacer.')) return;
+  const solicitanteId = (window.usuarioActual && window.usuarioActual.id) || '';
   try{
-    await fetch('/api/usuarios/'+id,{method:'DELETE'});
-    alert('Usuario eliminado ✓');
-    renderConfig();
+    const r = await fetch('/api/usuarios/'+id+'?solicitante='+solicitanteId,{method:'DELETE'});
+    const data = await r.json();
+    if(data.ok){ alert('Usuario eliminado ✓'); renderConfig(); }
+    else alert(data.error || 'No se pudo eliminar el usuario');
   }catch(e){ alert('Error al eliminar usuario'); }
 }
 
@@ -742,6 +753,15 @@ async function cambiarClave(id, inputId){
     alert('Contraseña actualizada ✓');
     document.getElementById(inputId).value='';
   }catch(e){ alert('Error al actualizar'); }
+}
+
+async function cambiarRol(id, nuevoRol){
+  try{
+    const r = await fetch('/api/usuarios/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({rol:nuevoRol})});
+    const data = await r.json();
+    if(data.ok) renderConfig(); // refresca para que la fila de permisos refleje el nuevo rol
+    else alert('Error al cambiar el rol');
+  }catch(e){ alert('Error al cambiar el rol: '+e.message); }
 }
 
 async function crearUsuario(){
