@@ -1408,12 +1408,13 @@ function toggleProductoAcordeon(idx, productoId, productoNombre, anio){
   const barras = mesesArr.map(m=>{
     const v = Math.round(porMes[m]||0);
     const h = Math.max(Math.round(v/maxMes*60),v>0?3:0);
+    const color = MES_COLORS[m] || 'var(--brown)';
     return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;min-width:0">
       <span style="font-size:10px;color:var(--text);font-weight:600">${v||''}</span>
       <div style="width:100%;max-width:22px;height:60px;display:flex;align-items:flex-end">
-        <div style="width:100%;background:var(--brown);border-radius:3px 3px 0 0;height:${h}px;transition:height 0.3s"></div>
+        <div style="width:100%;background:${color};border-radius:3px 3px 0 0;height:${h}px;transition:height 0.3s"></div>
       </div>
-      <span style="font-size:9px;color:var(--muted)">${MESES_LABELS[m]}</span>
+      <span style="font-size:9px;color:${color};font-weight:600">${MESES_LABELS[m]}</span>
     </div>`;
   }).join('');
 
@@ -1577,7 +1578,7 @@ function renderProductosPorMarca(marcaSeleccionada, totalMarcaIn){
               const pid = (p.id||'').replace(/'/g,"\\'");
               const pnombre = (p.nombre||'').replace(/'/g,"\\'");
               return `<div id="prod-row-${i}" style="display:flex;align-items:center;gap:8px;padding:8px 6px;border-bottom:0.5px solid var(--border);transition:background 0.1s;cursor:pointer" onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='transparent'" onclick="toggleProductoAcordeon(${i},'${pid}','${pnombre}',${prodAnioFiltro})">
-                <i class="ti ti-chevron-down acordeon-caret" style="font-size:12px;color:var(--muted);flex-shrink:0"></i>
+                <i class="ti ti-chevron-down acordeon-caret" style="font-size:12px;color:#10b981;flex-shrink:0"></i>
                 <span style="font-size:11px;color:var(--muted);min-width:22px;text-align:right;font-weight:700">${i+1}</span>
                 ${p.marca?`<span style="font-size:9px;padding:2px 7px;border-radius:10px;background:${marcaColor}18;color:${marcaColor};font-weight:700;white-space:nowrap;min-width:54px;text-align:center;border:1px solid ${marcaColor}40">${p.marca}</span>`:''}
                 <span style="flex:1;font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p.nombre}">${p.nombre}</span>
@@ -1614,7 +1615,7 @@ function sortProductosMarca(criterio){
         const pnombre = (p.nombre||'').replace(/'/g,"\\'");
         const anio = window._prodAnioFiltro || new Date().getFullYear();
         return `<div id="prod-row-${i}" style="display:flex;align-items:center;gap:8px;padding:8px 6px;border-bottom:0.5px solid var(--border);transition:background 0.1s;cursor:pointer" onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='transparent'" onclick="toggleProductoAcordeon(${i},'${pid}','${pnombre}',${anio})">
-          <i class="ti ti-chevron-down acordeon-caret" style="font-size:12px;color:var(--muted);flex-shrink:0"></i>
+          <i class="ti ti-chevron-down acordeon-caret" style="font-size:12px;color:#10b981;flex-shrink:0"></i>
           <span style="font-size:11px;color:var(--muted);min-width:22px;text-align:right;font-weight:700">${i+1}</span>
           ${p.marca?`<span style="font-size:9px;padding:2px 7px;border-radius:10px;background:${mc}18;color:${mc};font-weight:700;white-space:nowrap;min-width:54px;text-align:center;border:1px solid ${mc}40">${p.marca}</span>`:''}
           <span style="flex:1;font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p.nombre}">${p.nombre}</span>
@@ -2734,7 +2735,7 @@ function renderProvincias(provSeleccionada){
           return `
           <div id="prov-row-${idx}" onclick="renderProvincias('${p.nombre.replace(/'/g,"\\'")}')" style="cursor:pointer;margin-bottom:10px">
             <div style="display:flex;align-items:center;gap:8px">
-              <i class="ti ti-chevron-down acordeon-caret" style="font-size:13px;color:var(--muted);flex-shrink:0;cursor:pointer" onclick="event.stopPropagation();toggleProvinciaAcordeon(${idx},'${p.nombre.replace(/'/g,"\\'")}',${provAnio})"></i>
+              <i class="ti ti-chevron-down acordeon-caret" style="font-size:13px;color:#10b981;flex-shrink:0;cursor:pointer" onclick="event.stopPropagation();toggleProvinciaAcordeon(${idx},'${p.nombre.replace(/'/g,"\\'")}',${provAnio})"></i>
               <span class="hbar-lbl" title="${p.nombre}">${p.nombre}</span>
               <div class="hbar-track" style="position:relative;overflow:visible">
                 <div class="hbar-fill brown" style="width:${anchoBarra}%;position:relative">
