@@ -704,8 +704,8 @@ async function renderConfig(){
         <div id="sync-status" style="margin-top:12px;font-size:12px;color:var(--muted)"></div>
       </div>
       <div class="card" style="margin-top:12px">
-        <div class="card-title"><i class="ti ti-map-pin"></i> Provincias por cliente</div>
-        <p style="font-size:13px;color:var(--muted);margin-bottom:4px">Sube el Excel de "Personas" exportado de Contifico (con columnas RUC/Cédula y Provincia) para corregir los clientes que aparecen como "Sin provincia" — tiene prioridad sobre la detección automática por dirección.</p>
+        <div class="card-title"><i class="ti ti-map-pin"></i> Provincias por cliente y Clientes nuevos (KPI)</div>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:4px">Sube el Excel de "Personas" exportado de Contifico al final de cada mes. Actualiza las provincias de los clientes que aparecen como "Sin provincia", Y ADEMÁS cuenta automáticamente cuántos clientes tiene asignados cada asesora — ese conteo alimenta el KPI "Clientes nuevos" en la pestaña KPIs.</p>
         <p id="provincias-estado-actual" style="font-size:12px;color:var(--muted);margin-bottom:12px"></p>
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
           <input type="file" id="prov-file-input" accept=".xls,.xlsx" style="display:none" onchange="subirExcelProvincias(event)">
@@ -714,6 +714,9 @@ async function renderConfig(){
           </button>
         </div>
         <div id="provincias-upload-status" style="margin-top:12px;font-size:12px;color:var(--muted)"></div>
+        <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)" id="contifico-clientes-metas-cont">
+          <div class="loader" style="padding:10px"><i class="ti ti-loader"></i></div>
+        </div>
       </div>
       <div class="card" style="margin-top:12px">
         <div class="card-title"><i class="ti ti-package"></i> Cantidad de productos por marca</div>
@@ -3447,6 +3450,55 @@ async function cargarEstadoProvincias(){
       el.textContent = 'Todavía no se ha subido ningún Excel de provincias.';
     }
   }catch(e){ /* silencioso */ }
+  renderContificoClientesMetas();
+}
+
+async function renderContificoClientesMetas(){
+  const cont = document.getElementById('contifico-clientes-metas-cont');
+  if(!cont) return;
+  const ASESORAS_CLI = ['Giovanna Portilla','Liseth Gavilanes','Daniela Villegas Chamorro','María Caridad Zea Larrea','Karen Rebeca Mora Cedeño','Nicole Yanira Leon Marquez'];
+  try{
+    const r = await fetch('/api/contifico-clientes/metas');
+    const data = await r.json();
+    const metas = data.metas || {};
+    window._contificoClientesMetasCache = metas;
+    cont.innerHTML = `
+      <div style="font-size:12px;color:var(--muted);font-weight:600;margin-bottom:8px">Meta mensual de clientes nuevos (KPI), por asesora</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;max-width:700px">
+        ${ASESORAS_CLI.map(a=>`
+          <div>
+            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">${nombreCorto(a)}</label>
+            <input type="number" min="0" id="cli-meta-${a.replace(/\s+/g,'-')}" value="${metas[a]??0}" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:7px;font-size:12px;outline:none">
+          </div>`).join('')}
+      </div>
+      <button onclick="guardarContificoClientesMetas()" style="margin-top:12px;padding:6px 14px;background:var(--brown);color:white;border:none;border-radius:7px;font-size:12px;cursor:pointer">
+        <i class="ti ti-device-floppy"></i> Guardar metas
+      </button>
+      <span id="cli-meta-status" style="margin-left:10px;font-size:12px;color:var(--muted)"></span>
+    `;
+  }catch(e){
+    cont.innerHTML = `<p style="color:#791F1F;font-size:12px">Error al cargar metas: ${e.message}</p>`;
+  }
+}
+
+async function guardarContificoClientesMetas(){
+  const ASESORAS_CLI = ['Giovanna Portilla','Liseth Gavilanes','Daniela Villegas Chamorro','María Caridad Zea Larrea','Karen Rebeca Mora Cedeño','Nicole Yanira Leon Marquez'];
+  const nuevo = {};
+  ASESORAS_CLI.forEach(a=>{
+    const el = document.getElementById('cli-meta-'+a.replace(/\s+/g,'-'));
+    nuevo[a] = el ? (parseInt(el.value)||0) : 0;
+  });
+  const statusEl = document.getElementById('cli-meta-status');
+  try{
+    const r = await fetch('/api/contifico-clientes/metas', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(nuevo) });
+    const data = await r.json();
+    if(data.ok){
+      window._contificoClientesMetasCache = data.metas;
+      if(statusEl){ statusEl.innerHTML = '<span style="color:#166534">✓ Guardado</span>'; setTimeout(()=>{statusEl.innerHTML='';},4000); }
+    }
+  }catch(e){
+    if(statusEl) statusEl.innerHTML = '<span style="color:#791F1F">Error: '+e.message+'</span>';
+  }
 }
 
 async function subirExcelProvincias(event){
@@ -3460,7 +3512,8 @@ async function subirExcelProvincias(event){
     const res = await fetch('/api/provincias/subir', { method:'POST', body: formData });
     const data = await res.json();
     if(data.ok){
-      if(statusEl) statusEl.innerHTML = `<span style="color:#166534">✓ ${data.clientes_cargados} clientes actualizados con provincia</span>`;
+      const resumenAsesoras = (data.clientes_por_asesora_guardados||[]).map(x=>`${nombreCorto(x.asesora)}: ${x.cantidad}`).join(' · ');
+      if(statusEl) statusEl.innerHTML = `<span style="color:#166534">✓ ${data.clientes_cargados} clientes con provincia actualizada</span><br><span style="color:var(--muted);font-size:11px">Clientes contados por asesora (KPI): ${resumenAsesoras}</span>`;
       await cargarEstadoProvincias();
     } else {
       if(statusEl) statusEl.innerHTML = `<span style="color:#791F1F">Error: ${data.error}</span>`;
@@ -3923,15 +3976,23 @@ async function renderKpis(){
   // Visita a provincia
   const visitaProv = getVisitaProvinciaDelMes(asesoraKpi, anioFiltro, mesFiltro);
 
-  // Clientes nuevos del mes
-  const clientesActuales = clientesEnMes(asesoraKpi, anioFiltro, mesFiltro);
-  // clientesBase = clientes a fin del mes anterior (guardado manualmente o calculado)
-  const mesAnterior = mesFiltro===1 ? 12 : mesFiltro-1;
-  const anioAnterior = mesFiltro===1 ? anioFiltro-1 : anioFiltro;
-  const kpiAnterior = getKpiData(asesoraKpi, anioAnterior, mesAnterior);
-  const clientesBase = kpiData.clientesBase !== null ? kpiData.clientesBase : (kpiAnterior.clientesCierre || 0);
-  const clientesNuevos = Math.max(0, clientesActuales - clientesBase);
-  const META_CLIENTES = 16;
+  // Clientes nuevos del mes — ahora se cuenta automáticamente desde el Excel de
+  // Personas de Contifico (ver Configuración → Sincronización → Provincias), en vez
+  // del sistema manual anterior de "Base mes anterior / Cerrar mes".
+  let clientesMeta = 0, clientesNuevos = null, clientesDif = null, clientesHistorico = [];
+  try{
+    const [rMetasCli, rRegCli] = await Promise.all([
+      window._contificoClientesMetasCache ? Promise.resolve({json:()=>Promise.resolve({ok:true,metas:window._contificoClientesMetasCache})}) : fetch('/api/contifico-clientes/metas'),
+      fetch(`/api/contifico-clientes/registros?anio=${anioFiltro}`)
+    ]);
+    const dataMetasCli = await rMetasCli.json();
+    const dataRegCli = await rRegCli.json();
+    if(dataMetasCli.ok){ window._contificoClientesMetasCache = dataMetasCli.metas; clientesMeta = dataMetasCli.metas[asesoraKpi] || 0; }
+    const registrosAsesoraCli = (dataRegCli.registros||[]).filter(r=>r.asesora===asesoraKpi).sort((a,b)=>a.mes-b.mes);
+    clientesHistorico = registrosAsesoraCli; // [{mes, acumulado, nuevos, dif}, ...] todo el año
+    const registroDelMesCli = registrosAsesoraCli.find(r=>r.mes===mesFiltro);
+    if(registroDelMesCli){ clientesNuevos = registroDelMesCli.nuevos; clientesDif = registroDelMesCli.dif; }
+  }catch(e){ /* silencioso: si falla, el bloque simplemente no muestra datos */ }
 
   // Meses disponibles para historial
   // Años disponibles en datos
@@ -3995,45 +4056,42 @@ async function renderKpis(){
       </div>
     </div>
 
-    <!-- Clientes nuevos -->
+    <!-- Clientes nuevos (contado automático desde Contifico) -->
     <div class="card" style="margin-bottom:12px">
-      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px">
-        <div class="card-title" style="margin-bottom:0"><i class="ti ti-user-plus"></i> Clientes nuevos — ${MESES_N[mesFiltro]} ${anioFiltro}</div>
-        ${esMesActual?`<button onclick="editarClientesBase('${asesoraKpi}',${anioFiltro},${mesFiltro},${clientesBase})" style="padding:5px 10px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:white;color:var(--muted);cursor:pointer"><i class="ti ti-pencil"></i> Editar base</button>`:''}
-      </div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
-        <div style="background:#faf9f8;border-radius:10px;padding:12px;text-align:center;border:1px solid var(--border)">
-          <div style="font-size:10px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">Base mes anterior</div>
-          <div style="font-size:20px;font-weight:700;color:var(--text)">${clientesBase}</div>
-          <div style="font-size:10px;color:var(--muted)">clientes al cierre</div>
+      <div class="card-title" style="margin-bottom:12px"><i class="ti ti-user-plus"></i> Clientes nuevos — ${MESES_N[mesFiltro]} ${anioFiltro}</div>
+      ${clientesNuevos===null ? `
+        <p style="font-size:12px;color:var(--muted)">Todavía no se ha contado el acumulado de clientes de este mes (o falta el del mes anterior para poder calcular cuántos son nuevos). Se actualiza automáticamente al subir el Excel de Personas en Configuración → Sincronización.</p>
+      ` : `
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+          <div style="background:#faf9f8;border-radius:10px;padding:12px;text-align:center;border:1px solid var(--border)">
+            <div style="font-size:10px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">Ingresados</div>
+            <div style="font-size:20px;font-weight:700;color:var(--text)">${clientesNuevos}</div>
+            <div style="font-size:10px;color:var(--muted)">este mes</div>
+          </div>
+          <div style="background:#fefce8;border-radius:10px;padding:12px;text-align:center;border:1px solid #fde047">
+            <div style="font-size:10px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">Meta</div>
+            <div style="font-size:20px;font-weight:700;color:var(--text)">${clientesMeta}</div>
+            <div style="font-size:10px;color:var(--muted)">mensual</div>
+          </div>
+          <div style="background:${clientesDif>=0?'#f0fdf4':'#fef2f2'};border-radius:10px;padding:12px;text-align:center;border:1px solid ${clientesDif>=0?'#86efac':'#fca5a5'}">
+            <div style="font-size:10px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">Diferencia</div>
+            <div style="font-size:26px;font-weight:800;color:${clientesDif>=0?'#166534':'#991b1b'}">${clientesDif>=0?'+':''}${clientesDif}</div>
+            <div style="font-size:10px;color:var(--muted)">${clientesDif>=0?'✅ meta cumplida':'⚠️ por debajo de la meta'}</div>
+          </div>
         </div>
-        <div style="background:#faf9f8;border-radius:10px;padding:12px;text-align:center;border:1px solid var(--border)">
-          <div style="font-size:10px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">Clientes actuales</div>
-          <div style="font-size:20px;font-weight:700;color:var(--text)">${clientesActuales}</div>
-          <div style="font-size:10px;color:var(--muted)">este mes</div>
+      `}
+      ${clientesHistorico.filter(r=>r.nuevos!==null).length>0?`
+      <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+        <div style="font-size:11px;color:var(--muted);font-weight:600;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px">Histórico ${anioFiltro}</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          ${clientesHistorico.filter(r=>r.nuevos!==null).map(r=>{
+            const cumplio = r.dif>=0;
+            return `<div style="flex:1;min-width:60px;text-align:center;background:${cumplio?'#f0fdf4':'#fef2f2'};border:1px solid ${cumplio?'#86efac':'#fca5a5'};border-radius:8px;padding:8px 6px">
+              <div style="font-size:9px;color:var(--muted);text-transform:uppercase">${MESES_N[r.mes].substring(0,3)}</div>
+              <div style="font-size:16px;font-weight:700;color:${cumplio?'#166534':'#991b1b'}">${r.nuevos}</div>
+            </div>`;
+          }).join('')}
         </div>
-        <div style="background:${clientesNuevos>=META_CLIENTES?'#f0fdf4':clientesNuevos>0?'#fef9c3':'#fef2f2'};border-radius:10px;padding:12px;text-align:center;border:1px solid ${clientesNuevos>=META_CLIENTES?'#86efac':clientesNuevos>0?'#fde047':'#fca5a5'}">
-          <div style="font-size:10px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">Clientes nuevos</div>
-          <div style="font-size:26px;font-weight:800;color:${clientesNuevos>=META_CLIENTES?'#166534':clientesNuevos>0?'#854d0e':'#991b1b'}">${clientesNuevos}</div>
-          <div style="font-size:10px;color:var(--muted)">meta: ${META_CLIENTES} · ${clientesNuevos>=META_CLIENTES?'✅ cumplida':'⚠️ pendiente'}</div>
-        </div>
-      </div>
-      <!-- Barra de progreso -->
-      <div style="margin-top:12px">
-        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:4px">
-          <span>Progreso hacia meta (${META_CLIENTES} clientes)</span>
-          <span style="font-weight:600;color:${clientesNuevos>=META_CLIENTES?'#166534':'#991b1b'}">${Math.round(clientesNuevos/META_CLIENTES*100)}%</span>
-        </div>
-        <div style="height:8px;background:#f0ede9;border-radius:4px;overflow:hidden">
-          <div style="height:100%;border-radius:4px;background:${clientesNuevos>=META_CLIENTES?'#22c55e':'#ef4444'};width:${Math.min(clientesNuevos/META_CLIENTES*100,100)}%;transition:width 0.5s"></div>
-        </div>
-      </div>
-      ${esMesActual?`
-      <div style="margin-top:10px;display:flex;justify-content:flex-end">
-        <button onclick="cerrarMesClientes('${asesoraKpi}',${anioFiltro},${mesFiltro},${clientesActuales})"
-          style="padding:5px 12px;font-size:11px;border:1px solid var(--brown);background:rgba(160,104,74,0.1);color:var(--brown);border-radius:6px;cursor:pointer">
-          <i class="ti ti-lock"></i> Cerrar mes (guardar ${clientesActuales} como base)
-        </button>
       </div>`:''}
     </div>
 
@@ -4126,7 +4184,7 @@ async function renderKpis(){
         <div style="font-size:11px;color:var(--muted)">Resumen:</div>
         <span style="font-size:11px;padding:2px 10px;border-radius:20px;background:${visitaProv?'#dcfce7':'#fee2e2'};color:${visitaProv?'#166534':'#991b1b'};font-weight:500">${visitaProv?'✓':'✗'} Visita provincia</span>
         <span style="font-size:11px;padding:2px 10px;border-radius:20px;background:${kpiData.casaAbierta?'#dcfce7':'#fee2e2'};color:${kpiData.casaAbierta?'#166534':'#991b1b'};font-weight:500">${kpiData.casaAbierta?'✓':'✗'} Casa abierta</span>
-        <span style="font-size:11px;padding:2px 10px;border-radius:20px;background:${clientesNuevos>=META_CLIENTES?'#dcfce7':'#fee2e2'};color:${clientesNuevos>=META_CLIENTES?'#166534':'#991b1b'};font-weight:500">${clientesNuevos>=META_CLIENTES?'✓':'✗'} Clientes nuevos</span>
+        <span style="font-size:11px;padding:2px 10px;border-radius:20px;background:${clientesDif!==null&&clientesDif>=0?'#dcfce7':'#fee2e2'};color:${clientesDif!==null&&clientesDif>=0?'#166534':'#991b1b'};font-weight:500">${clientesDif!==null&&clientesDif>=0?'✓':'✗'} Clientes nuevos</span>
       </div>
     </div>
   `;
@@ -4146,31 +4204,6 @@ function editarCasaAbierta(nombre, anio, mes){
   const data = getKpiData(nombre, anio, mes);
   const nuevo = prompt('Editar Casa Abierta:', data.casaAbierta||'');
   if(nuevo !== null){ data.casaAbierta = nuevo.trim(); saveKpiData(nombre, anio, mes, data); renderKpis(); }
-}
-
-function editarClientesBase(nombre, anio, mes, baseActual){
-  const nuevo = prompt(`Base de clientes (fin del mes anterior):`, baseActual);
-  if(nuevo !== null && !isNaN(nuevo)){
-    const data = getKpiData(nombre, anio, mes);
-    data.clientesBase = parseInt(nuevo);
-    saveKpiData(nombre, anio, mes, data);
-    renderKpis();
-  }
-}
-
-function cerrarMesClientes(nombre, anio, mes, totalActual){
-  if(!confirm(`¿Cerrar mes con ${totalActual} clientes? Este valor será la base para el mes siguiente.`)) return;
-  const data = getKpiData(nombre, anio, mes);
-  data.clientesCierre = totalActual;
-  saveKpiData(nombre, anio, mes, data);
-  // Guardar como base del mes siguiente
-  const mesSig = mes===12?1:mes+1;
-  const anioSig = mes===12?anio+1:anio;
-  const dataSig = getKpiData(nombre, anioSig, mesSig);
-  dataSig.clientesBase = totalActual;
-  saveKpiData(nombre, anioSig, mesSig, dataSig);
-  alert(`✓ Mes cerrado. Base para ${['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'][mesSig]} establecida en ${totalActual}`);
-  renderKpis();
 }
 
 </script>

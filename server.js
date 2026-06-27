@@ -762,6 +762,48 @@ async function guardarMercatelyMetasEnDB(data) {
   } catch(e) { console.error('Error guardando metas Mercately:', e.message); }
 }
 
+// ─── METAS DE CLIENTES NUEVOS EN CONTIFICO (KPI que reemplaza al "Clientes Nuevos"
+// manual anterior). Se cuenta automáticamente al subir el Excel de Personas/Provincias
+// — ver parsearExcelProvincias() y el endpoint /api/provincias/subir.
+let CONTIFICO_CLIENTES_METAS = {};
+let CONTIFICO_CLIENTES_METAS_TS = null;
+
+async function cargarContificoClientesMetasDesdeDB() {
+  try {
+    const r = await pool.query("SELECT datos FROM contifico_clientes_metas ORDER BY actualizado_at DESC LIMIT 1");
+    if (r.rows.length > 0) {
+      CONTIFICO_CLIENTES_METAS = JSON.parse(r.rows[0].datos);
+      CONTIFICO_CLIENTES_METAS_TS = new Date().toISOString();
+      console.log('✓ Metas clientes Contifico cargadas desde PostgreSQL:', CONTIFICO_CLIENTES_METAS);
+    } else {
+      // Valores iniciales solicitados por Fernando, solo la primera vez (tabla vacía)
+      CONTIFICO_CLIENTES_METAS = {
+        'Giovanna Portilla': 0,
+        'Liseth Gavilanes': 12,
+        'Daniela Villegas Chamorro': 12,
+        'María Caridad Zea Larrea': 8,
+        'Karen Rebeca Mora Cedeño': 16,
+        'Nicole Yanira Leon Marquez': 16
+      };
+      await guardarContificoClientesMetasEnDB(CONTIFICO_CLIENTES_METAS);
+      console.log('✓ Metas clientes Contifico inicializadas con valores por defecto');
+    }
+  } catch(e) { console.error('Error cargando metas clientes Contifico:', e.message); }
+}
+
+async function guardarContificoClientesMetasEnDB(data) {
+  try {
+    const json = JSON.stringify(data);
+    await pool.query(`
+      INSERT INTO contifico_clientes_metas (datos, actualizado_at) VALUES ($1, NOW())
+      ON CONFLICT (id_unico) DO UPDATE SET datos = $1, actualizado_at = NOW()
+    `, [json]);
+    CONTIFICO_CLIENTES_METAS = data;
+    CONTIFICO_CLIENTES_METAS_TS = new Date().toISOString();
+    console.log('✓ Metas clientes Contifico guardadas en PostgreSQL:', data);
+  } catch(e) { console.error('Error guardando metas clientes Contifico:', e.message); }
+}
+
 // Resuelve la provincia de un cliente con la prioridad: override por RUC/Cédula (Excel,
 // subido manualmente por Fernando) > inferencia por palabras clave en la dirección
 // (Contifico no expone un campo "provincia" directo en la API, solo dirección de texto).
@@ -807,9 +849,12 @@ function parsearExcelProvincias(buffer) {
   const idxCedula = encabezados.indexOf('Cédula');
   const idxRazonSocial = encabezados.indexOf('Razón Social');
   const idxProvincia = encabezados.indexOf('Provincia');
+  const idxVendedor = encabezados.indexOf('Vendedor Asignado');
+  const idxEsCliente = encabezados.indexOf('Es Cliente');
   if (idxProvincia === -1) throw new Error('No se encontró la columna Provincia');
 
   const overrides = {};
+  const clientesPorVendedor = {}; // { 'Nombre Vendedor': cantidadDeClientes }
   let filasConProvincia = 0, filasSinIdentificador = 0;
   for (let i = filaEncabezado + 1; i < filas.length; i++) {
     const fila = filas[i];
@@ -821,12 +866,21 @@ function parsearExcelProvincias(buffer) {
     const identificador = ruc || cedula;
     const provinciaCruda = (fila[idxProvincia]||'').toString().trim().toUpperCase();
     const provincia = normalizarNombreProvincia(provinciaCruda);
-    if (!identificador) { filasSinIdentificador++; continue; }
-    if (!provincia) continue; // sin provincia en el Excel: no sobreescribir nada
-    overrides[identificador] = provincia;
-    filasConProvincia++;
+    if (identificador && provincia) { overrides[identificador] = provincia; filasConProvincia++; }
+    if (!identificador) filasSinIdentificador++;
+
+    // Conteo de clientes por vendedor asignado, solo filas marcadas "Es Cliente" = Si/Sí
+    // (si esa columna no existe en el Excel, se cuenta cualquier fila con vendedor asignado).
+    const esCliente = idxEsCliente !== -1 ? (fila[idxEsCliente]||'').toString().trim().toUpperCase() : '';
+    const cuentaComoCliente = idxEsCliente === -1 || esCliente === 'SI' || esCliente === 'SÍ' || esCliente === 'YES';
+    if (cuentaComoCliente && idxVendedor !== -1) {
+      const vendedor = (fila[idxVendedor]||'').toString().trim();
+      if (vendedor && vendedor!=='N/A' && !vendedor.includes('Espíndola') && !vendedor.includes('Espindola')) {
+        clientesPorVendedor[vendedor] = (clientesPorVendedor[vendedor]||0) + 1;
+      }
+    }
   }
-  return { overrides, filasConProvincia, filasSinIdentificador, totalFilas: filas.length - filaEncabezado - 1 };
+  return { overrides, filasConProvincia, filasSinIdentificador, totalFilas: filas.length - filaEncabezado - 1, clientesPorVendedor };
 }
 
 
@@ -1028,6 +1082,21 @@ async function initDB() {
         actualizado_at TIMESTAMP DEFAULT NOW(),
         UNIQUE(asesora, anio, mes)
       );
+      CREATE TABLE IF NOT EXISTS contifico_clientes_metas (
+        id SERIAL PRIMARY KEY,
+        id_unico VARCHAR(10) DEFAULT 'principal' UNIQUE,
+        datos TEXT NOT NULL,
+        actualizado_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS contifico_clientes_registros (
+        id SERIAL PRIMARY KEY,
+        asesora VARCHAR(255) NOT NULL,
+        anio INTEGER NOT NULL,
+        mes INTEGER NOT NULL,
+        cantidad INTEGER NOT NULL DEFAULT 0, -- ACUMULADO TOTAL de clientes asignados en Contifico a fin de ese mes (contado automáticamente al subir el Excel de Personas)
+        actualizado_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(asesora, anio, mes)
+      );
       CREATE TABLE IF NOT EXISTS visitas (
         id SERIAL PRIMARY KEY, lugar VARCHAR(255) NOT NULL,
         tipo VARCHAR(50) NOT NULL, asesora VARCHAR(255) NOT NULL,
@@ -1076,7 +1145,7 @@ async function initDB() {
     console.log('DB inicializada');
   } catch(e) { console.error('Error DB:', e.message); }
 }
-initDB().then(() => cargarDataDesdeDB()).then(() => cargarInventarioDesdeDB()).then(() => cargarProvinciasOverrideDesdeDB()).then(() => cargarSkuPorMarcaDesdeDB()).then(() => cargarMercatelyMetasDesdeDB()).catch(e => console.error('Error init:', e.message));
+initDB().then(() => cargarDataDesdeDB()).then(() => cargarInventarioDesdeDB()).then(() => cargarProvinciasOverrideDesdeDB()).then(() => cargarSkuPorMarcaDesdeDB()).then(() => cargarMercatelyMetasDesdeDB()).then(() => cargarContificoClientesMetasDesdeDB()).catch(e => console.error('Error init:', e.message));
 programarRegeneracionDiaria();
 
 const MIME = { '.html':'text/html','.js':'application/javascript','.css':'text/css','.json':'application/json','.png':'image/png','.jpg':'image/jpeg','.ico':'image/x-icon' };
@@ -2044,14 +2113,32 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ ok:false, error: 'No se encontró el archivo en la solicitud (campo "file")' }));
         return;
       }
-      const { overrides, filasConProvincia, filasSinIdentificador, totalFilas } = parsearExcelProvincias(archivo.buffer);
+      const { overrides, filasConProvincia, filasSinIdentificador, totalFilas, clientesPorVendedor } = parsearExcelProvincias(archivo.buffer);
       await guardarProvinciasOverrideEnDB(overrides);
+
+      // Guardar el conteo de clientes por asesora como el acumulado del mes EN CURSO
+      // (fecha real del servidor al momento de subir el Excel) — mismo patrón que
+      // mercately_registros: cada subida reemplaza el acumulado de este mes, nunca de
+      // meses anteriores ya cerrados.
+      const ahora = new Date();
+      const anioActual = ahora.getFullYear(), mesActual = ahora.getMonth()+1;
+      const asesorasGuardadas = [];
+      for (const [asesora, cantidad] of Object.entries(clientesPorVendedor||{})) {
+        await pool.query(`
+          INSERT INTO contifico_clientes_registros (asesora, anio, mes, cantidad, actualizado_at) VALUES ($1, $2, $3, $4, NOW())
+          ON CONFLICT (asesora, anio, mes) DO UPDATE SET cantidad = $4, actualizado_at = NOW()
+        `, [asesora, anioActual, mesActual, cantidad]);
+        asesorasGuardadas.push({ asesora, cantidad });
+      }
+
       res.writeHead(200, {'Content-Type':'application/json'});
       res.end(JSON.stringify({
         ok: true,
         clientes_cargados: filasConProvincia,
         filas_sin_identificador: filasSinIdentificador,
-        total_filas_excel: totalFilas
+        total_filas_excel: totalFilas,
+        clientes_por_asesora_guardados: asesorasGuardadas,
+        mes_actualizado: `${mesActual}/${anioActual}`
       }));
     } catch(e) {
       res.writeHead(500, {'Content-Type':'application/json'});
@@ -2297,6 +2384,83 @@ const server = http.createServer(async (req, res) => {
     }
     return;
   }
+
+  // METAS DEL KPI "CLIENTES NUEVOS" (contado automáticamente desde el Excel de
+  // Personas de Contifico) — reemplaza al antiguo cálculo manual de "Base mes
+  // anterior / Cerrar mes". Mismo patrón que /api/mercately/metas.
+  if (urlPath === '/api/contifico-clientes/metas' && req.method === 'GET') {
+    res.writeHead(200, {'Content-Type':'application/json'});
+    res.end(JSON.stringify({ ok: true, metas: CONTIFICO_CLIENTES_METAS, actualizado_en: CONTIFICO_CLIENTES_METAS_TS }));
+    return;
+  }
+  if (urlPath === '/api/contifico-clientes/metas' && req.method === 'POST') {
+    try {
+      const body = await bodyJSON(req);
+      const nuevo = {};
+      Object.keys(body).forEach(asesora => { nuevo[asesora] = parseInt(body[asesora]) || 0; });
+      await guardarContificoClientesMetasEnDB(nuevo);
+      res.writeHead(200, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok: true, metas: CONTIFICO_CLIENTES_METAS }));
+    } catch(e) {
+      res.writeHead(500, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok: false, error: e.message }));
+    }
+    return;
+  }
+
+  // REGISTROS MENSUALES DEL KPI DE CLIENTES (Contifico): acumulado total de clientes
+  // asignados a cada asesora a fin de cada mes (se llena automáticamente al subir el
+  // Excel de Personas, ver /api/provincias/subir). Mismo cálculo de ++ /DIF que Mercately.
+  if (urlPath === '/api/contifico-clientes/registros' && req.method === 'GET') {
+    try {
+      const anio = parseInt(urlObj.searchParams.get('anio')) || new Date().getFullYear();
+      const r = await pool.query(
+        'SELECT asesora, anio, mes, cantidad FROM contifico_clientes_registros WHERE anio=$1 OR (anio=$2 AND mes=12)',
+        [anio, anio-1]
+      );
+      const porAsesoraMes = {};
+      r.rows.forEach(row => { porAsesoraMes[row.asesora+'|'+row.anio+'|'+row.mes] = row.cantidad; });
+
+      const registros = r.rows.filter(row => row.anio===anio).map(row => {
+        const mesAnteriorAnio = row.mes===1 ? anio-1 : anio;
+        const mesAnteriorMes = row.mes===1 ? 12 : row.mes-1;
+        const acumuladoAnterior = porAsesoraMes[row.asesora+'|'+mesAnteriorAnio+'|'+mesAnteriorMes];
+        const nuevos = (acumuladoAnterior!==undefined) ? (row.cantidad - acumuladoAnterior) : null;
+        const meta = CONTIFICO_CLIENTES_METAS[row.asesora] || 0;
+        const dif = (nuevos!==null) ? (nuevos - meta) : null;
+        return { asesora: row.asesora, anio: row.anio, mes: row.mes, acumulado: row.cantidad, nuevos, dif };
+      });
+      res.writeHead(200, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok: true, registros }));
+    } catch(e) {
+      res.writeHead(500, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok: false, error: e.message }));
+    }
+    return;
+  }
+  // POST manual: permite ajustar un mes puntual a mano si hace falta corregir algo,
+  // aparte de la actualización automática vía subida de Excel.
+  if (urlPath === '/api/contifico-clientes/registros' && req.method === 'POST') {
+    try {
+      const { asesora, anio, mes, cantidad } = await bodyJSON(req);
+      if (!asesora || !anio || !mes) {
+        res.writeHead(400, {'Content-Type':'application/json'});
+        res.end(JSON.stringify({ ok: false, error: 'Faltan asesora, anio o mes' }));
+        return;
+      }
+      await pool.query(`
+        INSERT INTO contifico_clientes_registros (asesora, anio, mes, cantidad, actualizado_at) VALUES ($1, $2, $3, $4, NOW())
+        ON CONFLICT (asesora, anio, mes) DO UPDATE SET cantidad = $4, actualizado_at = NOW()
+      `, [asesora, anio, mes, parseInt(cantidad)||0]);
+      res.writeHead(200, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok: true }));
+    } catch(e) {
+      res.writeHead(500, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok: false, error: e.message }));
+    }
+    return;
+  }
+
 
   // CONSULTAR INVENTARIO POR MARCA: /api/inventario?marca=ZIAJA
   if (urlPath === '/api/inventario' && req.method === 'GET') {
