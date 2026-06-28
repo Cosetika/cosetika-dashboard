@@ -4178,7 +4178,7 @@ async function renderKpis(){
           return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;min-width:0">
             <span style="font-size:9px;color:var(--text);font-weight:600;white-space:nowrap">${v.sinIva?fmt(v.sinIva):''}</span>
             <div style="width:100%;display:flex;align-items:flex-end;height:80px">
-              <div style="width:100%;background:var(--brown);border-radius:4px 4px 0 0;height:${h}px;transition:height 0.3s"></div>
+              <div style="width:100%;background:${getVendColor(asesoraKpi)};border-radius:4px 4px 0 0;height:${h}px;transition:height 0.3s"></div>
             </div>
             <span style="font-size:10px;color:var(--muted)">${MESES_CORTAS[v.mes]}</span>
           </div>`;
