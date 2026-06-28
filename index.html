@@ -1703,42 +1703,6 @@ async function renderFacturasHoy(){
     });
 
     document.getElementById('facturas-content').innerHTML=`
-      <!-- Comparativo anual -->
-      <div class="card" style="margin-bottom:12px">
-        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:4px">
-          <div class="card-title" style="margin-bottom:0"><i class="ti ti-chart-line"></i> Ventas por mes sin IVA</div>
-          <select id="select-anios-comparativo" onchange="cambiarAniosComparativo(this.value)" style="padding:5px 10px;border:1px solid var(--border);border-radius:8px;font-size:11px;outline:none;background:white;cursor:pointer">
-            <option value="ultimos2" selected>Últimos 2 años</option>
-            ${window._aniosDisponiblesFacturas ? window._aniosDisponiblesFacturas.map(a=>`<option value="${a}">Solo ${a}</option>`).join('') : ''}
-            <option value="todos">Todos los años</option>
-          </select>
-        </div>
-        <div style="width:100%;overflow-x:auto">
-          <canvas id="grafico-comparativo-anual" style="display:block;width:100%;min-width:480px;height:260px"></canvas>
-        </div>
-        <div id="leyenda-comparativo" style="display:flex;flex-wrap:wrap;gap:14px;margin-top:10px;justify-content:center"></div>
-      </div>
-
-      <!-- Ventas por día (filtrable por mes del año en curso) -->
-      <div class="card" style="margin-bottom:12px">
-        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:4px">
-          <div class="card-title" style="margin-bottom:0"><i class="ti ti-chart-line"></i> Ventas por día (sin IVA)</div>
-          <select id="select-mes-ventas-dia" onchange="window._ventasDiaMes=parseInt(this.value);cargarYDibujarVentasMesDia()" style="padding:5px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;outline:none;background:white;cursor:pointer">
-            ${MESES_NOMBRE.map((nombreMes,idx)=>{
-              const numMes = idx+1;
-              const mesActualReal = new Date().getMonth()+1;
-              // No se muestran meses futuros del año en curso (todavía no hay datos)
-              if(numMes>mesActualReal) return '';
-              return `<option value="${numMes}" ${numMes===mesActualReal?'selected':''}>${nombreMes}</option>`;
-            }).join('')}
-          </select>
-        </div>
-        <div style="width:100%;overflow-x:auto">
-          <canvas id="grafico-ventas-mes-dia" style="display:block;width:100%;min-width:480px;height:220px"></canvas>
-        </div>
-        <div id="ventas-mes-dia-status" style="text-align:center;font-size:11px;color:var(--muted);margin-top:6px"></div>
-      </div>
-
       <!-- KPIs del día -->
       <div class="kpi-row">
         <div class="kpi"><div class="kpi-label">Total sin IVA</div><div class="kpi-val" style="color:var(--brown)">${fmt(totalSinIva)}</div><div class="kpi-sub">subtotal</div></div>
@@ -1804,31 +1768,6 @@ async function renderFacturasHoy(){
           </table>
         </div>`}
       </div>`;
-
-    // Calcular series 2025 vs 2026 desde DATA para el comparativo anual
-    const vendedoras = Object.keys(DATA);
-    function totalMesAnio(mes, anio){
-      let t=0;
-      vendedoras.forEach(v=>DATA[v].forEach(c=>{
-        const f=c.frecuencia.find(x=>x.mes===mes&&x.anio===anio);
-        if(f) t+=(f.subtotal!==undefined ? f.subtotal : f.total/1.15);
-      }));
-      return t;
-    }
-    // Detectar todos los años disponibles en los datos
-    const aniosSet = new Set();
-    vendedoras.forEach(v=>DATA[v].forEach(c=>c.frecuencia.forEach(f=>{ if(f.anio) aniosSet.add(f.anio); })));
-    window._aniosDisponiblesFacturas = [...aniosSet].sort((a,b)=>b-a);
-    window._totalMesAnioFn = totalMesAnio;
-    // Repoblar el select con los años reales detectados
-    const selectAnios = document.getElementById('select-anios-comparativo');
-    if(selectAnios){
-      selectAnios.innerHTML = `<option value="ultimos2">Últimos 2 años</option>` +
-        window._aniosDisponiblesFacturas.map(a=>`<option value="${a}">Solo ${a}</option>`).join('') +
-        `<option value="todos">Todos los años</option>`;
-    }
-    dibujarComparativoAnual('ultimos2');
-    cargarYDibujarVentasMesDia();
   }catch(e){
     document.getElementById('facturas-content').innerHTML=`<div class="coming"><i class="ti ti-wifi-off"></i><p style="font-size:13px">No se pudo conectar con la API</p><span style="font-size:12px">${e.message}</span></div>`;
   }
@@ -2157,6 +2096,21 @@ function renderVentasPanel(){
 
 
   const vendedoras = Object.keys(DATA);
+
+  // Lógica para los gráficos movidos desde Facturas: comparativo anual y ventas por día
+  function totalMesAnio(mes, anio){
+    let t=0;
+    vendedoras.forEach(v=>DATA[v].forEach(c=>{
+      const f=c.frecuencia.find(x=>x.mes===mes&&x.anio===anio);
+      if(f) t+=(f.subtotal!==undefined ? f.subtotal : f.total/1.15);
+    }));
+    return t;
+  }
+  const aniosSetFact = new Set();
+  vendedoras.forEach(v=>DATA[v].forEach(c=>c.frecuencia.forEach(f=>{ if(f.anio) aniosSetFact.add(f.anio); })));
+  window._aniosDisponiblesFacturas = [...aniosSetFact].sort((a,b)=>b-a);
+  window._totalMesAnioFn = totalMesAnio;
+
   const porVend = vendedoras.map(v=>({
     nombre:v,
     total: ventasFiltroTodo
@@ -2217,6 +2171,57 @@ function renderVentasPanel(){
   }).join('');
 
   document.getElementById('main').innerHTML=`
+    <!-- Comparativo anual (movido desde Facturas) -->
+    <div class="card" style="margin-bottom:12px">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:4px">
+        <div class="card-title" style="margin-bottom:0"><i class="ti ti-chart-line"></i> Ventas por mes sin IVA</div>
+        <select id="select-anios-comparativo" onchange="cambiarAniosComparativo(this.value)" style="padding:5px 10px;border:1px solid var(--border);border-radius:8px;font-size:11px;outline:none;background:white;cursor:pointer">
+          <option value="ultimos2" selected>Últimos 2 años</option>
+          ${window._aniosDisponiblesFacturas ? window._aniosDisponiblesFacturas.map(a=>`<option value="${a}">Solo ${a}</option>`).join('') : ''}
+          <option value="todos">Todos los años</option>
+        </select>
+      </div>
+      <div style="width:100%;overflow-x:auto">
+        <canvas id="grafico-comparativo-anual" style="display:block;width:100%;min-width:480px;height:260px"></canvas>
+      </div>
+      <div id="leyenda-comparativo" style="display:flex;flex-wrap:wrap;gap:14px;margin-top:10px;justify-content:center"></div>
+    </div>
+
+    <!-- Ventas por día (movido desde Facturas) -->
+    <div class="card" style="margin-bottom:12px">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:4px">
+        <div class="card-title" style="margin-bottom:0"><i class="ti ti-chart-line"></i> Ventas por día (sin IVA)</div>
+        <select id="select-mes-ventas-dia" onchange="window._ventasDiaMes=parseInt(this.value);cargarYDibujarVentasMesDia()" style="padding:5px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;outline:none;background:white;cursor:pointer">
+          ${MESES_NOMBRE.map((nombreMes,idx)=>{
+            const numMes = idx+1;
+            const mesActualReal = new Date().getMonth()+1;
+            if(numMes>mesActualReal) return '';
+            return `<option value="${numMes}" ${numMes===mesActualReal?'selected':''}>${nombreMes}</option>`;
+          }).join('')}
+        </select>
+      </div>
+      <div style="width:100%;overflow-x:auto">
+        <canvas id="grafico-ventas-mes-dia" style="display:block;width:100%;min-width:480px;height:220px"></canvas>
+      </div>
+      <div id="ventas-mes-dia-status" style="text-align:center;font-size:11px;color:var(--muted);margin-top:6px"></div>
+    </div>
+
+    <!-- Gráfico de líneas: evolución mensual por vendedora -->
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-title"><i class="ti ti-chart-line"></i> Evolución mensual por vendedora (sin IVA) — ${ventasFiltroAnio}</div>
+      <div style="width:100%;overflow-x:auto">
+        <canvas id="grafico-ventas" class="grafico-ventas-canvas" style="display:block;width:100%;min-width:480px;height:260px"></canvas>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:14px;margin-top:10px;justify-content:center">
+        ${datosMensuales.map((v,i)=>`
+          <div class="leyenda-vend-item" data-idx="${i}" onclick="toggleLineaVendedora(${i})" style="display:flex;align-items:center;gap:5px;cursor:pointer;padding:3px 8px;border-radius:12px;transition:background 0.15s">
+            <div style="width:20px;height:3px;border-radius:2px;background:${v.color}"></div>
+            <span style="font-size:11px;color:var(--text)">${nombreCorto(v.nombre)}</span>
+          </div>`).join('')}
+      </div>
+    </div>
+
+    <!-- Filtros -->
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding-bottom:10px;border-bottom:1px solid var(--border);margin-bottom:12px">
       <i class="ti ti-calendar" style="color:var(--brown);font-size:14px"></i>
       <select id="ventas-anio-filtro" onchange="aplicarAnioVentas(parseInt(this.value))"
@@ -2236,21 +2241,6 @@ function renderVentasPanel(){
       <div class="kpi"><div class="kpi-label">Ventas con IVA</div><div class="kpi-val">${fmt(totalConIva)}</div><div class="kpi-sub">${etiqueta}</div></div>
       <div class="kpi"><div class="kpi-label">Facturas</div><div class="kpi-val">${porVend.reduce((a,v)=>a+v.facturas,0)}</div><div class="kpi-sub">emitidas</div></div>
       <div class="kpi"><div class="kpi-label">Ticket prom.</div><div class="kpi-val">${fmt(totalConIva/Math.max(porVend.reduce((a,v)=>a+v.facturas,0),1))}</div><div class="kpi-sub">por factura</div></div>
-    </div>
-
-    <!-- Gráfico de líneas -->
-    <div class="card" style="margin-bottom:12px">
-      <div class="card-title"><i class="ti ti-chart-line"></i> Evolución mensual por vendedora (sin IVA) — ${ventasFiltroAnio}</div>
-      <div style="width:100%;overflow-x:auto">
-        <canvas id="grafico-ventas" class="grafico-ventas-canvas" style="display:block;width:100%;min-width:480px;height:260px"></canvas>
-      </div>
-      <div style="display:flex;flex-wrap:wrap;gap:14px;margin-top:10px;justify-content:center">
-        ${datosMensuales.map((v,i)=>`
-          <div class="leyenda-vend-item" data-idx="${i}" onclick="toggleLineaVendedora(${i})" style="display:flex;align-items:center;gap:5px;cursor:pointer;padding:3px 8px;border-radius:12px;transition:background 0.15s">
-            <div style="width:20px;height:3px;border-radius:2px;background:${v.color}"></div>
-            <span style="font-size:11px;color:var(--text)">${nombreCorto(v.nombre)}</span>
-          </div>`).join('')}
-      </div>
     </div>
 
     <!-- Vendedoras sin onclick -->
@@ -2276,7 +2266,11 @@ function renderVentasPanel(){
 
   `;
 
-  requestAnimationFrame(()=>dibujarGraficoVendedoras(datosMensuales, mesesDisponibles));
+  requestAnimationFrame(()=>{
+    dibujarGraficoVendedoras(datosMensuales, mesesDisponibles);
+    dibujarComparativoAnual('ultimos2');
+    cargarYDibujarVentasMesDia();
+  });
 }
 
 let _vendSeleccionadaIdx = null;
