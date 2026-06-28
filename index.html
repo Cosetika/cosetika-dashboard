@@ -213,6 +213,45 @@ const MES_COLORS = {
   7:'#a5b4fc', 8:'#fcd34d', 9:'#6ee7b7', 10:'#f9a8d4', 11:'#fcba88', 12:'#67e8f9'
 };
 
+// ─── COBERTURA DE PROVINCIAS POR ASESORA (para pintar barras de Provincias) ────
+// Mismo set de provincias oficiales que usa el backend (server.js: PROVINCIAS_NOMBRE).
+const PROVINCIAS_NOMBRE_OFICIAL = ['PICHINCHA','GUAYAS','AZUAY','TUNGURAHUA','CHIMBORAZO','LOJA',
+  'IMBABURA','CARCHI','COTOPAXI','LOS RÍOS','MANABÍ','EL ORO','ESMERALDAS',
+  'SANTO DOMINGO','PASTAZA','NAPO','SUCUMBÍOS','ORELLANA','MORONA SANTIAGO',
+  'ZAMORA CHINCHIPE','BOLÍVAR','CAÑAR','SANTA ELENA','GALÁPAGOS'];
+// Cantones de Guayas asignados a Karen (ver historial) — cualquiera de estos cuenta
+// como cobertura de la provincia GUAYAS completa, confirmado con Fernando.
+const CANTONES_GUAYAS = ['Alfredo Baquerizo Moreno','Jujan','Balao','Balzar','Colimes',
+  'Coronel Marcelino Maridueña','Daule','Durán','El Empalme','El Triunfo',
+  'General Antonio Elizalde','Bucay','Isidro Ayora','Lomas de Sargentillo','Milagro',
+  'Naranjal','Naranjito','Nobol','Palestina','Pedro Carbo','Playas','Salitre',
+  'Samborondón','San Jacinto de Yaguachi','Yaguachi','Santa Lucía','Simón Bolívar','Guayaquil'];
+
+// Normaliza un nombre asignado a una asesora (puede ser provincia o cantón de Guayas)
+// a su provincia oficial real, para poder cruzarlo contra los datos de venta.
+function normalizarProvinciaCobertura(nombreAsignado){
+  const sinTildes = s => (s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().trim();
+  const norm = sinTildes(nombreAsignado);
+  // 1) coincidencia directa con una provincia oficial (exacta o "contiene")
+  let match = PROVINCIAS_NOMBRE_OFICIAL.find(p => sinTildes(p)===norm || norm.includes(sinTildes(p)) || sinTildes(p).includes(norm));
+  if(match) return match;
+  // 2) coincidencia con un cantón conocido de Guayas
+  if(CANTONES_GUAYAS.some(c => sinTildes(c)===norm)) return 'GUAYAS';
+  return null; // no se pudo mapear a ninguna provincia oficial (ej. era un sector de Quito, no una provincia)
+}
+
+// Devuelve, para una provincia oficial dada, la lista de asesoras (nombres completos)
+// que la cubren según su configuración real en ASESOR_DATA (ya fusionada con la DB
+// vía cargarAsesorConfig — debe llamarse antes de usar esta función).
+function asesorasQueCubrenProvincia(nombreProvinciaOficial){
+  const asesoras = [];
+  Object.entries(ASESOR_DATA).forEach(([asesora, info])=>{
+    const cubre = (info.provincias||[]).some(p => normalizarProvinciaCobertura(p) === nombreProvinciaOficial);
+    if(cubre) asesoras.push(asesora);
+  });
+  return asesoras;
+}
+
 function getVendColor(nombre){
   if(!nombre) return '#c4a882';
   // Lookup exacto
@@ -2679,7 +2718,8 @@ function toggleProvinciaAcordeon(idx, nombreProvincia, anio){
   fila?.querySelector('.acordeon-caret')?.classList.add('ti-chevron-up');
 }
 
-function renderProvincias(provSeleccionada){
+async function renderProvincias(provSeleccionada){
+  await cargarAsesorConfig(); // asegura ASESOR_DATA con la asignación real de provincias por asesora
   const anioActual3 = new Date().getFullYear();
   const MESES_CORTO3=['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
   if(window._provFiltroMes===undefined) window._provFiltroMes=0;
@@ -2732,13 +2772,30 @@ function renderProvincias(provSeleccionada){
         ${provOrdenadas.map((p,idx)=>{
           const porcentaje = totalGlobal>0?Math.round(p.total/totalGlobal*1000)/10:0;
           const anchoBarra = Math.max(pct(p.total,maxProv)*0.88,2); // se deja ~12% de margen para el texto del %
+          // Color de la barra según qué asesora(s) cubren esta provincia (Visitas).
+          // Si la cubren 2+, se divide en partes iguales (un color por asesora).
+          // Si no hay ninguna asignada, se usa el café por defecto.
+          const provinciaOficial = normalizarProvinciaCobertura(p.nombre);
+          const asesorasCobertura = provinciaOficial ? asesorasQueCubrenProvincia(provinciaOficial) : [];
+          let fondoBarra;
+          if(asesorasCobertura.length===0){
+            fondoBarra = 'var(--brown)';
+          } else {
+            const pasoPct = 100/asesorasCobertura.length;
+            const stops = asesorasCobertura.map((a,i)=>{
+              const color = getVendColor(a);
+              return `${color} ${(i*pasoPct).toFixed(2)}%, ${color} ${((i+1)*pasoPct).toFixed(2)}%`;
+            }).join(', ');
+            fondoBarra = `linear-gradient(to right, ${stops})`;
+          }
+          const titleCobertura = asesorasCobertura.length>0 ? ` title="Cubierta por: ${asesorasCobertura.map(nombreCorto).join(', ')}"` : '';
           return `
           <div id="prov-row-${idx}" onclick="renderProvincias('${p.nombre.replace(/'/g,"\\'")}')" style="cursor:pointer;margin-bottom:10px">
             <div style="display:flex;align-items:center;gap:8px">
               <i class="ti ti-chevron-down acordeon-caret" style="font-size:13px;color:#10b981;flex-shrink:0;cursor:pointer" onclick="event.stopPropagation();toggleProvinciaAcordeon(${idx},'${p.nombre.replace(/'/g,"\\'")}',${provAnio})"></i>
               <span class="hbar-lbl" title="${p.nombre}">${p.nombre}</span>
-              <div class="hbar-track" style="position:relative;overflow:visible">
-                <div class="hbar-fill brown" style="width:${anchoBarra}%;position:relative">
+              <div class="hbar-track" style="position:relative;overflow:visible"${titleCobertura}>
+                <div class="hbar-fill" style="width:${anchoBarra}%;position:relative;background:${fondoBarra}">
                   <span style="position:absolute;left:100%;top:50%;transform:translateY(-50%);margin-left:6px;font-size:10px;font-weight:600;color:var(--brown);white-space:nowrap">${porcentaje}%</span>
                 </div>
               </div>
@@ -2778,7 +2835,7 @@ function renderProvincias(provSeleccionada){
           ${provData.map(c=>`
             <div class="hbar" onclick="selClienteProvincia('${c.nombre.replace(/'/g,"\\'").replace(/"/g,'\\"')}','${provSeleccionada.replace(/'/g,"\\'")}')">
               <span class="hbar-lbl" title="${c.nombre}">${c.nombre}</span>
-              <div class="hbar-track"><div class="hbar-fill" style="width:${pct(c.total,maxCli)}%"></div></div>
+              <div class="hbar-track" title="Asesora: ${nombreCorto(c.vendedor||'')}"><div class="hbar-fill" style="width:${pct(c.total,maxCli)}%;background:${getVendColor(c.vendedor)}"></div></div>
               <span class="hbar-val">${fmt(c.total)}</span>
             </div>`).join('')}
         </div>
