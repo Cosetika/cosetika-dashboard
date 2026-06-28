@@ -4080,6 +4080,12 @@ async function renderKpis(){
     }
   });
   const MESES_N=['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  const MESES_CORTAS=['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+
+  // Serie de ventas sin IVA por mes (Ene hasta el mes actual), para el gráfico de barras
+  const mesesTranscurridos = Array.from({length: mesActual}, (_,i)=>i+1);
+  const ventasPorMes = mesesTranscurridos.map(m => ({ mes:m, sinIva: ventasMesKpi(asesoraKpi, m, anioFiltro).sinIva }));
+  const maxVentaMes = Math.max(...ventasPorMes.map(v=>v.sinIva), 1);
 
   // Selectores
   const selectorAsesora = puedeVerTodas ? `
@@ -4097,6 +4103,23 @@ async function renderKpis(){
       <span style="font-size:13px;font-weight:600">KPIs</span>
       <span style="color:var(--border)">|</span>
       ${selectorAsesora}
+    </div>
+
+    <!-- Ventas durante el año -->
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-title" style="margin-bottom:12px"><i class="ti ti-chart-bar"></i> Ventas durante el año</div>
+      <div style="display:flex;gap:6px;align-items:flex-end;height:100px">
+        ${ventasPorMes.map(v=>{
+          const h = Math.max(Math.round(v.sinIva/maxVentaMes*80), v.sinIva>0?3:0);
+          return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;min-width:0">
+            <span style="font-size:9px;color:var(--text);font-weight:600;white-space:nowrap">${v.sinIva?fmt(v.sinIva):''}</span>
+            <div style="width:100%;display:flex;align-items:flex-end;height:80px">
+              <div style="width:100%;background:var(--brown);border-radius:4px 4px 0 0;height:${h}px;transition:height 0.3s"></div>
+            </div>
+            <span style="font-size:10px;color:var(--muted)">${MESES_CORTAS[v.mes]}</span>
+          </div>`;
+        }).join('')}
+      </div>
     </div>
 
     <!-- Comisiones del mes -->
