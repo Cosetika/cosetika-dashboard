@@ -219,15 +219,22 @@ const PROVINCIAS_NOMBRE_OFICIAL = ['PICHINCHA','GUAYAS','AZUAY','TUNGURAHUA','CH
   'IMBABURA','CARCHI','COTOPAXI','LOS RÍOS','MANABÍ','EL ORO','ESMERALDAS',
   'SANTO DOMINGO','PASTAZA','NAPO','SUCUMBÍOS','ORELLANA','MORONA SANTIAGO',
   'ZAMORA CHINCHIPE','BOLÍVAR','CAÑAR','SANTA ELENA','GALÁPAGOS'];
-// Cantones de Guayas asignados a Karen (ver historial) — cualquiera de estos cuenta
-// como cobertura de la provincia GUAYAS completa, confirmado con Fernando.
-const CANTONES_GUAYAS = ['Alfredo Baquerizo Moreno','Jujan','Balao','Balzar','Colimes',
-  'Coronel Marcelino Maridueña','Daule','Durán','El Empalme','El Triunfo',
-  'General Antonio Elizalde','Bucay','Isidro Ayora','Lomas de Sargentillo','Milagro',
-  'Naranjal','Naranjito','Nobol','Palestina','Pedro Carbo','Playas','Salitre',
-  'Samborondón','San Jacinto de Yaguachi','Yaguachi','Santa Lucía','Simón Bolívar','Guayaquil'];
+// Mapa cantón → provincia, para los cantones que aparecen sueltos en ASESOR_DATA
+// (en vez del nombre de la provincia completa). Cubre los cantones de Guayas
+// asignados a Karen, más Manta (Liseth→MANABÍ), Tulcán (Nicole→CARCHI) y
+// Machala (Nicole→EL ORO) — confirmado con Fernando.
+const CANTON_A_PROVINCIA = {
+  'ALFREDO BAQUERIZO MORENO (JUJAN)':'GUAYAS','BALAO':'GUAYAS','BALZAR':'GUAYAS',
+  'COLIMES':'GUAYAS','CORONEL MARCELINO MARIDUENA':'GUAYAS','DAULE':'GUAYAS','DURAN':'GUAYAS',
+  'EL EMPALME':'GUAYAS','EL TRIUNFO':'GUAYAS','GENERAL ANTONIO ELIZALDE (BUCAY)':'GUAYAS',
+  'ISIDRO AYORA':'GUAYAS','LOMAS DE SARGENTILLO':'GUAYAS','MILAGRO':'GUAYAS','NARANJAL':'GUAYAS',
+  'NARANJITO':'GUAYAS','NOBOL':'GUAYAS','PALESTINA':'GUAYAS','PEDRO CARBO':'GUAYAS','PLAYAS':'GUAYAS',
+  'SALITRE':'GUAYAS','SAMBORONDON':'GUAYAS','SAN JACINTO DE YAGUACHI':'GUAYAS','YAGUACHI':'GUAYAS',
+  'SANTA LUCIA':'GUAYAS','SIMON BOLIVAR':'GUAYAS','GUAYAQUIL':'GUAYAS',
+  'MANTA':'MANABÍ', 'TULCAN':'CARCHI', 'MACHALA':'EL ORO'
+};
 
-// Normaliza un nombre asignado a una asesora (puede ser provincia o cantón de Guayas)
+// Normaliza un nombre asignado a una asesora (puede ser provincia o un cantón suelto)
 // a su provincia oficial real, para poder cruzarlo contra los datos de venta.
 function normalizarProvinciaCobertura(nombreAsignado){
   const sinTildes = s => (s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().trim();
@@ -235,8 +242,8 @@ function normalizarProvinciaCobertura(nombreAsignado){
   // 1) coincidencia directa con una provincia oficial (exacta o "contiene")
   let match = PROVINCIAS_NOMBRE_OFICIAL.find(p => sinTildes(p)===norm || norm.includes(sinTildes(p)) || sinTildes(p).includes(norm));
   if(match) return match;
-  // 2) coincidencia con un cantón conocido de Guayas
-  if(CANTONES_GUAYAS.some(c => sinTildes(c)===norm)) return 'GUAYAS';
+  // 2) coincidencia con un cantón conocido
+  if(CANTON_A_PROVINCIA[norm]) return CANTON_A_PROVINCIA[norm];
   return null; // no se pudo mapear a ninguna provincia oficial (ej. era un sector de Quito, no una provincia)
 }
 
@@ -2954,7 +2961,7 @@ function sortProv(mode, provincia){
   document.getElementById('cli-list-prov').innerHTML=clientes.map(c=>`
     <div class="hbar" onclick="selClienteProvincia('${c.nombre.replace(/'/g,"\\'")}','${provincia.replace(/'/g,"\\'")}')">
       <span class="hbar-lbl" title="${c.nombre}">${c.nombre}</span>
-      <div class="hbar-track"><div class="hbar-fill" style="width:${pct(c.total,maxCli)}%"></div></div>
+      <div class="hbar-track" title="Asesora: ${nombreCorto(c.vendedor||'')}"><div class="hbar-fill" style="width:${pct(c.total,maxCli)}%;background:${getVendColor(c.vendedor)}"></div></div>
       <span class="hbar-val">${fmt(c.total)}</span>
     </div>`).join('');
 }
@@ -2966,7 +2973,7 @@ const ASESOR_DATA = {
     zonas: {
       'Sectores Quito': ['Cotocollao','Carcelen','Ponceano','Comité del Pueblo','El Inca','Jipijapa','Concepción','Iñaquito','La Carolina','El Bosque','Puembo','Tumbaco','La Pradera','Zámbiza','Nayón','Cumbayá','Valle de los Chillos']
     },
-    provincias: ['Tungurahua','Cotopaxi','Chimborazo','Manabí']
+    provincias: ['Tungurahua','Cotopaxi','Chimborazo','Manabí','Pichincha']
   },
   'Liseth Gavilanes': {
     zonas: {
