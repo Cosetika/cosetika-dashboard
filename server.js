@@ -1097,6 +1097,15 @@ async function initDB() {
         actualizado_at TIMESTAMP DEFAULT NOW(),
         UNIQUE(asesora, anio, mes)
       );
+      CREATE TABLE IF NOT EXISTS casa_abierta_registros (
+        id SERIAL PRIMARY KEY,
+        asesora VARCHAR(255) NOT NULL,
+        anio INTEGER NOT NULL,
+        mes INTEGER NOT NULL,
+        nombre_estetica VARCHAR(500) NOT NULL,
+        actualizado_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(asesora, anio, mes)
+      );
       CREATE TABLE IF NOT EXISTS visitas (
         id SERIAL PRIMARY KEY, lugar VARCHAR(255) NOT NULL,
         tipo VARCHAR(50) NOT NULL, asesora VARCHAR(255) NOT NULL,
@@ -2452,6 +2461,42 @@ const server = http.createServer(async (req, res) => {
         INSERT INTO contifico_clientes_registros (asesora, anio, mes, cantidad, actualizado_at) VALUES ($1, $2, $3, $4, NOW())
         ON CONFLICT (asesora, anio, mes) DO UPDATE SET cantidad = $4, actualizado_at = NOW()
       `, [asesora, anio, mes, parseInt(cantidad)||0]);
+      res.writeHead(200, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok: true }));
+    } catch(e) {
+      res.writeHead(500, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok: false, error: e.message }));
+    }
+    return;
+  }
+
+  // CASA ABIERTA: nombre de la estética registrada cada mes, por asesora (en el
+  // servidor, no localStorage, para que se vea igual desde cualquier dispositivo).
+  // GET ?anio=2026 devuelve el histórico del año completo (todas las asesoras).
+  if (urlPath === '/api/casa-abierta/registros' && req.method === 'GET') {
+    try {
+      const anio = parseInt(urlObj.searchParams.get('anio')) || new Date().getFullYear();
+      const r = await pool.query('SELECT asesora, anio, mes, nombre_estetica FROM casa_abierta_registros WHERE anio=$1', [anio]);
+      res.writeHead(200, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok: true, registros: r.rows }));
+    } catch(e) {
+      res.writeHead(500, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok: false, error: e.message }));
+    }
+    return;
+  }
+  if (urlPath === '/api/casa-abierta/registros' && req.method === 'POST') {
+    try {
+      const { asesora, anio, mes, nombre_estetica } = await bodyJSON(req);
+      if (!asesora || !anio || !mes || !nombre_estetica) {
+        res.writeHead(400, {'Content-Type':'application/json'});
+        res.end(JSON.stringify({ ok: false, error: 'Faltan asesora, anio, mes o nombre_estetica' }));
+        return;
+      }
+      await pool.query(`
+        INSERT INTO casa_abierta_registros (asesora, anio, mes, nombre_estetica, actualizado_at) VALUES ($1, $2, $3, $4, NOW())
+        ON CONFLICT (asesora, anio, mes) DO UPDATE SET nombre_estetica = $4, actualizado_at = NOW()
+      `, [asesora, anio, mes, String(nombre_estetica).trim()]);
       res.writeHead(200, {'Content-Type':'application/json'});
       res.end(JSON.stringify({ ok: true }));
     } catch(e) {

@@ -4017,8 +4017,8 @@ function saveKpiData(nombre, anio, mes, data){
 
 // Detectar visita a provincia del mes desde visitasDB
 function getVisitaProvinciaDelMes(nombreAsesora, anio, mes){
-  if(!window.visitasDB) return null;
-  return window.visitasDB.find(v=>{
+  if(!visitasDB) return null;
+  return visitasDB.find(v=>{
     if(v.asesora !== nombreAsesora) return false;
     if(v.tipo !== 'provincia') return false;
     const d = new Date(v.fecha);
@@ -4103,8 +4103,26 @@ async function renderKpis(){
     comision = (vAsesora.sinIva + totalEquipo) * (cfg.giovanna.pct_equipo/100);
   }
 
-  // Visita a provincia
+  // Visita a provincia (mes actual + histórico del año, ambos desde visitasDB ya cargado)
   const visitaProv = getVisitaProvinciaDelMes(asesoraKpi, anioFiltro, mesFiltro);
+  const visitasProvinciaHistorico = (visitasDB||[])
+    .filter(v=>v.asesora===asesoraKpi && v.tipo==='provincia')
+    .filter(v=>{ const d=new Date(v.fecha); return d.getFullYear()===anioFiltro; })
+    .map(v=>{ const d=new Date(v.fecha); return { mes: d.getMonth()+1, lugar: v.lugar, fecha: v.fecha }; })
+    .sort((a,b)=>a.mes-b.mes);
+
+  // Casa Abierta — desde el servidor (ya no localStorage), mes actual + histórico del año
+  let casaAbiertaMes = null, casaAbiertaHistorico = [];
+  try{
+    const rCasaAb = await fetch(`/api/casa-abierta/registros?anio=${anioFiltro}`);
+    const dataCasaAb = await rCasaAb.json();
+    if(dataCasaAb.ok){
+      const registrosAsesoraCasaAb = (dataCasaAb.registros||[]).filter(r=>r.asesora===asesoraKpi).sort((a,b)=>a.mes-b.mes);
+      casaAbiertaHistorico = registrosAsesoraCasaAb;
+      const delMes = registrosAsesoraCasaAb.find(r=>r.mes===mesFiltro);
+      casaAbiertaMes = delMes ? delMes.nombre_estetica : null;
+    }
+  }catch(e){ /* silencioso */ }
 
   // Clientes nuevos del mes — ahora se cuenta automáticamente desde el Excel de
   // Personas de Contifico (ver Configuración → Sincronización → Provincias), en vez
@@ -4275,76 +4293,103 @@ async function renderKpis(){
       </div>`:''}
     </div>
 
-    <!-- Compromisos del mes -->
-    <div class="card">
-      <div class="card-title" style="margin-bottom:12px"><i class="ti ti-checklist"></i> Compromisos del mes</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-
-        <!-- Visita a Provincia -->
-        <div style="border-radius:10px;padding:14px;border:2px solid ${visitaProv?'#86efac':'#fca5a5'};background:${visitaProv?'#f0fdf4':'#fef2f2'}">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-            <div style="width:28px;height:28px;border-radius:50%;background:${visitaProv?'#22c55e':'#ef4444'};display:flex;align-items:center;justify-content:center;flex-shrink:0">
-              <i class="ti ti-${visitaProv?'check':'x'}" style="color:white;font-size:14px"></i>
-            </div>
-            <span style="font-size:13px;font-weight:600;color:${visitaProv?'#166534':'#991b1b'}">Visita a Provincia</span>
+    <!-- Visita a Provincia -->
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-title" style="margin-bottom:12px"><i class="ti ti-map-pin"></i> Visita a Provincia</div>
+      <div style="border-radius:10px;padding:14px;border:2px solid ${visitaProv?'#86efac':'#fca5a5'};background:${visitaProv?'#f0fdf4':'#fef2f2'}">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <div style="width:28px;height:28px;border-radius:50%;background:${visitaProv?'#22c55e':'#ef4444'};display:flex;align-items:center;justify-content:center;flex-shrink:0">
+            <i class="ti ti-${visitaProv?'check':'x'}" style="color:white;font-size:14px"></i>
           </div>
-          ${visitaProv
-            ? `<div style="font-size:12px;color:#166534;font-weight:500">✅ ${visitaProv.lugar}</div>
-               <div style="font-size:11px;color:var(--muted);margin-top:2px">${new Date(visitaProv.fecha).toLocaleDateString('es-EC',{day:'2-digit',month:'long'})}</div>`
-            : `<div style="font-size:12px;color:#991b1b">Sin visita registrada</div>
-               <div style="font-size:11px;color:var(--muted);margin-top:4px">Se marcará automáticamente cuando registres una visita a provincia en el módulo Visitas</div>`
-          }
+          <span style="font-size:13px;font-weight:600;color:${visitaProv?'#166534':'#991b1b'}">${MESES_N[mesFiltro]}</span>
         </div>
-
-        <!-- Casa Abierta -->
-        <div style="border-radius:10px;padding:14px;border:2px solid ${kpiData.casaAbierta?'#86efac':'#fca5a5'};background:${kpiData.casaAbierta?'#f0fdf4':'#fef2f2'}">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-            <div style="width:28px;height:28px;border-radius:50%;background:${kpiData.casaAbierta?'#22c55e':'#ef4444'};display:flex;align-items:center;justify-content:center;flex-shrink:0">
-              <i class="ti ti-${kpiData.casaAbierta?'check':'x'}" style="color:white;font-size:14px"></i>
-            </div>
-            <span style="font-size:13px;font-weight:600;color:${kpiData.casaAbierta?'#166534':'#991b1b'}">Casa Abierta</span>
-          </div>
-          ${kpiData.casaAbierta
-            ? `<div style="font-size:12px;color:#166534;font-weight:500">✅ ${kpiData.casaAbierta}</div>
-               ${esMesActual?`<button onclick="editarCasaAbierta('${asesoraKpi}',${anioFiltro},${mesFiltro})" style="margin-top:6px;padding:3px 8px;font-size:10px;border:1px solid #86efac;border-radius:5px;background:white;color:#166534;cursor:pointer">Editar</button>`:''}`
-            : `<div style="font-size:12px;color:#991b1b">Sin registrar</div>
-               ${esMesActual?`<div style="margin-top:8px">
-                 <input type="text" id="casa-abierta-input" placeholder="Nombre de la estética..." 
-                   style="width:100%;padding:6px 8px;border:1px solid #fca5a5;border-radius:6px;font-size:12px;outline:none;background:white"/>
-                 <button onclick="guardarCasaAbierta('${asesoraKpi}',${anioFiltro},${mesFiltro})"
-                   style="margin-top:6px;width:100%;padding:6px;font-size:12px;background:#ef4444;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:500">
-                   Registrar casa abierta
-                 </button>
-               </div>`:''}`
-          }
-        </div>
+        ${visitaProv
+          ? `<div style="font-size:12px;color:#166534;font-weight:500">✅ ${visitaProv.lugar}</div>
+             <div style="font-size:11px;color:var(--muted);margin-top:2px">${new Date(visitaProv.fecha).toLocaleDateString('es-EC',{day:'2-digit',month:'long'})}</div>`
+          : `<div style="font-size:12px;color:#991b1b">Sin visita registrada</div>
+             <div style="font-size:11px;color:var(--muted);margin-top:4px">Se marcará automáticamente cuando registres una visita a provincia en el módulo Visitas</div>`
+        }
       </div>
+      ${visitasProvinciaHistorico.length>0?`
+      <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+        <div style="font-size:11px;color:var(--muted);font-weight:600;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px">Histórico ${anioFiltro}</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          ${visitasProvinciaHistorico.map(v=>`
+            <div style="flex:1;min-width:80px;text-align:center;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:8px 6px" title="${v.lugar}">
+              <div style="font-size:9px;color:var(--muted);text-transform:uppercase">${MESES_N[v.mes].substring(0,3)}</div>
+              <div style="font-size:12px;font-weight:700;color:#166534;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${v.lugar}</div>
+            </div>`).join('')}
+        </div>
+      </div>`:''}
+    </div>
 
-      <!-- Resumen semáforo -->
-      <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
-        <div style="font-size:11px;color:var(--muted)">Resumen:</div>
+    <!-- Casa Abierta -->
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-title" style="margin-bottom:12px"><i class="ti ti-building-store"></i> Casa Abierta</div>
+      <div style="border-radius:10px;padding:14px;border:2px solid ${casaAbiertaMes?'#86efac':'#fca5a5'};background:${casaAbiertaMes?'#f0fdf4':'#fef2f2'}">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <div style="width:28px;height:28px;border-radius:50%;background:${casaAbiertaMes?'#22c55e':'#ef4444'};display:flex;align-items:center;justify-content:center;flex-shrink:0">
+            <i class="ti ti-${casaAbiertaMes?'check':'x'}" style="color:white;font-size:14px"></i>
+          </div>
+          <span style="font-size:13px;font-weight:600;color:${casaAbiertaMes?'#166534':'#991b1b'}">${MESES_N[mesFiltro]}</span>
+        </div>
+        ${casaAbiertaMes
+          ? `<div style="font-size:12px;color:#166534;font-weight:500">✅ ${casaAbiertaMes}</div>
+             ${esMesActual?`<button onclick="editarCasaAbierta('${asesoraKpi}',${anioFiltro},${mesFiltro})" style="margin-top:6px;padding:3px 8px;font-size:10px;border:1px solid #86efac;border-radius:5px;background:white;color:#166534;cursor:pointer">Editar</button>`:''}`
+          : `<div style="font-size:12px;color:#991b1b">Sin registrar</div>
+             ${esMesActual?`<div style="margin-top:8px">
+               <input type="text" id="casa-abierta-input" placeholder="Nombre de la estética..." 
+                 style="width:100%;padding:6px 8px;border:1px solid #fca5a5;border-radius:6px;font-size:12px;outline:none;background:white"/>
+               <button onclick="guardarCasaAbierta('${asesoraKpi}',${anioFiltro},${mesFiltro})"
+                 style="margin-top:6px;width:100%;padding:6px;font-size:12px;background:#ef4444;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:500">
+                 Registrar casa abierta
+               </button>
+             </div>`:''}`
+        }
+      </div>
+      ${casaAbiertaHistorico.length>0?`
+      <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+        <div style="font-size:11px;color:var(--muted);font-weight:600;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px">Histórico ${anioFiltro}</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          ${casaAbiertaHistorico.map(r=>`
+            <div style="flex:1;min-width:80px;text-align:center;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:8px 6px" title="${r.nombre_estetica}">
+              <div style="font-size:9px;color:var(--muted);text-transform:uppercase">${MESES_N[r.mes].substring(0,3)}</div>
+              <div style="font-size:12px;font-weight:700;color:#166534;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.nombre_estetica}</div>
+            </div>`).join('')}
+        </div>
+      </div>`:''}
+    </div>
+
+    <!-- Resumen semáforo -->
+    <div class="card">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <div style="font-size:11px;color:var(--muted)">Resumen del mes:</div>
         <span style="font-size:11px;padding:2px 10px;border-radius:20px;background:${visitaProv?'#dcfce7':'#fee2e2'};color:${visitaProv?'#166534':'#991b1b'};font-weight:500">${visitaProv?'✓':'✗'} Visita provincia</span>
-        <span style="font-size:11px;padding:2px 10px;border-radius:20px;background:${kpiData.casaAbierta?'#dcfce7':'#fee2e2'};color:${kpiData.casaAbierta?'#166534':'#991b1b'};font-weight:500">${kpiData.casaAbierta?'✓':'✗'} Casa abierta</span>
+        <span style="font-size:11px;padding:2px 10px;border-radius:20px;background:${casaAbiertaMes?'#dcfce7':'#fee2e2'};color:${casaAbiertaMes?'#166534':'#991b1b'};font-weight:500">${casaAbiertaMes?'✓':'✗'} Casa abierta</span>
         <span style="font-size:11px;padding:2px 10px;border-radius:20px;background:${clientesDif!==null&&clientesDif>=0?'#dcfce7':'#fee2e2'};color:${clientesDif!==null&&clientesDif>=0?'#166534':'#991b1b'};font-weight:500">${clientesDif!==null&&clientesDif>=0?'✓':'✗'} Clientes nuevos</span>
       </div>
     </div>
   `;
 }
 
-function guardarCasaAbierta(nombre, anio, mes){
+async function guardarCasaAbierta(nombre, anio, mes){
   const input = document.getElementById('casa-abierta-input');
   const val = input ? input.value.trim() : '';
   if(!val){ alert('Por favor ingresa el nombre de la estética'); return; }
-  const data = getKpiData(nombre, anio, mes);
-  data.casaAbierta = val;
-  saveKpiData(nombre, anio, mes, data);
-  renderKpis();
+  try{
+    await fetch('/api/casa-abierta/registros', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ asesora:nombre, anio, mes, nombre_estetica:val }) });
+    renderKpis();
+  }catch(e){ alert('Error al guardar: '+e.message); }
 }
 
-function editarCasaAbierta(nombre, anio, mes){
-  const data = getKpiData(nombre, anio, mes);
-  const nuevo = prompt('Editar Casa Abierta:', data.casaAbierta||'');
-  if(nuevo !== null){ data.casaAbierta = nuevo.trim(); saveKpiData(nombre, anio, mes, data); renderKpis(); }
+async function editarCasaAbierta(nombre, anio, mes){
+  const nuevo = prompt('Editar Casa Abierta:', '');
+  if(nuevo !== null && nuevo.trim()){
+    try{
+      await fetch('/api/casa-abierta/registros', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ asesora:nombre, anio, mes, nombre_estetica:nuevo.trim() }) });
+      renderKpis();
+    }catch(e){ alert('Error al guardar: '+e.message); }
+  }
 }
 
 </script>
