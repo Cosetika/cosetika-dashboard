@@ -3137,10 +3137,16 @@ async function renderPlanificacion(){
   const weekDates = getWeekDates(planWeekOffset);
   const semanaKey = isoDate(weekDates[0]);
 
+  // Para admin/jefa, lo que se consulta y muestra es la PRIMERA asesora de la lista
+  // (no el nombre de quien inició sesión) — admin/jefa no tienen planificación propia,
+  // siempre están viendo la de alguna asesora del equipo.
+  const ASESORAS_PLAN = ['Daniela Villegas Chamorro','Giovanna Portilla','Liseth Gavilanes','Karen Rebeca Mora Cedeño','María Caridad Zea Larrea','Nicole Yanira Leon Marquez'];
+  const asesoraConsulta = (rol==='admin'||rol==='jefa_ventas') ? ASESORAS_PLAN[0] : asesora;
+
   // Cargar planificación de esta semana
   let saved = [];
   try {
-    const r = await fetch(`/api/planificacion?asesora=${encodeURIComponent(asesora)}&semana=${semanaKey}`);
+    const r = await fetch(`/api/planificacion?asesora=${encodeURIComponent(asesoraConsulta)}&semana=${semanaKey}`);
     saved = await r.json();
   } catch(e) { saved = []; }
 
@@ -3154,17 +3160,18 @@ async function renderPlanificacion(){
   // Si admin o jefa, mostrar selector de asesora
   let asesoraSelector = '';
   if(rol==='admin'||rol==='jefa_ventas'){
-    const asesoras = ['Daniela Villegas Chamorro','Giovanna Portilla','Liseth Gavilanes','Karen Rebeca Mora Cedeño','María Caridad Zea Larrea','Nicole Yanira Leon Marquez'];
+    const asesoras = ASESORAS_PLAN;
     asesoraSelector = `
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
         <span style="font-size:12px;color:var(--muted)">Asesora:</span>
         <select id="plan-asesora-sel" onchange="planAsesoraChange(this.value)" style="padding:6px 10px;border:0.5px solid var(--border);border-radius:6px;font-size:12px;outline:none">
-          ${asesoras.map(a=>`<option value="${a}" ${a===asesora||(!asesora&&a===asesoras[0])?'selected':''}>${a.split(' ')[0]}</option>`).join('')}
+          ${asesoras.map(a=>`<option value="${a}" ${a===asesoraConsulta?'selected':''}>${a.split(' ')[0]}</option>`).join('')}
         </select>
       </div>`;
   }
 
   const weekDayNames = weekDates.map(d=>`${getDayName(d)} ${d.getDate()}`);
+  window._planAsesoraActual = asesoraConsulta;
 
   document.getElementById('visitas-content').innerHTML = `
     ${asesoraSelector}
@@ -3180,10 +3187,10 @@ async function renderPlanificacion(){
 
     <div class="card">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
-        <div class="card-title" style="margin-bottom:0"><i class="ti ti-calendar-event"></i> Planificación semanal — ${asesora.split(' ')[0]}</div>
+        <div class="card-title" style="margin-bottom:0"><i class="ti ti-calendar-event"></i> Planificación semanal — <span id="plan-titulo-asesora">${asesoraConsulta.split(' ')[0]}</span></div>
         <div style="display:flex;gap:6px">
           <button onclick="agregarFilaPlan()" style="padding:5px 12px;font-size:11px;border:0.5px solid var(--border);border-radius:6px;background:white;color:var(--muted);cursor:pointer"><i class="ti ti-plus"></i> Agregar fila</button>
-          <button onclick="guardarPlanificacion('${asesora}','${semanaKey}')" style="padding:5px 14px;font-size:11px;background:var(--brown);color:white;border:none;border-radius:6px;cursor:pointer;font-weight:500"><i class="ti ti-device-floppy"></i> Guardar</button>
+          <button onclick="guardarPlanificacion(window._planAsesoraActual||'${asesoraConsulta}', '${semanaKey}')" style="padding:5px 14px;font-size:11px;background:var(--brown);color:white;border:none;border-radius:6px;cursor:pointer;font-weight:500"><i class="ti ti-device-floppy"></i> Guardar</button>
         </div>
       </div>
       <div style="overflow-x:auto">
@@ -3274,6 +3281,11 @@ async function planAsesoraChange(asesora){
       : Array.from({length:20},()=>({dia:'',sector:'',cliente:'',coordinado:false}));
     const tbody = document.getElementById('plan-tbody');
     if(tbody) tbody.innerHTML = planRows.map((row,i)=>renderPlanRow(row,i,weekDayNames)).join('');
+    // Actualizar también el título y el botón Guardar, para que reflejen la asesora
+    // seleccionada en este momento (antes se quedaban fijos en quien inició sesión).
+    const tituloEl = document.getElementById('plan-titulo-asesora');
+    if(tituloEl) tituloEl.textContent = asesora.split(' ')[0];
+    window._planAsesoraActual = asesora;
   } catch(e){}
 }
 
