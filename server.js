@@ -1346,7 +1346,14 @@ const server = http.createServer(async (req, res) => {
     try {
       const asesora = urlObj.searchParams.get('asesora') || '';
       const semana = urlObj.searchParams.get('semana') || '';
-      const r = await pool.query('SELECT * FROM planificacion WHERE asesora=$1 AND semana=$2 ORDER BY id',[asesora,semana]);
+      let r = await pool.query('SELECT * FROM planificacion WHERE asesora=$1 AND semana=$2 ORDER BY id',[asesora,semana]);
+      // Si no hay coincidencia exacta, probar con coincidencia parcial (nombre guardado
+      // puede ser más corto o más largo, ej. "Karen Rebeca Mora" vs "Karen Rebeca Mora
+      // Cedeño") — usa las dos primeras palabras (nombre + primer apellido) como ancla.
+      if (r.rows.length === 0 && asesora) {
+        const ancla = asesora.trim().split(' ').slice(0,2).join(' ');
+        r = await pool.query("SELECT * FROM planificacion WHERE asesora ILIKE $1 AND semana=$2 ORDER BY id", [ancla+'%', semana]);
+      }
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.rows));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
     return;

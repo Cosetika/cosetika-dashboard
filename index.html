@@ -3132,10 +3132,18 @@ let planRows = [];
 
 async function renderPlanificacion(){
   const usuario = window.usuarioActual || {};
-  const asesora = usuario.nombre || '';
   const rol = usuario.rol || '';
   const weekDates = getWeekDates(planWeekOffset);
   const semanaKey = isoDate(weekDates[0]);
+
+  // Resolver el nombre real completo de la asesora (la tabla "usuarios" puede tener
+  // un nombre incompleto, ej. "Karen Rebeca Mora" sin "Cedeño") para que SIEMPRE se
+  // guarde y consulte bajo el mismo nombre completo, sin importar cómo entre cada una.
+  const ASESORAS_PLAN_MAP = {
+    'Daniela Villegas Chamorro':1,'Giovanna Portilla':1,'Liseth Gavilanes':1,
+    'Karen Rebeca Mora Cedeño':1,'María Caridad Zea Larrea':1,'Nicole Yanira Leon Marquez':1
+  };
+  const asesora = resolverNombreReal(usuario.nombre || '', ASESORAS_PLAN_MAP) || (usuario.nombre || '');
 
   // Para admin/jefa, lo que se consulta y muestra es la PRIMERA asesora de la lista
   // (no el nombre de quien inició sesión) — admin/jefa no tienen planificación propia,
