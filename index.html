@@ -1990,9 +1990,20 @@ function limpiarBusquedaEnvios(){
   renderResultadosBusquedaEnvios();
 }
 
+function enviosFechasNavegables(){
+  // Mismo rango fijo que renderEnviosContenido: hoy y 7 días atrás
+  const hoy = enviosFechaActual();
+  const fechas = [];
+  for(let i = 7; i >= 0; i--){
+    const d = new Date(hoy + 'T12:00:00');
+    d.setDate(d.getDate() - i);
+    fechas.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`);
+  }
+  return fechas;
+}
+
 async function navEnvios(dir){
-  const fechas = ENVIOS_FECHAS_DISPONIBLES.map(f=>f.fecha).sort();
-  if(fechas.length === 0) return;
+  const fechas = enviosFechasNavegables();
   const idx = fechas.indexOf(ENVIOS_FECHA_SEL);
   const nuevoIdx = idx + dir;
   if(nuevoIdx < 0 || nuevoIdx >= fechas.length) return;
@@ -2011,21 +2022,12 @@ async function renderEnviosContenido(){
 
   cont.innerHTML = '<div style="font-size:13px;color:var(--muted);padding:20px 0;text-align:center">Cargando...</div>';
 
-  if(ENVIOS_FECHAS_DISPONIBLES.length === 0){
-    cont.innerHTML = `
-      <div style="text-align:center;padding:60px 20px;color:var(--muted)">
-        <i class="ti ti-truck-off" style="font-size:44px;opacity:0.35"></i>
-        <p style="margin-top:12px;font-size:14px;font-weight:500">Sin manifiestos cargados</p>
-        <p style="font-size:12px;margin-top:4px">Usa el botón "Subir PDF" para cargar el manifiesto del día</p>
-      </div>`;
-    return;
-  }
-
-  // Últimos 7 días con manifiesto cargado, del más antiguo al más reciente (para navegar
-  // con flechas en orden cronológico, igual que Facturas y Control)
-  const fechas = ENVIOS_FECHAS_DISPONIBLES.map(f=>f.fecha).sort().slice(-7);
+  // Rango fijo: hoy y los 7 días anteriores (igual que Facturas/Control), independiente
+  // de si ya hay manifiesto subido o no — así "hoy" siempre es el punto de partida.
+  const fechas = enviosFechasNavegables();
+  const hoy = enviosFechaActual();
   if(!ENVIOS_FECHA_SEL || !fechas.includes(ENVIOS_FECHA_SEL)){
-    ENVIOS_FECHA_SEL = fechas[fechas.length - 1]; // más reciente por defecto
+    ENVIOS_FECHA_SEL = hoy; // siempre arranca en hoy, tenga o no manifiesto cargado
   }
 
   const idx = fechas.indexOf(ENVIOS_FECHA_SEL);
@@ -2041,8 +2043,8 @@ async function renderEnviosContenido(){
         <i class="ti ti-chevron-left"></i>
       </button>
       <div style="text-align:center">
-        <div style="font-size:16px;font-weight:600;color:var(--text)">${enviosFmtFecha(ENVIOS_FECHA_SEL)}</div>
-        <div style="font-size:11px;color:var(--muted);margin-top:2px">${envios.length} guías · ${idx+1} de ${fechas.length}</div>
+        <div style="font-size:16px;font-weight:600;color:var(--text)">${ENVIOS_FECHA_SEL===hoy?'Hoy · ':''}${enviosFmtFecha(ENVIOS_FECHA_SEL)}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">${idx+1} de ${fechas.length} · últimos 7 días</div>
       </div>
       <button onclick="navEnvios(1)" ${!haySiguiente?'disabled':''}
         style="width:36px;height:36px;border-radius:50%;border:1px solid var(--border);background:${haySiguiente?'white':'#f5f5f5'};color:${haySiguiente?'var(--text)':'#ccc'};cursor:${haySiguiente?'pointer':'default'};display:flex;align-items:center;justify-content:center;font-size:16px;transition:background 0.15s">
@@ -2055,7 +2057,7 @@ async function renderEnviosContenido(){
       ${fechas.map(f=>`
         <button onclick="seleccionarFechaEnvios('${f}')"
           style="padding:4px 12px;font-size:11px;border-radius:20px;border:1px solid ${f===ENVIOS_FECHA_SEL?'var(--brown)':'var(--border)'};background:${f===ENVIOS_FECHA_SEL?'var(--brown)':'white'};color:${f===ENVIOS_FECHA_SEL?'white':'var(--muted)'};cursor:pointer;transition:all 0.15s">
-          ${enviosFmtFecha(f)}
+          ${f===hoy?'Hoy':enviosFmtFecha(f)}
         </button>`).join('')}
     </div>
 
@@ -2063,10 +2065,10 @@ async function renderEnviosContenido(){
     <div class="card">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
         <div class="card-title" style="margin-bottom:0"><i class="ti ti-truck-delivery"></i> Manifiesto — ${enviosFmtFecha(ENVIOS_FECHA_SEL)}</div>
-        <button onclick="eliminarManifiestoFecha('${ENVIOS_FECHA_SEL}')" title="Eliminar manifiesto de este día"
+        ${envios.length > 0 ? `<button onclick="eliminarManifiestoFecha('${ENVIOS_FECHA_SEL}')" title="Eliminar manifiesto de este día"
           style="padding:4px 10px;font-size:11px;border-radius:6px;border:1px solid #fca5a5;background:#fef2f2;color:#991b1b;cursor:pointer;display:inline-flex;align-items:center;gap:4px">
           <i class="ti ti-trash" style="font-size:11px"></i> Eliminar
-        </button>
+        </button>` : ''}
       </div>
       ${envios.length===0 ? '<p style="font-size:13px;color:var(--muted);padding:10px 0">Sin envíos para este día</p>' : `
       <div style="overflow-x:auto">
@@ -2464,8 +2466,8 @@ function facturasFechasNavegables(){
 function facturasFmtFecha(isoDate){
   if(!isoDate) return '—';
   const [y,m,d] = isoDate.split('-');
-  const meses = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
-  return `${parseInt(d)} de ${meses[parseInt(m)-1]} de ${y}`;
+  const meses = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  return `${parseInt(d)} ${meses[parseInt(m)-1]} ${y}`;
 }
 
 async function navFacturas(dir){
@@ -2501,7 +2503,7 @@ async function renderDocFacturas(){
         <i class="ti ti-chevron-left"></i>
       </button>
       <div style="text-align:center">
-        <div style="font-size:16px;font-weight:600;color:var(--text);text-transform:capitalize">${esHoy?'Hoy · ':''}${facturasFmtFecha(FACTURAS_FECHA_SEL)}</div>
+        <div style="font-size:16px;font-weight:600;color:var(--text)">${esHoy?'Hoy · ':''}${facturasFmtFecha(FACTURAS_FECHA_SEL)}</div>
         <div style="font-size:11px;color:var(--muted);margin-top:2px">${idx+1} de ${fechas.length} · últimos 7 días</div>
       </div>
       <button onclick="navFacturas(1)" ${!haySiguiente?'disabled':''}
@@ -2515,7 +2517,7 @@ async function renderDocFacturas(){
       ${fechas.map(f=>`
         <button onclick="seleccionarFechaFacturas('${f}')"
           style="padding:4px 12px;font-size:11px;border-radius:20px;border:1px solid ${f===FACTURAS_FECHA_SEL?'var(--brown)':'var(--border)'};background:${f===FACTURAS_FECHA_SEL?'var(--brown)':'white'};color:${f===FACTURAS_FECHA_SEL?'white':'var(--muted)'};cursor:pointer;transition:all 0.15s">
-          ${f===hoyStr?'Hoy':facturasFmtFecha(f).split(' de ')[0]}
+          ${f===hoyStr?'Hoy':facturasFmtFecha(f)}
         </button>`).join('')}
     </div>
 
