@@ -1894,33 +1894,15 @@ function copiarGuia(guia, btn){
   });
 }
 
-async function navEnvios(dir){
-  const fechas = ENVIOS_FECHAS_DISPONIBLES.map(f=>f.fecha);
-  if(fechas.length === 0) return;
-  const idx = fechas.indexOf(ENVIOS_FECHA_SEL);
-  const nuevoIdx = idx + dir;
-  if(nuevoIdx < 0 || nuevoIdx >= fechas.length) return;
-  ENVIOS_FECHA_SEL = fechas[nuevoIdx];
-  ENVIOS_BUSQUEDA = ''; // al navegar por día, salir del modo búsqueda
-  await renderEnviosContenido();
-}
-
-async function seleccionarFechaEnvios(fecha){
-  ENVIOS_FECHA_SEL = fecha;
-  ENVIOS_BUSQUEDA = '';
-  await renderEnviosContenido();
-}
-
 async function buscarClienteEnvios(valor){
   ENVIOS_BUSQUEDA = (valor||'').trim();
-  await renderEnviosContenido();
+  await renderResultadosBusquedaEnvios();
 }
 
 async function eliminarManifiestoFecha(fecha){
   if(!confirm(`¿Eliminar el manifiesto de ${enviosFmtFecha(fecha)}?`)) return;
   try{
     await fetch('/api/envios?fecha=' + encodeURIComponent(fecha), { method: 'DELETE' });
-    ENVIOS_FECHA_SEL = null;
     await cargarEnviosFechasDisponibles();
     await renderEnviosContenido();
   } catch(e){
@@ -1953,107 +1935,36 @@ function filaEnvioHtml(e, i, mostrarFecha){
     </tr>`;
 }
 
-async function renderEnviosContenido(){
-  const cont = document.getElementById('envios-content');
+async function renderResultadosBusquedaEnvios(){
+  const cont = document.getElementById('envios-busqueda-content');
   if(!cont) return;
 
-  cont.innerHTML = '<div style="font-size:13px;color:var(--muted);padding:20px 0;text-align:center">Cargando...</div>';
-
-  // MODO BÚSQUEDA: si hay texto de búsqueda, consultamos en todas las fechas
-  if(ENVIOS_BUSQUEDA && ENVIOS_BUSQUEDA.length >= 2){
-    let resultados = [];
-    try{
-      const r = await fetch('/api/envios/buscar?q=' + encodeURIComponent(ENVIOS_BUSQUEDA));
-      const rows = await r.json();
-      resultados = rows.map(row => ({
-        guia: row.guia, destinatario: row.destinatario, razonSocial: row.razon_social,
-        ciudad: row.ciudad, fecha: (row.fecha||'').substring(0,10)
-      }));
-    } catch(e){ console.error(e); }
-
-    cont.innerHTML = `
-      <div class="card">
-        <div class="card-title" style="margin-bottom:10px"><i class="ti ti-search"></i> Resultados para "${ENVIOS_BUSQUEDA}" — ${resultados.length} guía${resultados.length===1?'':'s'}</div>
-        ${resultados.length === 0 ? '<p style="font-size:13px;color:var(--muted)">No se encontraron guías para ese cliente</p>' : `
-        <div style="overflow-x:auto">
-          <table style="width:100%;border-collapse:collapse;font-size:12px">
-            <thead>
-              <tr style="background:#faf9f8;border-bottom:1px solid var(--border)">
-                <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Fecha</th>
-                <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">#</th>
-                <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Destinatario</th>
-                <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Razón Social</th>
-                <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Ciudad Destino</th>
-                <th style="padding:8px 12px;text-align:center;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Nº Guía</th>
-              </tr>
-            </thead>
-            <tbody>${resultados.map((e,i)=>filaEnvioHtml(e,i,true)).join('')}</tbody>
-          </table>
-        </div>`}
-      </div>`;
+  if(!ENVIOS_BUSQUEDA || ENVIOS_BUSQUEDA.length < 2){
+    cont.innerHTML = '';
     return;
   }
 
-  // MODO NORMAL: mostrar el manifiesto del día seleccionado
-  if(ENVIOS_FECHAS_DISPONIBLES.length === 0){
-    cont.innerHTML = `
-      <div style="text-align:center;padding:60px 20px;color:var(--muted)">
-        <i class="ti ti-truck-off" style="font-size:44px;opacity:0.35"></i>
-        <p style="margin-top:12px;font-size:14px;font-weight:500">Sin manifiestos cargados</p>
-        <p style="font-size:12px;margin-top:4px">Usa el botón "Subir PDF" para cargar el manifiesto del día</p>
-      </div>`;
-    return;
-  }
+  cont.innerHTML = '<div style="font-size:13px;color:var(--muted);padding:14px 0;text-align:center">Buscando...</div>';
 
-  const fechas = ENVIOS_FECHAS_DISPONIBLES.map(f=>f.fecha);
-  if(!ENVIOS_FECHA_SEL || !fechas.includes(ENVIOS_FECHA_SEL)){
-    ENVIOS_FECHA_SEL = fechas[fechas.length - 1]; // más reciente
-  }
-
-  const idx = fechas.indexOf(ENVIOS_FECHA_SEL);
-  const hayAnterior = idx > 0;
-  const haySiguiente = idx < fechas.length - 1;
-  const envios = await cargarEnviosDeFecha(ENVIOS_FECHA_SEL);
+  let resultados = [];
+  try{
+    const r = await fetch('/api/envios/buscar?q=' + encodeURIComponent(ENVIOS_BUSQUEDA));
+    const rows = await r.json();
+    resultados = rows.map(row => ({
+      guia: row.guia, destinatario: row.destinatario, razonSocial: row.razon_social,
+      ciudad: row.ciudad, fecha: (row.fecha||'').substring(0,10)
+    }));
+  } catch(e){ console.error(e); }
 
   cont.innerHTML = `
-    <!-- Navegador de fechas -->
-    <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:16px">
-      <button onclick="navEnvios(-1)" ${!hayAnterior?'disabled':''}
-        style="width:36px;height:36px;border-radius:50%;border:1px solid var(--border);background:${hayAnterior?'white':'#f5f5f5'};color:${hayAnterior?'var(--text)':'#ccc'};cursor:${hayAnterior?'pointer':'default'};display:flex;align-items:center;justify-content:center;font-size:16px;transition:background 0.15s">
-        <i class="ti ti-chevron-left"></i>
-      </button>
-
-      <div style="text-align:center">
-        <div style="font-size:16px;font-weight:600;color:var(--text)">${enviosFmtFecha(ENVIOS_FECHA_SEL)}</div>
-        <div style="font-size:11px;color:var(--muted);margin-top:2px">${envios.length} envíos · ${idx+1} de ${fechas.length}</div>
-      </div>
-
-      <button onclick="navEnvios(1)" ${!haySiguiente?'disabled':''}
-        style="width:36px;height:36px;border-radius:50%;border:1px solid var(--border);background:${haySiguiente?'white':'#f5f5f5'};color:${haySiguiente?'var(--text)':'#ccc'};cursor:${haySiguiente?'pointer':'default'};display:flex;align-items:center;justify-content:center;font-size:16px;transition:background 0.15s">
-        <i class="ti ti-chevron-right"></i>
-      </button>
-    </div>
-
-    <!-- Selector de fechas (chips) -->
-    ${fechas.length > 1 ? `
-    <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-bottom:14px">
-      ${fechas.map(f=>`
-        <button onclick="seleccionarFechaEnvios('${f}')"
-          style="padding:4px 12px;font-size:11px;border-radius:20px;border:1px solid ${f===ENVIOS_FECHA_SEL?'var(--brown)':'var(--border)'};background:${f===ENVIOS_FECHA_SEL?'var(--brown)':'white'};color:${f===ENVIOS_FECHA_SEL?'white':'var(--muted)'};cursor:pointer;transition:all 0.15s">
-          ${enviosFmtFecha(f)}
-        </button>`).join('')}
-    </div>` : ''}
-
-    <!-- Tabla de envíos -->
-    <div class="card">
+    <div class="card" style="margin-bottom:14px;border:1px solid var(--brown)">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-        <div class="card-title" style="margin-bottom:0"><i class="ti ti-truck-delivery"></i> Manifiesto — ${enviosFmtFecha(ENVIOS_FECHA_SEL)}</div>
-        <button onclick="eliminarManifiestoFecha('${ENVIOS_FECHA_SEL}')"
-          style="padding:4px 10px;font-size:11px;border:1px solid #fca5a5;background:#fef2f2;color:#991b1b;border-radius:6px;cursor:pointer">
-          <i class="ti ti-trash" style="font-size:12px"></i>
+        <div class="card-title" style="margin-bottom:0"><i class="ti ti-search"></i> Resultados para "${ENVIOS_BUSQUEDA}" — ${resultados.length} guía${resultados.length===1?'':'s'}</div>
+        <button onclick="limpiarBusquedaEnvios()" style="padding:3px 8px;font-size:11px;border:1px solid var(--border);background:white;color:var(--muted);border-radius:6px;cursor:pointer">
+          <i class="ti ti-x" style="font-size:11px"></i> Cerrar
         </button>
       </div>
-      ${envios.length === 0 ? '<p style="font-size:13px;color:var(--muted)">Sin envíos para este día</p>' : `
+      ${resultados.length === 0 ? '<p style="font-size:13px;color:var(--muted)">No se encontraron guías para ese cliente</p>' : `
       <div style="overflow-x:auto">
         <table style="width:100%;border-collapse:collapse;font-size:12px">
           <thead>
@@ -2066,9 +1977,103 @@ async function renderEnviosContenido(){
               <th style="padding:8px 12px;text-align:center;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Nº Guía</th>
             </tr>
           </thead>
-          <tbody>${envios.map((e,i)=>filaEnvioHtml(e,i,true)).join('')}</tbody>
+          <tbody>${resultados.map((e,i)=>filaEnvioHtml(e,i,true)).join('')}</tbody>
         </table>
       </div>`}
+    </div>`;
+}
+
+function limpiarBusquedaEnvios(){
+  ENVIOS_BUSQUEDA = '';
+  const input = document.getElementById('envios-buscar-input');
+  if(input) input.value = '';
+  renderResultadosBusquedaEnvios();
+}
+
+async function renderEnviosContenido(){
+  const cont = document.getElementById('envios-content');
+  if(!cont) return;
+
+  cont.innerHTML = '<div style="font-size:13px;color:var(--muted);padding:20px 0;text-align:center">Cargando...</div>';
+
+  if(ENVIOS_FECHAS_DISPONIBLES.length === 0){
+    cont.innerHTML = `
+      <div style="text-align:center;padding:60px 20px;color:var(--muted)">
+        <i class="ti ti-truck-off" style="font-size:44px;opacity:0.35"></i>
+        <p style="margin-top:12px;font-size:14px;font-weight:500">Sin manifiestos cargados</p>
+        <p style="font-size:12px;margin-top:4px">Usa el botón "Subir PDF" para cargar el manifiesto del día</p>
+      </div>`;
+    return;
+  }
+
+  // Últimos 7 días con manifiesto cargado, del más reciente al más antiguo
+  const fechas = ENVIOS_FECHAS_DISPONIBLES.map(f=>f.fecha).sort().reverse().slice(0,7);
+  const todasLasFilas = []; // [{...envio, fecha}] de los 7 días, agrupadas luego visualmente
+  for(const fecha of fechas){
+    const envios = await cargarEnviosDeFecha(fecha);
+    envios.forEach(e => todasLasFilas.push({ ...e, fecha }));
+  }
+
+  const totalGuias = todasLasFilas.length;
+
+  cont.innerHTML = `
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+        <div class="card-title" style="margin-bottom:0"><i class="ti ti-truck-delivery"></i> Últimos ${fechas.length} días — ${totalGuias} guías</div>
+      </div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead>
+            <tr style="background:#faf9f8;border-bottom:1px solid var(--border)">
+              <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Fecha</th>
+              <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">#</th>
+              <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Destinatario</th>
+              <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Razón Social</th>
+              <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Ciudad Destino</th>
+              <th style="padding:8px 12px;text-align:center;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Nº Guía</th>
+              <th style="padding:8px 12px;text-align:center;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px"></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${fechas.map(fecha => {
+              const filasDia = todasLasFilas.filter(f => f.fecha === fecha);
+              const btnEliminar = `<button onclick="eliminarManifiestoFecha('${fecha}')" title="Eliminar manifiesto de este día"
+                style="width:24px;height:24px;border-radius:6px;border:1px solid #fca5a5;background:#fef2f2;color:#991b1b;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;font-size:11px">
+                <i class="ti ti-trash"></i>
+              </button>`;
+              const filasHtml = filasDia.map((e,i) => `
+                <tr style="border-bottom:0.5px solid var(--border);transition:background 0.1s" onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='transparent'">
+                  <td style="padding:8px 12px;color:var(--muted);font-size:11px;white-space:nowrap">${enviosFmtFecha(e.fecha)}</td>
+                  <td style="padding:8px 12px;color:var(--muted);font-size:11px">${i+1}</td>
+                  <td style="padding:8px 12px;font-weight:500;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${e.destinatario}">${e.destinatario||'—'}</td>
+                  <td style="padding:8px 12px;color:var(--text);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${e.razonSocial}">${e.razonSocial||'—'}</td>
+                  <td style="padding:8px 12px;color:var(--muted);white-space:nowrap">
+                    <span style="display:inline-flex;align-items:center;gap:4px">
+                      <i class="ti ti-map-pin" style="font-size:11px;color:var(--brown)"></i>
+                      ${e.ciudad||'—'}
+                    </span>
+                  </td>
+                  <td style="padding:8px 12px;text-align:center;white-space:nowrap">
+                    <div style="display:inline-flex;align-items:center;gap:6px">
+                      <span style="font-family:monospace;font-size:12px;font-weight:600;color:var(--brown);letter-spacing:0.5px">${e.guia}</span>
+                      <button onclick="copiarGuia('${e.guia}', this)" title="Copiar número de guía"
+                        style="width:26px;height:26px;border-radius:6px;border:1px solid var(--border);background:white;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted);transition:all 0.15s;flex-shrink:0">
+                        <i class="ti ti-copy"></i>
+                      </button>
+                    </div>
+                  </td>
+                  <td style="padding:8px 12px;text-align:center">${i===0 ? btnEliminar : ''}</td>
+                </tr>`).join('');
+              return filasDia.length > 0 ? filasHtml : `
+                <tr style="border-bottom:0.5px solid var(--border)">
+                  <td style="padding:8px 12px;color:var(--muted);font-size:11px;white-space:nowrap">${enviosFmtFecha(fecha)}</td>
+                  <td colspan="5" style="padding:8px 12px;color:var(--muted);font-size:12px">Sin envíos</td>
+                  <td></td>
+                </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
     </div>`;
 }
 
@@ -2094,11 +2099,11 @@ async function renderEnvios(){
         <span id="envios-upload-status" style="font-size:12px;color:var(--muted)"></span>
       </div>
     </div>
+    <div id="envios-busqueda-content"></div>
     <div id="envios-content"></div>`;
 
   await renderEnviosContenido();
 }
-
 
 // ─── TAB FACTURAS: reporte diario en tiempo real ──────────────────────────────
 function renderFacturasHoy(){
@@ -2275,44 +2280,6 @@ async function renderDocFacturas(){
                 : `<div class="kpi"><div class="kpi-label">Envíos</div><div class="kpi-val">${enviosDelDia.length}</div><div class="kpi-sub">guías ese día</div></div>`}
       </div>
 
-      <!-- ALERTA: Facturas sin despacho -->
-      ${enviosDelDia.length === 0 ? `
-      <div class="card" style="margin-bottom:12px;border:1px solid #fde68a;background:#fffbeb">
-        <div style="display:flex;align-items:center;gap:8px;color:#92400e;font-size:13px">
-          <i class="ti ti-info-circle"></i>
-          <span>No hay manifiesto de Envíos cargado para esta fecha — no se puede comparar contra despachos.</span>
-        </div>
-      </div>` : `
-      <div class="card" style="margin-bottom:12px;border:1px solid ${facturasSinDespacho.length>0?'#fca5a5':'var(--border)'};background:${facturasSinDespacho.length>0?'#fef2f2':'white'}">
-        <div class="card-title" style="color:${facturasSinDespacho.length>0?'#991b1b':'var(--text)'};margin-bottom:${facturasSinDespacho.length>0?'10px':'0'}">
-          <i class="ti ${facturasSinDespacho.length>0?'ti-alert-triangle':'ti-circle-check'}"></i>
-          Facturas sin despacho — ${facturasSinDespacho.length} de ${docs.length}
-        </div>
-        ${facturasSinDespacho.length === 0 ? `
-        <p style="font-size:12px;color:#065f46;display:flex;align-items:center;gap:6px;margin-top:8px">
-          <i class="ti ti-check"></i> Todas las facturas de este día tienen una guía de envío asociada.
-        </p>` : `
-        <div style="overflow-x:auto">
-          <table style="width:100%;border-collapse:collapse;font-size:12px">
-            <thead><tr style="border-bottom:1px solid #fca5a5">
-              <th style="padding:6px 10px;text-align:left;font-size:10px;color:#991b1b;text-transform:uppercase;letter-spacing:1px">Factura</th>
-              <th style="padding:6px 10px;text-align:left;font-size:10px;color:#991b1b;text-transform:uppercase;letter-spacing:1px">Cliente</th>
-              <th style="padding:6px 10px;text-align:left;font-size:10px;color:#991b1b;text-transform:uppercase;letter-spacing:1px">Vendedora</th>
-              <th style="padding:6px 10px;text-align:right;font-size:10px;color:#991b1b;text-transform:uppercase;letter-spacing:1px">Con IVA</th>
-            </tr></thead>
-            <tbody>
-              ${facturasSinDespacho.map(d=>`
-                <tr style="border-bottom:0.5px solid #fecaca">
-                  <td style="padding:7px 10px;color:#991b1b;font-size:11px;white-space:nowrap;font-weight:600">${(d.documento||'').slice(-5)||'—'}</td>
-                  <td style="padding:7px 10px;font-weight:600;color:#7f1d1d;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${d.cliente_nombre||''}">${d.cliente_nombre||'—'}</td>
-                  <td style="padding:7px 10px;color:#991b1b;white-space:nowrap">${(d.vendedor?.razon_social||d.vendedor?.nombre||'—').split(' ')[0]}</td>
-                  <td style="padding:7px 10px;text-align:right;color:#7f1d1d;font-weight:600">${fmt(parseFloat(d.total||0))}</td>
-                </tr>`).join('')}
-            </tbody>
-          </table>
-        </div>`}
-      </div>`}
-
       <!-- Resumen por vendedora -->
       ${Object.keys(porVend).length>0?`
       <div class="card" style="margin-bottom:12px">
@@ -2346,7 +2313,12 @@ async function renderDocFacturas(){
 
       <!-- Detalle de facturas -->
       <div class="card">
-        <div class="card-title"><i class="ti ti-list"></i> Detalle de facturas — ${facturasFmtFecha(FACTURAS_FECHA_SEL)}</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;flex-wrap:wrap;gap:6px">
+          <div class="card-title" style="margin-bottom:0"><i class="ti ti-list"></i> Detalle de facturas — ${facturasFmtFecha(FACTURAS_FECHA_SEL)}</div>
+          ${enviosDelDia.length === 0
+            ? '<span style="font-size:11px;color:#92400e;background:#fffbeb;border:1px solid #fde68a;padding:3px 9px;border-radius:6px"><i class="ti ti-info-circle" style="font-size:11px;margin-right:3px"></i>Sin manifiesto de envíos para este día</span>'
+            : `<span style="font-size:11px;color:${facturasSinDespacho.length>0?'#991b1b':'#065f46'};background:${facturasSinDespacho.length>0?'#fef2f2':'#f0fdf4'};border:1px solid ${facturasSinDespacho.length>0?'#fca5a5':'#86efac'};padding:3px 9px;border-radius:6px">${facturasSinDespacho.length>0?`<i class="ti ti-alert-triangle" style="font-size:11px;margin-right:3px"></i>${facturasSinDespacho.length} sin despacho`:'<i class="ti ti-circle-check" style="font-size:11px;margin-right:3px"></i>Todas despachadas'}</span>`}
+        </div>
         ${docs.length===0?'<p style="font-size:13px;color:var(--muted);padding:10px 0">No hay facturas registradas este día</p>':
         `<div style="overflow-x:auto">
           <table style="width:100%;border-collapse:collapse;font-size:12px">
@@ -2362,16 +2334,16 @@ async function renderDocFacturas(){
               ${docs.map(d=>{
                 const despachado = tieneDespacho(d.cliente_nombre);
                 return `
-                <tr style="border-bottom:0.5px solid var(--border);transition:background 0.1s;${despachado===false?'background:#fef2f2':''}" onmouseover="this.style.background='${despachado===false?'#fee2e2':'#faf9f8'}'" onmouseout="this.style.background='${despachado===false?'#fef2f2':'transparent'}'">
+                <tr style="border-bottom:0.5px solid var(--border);transition:background 0.1s" onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='transparent'">
                   <td style="padding:7px 12px;color:var(--muted);font-size:11px;white-space:nowrap">${(d.documento||'').slice(-5)||'—'}</td>
-                  <td style="padding:7px 12px;font-weight:500;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${despachado===false?'color:#991b1b;font-weight:600':''}" title="${d.cliente_nombre||''}">${d.cliente_nombre||'—'}</td>
+                  <td style="padding:7px 12px;font-weight:500;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${d.cliente_nombre||''}">${d.cliente_nombre||'—'}</td>
                   <td style="padding:7px 12px;color:var(--muted);white-space:nowrap">${(d.vendedor?.razon_social||d.vendedor?.nombre||'—').split(' ')[0]}</td>
                   <td style="padding:7px 12px;text-align:right;color:var(--brown);font-weight:600">${fmt(parseFloat(d.subtotal||d.total/1.15||0))}</td>
                   <td style="padding:7px 12px;text-align:right;color:var(--muted)">${fmt(parseFloat(d.total||0))}</td>
                   <td style="padding:7px 12px;text-align:center">
-                    ${despachado===null ? '<span style="font-size:10px;color:var(--muted)">—</span>'
-                      : despachado ? '<i class="ti ti-circle-check" style="color:#10b981;font-size:16px"></i>'
-                      : '<span style="font-size:10px;color:#991b1b;font-weight:700;background:#fee2e2;padding:2px 8px;border-radius:10px">SIN DESPACHO</span>'}
+                    ${despachado===null ? '<span style="font-size:11px;color:var(--muted)">—</span>'
+                      : despachado ? '<i class="ti ti-check" style="color:#10b981;font-size:18px;font-weight:700"></i>'
+                      : '<i class="ti ti-x" style="color:#ef4444;font-size:18px;font-weight:700"></i>'}
                   </td>
                 </tr>`;}).join('')}
             </tbody>
