@@ -3750,7 +3750,7 @@ function defaultComisionCfg(){
       'Nicole Yanira Leon Marquez':{pct:4.0, minimo:4000},
       'María Caridad Zea Larrea':  {pct:4.0, minimo:4000}
     },
-    giovanna:{pct_equipo:1.75},
+    giovanna:{pct_equipo:1.70},
     admin:[
       {nombre:'María José Añazco', pct:0.8, minimo:18000},
       {nombre:'Fernanda Carrillo',  pct:0.8, minimo:18000},
@@ -3996,7 +3996,7 @@ function guardarConfigComisiones(){
     if(pctEl) cfg.asesoras[n].pct=parseFloat(pctEl.value)||3.0;
   });
   const gioPct=document.getElementById('cfg-gio-pct');
-  if(gioPct) cfg.giovanna.pct_equipo=parseFloat(gioPct.value)||1.75;
+  if(gioPct) cfg.giovanna.pct_equipo=parseFloat(gioPct.value)||1.70;
   cfg.admin.forEach((a,i)=>{
     const minEl=document.getElementById('cfg-adm-min-'+i);
     const pctEl=document.getElementById('cfg-adm-pct-'+i);
@@ -4226,7 +4226,7 @@ async function renderKpis(){
         <div style="background:${comision>0?'#f0fdf4':'#faf9f8'};border-radius:10px;padding:14px;text-align:center;border:1px solid ${comision>0?'#86efac':'var(--border)'}">
           <div style="font-size:11px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">Comisión generada</div>
           <div style="font-size:22px;font-weight:700;color:${comision>0?'#166534':'var(--muted)'}">${fmt(comision)}</div>
-          <div style="font-size:11px;color:var(--muted);margin-top:2px">${cfgAse?`${cfgAse.pct}% s/ventas > ${fmt(cfgAse.minimo)}`:'1.75% equipo+propio'}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">${cfgAse?`${cfgAse.pct}% s/ventas > ${fmt(cfgAse.minimo)}`:`${cfg.giovanna.pct_equipo}% equipo+propio`}</div>
         </div>
       </div>
     </div>
