@@ -3844,7 +3844,7 @@ async function renderVisitasRealizadas(){
   const rol = usuario.rol || '';
   const nombre = usuario.nombre || '';
   const modulos = usuario.modulos ? usuario.modulos.split(',') : [];
-  const puedeEditarSectores = rol==='admin' || modulos.includes('editar_visitas');
+  const puedeEditarSectores = (rol==='admin' || modulos.includes('editar_visitas')) && !!window._modoConfigVisitas;
   if(rol==='asesora') asesoraVisitas = resolverNombreReal(nombre, ASESOR_DATA) || nombre;
   const asesoraActual2 = asesoraVisitas || Object.keys(ASESOR_DATA)[0];
   const data = ASESOR_DATA[asesoraActual2];
@@ -3853,7 +3853,17 @@ async function renderVisitasRealizadas(){
   const urgentes=todosLugares.filter(l=>{const t=data.provincias.includes(l)?'provincia':'sector';return estadoLugar(l,t)==='warn'||estadoLugar(l,t)==='none';});
   let asesBtns='';
   if(rol==='admin'||rol==='jefa_ventas'){
-    asesBtns=`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">${Object.keys(ASESOR_DATA).map(a=>`<button onclick="selAsesoraVisitas('${a.replace(/'/g,"\'")}',this)" style="padding:5px 12px;font-size:11px;border-radius:20px;cursor:pointer;border:0.5px solid ${a===asesoraActual2?'var(--brown)':'var(--border)'};background:${a===asesoraActual2?'var(--brown)':'white'};color:${a===asesoraActual2?'white':'var(--muted)'}">${a.split(' ')[0]}</button>`).join('')}</div>`;
+    const puedeConfig = rol==='admin' || modulos.includes('editar_visitas');
+    const btnConfig = puedeConfig ? `
+      <button onclick="window._modoConfigVisitas=!window._modoConfigVisitas;renderVisitasRealizadas()"
+        style="padding:5px 14px;font-size:11px;border-radius:20px;cursor:pointer;border:1px solid ${window._modoConfigVisitas?'#dc2626':'var(--brown)'};background:${window._modoConfigVisitas?'#fef2f2':'rgba(160,104,74,0.08)'};color:${window._modoConfigVisitas?'#dc2626':'var(--brown)'};font-weight:500;display:flex;align-items:center;gap:5px">
+        <i class="ti ${window._modoConfigVisitas?'ti-x':'ti-settings'}" style="font-size:12px"></i>
+        ${window._modoConfigVisitas?'Salir de configuración':'Configurar'}
+      </button>` : '';
+    asesBtns=`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;align-items:center;justify-content:space-between">
+      <div style="display:flex;gap:6px;flex-wrap:wrap">${Object.keys(ASESOR_DATA).map(a=>`<button onclick="selAsesoraVisitas('${a.replace(/'/g,"\'")}',this)" style="padding:5px 12px;font-size:11px;border-radius:20px;cursor:pointer;border:0.5px solid ${a===asesoraActual2?'var(--brown)':'var(--border)'};background:${a===asesoraActual2?'var(--brown)':'white'};color:${a===asesoraActual2?'white':'var(--muted)'}">${a.split(' ')[0]}</button>`).join('')}</div>
+      ${btnConfig}
+    </div>`;
   }
   let sectoresHtml='';
   Object.entries(data.zonas).forEach(([zona,sectores])=>{
