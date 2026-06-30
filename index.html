@@ -1675,33 +1675,9 @@ function sortProductosMarca(criterio){
 
 
 // ─── TAB ENVÍOS: manifiestos diarios de Servientrega ────────────────────────────
-let ENVIOS_DB = {}; // { 'YYYY-MM-DD': [ {destinatario, razonSocial, ciudad, guia}, ... ] }
+let ENVIOS_FECHAS_DISPONIBLES = []; // [{fecha:'YYYY-MM-DD', total: n}, ...] cargado desde la BD
 let ENVIOS_FECHA_SEL = null; // fecha seleccionada actualmente
-
-function enviosFechaActual(){
-  // Fecha de hoy en Ecuador (sin depender de timezone del navegador)
-  const now = new Date();
-  const ec = new Date(now.toLocaleString('en-US', { timeZone: 'America/Guayaquil' }));
-  return `${ec.getFullYear()}-${String(ec.getMonth()+1).padStart(2,'0')}-${String(ec.getDate()).padStart(2,'0')}`;
-}
-
-function enviosFechasOrdenadas(){
-  return Object.keys(ENVIOS_DB).sort();
-}
-
-function enviosFmtFecha(isoDate){
-  if(!isoDate) return '—';
-  const [y,m,d] = isoDate.split('-');
-  const meses = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-  return `${parseInt(d)} ${meses[parseInt(m)-1]} ${y}`;
-}
-
-function cargarEnviosDesdeStorage(){
-  try { ENVIOS_DB = JSON.parse(localStorage.getItem('cosetika_envios_v1') || '{}'); } catch(e){ ENVIOS_DB = {}; }
-}
-function guardarEnviosEnStorage(){
-  try { localStorage.setItem('cosetika_envios_v1', JSON.stringify(ENVIOS_DB)); } catch(e){}
-}
+let ENVIOS_BUSQUEDA = ''; // texto de búsqueda actual por nombre de cliente
 
 async function parsearPdfEnvios(file){
   return new Promise((resolve, reject) => {
@@ -1806,33 +1782,95 @@ function parsearLineasEnvio(items){
   return { fecha: fechaManifiesto, envios };
 }
 
+function enviosFechaActual(){
+  // Fecha de hoy en Ecuador (sin depender de timezone del navegador)
+  const now = new Date();
+  const ec = new Date(now.toLocaleString('en-US', { timeZone: 'America/Guayaquil' }));
+  return `${ec.getFullYear()}-${String(ec.getMonth()+1).padStart(2,'0')}-${String(ec.getDate()).padStart(2,'0')}`;
+}
+
+function enviosFmtFecha(isoDate){
+  if(!isoDate) return '—';
+  const [y,m,d] = isoDate.split('-');
+  const meses = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  return `${parseInt(d)} ${meses[parseInt(m)-1]} ${y}`;
+}
+
+// Cargar del servidor la lista de fechas con manifiestos cargados
+async function cargarEnviosFechasDisponibles(){
+  try{
+    const r = await fetch('/api/envios');
+    const rows = await r.json();
+    // rows = [{fecha:'2026-06-29', total:'26'}, ...] — normalizar fecha a YYYY-MM-DD
+    ENVIOS_FECHAS_DISPONIBLES = rows.map(row => ({
+      fecha: (row.fecha||'').substring(0,10),
+      total: parseInt(row.total)||0
+    })).sort((a,b)=> a.fecha.localeCompare(b.fecha));
+  } catch(e){
+    console.error('Error cargando fechas de envíos:', e);
+    ENVIOS_FECHAS_DISPONIBLES = [];
+  }
+}
+
+// Cargar del servidor los envíos de una fecha específica
+async function cargarEnviosDeFecha(fecha){
+  try{
+    const r = await fetch('/api/envios?fecha=' + encodeURIComponent(fecha));
+    const rows = await r.json();
+    return rows.map(row => ({
+      guia: row.guia,
+      destinatario: row.destinatario,
+      razonSocial: row.razon_social,
+      ciudad: row.ciudad,
+      fecha: (row.fecha||'').substring(0,10)
+    }));
+  } catch(e){
+    console.error('Error cargando envíos:', e);
+    return [];
+  }
+}
+
+async function parsearPdfYGuardar(file, statusEl){
+  const items = await parsearPdfEnvios(file);
+  const { fecha, envios } = parsearLineasEnvio(items);
+
+  if(envios.length === 0){
+    if(statusEl) statusEl.textContent = '⚠️ No se encontraron guías en el PDF';
+    return null;
+  }
+
+  // Guardar en la base de datos (reemplaza el manifiesto de ese día si ya existía)
+  const r = await fetch('/api/envios', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fecha, envios })
+  });
+  if(!r.ok){
+    const err = await r.json().catch(()=>({error:'Error desconocido'}));
+    throw new Error(err.error || 'Error al guardar en la base de datos');
+  }
+
+  return { fecha, total: envios.length };
+}
+
 async function subirPdfEnvios(event){
   const file = event.target.files[0];
   if(!file) return;
   const statusEl = document.getElementById('envios-upload-status');
   if(statusEl) statusEl.textContent = 'Procesando PDF...';
-  
+
   try {
-    const texto = await parsearPdfEnvios(file);
-    const { fecha, envios } = parsearLineasEnvio(texto);
-    
-    if(envios.length === 0){
-      if(statusEl) statusEl.textContent = '⚠️ No se encontraron guías en el PDF';
-      return;
-    }
-    
-    cargarEnviosDesdeStorage();
-    ENVIOS_DB[fecha] = envios;
-    guardarEnviosEnStorage();
-    ENVIOS_FECHA_SEL = fecha;
-    
-    if(statusEl) statusEl.textContent = `✓ ${envios.length} envíos cargados — ${enviosFmtFecha(fecha)}`;
-    renderEnviosContenido();
+    const resultado = await parsearPdfYGuardar(file, statusEl);
+    if(!resultado){ event.target.value = ''; return; }
+
+    ENVIOS_FECHA_SEL = resultado.fecha;
+    if(statusEl) statusEl.textContent = `✓ ${resultado.total} envíos guardados — ${enviosFmtFecha(resultado.fecha)}`;
+    await cargarEnviosFechasDisponibles();
+    await renderEnviosContenido();
   } catch(err){
-    if(statusEl) statusEl.textContent = '✗ Error al leer el PDF: ' + err.message;
+    if(statusEl) statusEl.textContent = '✗ Error: ' + err.message;
     console.error('PDF error:', err);
   }
-  // Limpiar input para permitir subir el mismo archivo de nuevo
   event.target.value = '';
 }
 
@@ -1845,7 +1883,6 @@ function copiarGuia(guia, btn){
     btn.style.color = '#065f46';
     setTimeout(()=>{ btn.innerHTML = orig; btn.style.background=''; btn.style.borderColor=''; btn.style.color=''; }, 1500);
   }).catch(()=>{
-    // Fallback para navegadores sin clipboard API
     const ta = document.createElement('textarea');
     ta.value = guia; ta.style.position = 'fixed'; ta.style.opacity = '0';
     document.body.appendChild(ta); ta.select();
@@ -1857,24 +1894,108 @@ function copiarGuia(guia, btn){
   });
 }
 
-function navEnvios(dir){
-  const fechas = enviosFechasOrdenadas();
+async function navEnvios(dir){
+  const fechas = ENVIOS_FECHAS_DISPONIBLES.map(f=>f.fecha);
   if(fechas.length === 0) return;
   const idx = fechas.indexOf(ENVIOS_FECHA_SEL);
   const nuevoIdx = idx + dir;
   if(nuevoIdx < 0 || nuevoIdx >= fechas.length) return;
   ENVIOS_FECHA_SEL = fechas[nuevoIdx];
-  renderEnviosContenido();
+  ENVIOS_BUSQUEDA = ''; // al navegar por día, salir del modo búsqueda
+  await renderEnviosContenido();
 }
 
-function renderEnviosContenido(){
+async function seleccionarFechaEnvios(fecha){
+  ENVIOS_FECHA_SEL = fecha;
+  ENVIOS_BUSQUEDA = '';
+  await renderEnviosContenido();
+}
+
+async function buscarClienteEnvios(valor){
+  ENVIOS_BUSQUEDA = (valor||'').trim();
+  await renderEnviosContenido();
+}
+
+async function eliminarManifiestoFecha(fecha){
+  if(!confirm(`¿Eliminar el manifiesto de ${enviosFmtFecha(fecha)}?`)) return;
+  try{
+    await fetch('/api/envios?fecha=' + encodeURIComponent(fecha), { method: 'DELETE' });
+    ENVIOS_FECHA_SEL = null;
+    await cargarEnviosFechasDisponibles();
+    await renderEnviosContenido();
+  } catch(e){
+    alert('Error al eliminar: ' + e.message);
+  }
+}
+
+function filaEnvioHtml(e, i, mostrarFecha){
+  return `
+    <tr style="border-bottom:0.5px solid var(--border);transition:background 0.1s" onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='transparent'">
+      ${mostrarFecha ? `<td style="padding:8px 12px;color:var(--muted);font-size:11px;white-space:nowrap">${enviosFmtFecha(e.fecha)}</td>` : ''}
+      <td style="padding:8px 12px;color:var(--muted);font-size:11px">${i+1}</td>
+      <td style="padding:8px 12px;font-weight:500;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${e.destinatario}">${e.destinatario||'—'}</td>
+      <td style="padding:8px 12px;color:var(--text);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${e.razonSocial}">${e.razonSocial||'—'}</td>
+      <td style="padding:8px 12px;color:var(--muted);white-space:nowrap">
+        <span style="display:inline-flex;align-items:center;gap:4px">
+          <i class="ti ti-map-pin" style="font-size:11px;color:var(--brown)"></i>
+          ${e.ciudad||'—'}
+        </span>
+      </td>
+      <td style="padding:8px 12px;text-align:center;white-space:nowrap">
+        <div style="display:inline-flex;align-items:center;gap:6px">
+          <span style="font-family:monospace;font-size:12px;font-weight:600;color:var(--brown);letter-spacing:0.5px">${e.guia}</span>
+          <button onclick="copiarGuia('${e.guia}', this)" title="Copiar número de guía"
+            style="width:26px;height:26px;border-radius:6px;border:1px solid var(--border);background:white;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted);transition:all 0.15s;flex-shrink:0">
+            <i class="ti ti-copy"></i>
+          </button>
+        </div>
+      </td>
+    </tr>`;
+}
+
+async function renderEnviosContenido(){
   const cont = document.getElementById('envios-content');
   if(!cont) return;
-  
-  cargarEnviosDesdeStorage();
-  const fechas = enviosFechasOrdenadas();
-  
-  if(fechas.length === 0){
+
+  cont.innerHTML = '<div style="font-size:13px;color:var(--muted);padding:20px 0;text-align:center">Cargando...</div>';
+
+  // MODO BÚSQUEDA: si hay texto de búsqueda, consultamos en todas las fechas
+  if(ENVIOS_BUSQUEDA && ENVIOS_BUSQUEDA.length >= 2){
+    let resultados = [];
+    try{
+      const r = await fetch('/api/envios/buscar?q=' + encodeURIComponent(ENVIOS_BUSQUEDA));
+      const rows = await r.json();
+      resultados = rows.map(row => ({
+        guia: row.guia, destinatario: row.destinatario, razonSocial: row.razon_social,
+        ciudad: row.ciudad, fecha: (row.fecha||'').substring(0,10)
+      }));
+    } catch(e){ console.error(e); }
+
+    cont.innerHTML = `
+      <div class="card">
+        <div class="card-title" style="margin-bottom:10px"><i class="ti ti-search"></i> Resultados para "${ENVIOS_BUSQUEDA}" — ${resultados.length} guía${resultados.length===1?'':'s'}</div>
+        ${resultados.length === 0 ? '<p style="font-size:13px;color:var(--muted)">No se encontraron guías para ese cliente</p>' : `
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead>
+              <tr style="background:#faf9f8;border-bottom:1px solid var(--border)">
+                <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Fecha</th>
+                <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">#</th>
+                <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Destinatario</th>
+                <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Razón Social</th>
+                <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Ciudad Destino</th>
+                <th style="padding:8px 12px;text-align:center;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Nº Guía</th>
+              </tr>
+            </thead>
+            <tbody>${resultados.map((e,i)=>filaEnvioHtml(e,i,true)).join('')}</tbody>
+          </table>
+        </div>`}
+      </div>`;
+    return;
+  }
+
+  // MODO NORMAL: mostrar el manifiesto del día seleccionado
+  if(ENVIOS_FECHAS_DISPONIBLES.length === 0){
     cont.innerHTML = `
       <div style="text-align:center;padding:60px 20px;color:var(--muted)">
         <i class="ti ti-truck-off" style="font-size:44px;opacity:0.35"></i>
@@ -1883,29 +2004,30 @@ function renderEnviosContenido(){
       </div>`;
     return;
   }
-  
-  if(!ENVIOS_FECHA_SEL || !ENVIOS_DB[ENVIOS_FECHA_SEL]){
-    ENVIOS_FECHA_SEL = fechas[fechas.length - 1]; // mostrar el más reciente
+
+  const fechas = ENVIOS_FECHAS_DISPONIBLES.map(f=>f.fecha);
+  if(!ENVIOS_FECHA_SEL || !fechas.includes(ENVIOS_FECHA_SEL)){
+    ENVIOS_FECHA_SEL = fechas[fechas.length - 1]; // más reciente
   }
-  
+
   const idx = fechas.indexOf(ENVIOS_FECHA_SEL);
   const hayAnterior = idx > 0;
   const haySiguiente = idx < fechas.length - 1;
-  const envios = ENVIOS_DB[ENVIOS_FECHA_SEL] || [];
-  
+  const envios = await cargarEnviosDeFecha(ENVIOS_FECHA_SEL);
+
   cont.innerHTML = `
     <!-- Navegador de fechas -->
     <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:16px">
-      <button onclick="navEnvios(-1)" ${!hayAnterior?'disabled':''} 
+      <button onclick="navEnvios(-1)" ${!hayAnterior?'disabled':''}
         style="width:36px;height:36px;border-radius:50%;border:1px solid var(--border);background:${hayAnterior?'white':'#f5f5f5'};color:${hayAnterior?'var(--text)':'#ccc'};cursor:${hayAnterior?'pointer':'default'};display:flex;align-items:center;justify-content:center;font-size:16px;transition:background 0.15s">
         <i class="ti ti-chevron-left"></i>
       </button>
-      
+
       <div style="text-align:center">
         <div style="font-size:16px;font-weight:600;color:var(--text)">${enviosFmtFecha(ENVIOS_FECHA_SEL)}</div>
         <div style="font-size:11px;color:var(--muted);margin-top:2px">${envios.length} envíos · ${idx+1} de ${fechas.length}</div>
       </div>
-      
+
       <button onclick="navEnvios(1)" ${!haySiguiente?'disabled':''}
         style="width:36px;height:36px;border-radius:50%;border:1px solid var(--border);background:${haySiguiente?'white':'#f5f5f5'};color:${haySiguiente?'var(--text)':'#ccc'};cursor:${haySiguiente?'pointer':'default'};display:flex;align-items:center;justify-content:center;font-size:16px;transition:background 0.15s">
         <i class="ti ti-chevron-right"></i>
@@ -1916,7 +2038,7 @@ function renderEnviosContenido(){
     ${fechas.length > 1 ? `
     <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-bottom:14px">
       ${fechas.map(f=>`
-        <button onclick="ENVIOS_FECHA_SEL='${f}';renderEnviosContenido()"
+        <button onclick="seleccionarFechaEnvios('${f}')"
           style="padding:4px 12px;font-size:11px;border-radius:20px;border:1px solid ${f===ENVIOS_FECHA_SEL?'var(--brown)':'var(--border)'};background:${f===ENVIOS_FECHA_SEL?'var(--brown)':'white'};color:${f===ENVIOS_FECHA_SEL?'white':'var(--muted)'};cursor:pointer;transition:all 0.15s">
           ${enviosFmtFecha(f)}
         </button>`).join('')}
@@ -1926,7 +2048,7 @@ function renderEnviosContenido(){
     <div class="card">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
         <div class="card-title" style="margin-bottom:0"><i class="ti ti-truck-delivery"></i> Manifiesto — ${enviosFmtFecha(ENVIOS_FECHA_SEL)}</div>
-        <button onclick="if(confirm('¿Eliminar el manifiesto de ${enviosFmtFecha(ENVIOS_FECHA_SEL)}?')){delete ENVIOS_DB['${ENVIOS_FECHA_SEL}'];guardarEnviosEnStorage();ENVIOS_FECHA_SEL=null;renderEnviosContenido()}"
+        <button onclick="eliminarManifiestoFecha('${ENVIOS_FECHA_SEL}')"
           style="padding:4px 10px;font-size:11px;border:1px solid #fca5a5;background:#fef2f2;color:#991b1b;border-radius:6px;cursor:pointer">
           <i class="ti ti-trash" style="font-size:12px"></i>
         </button>
@@ -1936,6 +2058,7 @@ function renderEnviosContenido(){
         <table style="width:100%;border-collapse:collapse;font-size:12px">
           <thead>
             <tr style="background:#faf9f8;border-bottom:1px solid var(--border)">
+              <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Fecha</th>
               <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">#</th>
               <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Destinatario</th>
               <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Razón Social</th>
@@ -1943,56 +2066,39 @@ function renderEnviosContenido(){
               <th style="padding:8px 12px;text-align:center;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Nº Guía</th>
             </tr>
           </thead>
-          <tbody>
-            ${envios.map((e,i)=>`
-              <tr style="border-bottom:0.5px solid var(--border);transition:background 0.1s" onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='transparent'">
-                <td style="padding:8px 12px;color:var(--muted);font-size:11px">${i+1}</td>
-                <td style="padding:8px 12px;font-weight:500;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${e.destinatario}">${e.destinatario||'—'}</td>
-                <td style="padding:8px 12px;color:var(--text);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${e.razonSocial}">${e.razonSocial||'—'}</td>
-                <td style="padding:8px 12px;color:var(--muted);white-space:nowrap">
-                  <span style="display:inline-flex;align-items:center;gap:4px">
-                    <i class="ti ti-map-pin" style="font-size:11px;color:var(--brown)"></i>
-                    ${e.ciudad||'—'}
-                  </span>
-                </td>
-                <td style="padding:8px 12px;text-align:center;white-space:nowrap">
-                  <div style="display:inline-flex;align-items:center;gap:6px">
-                    <span style="font-family:monospace;font-size:12px;font-weight:600;color:var(--brown);letter-spacing:0.5px">${e.guia}</span>
-                    <button onclick="copiarGuia('${e.guia}', this)" title="Copiar número de guía"
-                      style="width:26px;height:26px;border-radius:6px;border:1px solid var(--border);background:white;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted);transition:all 0.15s;flex-shrink:0">
-                      <i class="ti ti-copy"></i>
-                    </button>
-                  </div>
-                </td>
-              </tr>`).join('')}
-          </tbody>
+          <tbody>${envios.map((e,i)=>filaEnvioHtml(e,i,true)).join('')}</tbody>
         </table>
       </div>`}
     </div>`;
 }
 
-function renderEnvios(){
-  cargarEnviosDesdeStorage();
-  if(!ENVIOS_FECHA_SEL){
-    const fechas = enviosFechasOrdenadas();
-    ENVIOS_FECHA_SEL = fechas.length > 0 ? fechas[fechas.length-1] : null;
-  }
-  
+async function renderEnvios(){
+  ENVIOS_BUSQUEDA = '';
+  await cargarEnviosFechasDisponibles();
+
   document.getElementById('doc-tab-content').innerHTML = `
-    <div style="display:flex;align-items:center;justify-content:flex-end;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+      <div style="position:relative;flex:1;min-width:220px;max-width:340px">
+        <i class="ti ti-search" style="position:absolute;left:11px;top:50%;transform:translateY(-50%);font-size:14px;color:var(--muted)"></i>
+        <input type="text" id="envios-buscar-input" placeholder="Buscar por nombre de cliente..."
+          oninput="clearTimeout(window._enviosSearchT); window._enviosSearchT=setTimeout(()=>buscarClienteEnvios(this.value), 350)"
+          style="width:100%;padding:8px 12px 8px 32px;font-size:13px;border:1px solid var(--border);border-radius:8px;outline:none;transition:border-color 0.15s"
+          onfocus="this.style.borderColor='var(--brown)'" onblur="this.style.borderColor='var(--border)'">
+      </div>
       <div style="display:flex;align-items:center;gap:10px">
         <input type="file" id="envios-file-input" accept=".pdf" style="display:none" onchange="subirPdfEnvios(event)">
         <button onclick="document.getElementById('envios-file-input').click()"
-          style="padding:7px 14px;font-size:12px;border-radius:8px;border:1px solid var(--brown);background:rgba(160,104,74,0.08);color:var(--brown);cursor:pointer;display:flex;align-items:center;gap:6px;font-weight:500">
+          style="padding:7px 14px;font-size:12px;border-radius:8px;border:1px solid var(--brown);background:rgba(160,104,74,0.08);color:var(--brown);cursor:pointer;display:flex;align-items:center;gap:6px;font-weight:500;white-space:nowrap">
           <i class="ti ti-upload" style="font-size:14px"></i> Subir PDF
         </button>
         <span id="envios-upload-status" style="font-size:12px;color:var(--muted)"></span>
       </div>
     </div>
     <div id="envios-content"></div>`;
-  
-  renderEnviosContenido();
+
+  await renderEnviosContenido();
 }
+
 
 // ─── TAB FACTURAS: reporte diario en tiempo real ──────────────────────────────
 function renderFacturasHoy(){

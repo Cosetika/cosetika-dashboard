@@ -1142,6 +1142,19 @@ async function initDB() {
         created_at TIMESTAMP DEFAULT NOW(),
         UNIQUE(asesora, provincia)
       );
+      CREATE TABLE IF NOT EXISTS envios_servientrega (
+        id SERIAL PRIMARY KEY,
+        guia VARCHAR(20) NOT NULL,
+        fecha DATE NOT NULL,
+        destinatario VARCHAR(500),
+        razon_social VARCHAR(500),
+        ciudad VARCHAR(255),
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(guia, fecha)
+      );
+      CREATE INDEX IF NOT EXISTS idx_envios_fecha ON envios_servientrega(fecha);
+      CREATE INDEX IF NOT EXISTS idx_envios_destinatario ON envios_servientrega(LOWER(destinatario));
+      CREATE INDEX IF NOT EXISTS idx_envios_razon_social ON envios_servientrega(LOWER(razon_social));
     `);
     const usuarios = [
       { nombre: 'Fernando Espíndola', usuario: 'Fernando', password: '1234', rol: 'admin', modulos: 'ventas,visitas,kpis,inventario,config' },
@@ -1287,6 +1300,76 @@ const server = http.createServer(async (req, res) => {
       const {lugar,tipo,asesora,notas} = await bodyJSON(req);
       const r = await pool.query('INSERT INTO visitas(lugar,tipo,asesora,notas) VALUES($1,$2,$3,$4) RETURNING *',[lugar,tipo,asesora,notas||null]);
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.rows[0]));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+
+  // ENVÍOS SERVIENTREGA — manifiestos diarios de guías
+  // GET /api/envios?fecha=YYYY-MM-DD  → envíos de un día específico
+  if (urlPath === '/api/envios' && req.method === 'GET') {
+    try {
+      const fecha = urlObj.searchParams.get('fecha');
+      if(fecha){
+        const r = await pool.query('SELECT guia, fecha, destinatario, razon_social, ciudad FROM envios_servientrega WHERE fecha=$1 ORDER BY id ASC', [fecha]);
+        res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.rows));
+      } else {
+        // Sin fecha: devolver lista de fechas disponibles con conteo
+        const r = await pool.query('SELECT fecha, COUNT(*) as total FROM envios_servientrega GROUP BY fecha ORDER BY fecha ASC');
+        res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.rows));
+      }
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+  // GET /api/envios/buscar?q=nombre → busca en destinatario y razon_social en TODAS las fechas
+  if (urlPath === '/api/envios/buscar' && req.method === 'GET') {
+    try {
+      const q = (urlObj.searchParams.get('q')||'').trim();
+      if(!q || q.length < 2){
+        res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify([]));
+        return;
+      }
+      const r = await pool.query(
+        `SELECT guia, fecha, destinatario, razon_social, ciudad FROM envios_servientrega
+         WHERE LOWER(destinatario) LIKE LOWER($1) OR LOWER(razon_social) LIKE LOWER($1)
+         ORDER BY fecha DESC LIMIT 200`,
+        [`%${q}%`]
+      );
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.rows));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+  // POST /api/envios  body: { fecha: 'YYYY-MM-DD', envios: [{guia,destinatario,razonSocial,ciudad}] }
+  // Reemplaza todos los envíos de esa fecha (un manifiesto = una subida = el día completo)
+  if (urlPath === '/api/envios' && req.method === 'POST') {
+    try {
+      const { fecha, envios } = await bodyJSON(req);
+      if(!fecha || !Array.isArray(envios)){
+        res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:'fecha y envios son requeridos'}));
+        return;
+      }
+      await pool.query('DELETE FROM envios_servientrega WHERE fecha=$1', [fecha]);
+      for(const e of envios){
+        await pool.query(
+          `INSERT INTO envios_servientrega(guia, fecha, destinatario, razon_social, ciudad)
+           VALUES($1,$2,$3,$4,$5)
+           ON CONFLICT (guia, fecha) DO UPDATE SET destinatario=$3, razon_social=$4, ciudad=$5`,
+          [e.guia, fecha, e.destinatario||'', e.razonSocial||'', e.ciudad||'']
+        );
+      }
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ ok:true, fecha, total: envios.length }));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+  // DELETE /api/envios?fecha=YYYY-MM-DD
+  if (urlPath === '/api/envios' && req.method === 'DELETE') {
+    try {
+      const fecha = urlObj.searchParams.get('fecha');
+      if(!fecha){
+        res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:'fecha es requerida'}));
+        return;
+      }
+      await pool.query('DELETE FROM envios_servientrega WHERE fecha=$1', [fecha]);
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ ok:true }));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
     return;
   }
