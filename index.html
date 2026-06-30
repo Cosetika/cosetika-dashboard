@@ -1719,9 +1719,10 @@ async function parsearPdfEnvios(file){
           window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
         }
         const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-        // Recolectamos TODOS los items de texto con su posición (x,y) y número de página,
-        // sin aplanar a una sola cadena — el layout tabular del manifiesto de Servientrega
-        // se reconstruye mucho mejor agrupando por fila (Y) que con regex sobre texto plano.
+        // Recolectamos cada fragmento de texto con su posición (x,y) y página — el
+        // manifiesto de Servientrega es una tabla con columnas en X fijo (Producto,
+        // Contenido, Destinatario, Razón social, Ciudad Destino, etc.), así que reconstruir
+        // por columnas es mucho más confiable que aplanar todo el PDF a una sola cadena.
         let allItems = [];
         for(let p = 1; p <= pdf.numPages; p++){
           const page = await pdf.getPage(p);
@@ -1740,111 +1741,67 @@ async function parsearPdfEnvios(file){
   });
 }
 
-// Agrupa los items de texto en filas según su coordenada Y (con tolerancia, porque en un
-// mismo renglón visual los distintos textos no siempre comparten exactamente el mismo Y).
-function agruparEnFilas(items, tolerancia){
-  tolerancia = tolerancia || 3;
-  const porPagina = {};
-  items.forEach(it => {
-    if(!porPagina[it.pagina]) porPagina[it.pagina] = [];
-    porPagina[it.pagina].push(it);
-  });
-  const filas = [];
-  Object.keys(porPagina).sort((a,b)=>a-b).forEach(pag => {
-    const its = porPagina[pag].slice().sort((a,b) => b.y - a.y || a.x - b.x);
-    let filaActual = [];
-    let yActual = null;
-    its.forEach(it => {
-      if(yActual === null || Math.abs(it.y - yActual) <= tolerancia){
-        filaActual.push(it);
-        yActual = yActual === null ? it.y : yActual;
-      } else {
-        if(filaActual.length) filas.push(filaActual.sort((a,b)=>a.x-b.x));
-        filaActual = [it];
-        yActual = it.y;
-      }
-    });
-    if(filaActual.length) filas.push(filaActual.sort((a,b)=>a.x-b.x));
-  });
-  return filas;
+// Columnas del manifiesto "Manifiesto de guías impresas y anuladas" de Servientrega,
+// según la posición X de cada encabezado en el PDF (constante entre manifiestos, ya que
+// es un reporte generado por plantilla fija).
+const ENVIOS_COLS = [
+  { nombre: 'guia',         xMin: 0,   xMax: 70  },
+  { nombre: 'producto',     xMin: 70,  xMax: 150 },
+  { nombre: 'contenido',    xMin: 150, xMax: 250 },
+  { nombre: 'destinatario', xMin: 250, xMax: 370 },
+  { nombre: 'razonSocial',  xMin: 370, xMax: 495 },
+  { nombre: 'ciudad',       xMin: 495, xMax: 610 },
+  { nombre: 'peso',         xMin: 610, xMax: 670 },
+  { nombre: 'pesoVol',      xMin: 670, xMax: 710 },
+  { nombre: 'piezas',       xMin: 710, xMax: 770 },
+  { nombre: 'tipo',         xMin: 770, xMax: 900 },
+];
+
+function enviosColDe(x){
+  const c = ENVIOS_COLS.find(c => x >= c.xMin && x < c.xMax);
+  return c ? c.nombre : 'desconocido';
 }
 
 function parsearLineasEnvio(items){
   const envios = [];
 
-  const CIUDADES_EC = [
-    'SANTA ANA (MANABI)','SANTA ANA(MANABI)','SANTA ANA',
-    'QUITO SUR','QUITO NORTE',
-    'SALINAS (SANTA ELENA)','SALINAS(SANTA ELENA)',
-    'GENERAL ANTONIO ELIZALDE','LAGO AGRIO','SANTO DOMINGO',
-    'NUEVA LOJA','PUERTO QUITO','PUERTO LOPEZ','BAHIA DE CARAQUEZ',
-    'GUAYAQUIL','QUITO','CUENCA','MANTA','AMBATO','IBARRA','MACHALA','LOJA',
-    'ESMERALDAS','RIOBAMBA','SANGOLQUI','BABAHOYO','SALINAS','ALAMOR','TULCAN',
-    'LATACUNGA','PORTOVIEJO','DURAN','SAMBORONDON','OTAVALO','CAYAMBE','TENA',
-    'PUYO','MACAS','ZAMORA','GUARANDA','AZOGUES','MILAGRO','DAULE','VINCES',
-    'QUEVEDO','VENTANAS','CHONE','JIPIJAPA','EL CARMEN','ROCAFUERTE'
-  ].sort((a,b)=>b.length-a.length); // más largo primero, para no cortar en un match parcial
-
-  // Texto completo (para buscar la fecha del manifiesto) — sí sirve aplanado
+  // Fecha del manifiesto: línea "Fecha: DD.MM.YYYY"
   const textoCompleto = items.map(it => it.texto).join(' ');
-  let fechaManifiesto = null;
   const mFecha = textoCompleto.match(/(\d{2})[./](\d{2})[./](\d{4})/);
-  fechaManifiesto = mFecha ? `${mFecha[3]}-${mFecha[2]}-${mFecha[1]}` : enviosFechaActual();
+  const fechaManifiesto = mFecha ? `${mFecha[3]}-${mFecha[2]}-${mFecha[1]}` : enviosFechaActual();
 
-  const filas = agruparEnFilas(items, 3);
+  // Cada número de guía (9 dígitos) en la columna 'guia' marca el inicio de una fila
+  // lógica. Las filas pueden ocupar 2 líneas de PDF (texto multi-línea en celdas largas
+  // como destinatario o razón social), así que agrupamos todo lo que está entre el Y de
+  // esta guía (con margen hacia arriba) y el Y de la siguiente guía.
+  const guiaItems = items
+    .filter(it => /^\d{9}$/.test(it.texto) && enviosColDe(it.x) === 'guia')
+    .sort((a,b) => a.pagina !== b.pagina ? a.pagina - b.pagina : b.y - a.y);
 
-  // Cada fila de datos del manifiesto contiene en algún punto un número de guía (9 dígitos)
-  // y termina con PESO PESO_VOL PIEZAS TIPO_GUIA. Reconstruimos cada fila como texto unido
-  // por espacios (respetando el orden X) y de ahí extraemos los campos — mucho más fiel al
-  // PDF real que aplanar todo el documento en una sola cadena.
-  filas.forEach(fila => {
-    const textoFila = fila.map(it => it.texto).join(' ').replace(/\s+/g, ' ').trim();
-    const mGuia = textoFila.match(/\b(\d{9})\b/);
-    if(!mGuia) return; // no es una fila de envío
+  for(let i = 0; i < guiaItems.length; i++){
+    const g = guiaItems[i];
+    const siguiente = guiaItems[i+1];
+    const yTope = g.y + 18; // margen hacia arriba para capturar 2da línea de celda
+    const yPiso = (siguiente && siguiente.pagina === g.pagina) ? siguiente.y + 5 : g.y - 18;
 
-    const guia = mGuia[1];
-    const resto = textoFila.substring(textoFila.indexOf(guia) + guia.length).trim();
-    if(resto.length < 5) return;
+    const bloque = items.filter(it => it.pagina === g.pagina && it.y <= yTope && it.y > yPiso);
 
-    // Separador fijo en el manifiesto: "MERCANCIA PREMIER COSMETICOS" — a veces el PDF
-    // se come la "ME" inicial dejando solo "RCANCIA" (cuando la celda de ciudad la absorbe)
-    const sepMatch = resto.match(/M?E?RCANCIA\s+PREMIER\s+COSMETICOS?/i);
-    if(!sepMatch) return;
+    const porColumna = {};
+    bloque.forEach(it => {
+      const col = enviosColDe(it.x);
+      if(!porColumna[col]) porColumna[col] = [];
+      porColumna[col].push(it);
+    });
+    Object.keys(porColumna).forEach(col => porColumna[col].sort((a,b) => b.y - a.y));
 
-    const antesSep = resto.substring(0, sepMatch.index).trim();
-    const despuesSep = resto.substring(sepMatch.index + sepMatch[0].length).trim();
+    const destinatario = (porColumna['destinatario']||[]).map(it=>it.texto).join(' ').replace(/\s+/g,' ').trim();
+    const razonSocial  = (porColumna['razonSocial']||[]).map(it=>it.texto).join(' ').replace(/\s+/g,' ').trim();
+    const ciudad       = (porColumna['ciudad']||[]).map(it=>it.texto).join(' ').replace(/\s+/g,' ').trim();
 
-    // despuesSep = RAZON_SOCIAL ... CIUDAD_DESTINO  PESO  PESO_VOL  PIEZAS  TIPO_GUIA
-    // Quitamos la cola numérica para quedarnos solo con "RAZON_SOCIAL ... CIUDAD_DESTINO"
-    const mCola = despuesSep.match(/^(.*?)\s+\d+[.,]\d+\s+\d+[.,]\d+\s+\d+\s+(?:NORMAL|EXPRESS|PRIORIT\w*)\s*$/i);
-    const parteAntes = mCola ? mCola[1].trim() : despuesSep.replace(/\d+[.,]\d+.*$/, '').trim();
-
-    // Identificar la ciudad de destino usando la lista de ciudades conocidas como ancla
-    // (mucho más confiable que adivinar por mayúsculas, ya que la razón social también
-    // suele venir en mayúsculas)
-    let razonSocial = parteAntes, ciudad = '';
-    for(const c of CIUDADES_EC){
-      if(parteAntes.toUpperCase().endsWith(c)){
-        ciudad = c;
-        razonSocial = parteAntes.substring(0, parteAntes.length - c.length).trim();
-        break;
-      }
+    if(destinatario || razonSocial || ciudad){
+      envios.push({ guia: g.texto, destinatario, razonSocial, ciudad });
     }
-
-    // Limpiar el destinatario: puede traer pegada al inicio la ciudad de origen-routing
-    // que usa Servientrega internamente, o el texto "ME" cuando el PDF lo separó solo
-    let destinatario = antesSep;
-    for(const c of CIUDADES_EC){
-      const cEsc = c.replace(/[()]/g, m => '\\' + m);
-      const rx = new RegExp('^' + cEsc + '\\s+', 'i');
-      if(rx.test(destinatario)){ destinatario = destinatario.replace(rx, '').trim(); break; }
-    }
-    destinatario = destinatario.replace(/^ME\s+/i, '').trim();
-
-    if(razonSocial || ciudad || destinatario){
-      envios.push({ guia, destinatario, razonSocial, ciudad });
-    }
-  });
+  }
 
   return { fecha: fechaManifiesto, envios };
 }
@@ -2042,14 +1999,14 @@ function renderFacturasHoy(){
   subtabActual='facturas';
   const docTab = window._docTab || 'facturas';
   document.getElementById('main').innerHTML = `
-    <div style="display:flex;gap:0;background:white;border-radius:12px;border:1px solid var(--border);overflow:hidden;margin-bottom:12px;max-width:360px">
+    <div style="display:flex;gap:0;background:white;border-radius:12px;border:1px solid var(--border);overflow:hidden;margin-bottom:12px">
       <button onclick="setDocTab('facturas')"
-        style="flex:1;padding:9px;font-size:12px;font-weight:500;border:none;cursor:pointer;transition:all 0.2s;
+        style="flex:1;padding:11px;font-size:13px;font-weight:500;border:none;cursor:pointer;transition:all 0.2s;
         background:${docTab==='facturas'?'var(--brown)':'white'};color:${docTab==='facturas'?'white':'var(--muted)'}">
         <i class="ti ti-receipt" style="margin-right:5px"></i>Facturas
       </button>
       <button onclick="setDocTab('envios')"
-        style="flex:1;padding:9px;font-size:12px;font-weight:500;border:none;cursor:pointer;transition:all 0.2s;
+        style="flex:1;padding:11px;font-size:13px;font-weight:500;border:none;cursor:pointer;transition:all 0.2s;
         background:${docTab==='envios'?'var(--brown)':'white'};color:${docTab==='envios'?'white':'var(--muted)'}">
         <i class="ti ti-truck-delivery" style="margin-right:5px"></i>Envíos
       </button>
