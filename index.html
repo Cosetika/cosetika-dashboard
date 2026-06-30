@@ -2127,18 +2127,99 @@ function setDocTab(tab){
   renderFacturasHoy();
 }
 
+let FACTURAS_FECHA_SEL = null; // fecha seleccionada en Documentos > Facturas (YYYY-MM-DD)
+
+function facturasFechasNavegables(){
+  // Hoy en Ecuador, hasta 7 días atrás
+  const hoy = enviosFechaActual(); // ya calcula "hoy" en hora Ecuador
+  const fechas = [];
+  for(let i = 7; i >= 0; i--){
+    const d = new Date(hoy + 'T12:00:00');
+    d.setDate(d.getDate() - i);
+    fechas.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`);
+  }
+  return fechas; // [hace 7 días, ..., ayer, hoy]
+}
+
+function facturasFmtFecha(isoDate){
+  if(!isoDate) return '—';
+  const [y,m,d] = isoDate.split('-');
+  const meses = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+  return `${parseInt(d)} de ${meses[parseInt(m)-1]} de ${y}`;
+}
+
+async function navFacturas(dir){
+  const fechas = facturasFechasNavegables();
+  const idx = fechas.indexOf(FACTURAS_FECHA_SEL);
+  const nuevoIdx = idx + dir;
+  if(nuevoIdx < 0 || nuevoIdx >= fechas.length) return;
+  FACTURAS_FECHA_SEL = fechas[nuevoIdx];
+  await renderDocFacturas();
+}
+
+async function seleccionarFechaFacturas(fecha){
+  FACTURAS_FECHA_SEL = fecha;
+  await renderDocFacturas();
+}
+
 async function renderDocFacturas(){
-  document.getElementById('doc-tab-content').innerHTML=`
-    <div id="facturas-content" style="margin-top:0">
-      <div style="font-size:13px;color:var(--muted);padding:20px 0">Cargando facturas...</div>
+  const fechas = facturasFechasNavegables();
+  const hoyStr = fechas[fechas.length-1];
+  if(!FACTURAS_FECHA_SEL || !fechas.includes(FACTURAS_FECHA_SEL)){
+    FACTURAS_FECHA_SEL = hoyStr;
+  }
+  const esHoy = FACTURAS_FECHA_SEL === hoyStr;
+  const idx = fechas.indexOf(FACTURAS_FECHA_SEL);
+  const hayAnterior = idx > 0;
+  const haySiguiente = idx < fechas.length - 1;
+
+  document.getElementById('doc-tab-content').innerHTML = `
+    <!-- Navegador de fechas -->
+    <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:16px">
+      <button onclick="navFacturas(-1)" ${!hayAnterior?'disabled':''}
+        style="width:36px;height:36px;border-radius:50%;border:1px solid var(--border);background:${hayAnterior?'white':'#f5f5f5'};color:${hayAnterior?'var(--text)':'#ccc'};cursor:${hayAnterior?'pointer':'default'};display:flex;align-items:center;justify-content:center;font-size:16px;transition:background 0.15s">
+        <i class="ti ti-chevron-left"></i>
+      </button>
+      <div style="text-align:center">
+        <div style="font-size:16px;font-weight:600;color:var(--text);text-transform:capitalize">${esHoy?'Hoy · ':''}${facturasFmtFecha(FACTURAS_FECHA_SEL)}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">${idx+1} de ${fechas.length} · últimos 7 días</div>
+      </div>
+      <button onclick="navFacturas(1)" ${!haySiguiente?'disabled':''}
+        style="width:36px;height:36px;border-radius:50%;border:1px solid var(--border);background:${haySiguiente?'white':'#f5f5f5'};color:${haySiguiente?'var(--text)':'#ccc'};cursor:${haySiguiente?'pointer':'default'};display:flex;align-items:center;justify-content:center;font-size:16px;transition:background 0.15s">
+        <i class="ti ti-chevron-right"></i>
+      </button>
+    </div>
+
+    <!-- Selector de fechas (chips) -->
+    <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-bottom:14px">
+      ${fechas.map(f=>`
+        <button onclick="seleccionarFechaFacturas('${f}')"
+          style="padding:4px 12px;font-size:11px;border-radius:20px;border:1px solid ${f===FACTURAS_FECHA_SEL?'var(--brown)':'var(--border)'};background:${f===FACTURAS_FECHA_SEL?'var(--brown)':'white'};color:${f===FACTURAS_FECHA_SEL?'white':'var(--muted)'};cursor:pointer;transition:all 0.15s">
+          ${f===hoyStr?'Hoy':facturasFmtFecha(f).split(' de ')[0]}
+        </button>`).join('')}
+    </div>
+
+    <div id="facturas-content">
+      <div style="font-size:13px;color:var(--muted);padding:20px 0;text-align:center">Cargando facturas...</div>
     </div>`;
+
   try{
-    const r = await fetch('/api/ventas-hoy');
-    const data = await r.json();
-    const docs = data.documentos || [];
+    // Hoy usa el caché en vivo (más rápido y siempre actualizado); días pasados consultan
+    // directo a Contifico vía /api/ventas-fecha
+    let docs, lastSync = null;
+    if(esHoy){
+      const r = await fetch('/api/ventas-hoy');
+      const data = await r.json();
+      docs = data.documentos || [];
+      lastSync = data.ultima_sync ? new Date(data.ultima_sync).toLocaleTimeString('es-EC',{hour:'2-digit',minute:'2-digit'}) : '—';
+    } else {
+      const r = await fetch('/api/ventas-fecha?fecha=' + FACTURAS_FECHA_SEL);
+      const data = await r.json();
+      docs = data.documentos || [];
+    }
+
     const totalConIva = docs.reduce((a,d)=>a+parseFloat(d.total||0),0);
     const totalSinIva = docs.reduce((a,d)=>a+parseFloat(d.subtotal||d.total/1.15||0),0);
-    const lastSync = data.ultima_sync ? new Date(data.ultima_sync).toLocaleTimeString('es-EC',{hour:'2-digit',minute:'2-digit'}) : '—';
 
     // Agrupar por vendedora para totales
     const porVend={};
@@ -2150,19 +2231,92 @@ async function renderDocFacturas(){
       porVend[v].count++;
     });
 
+    // ─── Comparación contra Envíos: detectar facturas sin guía de despacho ───
+    // Traemos los envíos guardados para esta misma fecha y cruzamos por nombre de
+    // cliente/razón social (normalizado) contra el destinatario/razón social del manifiesto.
+    let enviosDelDia = [];
+    try{
+      const rEnv = await fetch('/api/envios?fecha=' + FACTURAS_FECHA_SEL);
+      const rows = await rEnv.json();
+      enviosDelDia = rows.map(row => ({
+        destinatario: (row.destinatario||'').toUpperCase(),
+        razonSocial: (row.razon_social||'').toUpperCase(),
+        guia: row.guia
+      }));
+    } catch(e){ console.error('Error cargando envíos del día:', e); }
+
+    function normalizar(s){
+      return (s||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Z0-9 ]/g,'').trim();
+    }
+    const enviosNorm = enviosDelDia.map(e => ({
+      destinatario: normalizar(e.destinatario),
+      razonSocial: normalizar(e.razonSocial),
+      guia: e.guia
+    }));
+
+    function tieneDespacho(clienteNombre){
+      const cNorm = normalizar(clienteNombre);
+      if(!cNorm) return null; // sin nombre, no se puede comparar
+      return enviosNorm.some(e =>
+        (e.destinatario && (e.destinatario.includes(cNorm) || cNorm.includes(e.destinatario))) ||
+        (e.razonSocial && (e.razonSocial.includes(cNorm) || cNorm.includes(e.razonSocial)))
+      );
+    }
+
+    const facturasSinDespacho = docs.filter(d => tieneDespacho(d.cliente_nombre) === false);
+
     document.getElementById('facturas-content').innerHTML=`
       <!-- KPIs del día -->
       <div class="kpi-row">
         <div class="kpi"><div class="kpi-label">Total sin IVA</div><div class="kpi-val" style="color:var(--brown)">${fmt(totalSinIva)}</div><div class="kpi-sub">subtotal</div></div>
-        <div class="kpi"><div class="kpi-label">Total con IVA</div><div class="kpi-val">${fmt(totalConIva)}</div><div class="kpi-sub">hoy</div></div>
-        <div class="kpi"><div class="kpi-label">Facturas</div><div class="kpi-val">${docs.length}</div><div class="kpi-sub">emitidas hoy</div></div>
-        <div class="kpi"><div class="kpi-label">Última sync</div><div class="kpi-val" style="font-size:15px">${lastSync}</div><div class="kpi-sub">hora</div></div>
+        <div class="kpi"><div class="kpi-label">Total con IVA</div><div class="kpi-val">${fmt(totalConIva)}</div><div class="kpi-sub">${esHoy?'hoy':'ese día'}</div></div>
+        <div class="kpi"><div class="kpi-label">Facturas</div><div class="kpi-val">${docs.length}</div><div class="kpi-sub">emitidas</div></div>
+        ${esHoy ? `<div class="kpi"><div class="kpi-label">Última sync</div><div class="kpi-val" style="font-size:15px">${lastSync}</div><div class="kpi-sub">hora</div></div>`
+                : `<div class="kpi"><div class="kpi-label">Envíos</div><div class="kpi-val">${enviosDelDia.length}</div><div class="kpi-sub">guías ese día</div></div>`}
       </div>
+
+      <!-- ALERTA: Facturas sin despacho -->
+      ${enviosDelDia.length === 0 ? `
+      <div class="card" style="margin-bottom:12px;border:1px solid #fde68a;background:#fffbeb">
+        <div style="display:flex;align-items:center;gap:8px;color:#92400e;font-size:13px">
+          <i class="ti ti-info-circle"></i>
+          <span>No hay manifiesto de Envíos cargado para esta fecha — no se puede comparar contra despachos.</span>
+        </div>
+      </div>` : `
+      <div class="card" style="margin-bottom:12px;border:1px solid ${facturasSinDespacho.length>0?'#fca5a5':'var(--border)'};background:${facturasSinDespacho.length>0?'#fef2f2':'white'}">
+        <div class="card-title" style="color:${facturasSinDespacho.length>0?'#991b1b':'var(--text)'};margin-bottom:${facturasSinDespacho.length>0?'10px':'0'}">
+          <i class="ti ${facturasSinDespacho.length>0?'ti-alert-triangle':'ti-circle-check'}"></i>
+          Facturas sin despacho — ${facturasSinDespacho.length} de ${docs.length}
+        </div>
+        ${facturasSinDespacho.length === 0 ? `
+        <p style="font-size:12px;color:#065f46;display:flex;align-items:center;gap:6px;margin-top:8px">
+          <i class="ti ti-check"></i> Todas las facturas de este día tienen una guía de envío asociada.
+        </p>` : `
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead><tr style="border-bottom:1px solid #fca5a5">
+              <th style="padding:6px 10px;text-align:left;font-size:10px;color:#991b1b;text-transform:uppercase;letter-spacing:1px">Factura</th>
+              <th style="padding:6px 10px;text-align:left;font-size:10px;color:#991b1b;text-transform:uppercase;letter-spacing:1px">Cliente</th>
+              <th style="padding:6px 10px;text-align:left;font-size:10px;color:#991b1b;text-transform:uppercase;letter-spacing:1px">Vendedora</th>
+              <th style="padding:6px 10px;text-align:right;font-size:10px;color:#991b1b;text-transform:uppercase;letter-spacing:1px">Con IVA</th>
+            </tr></thead>
+            <tbody>
+              ${facturasSinDespacho.map(d=>`
+                <tr style="border-bottom:0.5px solid #fecaca">
+                  <td style="padding:7px 10px;color:#991b1b;font-size:11px;white-space:nowrap;font-weight:600">${(d.documento||'').slice(-5)||'—'}</td>
+                  <td style="padding:7px 10px;font-weight:600;color:#7f1d1d;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${d.cliente_nombre||''}">${d.cliente_nombre||'—'}</td>
+                  <td style="padding:7px 10px;color:#991b1b;white-space:nowrap">${(d.vendedor?.razon_social||d.vendedor?.nombre||'—').split(' ')[0]}</td>
+                  <td style="padding:7px 10px;text-align:right;color:#7f1d1d;font-weight:600">${fmt(parseFloat(d.total||0))}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>`}
+      </div>`}
 
       <!-- Resumen por vendedora -->
       ${Object.keys(porVend).length>0?`
       <div class="card" style="margin-bottom:12px">
-        <div class="card-title"><i class="ti ti-users"></i> Ventas de hoy por vendedora</div>
+        <div class="card-title"><i class="ti ti-users"></i> Ventas ${esHoy?'de hoy':'del día'} por vendedora</div>
         <div style="overflow-x:auto">
           <table style="width:100%;border-collapse:collapse;font-size:12px">
             <thead><tr style="background:#faf9f8;border-bottom:1px solid var(--border)">
@@ -2192,8 +2346,8 @@ async function renderDocFacturas(){
 
       <!-- Detalle de facturas -->
       <div class="card">
-        <div class="card-title"><i class="ti ti-list"></i> Detalle de facturas — ${new Date().toLocaleDateString('es-EC',{day:'2-digit',month:'long',year:'numeric'})}</div>
-        ${docs.length===0?'<p style="font-size:13px;color:var(--muted);padding:10px 0">No hay facturas registradas hoy todavía</p>':
+        <div class="card-title"><i class="ti ti-list"></i> Detalle de facturas — ${facturasFmtFecha(FACTURAS_FECHA_SEL)}</div>
+        ${docs.length===0?'<p style="font-size:13px;color:var(--muted);padding:10px 0">No hay facturas registradas este día</p>':
         `<div style="overflow-x:auto">
           <table style="width:100%;border-collapse:collapse;font-size:12px">
             <thead><tr style="background:#faf9f8;border-bottom:1px solid var(--border)">
@@ -2202,16 +2356,24 @@ async function renderDocFacturas(){
               <th style="padding:7px 12px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Vendedora</th>
               <th style="padding:7px 12px;text-align:right;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Sin IVA</th>
               <th style="padding:7px 12px;text-align:right;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Con IVA</th>
+              <th style="padding:7px 12px;text-align:center;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Despacho</th>
             </tr></thead>
             <tbody>
-              ${docs.map(d=>`
-                <tr style="border-bottom:0.5px solid var(--border);transition:background 0.1s" onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='transparent'">
+              ${docs.map(d=>{
+                const despachado = tieneDespacho(d.cliente_nombre);
+                return `
+                <tr style="border-bottom:0.5px solid var(--border);transition:background 0.1s;${despachado===false?'background:#fef2f2':''}" onmouseover="this.style.background='${despachado===false?'#fee2e2':'#faf9f8'}'" onmouseout="this.style.background='${despachado===false?'#fef2f2':'transparent'}'">
                   <td style="padding:7px 12px;color:var(--muted);font-size:11px;white-space:nowrap">${(d.documento||'').slice(-5)||'—'}</td>
-                  <td style="padding:7px 12px;font-weight:500;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${d.cliente_nombre||''}">${d.cliente_nombre||'—'}</td>
+                  <td style="padding:7px 12px;font-weight:500;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${despachado===false?'color:#991b1b;font-weight:600':''}" title="${d.cliente_nombre||''}">${d.cliente_nombre||'—'}</td>
                   <td style="padding:7px 12px;color:var(--muted);white-space:nowrap">${(d.vendedor?.razon_social||d.vendedor?.nombre||'—').split(' ')[0]}</td>
                   <td style="padding:7px 12px;text-align:right;color:var(--brown);font-weight:600">${fmt(parseFloat(d.subtotal||d.total/1.15||0))}</td>
                   <td style="padding:7px 12px;text-align:right;color:var(--muted)">${fmt(parseFloat(d.total||0))}</td>
-                </tr>`).join('')}
+                  <td style="padding:7px 12px;text-align:center">
+                    ${despachado===null ? '<span style="font-size:10px;color:var(--muted)">—</span>'
+                      : despachado ? '<i class="ti ti-circle-check" style="color:#10b981;font-size:16px"></i>'
+                      : '<span style="font-size:10px;color:#991b1b;font-weight:700;background:#fee2e2;padding:2px 8px;border-radius:10px">SIN DESPACHO</span>'}
+                  </td>
+                </tr>`;}).join('')}
             </tbody>
           </table>
         </div>`}
@@ -2220,6 +2382,7 @@ async function renderDocFacturas(){
     document.getElementById('facturas-content').innerHTML=`<div class="coming"><i class="ti ti-wifi-off"></i><p style="font-size:13px">No se pudo conectar con la API</p><span style="font-size:12px">${e.message}</span></div>`;
   }
 }
+
 
 function cambiarAniosComparativo(modo){
   dibujarComparativoAnual(modo);

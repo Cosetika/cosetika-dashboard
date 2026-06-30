@@ -1469,6 +1469,42 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // VENTAS DE UNA FECHA ESPECÍFICA (histórico, hasta 1 semana atrás) — consulta directa
+  // a Contifico igual que sincronizarHoy() pero para cualquier día solicitado. No usa el
+  // caché de "hoy" porque ese se sobreescribe constantemente; cada llamada aquí trae el
+  // detalle real de facturas de ese día puntual.
+  if (urlPath === '/api/ventas-fecha' && req.method === 'GET') {
+    try {
+      const fechaParam = urlObj.searchParams.get('fecha'); // YYYY-MM-DD
+      if(!fechaParam){
+        res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:'fecha es requerida (YYYY-MM-DD)'}));
+        return;
+      }
+      const [y,m,d] = fechaParam.split('-');
+      const fechaEC = `${d}/${m}/${y}`; // formato que usa Contifico (igual que fmtDateEC)
+      const url = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${fechaEC}&fecha_final=${fechaEC}&page_size=100`;
+      let todos = [];
+      let nextUrl = url;
+      let paginas = 0;
+      while (nextUrl && paginas < 20) {
+        const resp = await fetch(nextUrl, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
+        const data = await resp.json();
+        todos = todos.concat(data.results || []);
+        nextUrl = data.next || null;
+        paginas++;
+      }
+      const clientes = todos.filter(doc => doc.tipo_registro === 'CLI' && !doc.anulado && doc.tipo_documento !== 'NC' && doc.tipo_documento !== 'COT' && doc.tipo_documento !== 'PRO');
+      clientes.forEach(doc => {
+        doc.cliente_nombre = doc.cliente?.razon_social || doc.cliente?.nombre_comercial || doc.persona_id || '—';
+      });
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ fecha: fechaParam, total: clientes.length, documentos: clientes }));
+    } catch(e) {
+      res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error: e.message}));
+    }
+    return;
+  }
+
   // VENTAS POR DÍA DE UN MES (para gráfico de líneas día 1 al último día del mes,
   // o hasta hoy si es el mes en curso). Acepta ?anio= y ?mes= opcionales; por defecto
   // usa el mes/año actuales del servidor (comportamiento original).
