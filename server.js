@@ -430,10 +430,42 @@ async function sincronizarHoy() {
     cache.documentos = clientes;
     cache.ultima_sync = new Date().toISOString();
     console.log(`✓ Sync: ${clientes.length} facturas de clientes hoy`);
+
+    // Guardar el detalle de cada factura en la BD para tener historial real consultable
+    // por fecha (la tabla en memoria `cache.documentos` se sobreescribe cada hora, así
+    // que sin esto perderíamos el detalle de días anteriores al pasar la medianoche).
+    try {
+      for (const d of clientes) {
+        const vendNom = d.vendedor?.razon_social || d.vendedor?.nombre || 'Sin asignar';
+        await pool.query(
+          `INSERT INTO facturas_detalle(documento_id, fecha, documento, cliente_nombre, vendedor_nombre, subtotal, total)
+           VALUES($1,$2,$3,$4,$5,$6,$7)
+           ON CONFLICT (documento_id, fecha) DO UPDATE SET
+             documento=$3, cliente_nombre=$4, vendedor_nombre=$5, subtotal=$6, total=$7, actualizado_at=NOW()`,
+          [
+            String(d.id || d.documento),
+            fechaParaSQL(fecha), // fecha en formato YYYY-MM-DD
+            d.documento || '',
+            d.cliente_nombre || '—',
+            vendNom,
+            parseFloat(d.subtotal || (d.total/1.15) || 0),
+            parseFloat(d.total || 0)
+          ]
+        );
+      }
+    } catch(eDb) {
+      console.error('Error guardando facturas_detalle:', eDb.message);
+    }
   } catch(e) {
     console.error('Error sync:', e.message);
   }
   cache.sincronizando = false;
+}
+
+// Convierte fecha DD/MM/YYYY (formato Contifico) a YYYY-MM-DD (formato SQL)
+function fechaParaSQL(fechaDDMMYYYY){
+  const [d,m,y] = fechaDDMMYYYY.split('/');
+  return `${y}-${m}-${d}`;
 }
 
 sincronizarHoy().catch(e => console.error('Error sync inicial:', e.message));
@@ -1155,6 +1187,19 @@ async function initDB() {
       CREATE INDEX IF NOT EXISTS idx_envios_fecha ON envios_servientrega(fecha);
       CREATE INDEX IF NOT EXISTS idx_envios_destinatario ON envios_servientrega(LOWER(destinatario));
       CREATE INDEX IF NOT EXISTS idx_envios_razon_social ON envios_servientrega(LOWER(razon_social));
+      CREATE TABLE IF NOT EXISTS facturas_detalle (
+        id SERIAL PRIMARY KEY,
+        documento_id VARCHAR(100) NOT NULL,
+        fecha DATE NOT NULL,
+        documento VARCHAR(100),
+        cliente_nombre VARCHAR(500),
+        vendedor_nombre VARCHAR(255),
+        subtotal NUMERIC(12,2) DEFAULT 0,
+        total NUMERIC(12,2) DEFAULT 0,
+        actualizado_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(documento_id, fecha)
+      );
+      CREATE INDEX IF NOT EXISTS idx_facturas_fecha ON facturas_detalle(fecha);
     `);
     const usuarios = [
       { nombre: 'Fernando Espíndola', usuario: 'Fernando', password: '1234', rol: 'admin', modulos: 'ventas,visitas,kpis,inventario,config' },
@@ -1480,6 +1525,31 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:'fecha es requerida (YYYY-MM-DD)'}));
         return;
       }
+
+      // 1) Intentar leer desde la BD (historial guardado por sincronizarHoy cada hora) —
+      // instantáneo y disponible para cualquier día ya sincronizado, sin pegarle a Contifico.
+      const rDb = await pool.query(
+        `SELECT documento_id, documento, cliente_nombre, vendedor_nombre, subtotal, total
+         FROM facturas_detalle WHERE fecha=$1 ORDER BY id ASC`,
+        [fechaParam]
+      );
+
+      if(rDb.rows.length > 0){
+        const documentos = rDb.rows.map(row => ({
+          id: row.documento_id,
+          documento: row.documento,
+          cliente_nombre: row.cliente_nombre,
+          vendedor: { razon_social: row.vendedor_nombre },
+          subtotal: parseFloat(row.subtotal),
+          total: parseFloat(row.total)
+        }));
+        res.writeHead(200,{'Content-Type':'application/json'});
+        res.end(JSON.stringify({ fecha: fechaParam, total: documentos.length, documentos, fuente: 'bd' }));
+        return;
+      }
+
+      // 2) Fallback: no hay nada guardado en la BD para ese día (ej. antes de implementar
+      // este historial, o un día que el servidor estuvo caído) — consultar Contifico en vivo.
       const [y,m,d] = fechaParam.split('-');
       const fechaEC = `${d}/${m}/${y}`; // formato que usa Contifico (igual que fmtDateEC)
       const url = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${fechaEC}&fecha_final=${fechaEC}&page_size=100`;
@@ -1498,7 +1568,63 @@ const server = http.createServer(async (req, res) => {
         doc.cliente_nombre = doc.cliente?.razon_social || doc.cliente?.nombre_comercial || doc.persona_id || '—';
       });
       res.writeHead(200,{'Content-Type':'application/json'});
-      res.end(JSON.stringify({ fecha: fechaParam, total: clientes.length, documentos: clientes }));
+      res.end(JSON.stringify({ fecha: fechaParam, total: clientes.length, documentos: clientes, fuente: 'contifico' }));
+    } catch(e) {
+      res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error: e.message}));
+    }
+    return;
+  }
+
+  // BACKFILL: rellena facturas_detalle con el histórico de los últimos N días (por defecto 7)
+  // consultando Contifico día por día. Se usa una sola vez para poblar los días anteriores
+  // a que este historial existiera; después de eso sincronizarHoy() lo mantiene solo.
+  if (urlPath === '/api/facturas-backfill' && req.method === 'GET') {
+    try {
+      const dias = parseInt(urlObj.searchParams.get('dias')) || 7;
+      const resultado = [];
+      const hoy = nowEC();
+      for (let i = 0; i < dias; i++) {
+        const d = new Date(hoy);
+        d.setDate(d.getDate() - i);
+        const fechaEC = fmtDateEC(d); // DD/MM/YYYY
+        const fechaSQL = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+
+        const url = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${fechaEC}&fecha_final=${fechaEC}&page_size=100`;
+        let todos = [];
+        let nextUrl = url;
+        let paginas = 0;
+        while (nextUrl && paginas < 20) {
+          const resp = await fetch(nextUrl, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
+          const data = await resp.json();
+          todos = todos.concat(data.results || []);
+          nextUrl = data.next || null;
+          paginas++;
+        }
+        const clientes = todos.filter(doc => doc.tipo_registro === 'CLI' && !doc.anulado && doc.tipo_documento !== 'NC' && doc.tipo_documento !== 'COT' && doc.tipo_documento !== 'PRO');
+
+        for (const doc of clientes) {
+          const cliNom = doc.cliente?.razon_social || doc.cliente?.nombre_comercial || doc.persona_id || '—';
+          const vendNom = doc.vendedor?.razon_social || doc.vendedor?.nombre || 'Sin asignar';
+          await pool.query(
+            `INSERT INTO facturas_detalle(documento_id, fecha, documento, cliente_nombre, vendedor_nombre, subtotal, total)
+             VALUES($1,$2,$3,$4,$5,$6,$7)
+             ON CONFLICT (documento_id, fecha) DO UPDATE SET
+               documento=$3, cliente_nombre=$4, vendedor_nombre=$5, subtotal=$6, total=$7, actualizado_at=NOW()`,
+            [
+              String(doc.id || doc.documento),
+              fechaSQL,
+              doc.documento || '',
+              cliNom,
+              vendNom,
+              parseFloat(doc.subtotal || (doc.total/1.15) || 0),
+              parseFloat(doc.total || 0)
+            ]
+          );
+        }
+        resultado.push({ fecha: fechaSQL, facturas: clientes.length });
+      }
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok: true, dias_procesados: resultado }));
     } catch(e) {
       res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error: e.message}));
     }
