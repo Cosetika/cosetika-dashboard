@@ -4301,23 +4301,39 @@ async function abrirModalVisita(lugar, tipo, asesora){
         <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:0.5px solid var(--border);font-size:12px">
           <span style="flex:1">${v.asesora.split(' ')[0]}</span>
           <span style="color:var(--muted)">${fmtFecha(v.fecha)}</span>
+          ${parseFloat(v.inversion||0)>0?`<span style="color:#A0684A;font-weight:600">${fmt(v.inversion)}</span>`:''}
         </div>`).join('')}`:'<p style="font-size:12px;color:var(--muted);margin-bottom:12px">Sin visitas previas</p>'}
+    ${tipo==='provincia'?`
+      <div style="margin-top:14px;padding:12px;background:#fffbeb;border:1px solid #fde68a;border-radius:10px">
+        <div style="font-size:11px;font-weight:600;color:#92400e;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">
+          <i class="ti ti-receipt" style="margin-right:4px"></i>Inversión / Viáticos
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:14px;color:#92400e;font-weight:500">$</span>
+          <input type="number" id="mv-inversion" min="0" step="0.01" placeholder="0.00"
+            style="flex:1;padding:8px 10px;font-size:14px;border:1px solid #fde68a;border-radius:8px;outline:none;background:white"
+            onfocus="this.style.borderColor='#A0684A'" onblur="this.style.borderColor='#fde68a'">
+        </div>
+        <div style="font-size:10px;color:#92400e;margin-top:6px;opacity:0.8">Ingresa el total gastado en transporte, alimentación, hospedaje, etc.</div>
+      </div>`:''}
     <button onclick="marcarVisitaDB('${lugar.replace(/'/g,"\'")}','${tipo}','${asesora.replace(/'/g,"\'")}',this)"
       style="background:#A0684A;color:white;border:none;padding:10px 16px;border-radius:8px;font-size:13px;cursor:pointer;width:100%;margin-top:14px">
       <i class="ti ti-check" aria-hidden="true"></i> Marcar como visitado hoy
     </button>`;
 
   document.getElementById('modal-visita').style.display='flex';
+  if(tipo==='provincia') setTimeout(()=>document.getElementById('mv-inversion')?.focus(),100);
 }
 
 async function marcarVisitaDB(lugar, tipo, asesora, btn){
   btn.disabled=true;
   btn.textContent='Guardando...';
+  const inversion = tipo==='provincia' ? (parseFloat(document.getElementById('mv-inversion')?.value)||0) : 0;
   try {
     await fetch('/api/visitas', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({lugar, tipo, asesora})
+      body: JSON.stringify({lugar, tipo, asesora, inversion})
     });
     cerrarModalVisita();
     await renderVisitasRealizadas();
@@ -4604,19 +4620,139 @@ function renderReportes(){
   document.getElementById('sidebar').classList.add('hidden');
   document.getElementById('body').classList.add('full-width');
   window._reportesTab = window._reportesTab || 'comisiones';
+  const tab = window._reportesTab;
   document.getElementById('main').innerHTML=`
     <div class="breadcrumb" style="margin-bottom:12px"><i class="ti ti-file-analytics" style="color:var(--brown);font-size:12px"></i><span style="font-weight:500">Reportes</span></div>
     <div style="display:flex;gap:0;background:white;border-radius:12px;border:1px solid var(--border);overflow:hidden;margin-bottom:16px">
       <button onclick="setReportesTab('comisiones')" id="rep-btn-comisiones"
-        style="flex:1;padding:11px;font-size:13px;font-weight:500;border:none;cursor:pointer;background:var(--brown);color:white">
+        style="flex:1;padding:11px;font-size:13px;font-weight:500;border:none;cursor:pointer;background:${tab==='comisiones'?'var(--brown)':'white'};color:${tab==='comisiones'?'white':'var(--muted)'}">
         <i class="ti ti-coin" style="margin-right:5px"></i>Comisiones
+      </button>
+      <button onclick="setReportesTab('inversiones')" id="rep-btn-inversiones"
+        style="flex:1;padding:11px;font-size:13px;font-weight:500;border:none;cursor:pointer;background:${tab==='inversiones'?'var(--brown)':'white'};color:${tab==='inversiones'?'white':'var(--muted)'}">
+        <i class="ti ti-receipt" style="margin-right:5px"></i>Inversiones / Viáticos
       </button>
     </div>
     <div id="reportes-content"></div>`;
-  renderComisiones();
+  if(tab==='inversiones') renderInversiones();
+  else renderComisiones();
 }
 
 function setReportesTab(tab){ window._reportesTab=tab; renderReportes(); }
+
+async function renderInversiones(){
+  const cont = document.getElementById('reportes-content');
+  if(!cont) return;
+  cont.innerHTML = '<div style="font-size:13px;color:var(--muted);padding:20px 0;text-align:center">Cargando...</div>';
+
+  const hoy = new Date();
+  const anioSel = window._inversionesAnio || hoy.getFullYear();
+  const mesSel  = window._inversiones_mes || (hoy.getMonth()+1);
+  const meses   = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const mesesFull = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+
+  let rows = [];
+  try{
+    const r = await fetch(`/api/inversiones?anio=${anioSel}&mes=${mesSel}`);
+    rows = await r.json();
+  } catch(e){ console.error(e); }
+
+  const total = rows.reduce((a,r)=>a+parseFloat(r.inversion||0),0);
+
+  // Agrupar por asesora
+  const porAsesora = {};
+  rows.forEach(r=>{
+    const nom = r.asesora.split(' ')[0];
+    if(!porAsesora[nom]) porAsesora[nom] = {nombre:r.asesora, total:0, visitas:[]};
+    porAsesora[nom].total += parseFloat(r.inversion||0);
+    porAsesora[nom].visitas.push(r);
+  });
+
+  cont.innerHTML = `
+    <!-- Selector de mes -->
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+      <select onchange="window._inversionesAnio=parseInt(this.value);renderInversiones()"
+        style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;cursor:pointer">
+        ${[anioSel-1, anioSel].map(y=>`<option value="${y}" ${y===anioSel?'selected':''}>${y}</option>`).join('')}
+      </select>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        ${meses.map((m,i)=>`
+          <button onclick="window._inversiones_mes=${i+1};renderInversiones()"
+            style="padding:5px 10px;font-size:11px;border-radius:20px;border:1px solid ${i+1===mesSel?'var(--brown)':'var(--border)'};background:${i+1===mesSel?'var(--brown)':'white'};color:${i+1===mesSel?'white':'var(--muted)'};cursor:pointer">
+            ${m}
+          </button>`).join('')}
+      </div>
+    </div>
+
+    <!-- KPI total -->
+    <div class="kpi-row" style="margin-bottom:16px">
+      <div class="kpi"><div class="kpi-label">Total viáticos</div><div class="kpi-val" style="color:var(--brown)">${fmt(total)}</div><div class="kpi-sub">${mesesFull[mesSel-1]} ${anioSel}</div></div>
+      <div class="kpi"><div class="kpi-label">Visitas a provincia</div><div class="kpi-val">${rows.length}</div><div class="kpi-sub">con inversión registrada</div></div>
+      <div class="kpi"><div class="kpi-label">Promedio por visita</div><div class="kpi-val">${rows.length?fmt(total/rows.length):'—'}</div><div class="kpi-sub">por salida</div></div>
+    </div>
+
+    ${rows.length === 0 ? `
+      <div class="card" style="text-align:center;padding:40px 20px;color:var(--muted)">
+        <i class="ti ti-receipt-off" style="font-size:36px;opacity:0.35"></i>
+        <p style="margin-top:10px;font-size:14px">No hay viáticos registrados para ${mesesFull[mesSel-1]} ${anioSel}</p>
+        <p style="font-size:12px;margin-top:4px">Los viáticos se registran al marcar una visita a provincia en el módulo de Visitas</p>
+      </div>` : `
+
+    <!-- Resumen por asesora -->
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-title"><i class="ti ti-users"></i> Resumen por asesora</div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead><tr style="background:#faf9f8;border-bottom:1px solid var(--border)">
+            <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase">Asesora</th>
+            <th style="padding:8px 12px;text-align:center;font-size:10px;color:var(--muted);text-transform:uppercase">Visitas</th>
+            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted);text-transform:uppercase">Total viáticos</th>
+            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted);text-transform:uppercase">Promedio</th>
+          </tr></thead>
+          <tbody>
+            ${Object.values(porAsesora).sort((a,b)=>b.total-a.total).map(a=>`
+              <tr style="border-bottom:0.5px solid var(--border)">
+                <td style="padding:8px 12px;font-weight:500">${a.nombre.split(' ').slice(0,2).join(' ')}</td>
+                <td style="padding:8px 12px;text-align:center;color:var(--muted)">${a.visitas.length}</td>
+                <td style="padding:8px 12px;text-align:right;color:var(--brown);font-weight:600">${fmt(a.total)}</td>
+                <td style="padding:8px 12px;text-align:right;color:var(--muted)">${fmt(a.total/a.visitas.length)}</td>
+              </tr>`).join('')}
+            <tr style="background:#faf9f8;font-weight:600;border-top:1px solid var(--border)">
+              <td style="padding:8px 12px">Total</td>
+              <td style="padding:8px 12px;text-align:center">${rows.length}</td>
+              <td style="padding:8px 12px;text-align:right;color:var(--brown)">${fmt(total)}</td>
+              <td style="padding:8px 12px;text-align:right;color:var(--muted)">${rows.length?fmt(total/rows.length):'—'}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Detalle por visita -->
+    <div class="card">
+      <div class="card-title"><i class="ti ti-list"></i> Detalle por visita</div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead><tr style="background:#faf9f8;border-bottom:1px solid var(--border)">
+            <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase">Fecha</th>
+            <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase">Asesora</th>
+            <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase">Provincia</th>
+            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted);text-transform:uppercase">Inversión</th>
+          </tr></thead>
+          <tbody>
+            ${rows.map(r=>`
+              <tr style="border-bottom:0.5px solid var(--border);transition:background 0.1s" onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='transparent'">
+                <td style="padding:8px 12px;color:var(--muted);font-size:11px;white-space:nowrap">${new Date(r.fecha+'T12:00:00').toLocaleDateString('es-EC',{day:'numeric',month:'short'})}</td>
+                <td style="padding:8px 12px;font-weight:500">${r.asesora.split(' ').slice(0,2).join(' ')}</td>
+                <td style="padding:8px 12px;color:var(--muted);display:flex;align-items:center;gap:5px"><i class="ti ti-map-pin" style="color:var(--brown);font-size:11px"></i>${r.lugar}</td>
+                <td style="padding:8px 12px;text-align:right;color:var(--brown);font-weight:600">${fmt(parseFloat(r.inversion||0))}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`}`;
+}
+
 
 function renderComisiones(){
   const cfg = getComisionCfg();

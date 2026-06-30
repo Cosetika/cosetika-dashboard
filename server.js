@@ -1329,8 +1329,10 @@ async function initDB() {
       CREATE TABLE IF NOT EXISTS visitas (
         id SERIAL PRIMARY KEY, lugar VARCHAR(255) NOT NULL,
         tipo VARCHAR(50) NOT NULL, asesora VARCHAR(255) NOT NULL,
-        fecha TIMESTAMP DEFAULT NOW(), notas TEXT
+        fecha TIMESTAMP DEFAULT NOW(), notas TEXT,
+        inversion NUMERIC(10,2) DEFAULT 0
       );
+      ALTER TABLE visitas ADD COLUMN IF NOT EXISTS inversion NUMERIC(10,2) DEFAULT 0;
       CREATE TABLE IF NOT EXISTS usuarios (
         id SERIAL PRIMARY KEY, nombre VARCHAR(255) NOT NULL,
         usuario VARCHAR(100) UNIQUE NOT NULL, password VARCHAR(255) NOT NULL,
@@ -1541,10 +1543,43 @@ const server = http.createServer(async (req, res) => {
     catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
     return;
   }
+  // GET /api/inversiones?anio=2026&mes=6  → viáticos por visita a provincia (tipo='provincia')
+  if (urlPath === '/api/inversiones' && req.method === 'GET') {
+    try {
+      const anio = parseInt(urlObj.searchParams.get('anio')) || nowEC().getFullYear();
+      const mes  = parseInt(urlObj.searchParams.get('mes'))  || (nowEC().getMonth()+1);
+      const r = await pool.query(
+        `SELECT id, lugar, asesora,
+                COALESCE(inversion,0) AS inversion,
+                notas,
+                fecha::date AS fecha
+         FROM visitas
+         WHERE tipo='provincia'
+           AND EXTRACT(YEAR  FROM fecha AT TIME ZONE 'America/Guayaquil') = $1
+           AND EXTRACT(MONTH FROM fecha AT TIME ZONE 'America/Guayaquil') = $2
+           AND COALESCE(inversion,0) > 0
+         ORDER BY fecha DESC, asesora`,
+        [anio, mes]
+      );
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify(r.rows));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+  // PUT /api/inversiones/:id  → editar inversión de una visita ya registrada
+  if (urlPath.startsWith('/api/inversiones/') && req.method === 'PUT') {
+    try {
+      const id = parseInt(urlPath.split('/').pop());
+      const { inversion, notas } = await bodyJSON(req);
+      await pool.query('UPDATE visitas SET inversion=$1, notas=$2 WHERE id=$3', [parseFloat(inversion)||0, notas||null, id]);
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
   if (urlPath === '/api/visitas' && req.method === 'POST') {
     try {
-      const {lugar,tipo,asesora,notas} = await bodyJSON(req);
-      const r = await pool.query('INSERT INTO visitas(lugar,tipo,asesora,notas) VALUES($1,$2,$3,$4) RETURNING *',[lugar,tipo,asesora,notas||null]);
+      const {lugar,tipo,asesora,notas,inversion} = await bodyJSON(req);
+      const r = await pool.query('INSERT INTO visitas(lugar,tipo,asesora,notas,inversion) VALUES($1,$2,$3,$4,$5) RETURNING *',[lugar,tipo,asesora,notas||null,parseFloat(inversion)||0]);
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.rows[0]));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
     return;
