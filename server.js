@@ -531,7 +531,7 @@ function parsearPedidoWooCommerce(html, asuntoCorreo, fechaCorreo){
   if (mSubtotal) subtotal = parseFloat(mSubtotal[1].replace(/,/g, ''));
 
   const productos = [];
-  const regexProducto = /(.+?)\s*\(#(\d+)\)\s*\n?×(\d+)\s*\n?\$?([\d,]+\.\d{2})/g;
+  const regexProducto = /(.+?)\s*\(#(\w+)\)\s*\n?×(\d+)\s*\n?\$?\s*([\d,]+\.\d{2})/g;
   let m;
   while ((m = regexProducto.exec(texto)) !== null) {
     productos.push({
