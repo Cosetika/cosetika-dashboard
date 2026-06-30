@@ -5312,7 +5312,10 @@ async function renderKpis(){
           ? `<div style="font-size:12px;color:#166534;font-weight:500">✅ ${visitaProv.lugar}</div>
              <div style="font-size:11px;color:var(--muted);margin-top:2px">${new Date(visitaProv.fecha).toLocaleDateString('es-EC',{day:'2-digit',month:'long'})}</div>`
           : `<div style="font-size:12px;color:#991b1b">Sin visita registrada</div>
-             <div style="font-size:11px;color:var(--muted);margin-top:4px">Se marcará automáticamente cuando registres una visita a provincia en el módulo Visitas</div>`
+             ${esMesActual?`<button onclick="registrarVisitaProvinciaKpi('${asesoraKpi.replace(/'/g,"\\'")}',${anioFiltro},${mesFiltro})"
+               style="margin-top:8px;width:100%;padding:8px 12px;font-size:12px;background:#ef4444;color:white;border:none;border-radius:8px;cursor:pointer;font-weight:500">
+               <i class="ti ti-map-pin" style="margin-right:5px"></i>Registrar visita a provincia
+             </button>`:''}`
         }
       </div>
       ${visitasProvinciaHistorico.length>0?`
@@ -5375,6 +5378,44 @@ async function renderKpis(){
       </div>
     </div>
   `;
+}
+
+async function registrarVisitaProvinciaKpi(asesora, anio, mes){
+  // Obtener provincias asignadas a esta asesora desde la config
+  await cargarAsesorConfig();
+  const provincias = ASESOR_DATA[asesora]?.provincias || [];
+
+  let provincia;
+  if(provincias.length === 0){
+    provincia = prompt('No hay provincias configuradas para esta asesora.\nIngresa el nombre de la provincia visitada:');
+    if(!provincia || !provincia.trim()) return;
+    provincia = provincia.trim();
+  } else if(provincias.length === 1){
+    if(!confirm(`¿Confirmas visita a ${provincias[0]}?`)) return;
+    provincia = provincias[0];
+  } else {
+    // Más de una provincia — mostrar modal de selección
+    const opciones = provincias.map((p,i)=>`${i+1}. ${p}`).join('\n');
+    const sel = prompt(`¿Cuál provincia visitaste?\n${opciones}\n\nIngresa el número:`);
+    if(!sel) return;
+    const idx = parseInt(sel.trim())-1;
+    if(isNaN(idx) || idx<0 || idx>=provincias.length) return;
+    provincia = provincias[idx];
+  }
+
+  try{
+    await fetch('/api/visitas', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ lugar: provincia, tipo: 'provincia', asesora, inversion: 0 })
+    });
+    // Recargar visitasDB para que el KPI se actualice
+    const r = await fetch('/api/visitas');
+    visitasDB = await r.json();
+    renderKpis();
+  } catch(e){
+    alert('Error al registrar la visita: ' + e.message);
+  }
 }
 
 async function guardarCasaAbierta(nombre, anio, mes){
