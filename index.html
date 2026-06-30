@@ -2052,15 +2052,6 @@ async function renderEnviosContenido(){
       </button>
     </div>
 
-    <!-- Selector de fechas (chips) -->
-    <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-bottom:14px">
-      ${fechas.map(f=>`
-        <button onclick="seleccionarFechaEnvios('${f}')"
-          style="padding:4px 12px;font-size:11px;border-radius:20px;border:1px solid ${f===ENVIOS_FECHA_SEL?'var(--brown)':'var(--border)'};background:${f===ENVIOS_FECHA_SEL?'var(--brown)':'white'};color:${f===ENVIOS_FECHA_SEL?'white':'var(--muted)'};cursor:pointer;transition:all 0.15s">
-          ${f===hoy?'Hoy':enviosFmtFecha(f)}
-        </button>`).join('')}
-    </div>
-
     <!-- Tabla de envíos del día -->
     <div class="card">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
@@ -2314,15 +2305,6 @@ async function renderControlContenido(){
       </button>
     </div>
 
-    <!-- Selector de fechas (chips) -->
-    <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-bottom:14px">
-      ${fechas.map(f=>`
-        <button onclick="seleccionarFechaControl('${f}')"
-          style="padding:4px 12px;font-size:11px;border-radius:20px;border:1px solid ${f===CONTROL_FECHA_SEL?'var(--brown)':'var(--border)'};background:${f===CONTROL_FECHA_SEL?'var(--brown)':'white'};color:${f===CONTROL_FECHA_SEL?'white':'var(--muted)'};cursor:pointer;transition:all 0.15s">
-          ${f===hoyStr?'Hoy':controlFmtFecha(f)}
-        </button>`).join('')}
-    </div>
-
     <!-- KPIs -->
     <div class="kpi-row" style="margin-bottom:12px">
       <div class="kpi"><div class="kpi-label">Pedidos web</div><div class="kpi-val">${totalPedidos}</div><div class="kpi-sub">ese día</div></div>
@@ -2510,15 +2492,6 @@ async function renderDocFacturas(){
         style="width:36px;height:36px;border-radius:50%;border:1px solid var(--border);background:${haySiguiente?'white':'#f5f5f5'};color:${haySiguiente?'var(--text)':'#ccc'};cursor:${haySiguiente?'pointer':'default'};display:flex;align-items:center;justify-content:center;font-size:16px;transition:background 0.15s">
         <i class="ti ti-chevron-right"></i>
       </button>
-    </div>
-
-    <!-- Selector de fechas (chips) -->
-    <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-bottom:14px">
-      ${fechas.map(f=>`
-        <button onclick="seleccionarFechaFacturas('${f}')"
-          style="padding:4px 12px;font-size:11px;border-radius:20px;border:1px solid ${f===FACTURAS_FECHA_SEL?'var(--brown)':'var(--border)'};background:${f===FACTURAS_FECHA_SEL?'var(--brown)':'white'};color:${f===FACTURAS_FECHA_SEL?'white':'var(--muted)'};cursor:pointer;transition:all 0.15s">
-          ${f===hoyStr?'Hoy':facturasFmtFecha(f)}
-        </button>`).join('')}
     </div>
 
     <div id="facturas-content">
