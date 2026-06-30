@@ -2276,8 +2276,37 @@ async function renderControlContenido(){
     </div>`;
 }
 
+async function resincronizarPedidosWeb(btn){
+  const orig = btn.innerHTML;
+  btn.innerHTML = '<i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i> Reprocesando...';
+  btn.disabled = true;
+  try{
+    const r = await fetch('/api/pedidos-web/resync-todos');
+    const data = await r.json();
+    btn.innerHTML = orig;
+    btn.disabled = false;
+    if(data.ok){
+      alert(`Listo: ${data.procesados} pedidos reprocesados, ${data.errores} errores.`);
+      await renderControlContenido();
+    } else {
+      alert('Error: ' + (data.error||'desconocido'));
+    }
+  } catch(e){
+    btn.innerHTML = orig;
+    btn.disabled = false;
+    alert('Error: ' + e.message);
+  }
+}
+
 async function renderControl(){
-  document.getElementById('doc-tab-content').innerHTML = `<div id="control-content"></div>`;
+  document.getElementById('doc-tab-content').innerHTML = `
+    <div style="display:flex;justify-content:flex-end;margin-bottom:10px">
+      <button onclick="resincronizarPedidosWeb(this)"
+        style="padding:6px 12px;font-size:12px;border-radius:8px;border:1px solid var(--border);background:white;color:var(--muted);cursor:pointer;display:flex;align-items:center;gap:6px">
+        <i class="ti ti-refresh" style="font-size:13px"></i> Reprocesar pedidos
+      </button>
+    </div>
+    <div id="control-content"></div>`;
   await renderControlContenido();
 }
 

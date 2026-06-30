@@ -489,6 +489,9 @@ function stripHtmlParaPedido(html){
     .replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&')
     .replace(/&#8217;|&rsquo;/g, "'")
+    .replace(/&#36;|&dollar;/gi, '$')
+    .replace(/&#44;/g, ',')
+    .replace(/&#46;/g, '.')
     .replace(/[ \t]+/g, ' ')
     .replace(/\n\s*\n+/g, '\n')
     .trim();
@@ -518,12 +521,14 @@ function parsearPedidoWooCommerce(html, asuntoCorreo, fechaCorreo){
   if (mCedula) cedulaRuc = mCedula[1];
 
   let total = null;
-  const mTotal = texto.match(/Total:\s*\$?([\d,]+\.\d{2})/i);
-  if (mTotal) total = parseFloat(mTotal[1].replace(',', ''));
+  // Más tolerante: permite texto/entidades cortas entre "Total:" y el monto (ej. símbolo
+  // de moneda en HTML separado, o markup residual que stripTags no limpió del todo)
+  const mTotal = texto.match(/\bTotal:?\s*[^\d\n]{0,15}?\$?\s*([\d,]+\.\d{2})/i);
+  if (mTotal) total = parseFloat(mTotal[1].replace(/,/g, ''));
 
   let subtotal = null;
-  const mSubtotal = texto.match(/Subtotal:\s*\$?([\d,]+\.\d{2})/i);
-  if (mSubtotal) subtotal = parseFloat(mSubtotal[1].replace(',', ''));
+  const mSubtotal = texto.match(/Subtotal:?\s*[^\d\n]{0,15}?\$?\s*([\d,]+\.\d{2})/i);
+  if (mSubtotal) subtotal = parseFloat(mSubtotal[1].replace(/,/g, ''));
 
   const productos = [];
   const regexProducto = /(.+?)\s*\(#(\d+)\)\s*\n?×(\d+)\s*\n?\$?([\d,]+\.\d{2})/g;
@@ -552,7 +557,8 @@ function parsearPedidoWooCommerce(html, asuntoCorreo, fechaCorreo){
 // Conecta a la casilla pedidos@cosetika.com vía IMAP, revisa correos no leídos de
 // "Nuevo pedido", los parsea y guarda en pedidos_web. Marca los correos como leídos
 // para no reprocesarlos en la siguiente corrida.
-async function sincronizarPedidosWeb(){
+async function sincronizarPedidosWeb(opciones){
+  opciones = opciones || {};
   if (!PEDIDOS_EMAIL_HOST || !PEDIDOS_EMAIL_USER || !PEDIDOS_EMAIL_PASS) {
     console.log('⚠️ Pedidos web: variables de entorno de correo no configuradas, omitiendo sync');
     return { ok: false, error: 'Credenciales de correo no configuradas' };
@@ -573,8 +579,11 @@ async function sincronizarPedidosWeb(){
 
     const lock = await client.getMailboxLock('INBOX');
     try {
-      // Solo correos no leídos — así cada corrida procesa únicamente lo nuevo
-      const mensajes = await client.search({ seen: false });
+      // Normalmente solo correos no leídos; con incluirLeidos:true (resync manual)
+      // se reprocesan TODOS, incluso los ya marcados como leídos.
+      const mensajes = opciones.incluirLeidos
+        ? await client.search({ all: true })
+        : await client.search({ seen: false });
       for (const seq of (mensajes || [])) {
         try {
           const { content } = await client.download(seq, undefined, { uid: false });
@@ -593,10 +602,10 @@ async function sincronizarPedidosWeb(){
 
           if (pedido && pedido.numeroPedido) {
             await pool.query(
-              `INSERT INTO pedidos_web(numero_pedido, fecha, cliente_nombre, cedula_ruc, telefono, subtotal, total, productos, email_uid)
-               VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
+              `INSERT INTO pedidos_web(numero_pedido, fecha, cliente_nombre, cedula_ruc, telefono, subtotal, total, productos, email_uid, html_crudo)
+               VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
                ON CONFLICT (numero_pedido) DO UPDATE SET
-                 fecha=$2, cliente_nombre=$3, cedula_ruc=$4, telefono=$5, subtotal=$6, total=$7, productos=$8`,
+                 fecha=$2, cliente_nombre=$3, cedula_ruc=$4, telefono=$5, subtotal=$6, total=$7, productos=$8, html_crudo=$10`,
               [
                 pedido.numeroPedido,
                 pedido.fecha,
@@ -606,7 +615,8 @@ async function sincronizarPedidosWeb(){
                 pedido.subtotal || 0,
                 pedido.total || 0,
                 JSON.stringify(pedido.productos || []),
-                String(seq)
+                String(seq),
+                html
               ]
             );
             procesados++;
@@ -1384,11 +1394,13 @@ async function initDB() {
         email_uid VARCHAR(100),
         facturado BOOLEAN DEFAULT false,
         documento_factura VARCHAR(100),
+        html_crudo TEXT,
         created_at TIMESTAMP DEFAULT NOW()
       );
       CREATE INDEX IF NOT EXISTS idx_pedidos_fecha ON pedidos_web(fecha);
       CREATE INDEX IF NOT EXISTS idx_pedidos_cedula ON pedidos_web(cedula_ruc);
       CREATE INDEX IF NOT EXISTS idx_pedidos_cliente ON pedidos_web(LOWER(cliente_nombre));
+      ALTER TABLE pedidos_web ADD COLUMN IF NOT EXISTS html_crudo TEXT;
     `);
     const usuarios = [
       { nombre: 'Fernando Espíndola', usuario: 'Fernando', password: '1234', rol: 'admin', modulos: 'ventas,visitas,kpis,inventario,config' },
@@ -1671,6 +1683,31 @@ const server = http.createServer(async (req, res) => {
         [numeroPedido, documentoFactura || null]
       );
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ ok:true }));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+  // DEBUG TEMPORAL: ver el HTML crudo guardado de un pedido para ajustar el parser
+  // GET /api/pedidos-web/debug-html?numero=16605
+  if (urlPath === '/api/pedidos-web/debug-html' && req.method === 'GET') {
+    try {
+      const numero = urlObj.searchParams.get('numero');
+      const r = await pool.query('SELECT numero_pedido, html_crudo FROM pedidos_web WHERE numero_pedido=$1', [numero]);
+      if (r.rows.length === 0) {
+        res.writeHead(404,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:'Pedido no encontrado'}));
+        return;
+      }
+      res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});
+      res.end(`<pre>${(r.rows[0].html_crudo||'').replace(/</g,'&lt;')}</pre>`);
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+  // GET /api/pedidos-web/resync-todos → reprocesa TODOS los correos de "nuevo pedido" en
+  // la bandeja (leídos o no), útil para recapturar el html_crudo de pedidos ya procesados
+  // o para corregir datos tras un ajuste al parser.
+  if (urlPath === '/api/pedidos-web/resync-todos' && req.method === 'GET') {
+    try {
+      const resultado = await sincronizarPedidosWeb({ incluirLeidos: true });
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(resultado));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
     return;
   }
