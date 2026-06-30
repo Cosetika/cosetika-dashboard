@@ -4109,14 +4109,31 @@ async function renderKpis(){
 
   const vAsesora = ventasMesKpi(asesoraKpi, mesFiltro, anioFiltro);
   let comision = 0;
+  let ventasDisplay = { sinIva: vAsesora.sinIva, conIva: vAsesora.conIva };
   const cfgAse = cfg.asesoras[asesoraKpi];
   if(cfgAse){
     const base = Math.max(0, vAsesora.sinIva - cfgAse.minimo);
     comision = base * (cfgAse.pct/100);
   } else if(asesoraKpi.includes('Giovanna')){
-    const equipoNombres = Object.keys(cfg.asesoras);
-    const totalEquipo = equipoNombres.reduce((a,n)=>{ const v=ventasMesKpi(n,mesFiltro,anioFiltro); return a+v.sinIva; },0);
-    comision = (vAsesora.sinIva + totalEquipo) * (cfg.giovanna.pct_equipo/100);
+    // Base = Giovanna + las 4 asesoras (Daniela, Liseth, Karen, Nicole)
+    const EQUIPO_GIOVANNA = [
+      'Giovanna Portilla',
+      'Daniela Villegas Chamorro',
+      'Liseth Gavilanes',
+      'Karen Rebeca Mora Cedeño',
+      'Nicole Yanira Leon Marquez'
+    ];
+    let totalConIvaEquipo = 0;
+    EQUIPO_GIOVANNA.forEach(nombre => {
+      const nombreReal = resolverNombreReal(nombre, DATA) || nombre;
+      (DATA[nombreReal]||[]).forEach(c => {
+        const f = c.frecuencia.find(x=>x.mes===mesFiltro && (!x.anio||x.anio===anioFiltro));
+        if(f) totalConIvaEquipo += f.total||0;
+      });
+    });
+    const baseGiovanna = totalConIvaEquipo / 1.15;
+    comision = baseGiovanna * (cfg.giovanna.pct_equipo/100);
+    ventasDisplay = { sinIva: baseGiovanna, conIva: baseGiovanna * 1.15 };
   }
 
   // Visita a provincia (mes actual + histórico del año, ambos desde visitasDB ya cargado)
@@ -4220,8 +4237,8 @@ async function renderKpis(){
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
         <div style="background:#faf9f8;border-radius:10px;padding:14px;text-align:center;border:1px solid var(--border)">
           <div style="font-size:11px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">Ventas sin IVA</div>
-          <div style="font-size:22px;font-weight:700;color:var(--brown)">${fmt(vAsesora.sinIva)}</div>
-          <div style="font-size:11px;color:var(--muted);margin-top:2px">Con IVA: ${fmt(vAsesora.conIva)}</div>
+          <div style="font-size:22px;font-weight:700;color:var(--brown)">${fmt(ventasDisplay.sinIva)}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">Con IVA: ${fmt(ventasDisplay.conIva)}</div>
         </div>
         <div style="background:${comision>0?'#f0fdf4':'#faf9f8'};border-radius:10px;padding:14px;text-align:center;border:1px solid ${comision>0?'#86efac':'var(--border)'}">
           <div style="font-size:11px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">Comisión generada</div>
