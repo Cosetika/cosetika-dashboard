@@ -3,9 +3,17 @@ const fs = require('fs');
 const path = require('path');
 const { Pool } = require('pg');
 const XLSX = require('xlsx');
+const { ImapFlow } = require('imapflow');
+const { simpleParser } = require('mailparser');
 
 const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.CONTIFICO_API_KEY || '';
+// Credenciales de la casilla pedidos@cosetika.com — configuradas como variables de
+// entorno en Railway, nunca hardcodeadas en el código.
+const PEDIDOS_EMAIL_HOST = process.env.PEDIDOS_EMAIL_HOST || '';
+const PEDIDOS_EMAIL_USER = process.env.PEDIDOS_EMAIL_USER || '';
+const PEDIDOS_EMAIL_PASS = process.env.PEDIDOS_EMAIL_PASS || '';
+const PEDIDOS_EMAIL_PORT = parseInt(process.env.PEDIDOS_EMAIL_PORT) || 993;
 
 
 // Inferir provincia desde dirección — mapa basado en datos reales de clientes Cosétika
@@ -468,8 +476,171 @@ function fechaParaSQL(fechaDDMMYYYY){
   return `${y}-${m}-${d}`;
 }
 
+// ─── PEDIDOS WEB: lectura de correos "Nuevo pedido" de WooCommerce vía IMAP ──────
+// Convierte el HTML del correo a texto plano preservando saltos de línea entre bloques,
+// para que los regex de extracción no peguen palabras de celdas/párrafos distintos.
+function stripHtmlParaPedido(html){
+  return (html || '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<\/(p|div|tr|h[1-6]|li)>/gi, '\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&#8217;|&rsquo;/g, "'")
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n\s*\n+/g, '\n')
+    .trim();
+}
+
+// Extrae los datos del pedido desde el HTML del correo de WooCommerce "Nuevo pedido".
+// Plantilla estable de WooCommerce — ver ejemplo real en conversación con Fernando (pedido #16548).
+function parsearPedidoWooCommerce(html, asuntoCorreo, fechaCorreo){
+  const texto = stripHtmlParaPedido(html);
+
+  // Número de pedido: preferimos el asunto "...#16548" (más confiable), si no del cuerpo
+  let numeroPedido = null;
+  const mAsunto = (asuntoCorreo || '').match(/#(\d+)/);
+  if (mAsunto) numeroPedido = mAsunto[1];
+  if (!numeroPedido) {
+    const mCuerpo = texto.match(/n\.?º\s*(\d+)|#(\d+)/);
+    if (mCuerpo) numeroPedido = mCuerpo[1] || mCuerpo[2];
+  }
+  if (!numeroPedido) return null; // sin número de pedido no podemos identificar el registro
+
+  let cliente = null;
+  const mCliente = texto.match(/Has recibido un nuevo pedido de\s+(.+?):/i);
+  if (mCliente) cliente = mCliente[1].trim();
+
+  let cedulaRuc = null;
+  const mCedula = texto.match(/C[ée]dula o RUC:?\s*([0-9]{10,13})/i);
+  if (mCedula) cedulaRuc = mCedula[1];
+
+  let total = null;
+  const mTotal = texto.match(/Total:\s*\$?([\d,]+\.\d{2})/i);
+  if (mTotal) total = parseFloat(mTotal[1].replace(',', ''));
+
+  let subtotal = null;
+  const mSubtotal = texto.match(/Subtotal:\s*\$?([\d,]+\.\d{2})/i);
+  if (mSubtotal) subtotal = parseFloat(mSubtotal[1].replace(',', ''));
+
+  const productos = [];
+  const regexProducto = /(.+?)\s*\(#(\d+)\)\s*\n?×(\d+)\s*\n?\$?([\d,]+\.\d{2})/g;
+  let m;
+  while ((m = regexProducto.exec(texto)) !== null) {
+    productos.push({
+      nombre: m[1].trim(),
+      sku: m[2],
+      cantidad: parseInt(m[3]),
+      precio: parseFloat(m[4].replace(',', ''))
+    });
+  }
+
+  let telefono = null;
+  const mTel = texto.match(/\b(09\d{8})\b/);
+  if (mTel) telefono = mTel[1];
+
+  // Fecha del pedido: usamos la fecha del correo (más confiable que parsear "junio 30, 2026")
+  const fecha = fechaCorreo
+    ? `${fechaCorreo.getFullYear()}-${String(fechaCorreo.getMonth()+1).padStart(2,'0')}-${String(fechaCorreo.getDate()).padStart(2,'0')}`
+    : null;
+
+  return { numeroPedido, cliente, cedulaRuc, telefono, subtotal, total, productos, fecha };
+}
+
+// Conecta a la casilla pedidos@cosetika.com vía IMAP, revisa correos no leídos de
+// "Nuevo pedido", los parsea y guarda en pedidos_web. Marca los correos como leídos
+// para no reprocesarlos en la siguiente corrida.
+async function sincronizarPedidosWeb(){
+  if (!PEDIDOS_EMAIL_HOST || !PEDIDOS_EMAIL_USER || !PEDIDOS_EMAIL_PASS) {
+    console.log('⚠️ Pedidos web: variables de entorno de correo no configuradas, omitiendo sync');
+    return { ok: false, error: 'Credenciales de correo no configuradas' };
+  }
+
+  let client;
+  let procesados = 0;
+  let errores = 0;
+  try {
+    client = new ImapFlow({
+      host: PEDIDOS_EMAIL_HOST,
+      port: PEDIDOS_EMAIL_PORT,
+      secure: true,
+      auth: { user: PEDIDOS_EMAIL_USER, pass: PEDIDOS_EMAIL_PASS },
+      logger: false
+    });
+    await client.connect();
+
+    const lock = await client.getMailboxLock('INBOX');
+    try {
+      // Solo correos no leídos — así cada corrida procesa únicamente lo nuevo
+      const mensajes = await client.search({ seen: false });
+      for (const seq of (mensajes || [])) {
+        try {
+          const { content } = await client.download(seq, undefined, { uid: false });
+          const parsed = await simpleParser(content);
+          const asunto = parsed.subject || '';
+
+          // Filtrar solo correos de "nuevo pedido" (evita procesar otros correos que
+          // puedan llegar a esa casilla)
+          if (!/nuevo pedido/i.test(asunto)) {
+            await client.messageFlagsAdd(seq, ['\\Seen']);
+            continue;
+          }
+
+          const html = parsed.html || parsed.textAsHtml || '';
+          const pedido = parsearPedidoWooCommerce(html, asunto, parsed.date || new Date());
+
+          if (pedido && pedido.numeroPedido) {
+            await pool.query(
+              `INSERT INTO pedidos_web(numero_pedido, fecha, cliente_nombre, cedula_ruc, telefono, subtotal, total, productos, email_uid)
+               VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
+               ON CONFLICT (numero_pedido) DO UPDATE SET
+                 fecha=$2, cliente_nombre=$3, cedula_ruc=$4, telefono=$5, subtotal=$6, total=$7, productos=$8`,
+              [
+                pedido.numeroPedido,
+                pedido.fecha,
+                pedido.cliente || '—',
+                pedido.cedulaRuc || null,
+                pedido.telefono || null,
+                pedido.subtotal || 0,
+                pedido.total || 0,
+                JSON.stringify(pedido.productos || []),
+                String(seq)
+              ]
+            );
+            procesados++;
+          } else {
+            errores++;
+            console.log('⚠️ No se pudo parsear pedido del correo:', asunto);
+          }
+
+          await client.messageFlagsAdd(seq, ['\\Seen']);
+        } catch (eMsg) {
+          errores++;
+          console.error('Error procesando correo de pedido:', eMsg.message);
+        }
+      }
+    } finally {
+      lock.release();
+    }
+
+    await client.logout();
+    console.log(`✓ Pedidos web sync: ${procesados} pedidos guardados, ${errores} errores`);
+    return { ok: true, procesados, errores };
+  } catch (e) {
+    console.error('Error conectando a pedidos@cosetika.com:', e.message);
+    try { if (client) await client.logout(); } catch(e2){}
+    return { ok: false, error: e.message };
+  }
+}
+
 sincronizarHoy().catch(e => console.error('Error sync inicial:', e.message));
 setInterval(() => sincronizarHoy().catch(e => console.error('Error sync:', e.message)), 60 * 60 * 1000);
+
+// Sync de pedidos web: revisa la casilla pedidos@cosetika.com cada 10 minutos
+setTimeout(() => sincronizarPedidosWeb().catch(e => console.error('Error sync pedidos inicial:', e.message)), 15000);
+setInterval(() => sincronizarPedidosWeb().catch(e => console.error('Error sync pedidos:', e.message)), 10 * 60 * 1000);
 
 // ─── FUSIÓN INCREMENTAL: ventas del MES EN CURSO dentro de DATA_CACHE (cada 15 min) ──
 // Recalcula desde cero el mes actual completo (rápido: solo ese mes, no 18 meses) y
@@ -1200,6 +1371,24 @@ async function initDB() {
         UNIQUE(documento_id, fecha)
       );
       CREATE INDEX IF NOT EXISTS idx_facturas_fecha ON facturas_detalle(fecha);
+      CREATE TABLE IF NOT EXISTS pedidos_web (
+        id SERIAL PRIMARY KEY,
+        numero_pedido VARCHAR(50) NOT NULL UNIQUE,
+        fecha DATE NOT NULL,
+        cliente_nombre VARCHAR(500),
+        cedula_ruc VARCHAR(20),
+        telefono VARCHAR(20),
+        subtotal NUMERIC(12,2) DEFAULT 0,
+        total NUMERIC(12,2) DEFAULT 0,
+        productos TEXT,
+        email_uid VARCHAR(100),
+        facturado BOOLEAN DEFAULT false,
+        documento_factura VARCHAR(100),
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_pedidos_fecha ON pedidos_web(fecha);
+      CREATE INDEX IF NOT EXISTS idx_pedidos_cedula ON pedidos_web(cedula_ruc);
+      CREATE INDEX IF NOT EXISTS idx_pedidos_cliente ON pedidos_web(LOWER(cliente_nombre));
     `);
     const usuarios = [
       { nombre: 'Fernando Espíndola', usuario: 'Fernando', password: '1234', rol: 'admin', modulos: 'ventas,visitas,kpis,inventario,config' },
@@ -1414,6 +1603,73 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       await pool.query('DELETE FROM envios_servientrega WHERE fecha=$1', [fecha]);
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ ok:true }));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+
+  // PEDIDOS WEB — pedidos recibidos por correo desde la tienda WooCommerce
+  // GET /api/pedidos-web?fecha=YYYY-MM-DD  → pedidos de un día específico
+  // GET /api/pedidos-web?dias=7            → pedidos de los últimos N días
+  if (urlPath === '/api/pedidos-web' && req.method === 'GET') {
+    try {
+      const fecha = urlObj.searchParams.get('fecha');
+      const dias = parseInt(urlObj.searchParams.get('dias')) || null;
+      let r;
+      if (fecha) {
+        r = await pool.query('SELECT * FROM pedidos_web WHERE fecha=$1 ORDER BY id DESC', [fecha]);
+      } else if (dias) {
+        r = await pool.query(`SELECT * FROM pedidos_web WHERE fecha >= (CURRENT_DATE - $1::int) ORDER BY fecha DESC, id DESC`, [dias]);
+      } else {
+        r = await pool.query('SELECT * FROM pedidos_web ORDER BY fecha DESC, id DESC LIMIT 200');
+      }
+      const pedidos = r.rows.map(row => ({
+        ...row,
+        productos: (() => { try { return JSON.parse(row.productos || '[]'); } catch(e){ return []; } })()
+      }));
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(pedidos));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+  // GET /api/pedidos-web/buscar?q=nombre → búsqueda por cliente en todas las fechas
+  if (urlPath === '/api/pedidos-web/buscar' && req.method === 'GET') {
+    try {
+      const q = (urlObj.searchParams.get('q')||'').trim();
+      if (!q || q.length < 2) {
+        res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify([]));
+        return;
+      }
+      const r = await pool.query(
+        `SELECT * FROM pedidos_web WHERE LOWER(cliente_nombre) LIKE LOWER($1) OR cedula_ruc LIKE $1
+         ORDER BY fecha DESC LIMIT 200`,
+        [`%${q}%`]
+      );
+      const pedidos = r.rows.map(row => ({
+        ...row,
+        productos: (() => { try { return JSON.parse(row.productos || '[]'); } catch(e){ return []; } })()
+      }));
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(pedidos));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+  // GET /api/pedidos-web/sync → fuerza una sincronización manual con la casilla de correo
+  if (urlPath === '/api/pedidos-web/sync' && req.method === 'GET') {
+    try {
+      const resultado = await sincronizarPedidosWeb();
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(resultado));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+  // POST /api/pedidos-web/marcar-facturado  body: { numeroPedido, documentoFactura }
+  // Permite marcar manualmente un pedido como facturado (por si el cruce automático no
+  // lo detecta, ej. el nombre en Contifico es muy distinto al de la web)
+  if (urlPath === '/api/pedidos-web/marcar-facturado' && req.method === 'POST') {
+    try {
+      const { numeroPedido, documentoFactura } = await bodyJSON(req);
+      await pool.query(
+        'UPDATE pedidos_web SET facturado=true, documento_factura=$2 WHERE numero_pedido=$1',
+        [numeroPedido, documentoFactura || null]
+      );
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ ok:true }));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
     return;
