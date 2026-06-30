@@ -1576,6 +1576,19 @@ const server = http.createServer(async (req, res) => {
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
     return;
   }
+  // PUT /api/visitas/:id  → editar lugar, fecha e inversión de una visita
+  if (urlPath.startsWith('/api/visitas/') && req.method === 'PUT') {
+    try {
+      const id = parseInt(urlPath.split('/').pop());
+      const { lugar, fecha, inversion } = await bodyJSON(req);
+      await pool.query(
+        'UPDATE visitas SET lugar=$1, fecha=$2, inversion=$3 WHERE id=$4',
+        [lugar, fecha, parseFloat(inversion)||0, id]
+      );
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
   if (urlPath === '/api/visitas' && req.method === 'POST') {
     try {
       const {lugar,tipo,asesora,notas,inversion} = await bodyJSON(req);

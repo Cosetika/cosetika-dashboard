@@ -5302,15 +5302,26 @@ async function renderKpis(){
     <div class="card" style="margin-bottom:12px">
       <div class="card-title" style="margin-bottom:12px"><i class="ti ti-map-pin"></i> Visita a Provincia</div>
       <div style="border-radius:10px;padding:14px;border:2px solid ${visitaProv?'#86efac':'#fca5a5'};background:${visitaProv?'#f0fdf4':'#fef2f2'}">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-          <div style="width:28px;height:28px;border-radius:50%;background:${visitaProv?'#22c55e':'#ef4444'};display:flex;align-items:center;justify-content:center;flex-shrink:0">
-            <i class="ti ti-${visitaProv?'check':'x'}" style="color:white;font-size:14px"></i>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="width:28px;height:28px;border-radius:50%;background:${visitaProv?'#22c55e':'#ef4444'};display:flex;align-items:center;justify-content:center;flex-shrink:0">
+              <i class="ti ti-${visitaProv?'check':'x'}" style="color:white;font-size:14px"></i>
+            </div>
+            <span style="font-size:13px;font-weight:600;color:${visitaProv?'#166534':'#991b1b'}">${MESES_N[mesFiltro]}</span>
           </div>
-          <span style="font-size:13px;font-weight:600;color:${visitaProv?'#166534':'#991b1b'}">${MESES_N[mesFiltro]}</span>
+          ${visitaProv && esMesActual ? `
+            <button onclick="editarVisitaProvinciaKpi(${visitaProv.id},'${visitaProv.lugar.replace(/'/g,"\\'")}','${visitaProv.fecha}',${visitaProv.inversion||0})"
+              style="padding:4px 10px;font-size:11px;border:1px solid #86efac;border-radius:6px;background:white;color:#166534;cursor:pointer;display:flex;align-items:center;gap:4px">
+              <i class="ti ti-edit" style="font-size:11px"></i> Editar
+            </button>` : ''}
         </div>
         ${visitaProv
           ? `<div style="font-size:12px;color:#166534;font-weight:500">✅ ${visitaProv.lugar}</div>
-             <div style="font-size:11px;color:var(--muted);margin-top:2px">${new Date(visitaProv.fecha).toLocaleDateString('es-EC',{day:'2-digit',month:'long'})}</div>`
+             <div style="font-size:11px;color:var(--muted);margin-top:2px">${new Date(visitaProv.fecha).toLocaleDateString('es-EC',{day:'2-digit',month:'long'})}</div>
+             ${parseFloat(visitaProv.inversion||0)>0?`<div style="margin-top:6px;display:inline-flex;align-items:center;gap:5px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:3px 8px">
+               <i class="ti ti-receipt" style="font-size:11px;color:#92400e"></i>
+               <span style="font-size:11px;color:#92400e;font-weight:600">Viáticos: ${fmt(parseFloat(visitaProv.inversion))}</span>
+             </div>`:'<div style="margin-top:6px;font-size:11px;color:var(--muted);opacity:0.7">Sin viáticos registrados</div>'}`
           : `<div style="font-size:12px;color:#991b1b">Sin visita registrada</div>
              ${esMesActual?`<button onclick="registrarVisitaProvinciaKpi('${asesoraKpi.replace(/'/g,"\\'")}',${anioFiltro},${mesFiltro})"
                style="margin-top:8px;width:100%;padding:8px 12px;font-size:12px;background:#ef4444;color:white;border:none;border-radius:8px;cursor:pointer;font-weight:500">
@@ -5378,6 +5389,96 @@ async function renderKpis(){
       </div>
     </div>
   `;
+}
+
+async function editarVisitaProvinciaKpi(id, lugarActual, fechaActual, inversionActual){
+  // Modal de edición — se inyecta sobre el contenido existente
+  const fechaISO = fechaActual ? fechaActual.substring(0,10) : new Date().toISOString().substring(0,10);
+
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px';
+  overlay.innerHTML = `
+    <div style="background:white;border-radius:14px;width:100%;max-width:380px;box-shadow:0 20px 60px rgba(0,0,0,0.2)">
+      <div style="padding:16px 18px;border-bottom:0.5px solid #e5e5e5;display:flex;align-items:center;justify-content:space-between">
+        <div style="font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px">
+          <i class="ti ti-map-pin" style="color:#A0684A"></i> Editar visita a provincia
+        </div>
+        <button onclick="this.closest('[style*=\"fixed\"]').remove()" style="background:none;border:none;font-size:18px;color:#9ca3af;cursor:pointer"><i class="ti ti-x"></i></button>
+      </div>
+      <div style="padding:18px">
+        <!-- Provincia -->
+        <div style="margin-bottom:14px">
+          <label style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:6px">Provincia visitada</label>
+          <input type="text" id="edit-prov-lugar" value="${lugarActual}"
+            style="width:100%;padding:9px 12px;border:1px solid #e5e5e5;border-radius:8px;font-size:13px;outline:none;box-sizing:border-box"
+            onfocus="this.style.borderColor='#A0684A'" onblur="this.style.borderColor='#e5e5e5'">
+        </div>
+        <!-- Fecha -->
+        <div style="margin-bottom:14px">
+          <label style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:6px">Fecha de la visita</label>
+          <input type="date" id="edit-prov-fecha" value="${fechaISO}"
+            style="width:100%;padding:9px 12px;border:1px solid #e5e5e5;border-radius:8px;font-size:13px;outline:none;box-sizing:border-box"
+            onfocus="this.style.borderColor='#A0684A'" onblur="this.style.borderColor='#e5e5e5'">
+        </div>
+        <!-- Viáticos -->
+        <div style="margin-bottom:20px">
+          <label style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:6px">Inversión / Viáticos</label>
+          <div style="position:relative">
+            <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:14px;color:#9ca3af;font-weight:500">$</span>
+            <input type="number" id="edit-prov-inversion" value="${parseFloat(inversionActual)||''}" min="0" step="0.01" placeholder="0.00"
+              style="width:100%;padding:9px 12px 9px 26px;border:1px solid #e5e5e5;border-radius:8px;font-size:13px;outline:none;box-sizing:border-box"
+              onfocus="this.style.borderColor='#A0684A'" onblur="this.style.borderColor='#e5e5e5'">
+          </div>
+        </div>
+        <!-- Botones -->
+        <div style="display:flex;gap:10px">
+          <button onclick="this.closest('[style*=\"fixed\"]').remove()"
+            style="flex:1;padding:10px;font-size:13px;border:1px solid #e5e5e5;border-radius:8px;background:white;color:#6b7280;cursor:pointer">
+            Cancelar
+          </button>
+          <button onclick="guardarEdicionVisitaProvincia(${id}, this)"
+            style="flex:1;padding:10px;font-size:13px;border:none;border-radius:8px;background:#A0684A;color:white;cursor:pointer;font-weight:500">
+            <i class="ti ti-check" style="margin-right:4px"></i>Guardar
+          </button>
+        </div>
+      </div>
+    </div>`;
+  overlay.addEventListener('click', e => { if(e.target === overlay) overlay.remove(); });
+  document.body.appendChild(overlay);
+  setTimeout(() => document.getElementById('edit-prov-lugar')?.focus(), 100);
+}
+
+async function guardarEdicionVisitaProvincia(id, btn){
+  const lugar     = document.getElementById('edit-prov-lugar')?.value.trim();
+  const fecha     = document.getElementById('edit-prov-fecha')?.value;
+  const inversion = parseFloat(document.getElementById('edit-prov-inversion')?.value) || 0;
+  if(!lugar){ alert('Por favor ingresa la provincia'); return; }
+  if(!fecha){ alert('Por favor ingresa la fecha'); return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Guardando...';
+  try{
+    // Actualiza lugar, fecha e inversión de esa visita vía el endpoint de inversiones (PUT)
+    await fetch(`/api/inversiones/${id}`, {
+      method: 'PUT',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ inversion, notas: null })
+    });
+    // También actualiza lugar y fecha — necesitamos un endpoint PATCH genérico para visitas
+    await fetch(`/api/visitas/${id}`, {
+      method: 'PUT',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ lugar, fecha, inversion })
+    });
+    document.querySelector('[style*="position:fixed"][style*="z-index:200"]')?.remove();
+    const r = await fetch('/api/visitas');
+    visitasDB = await r.json();
+    renderKpis();
+  } catch(e){
+    btn.disabled = false;
+    btn.textContent = 'Guardar';
+    alert('Error al guardar: ' + e.message);
+  }
 }
 
 async function registrarVisitaProvinciaKpi(asesora, anio, mes){
