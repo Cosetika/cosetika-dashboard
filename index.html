@@ -2060,6 +2060,7 @@ async function renderEnviosContenido(){
         style="width:100%;padding:8px 12px 8px 32px;font-size:13px;border:1px solid var(--border);border-radius:8px;outline:none;transition:border-color 0.15s;box-sizing:border-box"
         onfocus="this.style.borderColor='var(--brown)'" onblur="this.style.borderColor='var(--border)'">
     </div>
+    <div id="envios-busqueda-content"></div>
 
     <!-- Tabla de envíos del día -->
     <div class="card">
@@ -2123,7 +2124,6 @@ async function renderEnvios(){
       </button>
       <span id="envios-upload-status" style="font-size:12px;color:var(--muted)"></span>
     </div>
-    <div id="envios-busqueda-content"></div>
     <div id="envios-content"></div>`;
 
   await renderEnviosContenido();
