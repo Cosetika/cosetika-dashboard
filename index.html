@@ -157,7 +157,8 @@
 </div>
 
 <div class="submenu" id="submenu-ventas" style="border-radius:0">
-  <div class="stab active" id="stab-facturas" onclick="setSubtab('facturas')" style="background:var(--brown);color:#fff;padding:10px 6px;font-size:11px">Facturas</div>
+  <div class="stab active" id="stab-facturas" onclick="setSubtab('facturas')" style="background:var(--brown);color:#fff;padding:10px 6px;font-size:11px">Documentos</div>
+  <div class="stab" id="stab-envios" onclick="setSubtab('envios')" style="padding:10px 6px;font-size:11px">Envíos</div>
   <div class="stab" id="stab-ventas" onclick="setSubtab('ventas')" style="padding:10px 6px;font-size:11px">Ventas</div>
   <div class="stab" id="stab-marcas" onclick="setSubtab('marcas')" style="padding:10px 6px;font-size:11px">Marcas</div>
   <div class="stab" id="stab-cpf" onclick="setSubtab('cpf')" style="padding:10px 6px;font-size:11px">Clientes</div>
@@ -341,6 +342,7 @@ function setMod(mod){
   if(mod==='ventas'){
     // Restaurar estado del subtab actual
     if(subtabActual==='facturas') setSubtab('facturas');
+    else if(subtabActual==='envios') setSubtab('envios');
     else if(subtabActual==='ventas') setSubtab('ventas');
     else if(subtabActual==='prov') setSubtab('prov');
     else setSubtab('cpf');
@@ -1107,6 +1109,9 @@ function setSubtab(tab){
   if(tab==='facturas'){
     sidebar.classList.add('hidden'); body.classList.add('full-width');
     renderFacturasHoy();
+  } else if(tab==='envios'){
+    sidebar.classList.add('hidden'); body.classList.add('full-width');
+    renderEnvios();
   } else if(tab==='marcas'){
     sidebar.classList.add('hidden'); body.classList.add('full-width');
     // Marcas siempre muestra el total de TODA la empresa — no debe heredar un filtro
@@ -1673,6 +1678,350 @@ function sortProductosMarca(criterio){
       }).join('');
 }
 
+
+// ─── TAB ENVÍOS: manifiestos diarios de Servientrega ────────────────────────────
+let ENVIOS_DB = {}; // { 'YYYY-MM-DD': [ {destinatario, razonSocial, ciudad, guia}, ... ] }
+let ENVIOS_FECHA_SEL = null; // fecha seleccionada actualmente
+
+function enviosFechaActual(){
+  // Fecha de hoy en Ecuador (sin depender de timezone del navegador)
+  const now = new Date();
+  const ec = new Date(now.toLocaleString('en-US', { timeZone: 'America/Guayaquil' }));
+  return `${ec.getFullYear()}-${String(ec.getMonth()+1).padStart(2,'0')}-${String(ec.getDate()).padStart(2,'0')}`;
+}
+
+function enviosFechasOrdenadas(){
+  return Object.keys(ENVIOS_DB).sort();
+}
+
+function enviosFmtFecha(isoDate){
+  if(!isoDate) return '—';
+  const [y,m,d] = isoDate.split('-');
+  const meses = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  return `${parseInt(d)} ${meses[parseInt(m)-1]} ${y}`;
+}
+
+function cargarEnviosDesdeStorage(){
+  try { ENVIOS_DB = JSON.parse(localStorage.getItem('cosetika_envios_v1') || '{}'); } catch(e){ ENVIOS_DB = {}; }
+}
+function guardarEnviosEnStorage(){
+  try { localStorage.setItem('cosetika_envios_v1', JSON.stringify(ENVIOS_DB)); } catch(e){}
+}
+
+async function parsearPdfEnvios(file){
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = async function(e){
+      try {
+        // Leer texto del PDF usando PDF.js si está disponible, si no usar texto plano
+        const arrayBuffer = e.target.result;
+        // Cargar PDF.js dinámicamente
+        if(!window.pdfjsLib){
+          await new Promise((res, rej) => {
+            const s = document.createElement('script');
+            s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+            s.onload = res; s.onerror = rej;
+            document.head.appendChild(s);
+          });
+          window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        }
+        const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        let textoTotal = '';
+        for(let i = 1; i <= pdf.numPages; i++){
+          const page = await pdf.getPage(i);
+          const tc = await page.getTextContent();
+          // Ordenar items por posición Y (de arriba a abajo) y X (izquierda a derecha)
+          const items = tc.items.sort((a,b) => {
+            const ay = Math.round(a.transform[5]);
+            const by = Math.round(b.transform[5]);
+            if(ay !== by) return by - ay; // Y descendente (arriba = mayor Y en PDF)
+            return a.transform[4] - b.transform[4]; // X ascendente
+          });
+          textoTotal += items.map(it => it.str).join(' ') + '\n';
+        }
+        resolve(textoTotal);
+      } catch(err){ reject(err); }
+    };
+    reader.onerror = reject;
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+function parsearLineasEnvio(texto){
+  const envios = [];
+  // Buscar la fecha del manifiesto en el PDF (línea "Fecha: DD.MM.YYYY" o "Fecha: DD/MM/YYYY")
+  let fechaManifiesto = null;
+  const mFecha = texto.match(/Fecha[:\s]+(\d{2})[./](\d{2})[./](\d{4})/i);
+  if(mFecha){
+    fechaManifiesto = `${mFecha[3]}-${mFecha[2]}-${mFecha[1]}`;
+  } else {
+    fechaManifiesto = enviosFechaActual();
+  }
+
+  // Extraer filas de guías — buscar números de guía de 9 dígitos
+  // Patrón: NUMERO_GUIA ... DESTINATARIO ... RAZON_SOCIAL ... CIUDAD ... PESO PESO_VOL PIEZAS TIPO
+  const lineas = texto.split('\n');
+  
+  // Buscar todas las ocurrencias de número de guía (9 dígitos) seguidas de datos
+  const regexGuia = /(\d{9})/g;
+  const textoPlano = texto.replace(/\s+/g, ' ');
+  
+  // Estrategia: dividir el texto por números de guía y parsear cada bloque
+  const partes = textoPlano.split(/(\b\d{9}\b)/);
+  
+  for(let i = 1; i < partes.length; i += 2){
+    const guia = partes[i];
+    const bloque = (partes[i+1] || '').trim();
+    
+    // Saltar si no parece un bloque válido (muy corto o solo espacios)
+    if(bloque.length < 10) continue;
+    
+    // El bloque tiene: CIUDAD DESTINATARIO MERCANCIA PREMIER COSMETICOS RAZON_SOCIAL CIUDAD_DEST PESO PESO_VOL PIEZAS TIPO
+    // Buscar "MERCANCIA PREMIER" o "RCANCIA PREMIER" como separador
+    const sepIdx = bloque.search(/M?ERCANCIA\s+PREMIER/i);
+    if(sepIdx === -1) continue;
+    
+    const anteSep = bloque.substring(0, sepIdx).trim();
+    const despuesSep = bloque.substring(sepIdx).replace(/M?ERCANCIA\s+PREMIER\s+COSMETICOS?\s*/i, '').trim();
+    
+    // Después del separador: RAZON_SOCIAL CIUDAD_DESTINO PESO PESO_VOL PIEZAS TIPO
+    // PESO es número decimal, luego otro decimal, luego número pequeño, luego NORMAL/EXPRESS
+    const mCiudad = despuesSep.match(/^(.*?)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+)\s+(NORMAL|EXPRESS|PRIORIT)/i);
+    
+    let razonSocial = '', ciudad = '', destinatario = '';
+    
+    if(mCiudad){
+      const parteAntes = mCiudad[1].trim();
+      // La última "palabra en mayúsculas que es ciudad" antes del peso
+      // Ciudades conocidas al final del campo razonSocial
+      const ciudadesEC = ['GUAYAQUIL','QUITO','QUITO SUR','CUENCA','MANTA','AMBATO','IBARRA',
+        'MACHALA','LOJA','ESMERALDAS','RIOBAMBA','SANGOLQUI','BABAHOYO','LAGO AGRIO',
+        'SALINAS','SANTA ANA','SANTA ANA \(MANABI\)','ALAMOR','TULCAN','LATACUNGA',
+        'PORTOVIEJO','SANTO DOMINGO','DURAN','SAMBORONDON'];
+      let ciudadEncontrada = false;
+      for(const c of ciudadesEC.sort((a,b)=>b.length-a.length)){
+        const rx = new RegExp('(.+?)\\s+(' + c.replace('(',  '\\(').replace(')', '\\)') + ')\\s*$', 'i');
+        const mm = parteAntes.match(rx);
+        if(mm){ razonSocial = mm[1].trim(); ciudad = mm[2].toUpperCase().trim(); ciudadEncontrada = true; break; }
+      }
+      if(!ciudadEncontrada){
+        // Intentar separar por mayúsculas al final
+        const mm2 = parteAntes.match(/^(.+?)\s+([A-ZÁÉÍÓÚ\s]+)$/);
+        if(mm2){ razonSocial = mm2[1].trim(); ciudad = mm2[2].trim(); }
+        else { razonSocial = parteAntes; }
+      }
+    } else {
+      // Fallback: todo lo que queda antes del primer número es razón social
+      const mFallback = despuesSep.match(/^([^0-9]+)/);
+      razonSocial = mFallback ? mFallback[1].trim() : despuesSep.substring(0, 40).trim();
+    }
+    
+    // El destinatario está en anteSep (puede tener nombre de ciudad del inicio que ya parseó Servientrega)
+    // Limpiar ciudades al inicio del destinatario
+    destinatario = anteSep.replace(/^(GUAYAQUIL|QUITO|MANTA|AMBATO|IBARRA|MACHALA|SANGOLQUI|SALINAS|ALAMOR|BABAHOYO|CUENCA|LAGO AGRIO|SANTA ANA|DURAN|TULCAN|LATACUNGA|PORTOVIEJO|SANTO DOMINGO|LOJA|RIOBAMBA|ESMERALDAS)\s+/i, '').trim();
+    
+    if(razonSocial || ciudad || destinatario){
+      envios.push({ guia, destinatario, razonSocial, ciudad });
+    }
+  }
+  
+  return { fecha: fechaManifiesto, envios };
+}
+
+async function subirPdfEnvios(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const statusEl = document.getElementById('envios-upload-status');
+  if(statusEl) statusEl.textContent = 'Procesando PDF...';
+  
+  try {
+    const texto = await parsearPdfEnvios(file);
+    const { fecha, envios } = parsearLineasEnvio(texto);
+    
+    if(envios.length === 0){
+      if(statusEl) statusEl.textContent = '⚠️ No se encontraron guías en el PDF';
+      return;
+    }
+    
+    cargarEnviosDesdeStorage();
+    ENVIOS_DB[fecha] = envios;
+    guardarEnviosEnStorage();
+    ENVIOS_FECHA_SEL = fecha;
+    
+    if(statusEl) statusEl.textContent = `✓ ${envios.length} envíos cargados — ${enviosFmtFecha(fecha)}`;
+    renderEnviosContenido();
+  } catch(err){
+    if(statusEl) statusEl.textContent = '✗ Error al leer el PDF: ' + err.message;
+    console.error('PDF error:', err);
+  }
+  // Limpiar input para permitir subir el mismo archivo de nuevo
+  event.target.value = '';
+}
+
+function copiarGuia(guia, btn){
+  navigator.clipboard.writeText(guia).then(()=>{
+    const orig = btn.innerHTML;
+    btn.innerHTML = '<i class="ti ti-check"></i>';
+    btn.style.background = '#d1fae5';
+    btn.style.borderColor = '#6ee7b7';
+    btn.style.color = '#065f46';
+    setTimeout(()=>{ btn.innerHTML = orig; btn.style.background=''; btn.style.borderColor=''; btn.style.color=''; }, 1500);
+  }).catch(()=>{
+    // Fallback para navegadores sin clipboard API
+    const ta = document.createElement('textarea');
+    ta.value = guia; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    const orig = btn.innerHTML;
+    btn.innerHTML = '<i class="ti ti-check"></i>';
+    setTimeout(()=>{ btn.innerHTML = orig; }, 1500);
+  });
+}
+
+function navEnvios(dir){
+  const fechas = enviosFechasOrdenadas();
+  if(fechas.length === 0) return;
+  const idx = fechas.indexOf(ENVIOS_FECHA_SEL);
+  const nuevoIdx = idx + dir;
+  if(nuevoIdx < 0 || nuevoIdx >= fechas.length) return;
+  ENVIOS_FECHA_SEL = fechas[nuevoIdx];
+  renderEnviosContenido();
+}
+
+function renderEnviosContenido(){
+  const cont = document.getElementById('envios-content');
+  if(!cont) return;
+  
+  cargarEnviosDesdeStorage();
+  const fechas = enviosFechasOrdenadas();
+  
+  if(fechas.length === 0){
+    cont.innerHTML = `
+      <div style="text-align:center;padding:60px 20px;color:var(--muted)">
+        <i class="ti ti-truck-off" style="font-size:44px;opacity:0.35"></i>
+        <p style="margin-top:12px;font-size:14px;font-weight:500">Sin manifiestos cargados</p>
+        <p style="font-size:12px;margin-top:4px">Usa el botón "Subir PDF" para cargar el manifiesto del día</p>
+      </div>`;
+    return;
+  }
+  
+  if(!ENVIOS_FECHA_SEL || !ENVIOS_DB[ENVIOS_FECHA_SEL]){
+    ENVIOS_FECHA_SEL = fechas[fechas.length - 1]; // mostrar el más reciente
+  }
+  
+  const idx = fechas.indexOf(ENVIOS_FECHA_SEL);
+  const hayAnterior = idx > 0;
+  const haySiguiente = idx < fechas.length - 1;
+  const envios = ENVIOS_DB[ENVIOS_FECHA_SEL] || [];
+  
+  cont.innerHTML = `
+    <!-- Navegador de fechas -->
+    <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:16px">
+      <button onclick="navEnvios(-1)" ${!hayAnterior?'disabled':''} 
+        style="width:36px;height:36px;border-radius:50%;border:1px solid var(--border);background:${hayAnterior?'white':'#f5f5f5'};color:${hayAnterior?'var(--text)':'#ccc'};cursor:${hayAnterior?'pointer':'default'};display:flex;align-items:center;justify-content:center;font-size:16px;transition:all 0.15s" 
+        ${hayAnterior?'onmouseover="this.style.background='var(--bl)';this.style.borderColor='var(--brown)'" onmouseout="this.style.background='white';this.style.borderColor='var(--border)'"':''}>
+        <i class="ti ti-chevron-left"></i>
+      </button>
+      
+      <div style="text-align:center">
+        <div style="font-size:16px;font-weight:600;color:var(--text)">${enviosFmtFecha(ENVIOS_FECHA_SEL)}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">${envios.length} envíos · ${idx+1} de ${fechas.length}</div>
+      </div>
+      
+      <button onclick="navEnvios(1)" ${!haySiguiente?'disabled':''}
+        style="width:36px;height:36px;border-radius:50%;border:1px solid var(--border);background:${haySiguiente?'white':'#f5f5f5'};color:${haySiguiente?'var(--text)':'#ccc'};cursor:${haySiguiente?'pointer':'default'};display:flex;align-items:center;justify-content:center;font-size:16px;transition:all 0.15s"
+        ${haySiguiente?'onmouseover="this.style.background='var(--bl)';this.style.borderColor='var(--brown)'" onmouseout="this.style.background='white';this.style.borderColor='var(--border)'"':''}>
+        <i class="ti ti-chevron-right"></i>
+      </button>
+    </div>
+
+    <!-- Selector de fechas (chips) -->
+    ${fechas.length > 1 ? `
+    <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-bottom:14px">
+      ${fechas.map(f=>`
+        <button onclick="ENVIOS_FECHA_SEL='${f}';renderEnviosContenido()"
+          style="padding:4px 12px;font-size:11px;border-radius:20px;border:1px solid ${f===ENVIOS_FECHA_SEL?'var(--brown)':'var(--border)'};background:${f===ENVIOS_FECHA_SEL?'var(--brown)':'white'};color:${f===ENVIOS_FECHA_SEL?'white':'var(--muted)'};cursor:pointer;transition:all 0.15s">
+          ${enviosFmtFecha(f)}
+        </button>`).join('')}
+    </div>` : ''}
+
+    <!-- Tabla de envíos -->
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div class="card-title" style="margin-bottom:0"><i class="ti ti-truck-delivery"></i> Manifiesto — ${enviosFmtFecha(ENVIOS_FECHA_SEL)}</div>
+        <button onclick="if(confirm('¿Eliminar el manifiesto de ${enviosFmtFecha(ENVIOS_FECHA_SEL)}?')){delete ENVIOS_DB['${ENVIOS_FECHA_SEL}'];guardarEnviosEnStorage();ENVIOS_FECHA_SEL=null;renderEnviosContenido()}"
+          style="padding:4px 10px;font-size:11px;border:1px solid #fca5a5;background:#fef2f2;color:#991b1b;border-radius:6px;cursor:pointer">
+          <i class="ti ti-trash" style="font-size:12px"></i>
+        </button>
+      </div>
+      ${envios.length === 0 ? '<p style="font-size:13px;color:var(--muted)">Sin envíos para este día</p>' : `
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead>
+            <tr style="background:#faf9f8;border-bottom:1px solid var(--border)">
+              <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">#</th>
+              <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Destinatario</th>
+              <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Razón Social</th>
+              <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Ciudad Destino</th>
+              <th style="padding:8px 12px;text-align:center;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Nº Guía</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${envios.map((e,i)=>`
+              <tr style="border-bottom:0.5px solid var(--border);transition:background 0.1s" onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='transparent'">
+                <td style="padding:8px 12px;color:var(--muted);font-size:11px">${i+1}</td>
+                <td style="padding:8px 12px;font-weight:500;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${e.destinatario}">${e.destinatario||'—'}</td>
+                <td style="padding:8px 12px;color:var(--text);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${e.razonSocial}">${e.razonSocial||'—'}</td>
+                <td style="padding:8px 12px;color:var(--muted);white-space:nowrap">
+                  <span style="display:inline-flex;align-items:center;gap:4px">
+                    <i class="ti ti-map-pin" style="font-size:11px;color:var(--brown)"></i>
+                    ${e.ciudad||'—'}
+                  </span>
+                </td>
+                <td style="padding:8px 12px;text-align:center;white-space:nowrap">
+                  <div style="display:inline-flex;align-items:center;gap:6px">
+                    <span style="font-family:monospace;font-size:12px;font-weight:600;color:var(--brown);letter-spacing:0.5px">${e.guia}</span>
+                    <button onclick="copiarGuia('${e.guia}', this)" title="Copiar número de guía"
+                      style="width:26px;height:26px;border-radius:6px;border:1px solid var(--border);background:white;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted);transition:all 0.15s;flex-shrink:0">
+                      <i class="ti ti-copy"></i>
+                    </button>
+                  </div>
+                </td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`}
+    </div>`;
+}
+
+function renderEnvios(){
+  subtabActual = 'envios';
+  cargarEnviosDesdeStorage();
+  if(!ENVIOS_FECHA_SEL){
+    const fechas = enviosFechasOrdenadas();
+    ENVIOS_FECHA_SEL = fechas.length > 0 ? fechas[fechas.length-1] : null;
+  }
+  
+  document.getElementById('main').innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+      <div class="breadcrumb" style="margin-bottom:0">
+        <i class="ti ti-truck-delivery" style="color:var(--brown);font-size:12px"></i>
+        <span style="font-weight:500">Envíos diarios</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <input type="file" id="envios-file-input" accept=".pdf" style="display:none" onchange="subirPdfEnvios(event)">
+        <button onclick="document.getElementById('envios-file-input').click()"
+          style="padding:7px 14px;font-size:12px;border-radius:8px;border:1px solid var(--brown);background:rgba(160,104,74,0.08);color:var(--brown);cursor:pointer;display:flex;align-items:center;gap:6px;font-weight:500">
+          <i class="ti ti-upload" style="font-size:14px"></i> Subir PDF
+        </button>
+        <span id="envios-upload-status" style="font-size:12px;color:var(--muted)"></span>
+      </div>
+    </div>
+    <div id="envios-content"></div>`;
+  
+  renderEnviosContenido();
+}
 
 // ─── TAB FACTURAS: reporte diario en tiempo real ──────────────────────────────
 async function renderFacturasHoy(){
