@@ -234,10 +234,17 @@ async function generarDataJson(fi, ff) {
   return resultado;
 }
 
+function nowEC() {
+  // Retorna un Date ajustado a la hora actual de Ecuador (UTC-5)
+  return new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Guayaquil' }));
+}
+
 function fmtDateEC(d) {
-  const dd = String(d.getDate()).padStart(2,'0');
-  const mm = String(d.getMonth()+1).padStart(2,'0');
-  const yyyy = d.getFullYear();
+  // Siempre usar hora de Ecuador (UTC-5) independientemente del timezone del servidor
+  const ecDate = new Date(d.toLocaleString('en-US', { timeZone: 'America/Guayaquil' }));
+  const dd = String(ecDate.getDate()).padStart(2,'0');
+  const mm = String(ecDate.getMonth()+1).padStart(2,'0');
+  const yyyy = ecDate.getFullYear();
   return `${dd}/${mm}/${yyyy}`;
 }
 
@@ -259,7 +266,7 @@ function parsearExcelInventario(buffer) {
       if (m) fechaCorte = m[1];
     }
   }
-  if (!fechaCorte) fechaCorte = fmtDateEC(new Date()).split('/').reverse().join('-'); // fallback: hoy
+  if (!fechaCorte) fechaCorte = fmtDateEC(nowEC()).split('/').reverse().join('-'); // fallback: hoy
 
   // Encontrar la fila de encabezados: la que contiene 'Código' y 'Producto'
   let filaEncabezado = -1;
@@ -400,7 +407,7 @@ async function sincronizarHoy() {
   if (cache.sincronizando) return;
   cache.sincronizando = true;
   try {
-    const now = new Date();
+    const now = nowEC();
     const fecha = fmtDateEC(now);
     const url = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${fecha}&fecha_final=${fecha}&page_size=100`;
     console.log('Sincronizando v2:', url);
@@ -472,7 +479,7 @@ async function fusionarMesActualEnCache() {
   if (regenerandoEnProceso) { console.log('Fusión incremental omitida: regeneración manual en curso'); return; }
   regenerandoEnProceso = true;
   try {
-    const hoy = new Date();
+    const hoy = nowEC();
     const anioActual = hoy.getFullYear();
     const mesActual = hoy.getMonth() + 1;
     const desde = fmtDateEC(new Date(anioActual, hoy.getMonth(), 1));
@@ -1002,7 +1009,7 @@ async function regenerarDataAutomatico() {
   if (regenerandoEnProceso) { console.log('Regeneración automática diaria omitida: otra regeneración en curso'); return; }
   regenerandoEnProceso = true;
   try {
-    const hoy = new Date();
+    const hoy = nowEC();
     const anioActual = hoy.getFullYear();
     const fi = `01/01/${anioActual}`;
     const ff = fmtDateEC(hoy);
@@ -1386,7 +1393,7 @@ const server = http.createServer(async (req, res) => {
   // sin pegarle a Contifico en vivo cada vez que alguien abre la pestaña Facturas.
   if (urlPath === '/api/ventas-mes-actual' && req.method === 'GET') {
     try {
-      const ahora = new Date();
+      const ahora = nowEC();
       const anio = parseInt(urlObj.searchParams.get('anio')) || ahora.getFullYear();
       const mes = parseInt(urlObj.searchParams.get('mes')) || (ahora.getMonth() + 1); // 1-indexed, igual que frecuencia_dia
       const porDia = {}; // { dia: {total, subtotal} }
@@ -1425,7 +1432,7 @@ const server = http.createServer(async (req, res) => {
   // TEST V2
   if (urlPath === '/api/test-v2' && req.method === 'GET') {
     try {
-      const now = new Date();
+      const now = nowEC();
       const testFecha = fmtDateEC(now);
       const testUrl = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${testFecha}&fecha_final=${testFecha}`;
       console.log('Testing v2:', testUrl);
@@ -1477,7 +1484,7 @@ const server = http.createServer(async (req, res) => {
   if (urlPath === '/api/diagnostico-ventas' && req.method === 'GET') {
     try {
       const fi = urlObj.searchParams.get('desde') || '01/01/2026';
-      const ff = urlObj.searchParams.get('hasta') || fmtDateEC(new Date());
+      const ff = urlObj.searchParams.get('hasta') || fmtDateEC(nowEC());
       let totalCLI=0, totalNC=0, totalFernando=0, totalAnulado=0;
       let countCLI=0, countNC=0, countFernando=0, countAnulado=0;
       let nextUrl = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${fi}&fecha_final=${ff}&page_size=100`;
@@ -1520,9 +1527,9 @@ const server = http.createServer(async (req, res) => {
   // REGENERAR DATA.JSON
   if (urlPath === '/api/regenerar-data' && req.method === 'GET') {
     const desdeParam = urlObj.searchParams.get('desde');
-    const anioActual = new Date().getFullYear();
+    const anioActual = nowEC().getFullYear();
     const fi = desdeParam || fmtDateEC(new Date(anioActual,0,1));
-    const ff = urlObj.searchParams.get('hasta') || fmtDateEC(new Date());
+    const ff = urlObj.searchParams.get('hasta') || fmtDateEC(nowEC());
     // El rango solicitado empieza en el año en curso (o después) → fusión segura, no toca
     // años anteriores. Si el rango pedido incluye años anteriores (ej. desde 2025), se
     // interpreta como intención deliberada de corregir histórico y se reemplaza todo el rango.
@@ -1563,7 +1570,7 @@ const server = http.createServer(async (req, res) => {
   if (urlPath === '/api/ver-vendedores' && req.method === 'GET') {
     try {
       const desde = urlObj.searchParams.get('desde') || '01/01/2026';
-      const hasta = urlObj.searchParams.get('hasta') || fmtDateEC(new Date());
+      const hasta = urlObj.searchParams.get('hasta') || fmtDateEC(nowEC());
       const url = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${desde}&fecha_final=${hasta}&page_size=100`;
       const resp = await fetch(url, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
       const data = await resp.json();
@@ -1587,7 +1594,7 @@ const server = http.createServer(async (req, res) => {
   if (urlPath === '/api/ver-facturas-fernando-desc' && req.method === 'GET') {
     try {
       const desde = urlObj.searchParams.get('desde') || '01/01/2026';
-      const hasta = urlObj.searchParams.get('hasta') || fmtDateEC(new Date());
+      const hasta = urlObj.searchParams.get('hasta') || fmtDateEC(nowEC());
       let encontrados = [];
       let nextUrl = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${desde}&fecha_final=${hasta}&page_size=100`;
       let paginas = 0;
@@ -1642,7 +1649,7 @@ const server = http.createServer(async (req, res) => {
     try {
       const numDoc = urlObj.searchParams.get('numero') || '';
       const desde = urlObj.searchParams.get('desde') || '01/06/2026';
-      const hasta = urlObj.searchParams.get('hasta') || fmtDateEC(new Date());
+      const hasta = urlObj.searchParams.get('hasta') || fmtDateEC(nowEC());
       let encontrados = [];
       let nextUrl = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${desde}&fecha_final=${hasta}&page_size=100`;
       let paginas = 0;
@@ -1690,7 +1697,7 @@ const server = http.createServer(async (req, res) => {
   if (urlPath === '/api/diagnostico-mes' && req.method === 'GET') {
     try {
       const desde = urlObj.searchParams.get('desde') || '01/06/2026';
-      const hasta = urlObj.searchParams.get('hasta') || fmtDateEC(new Date());
+      const hasta = urlObj.searchParams.get('hasta') || fmtDateEC(nowEC());
       let todos = [];
       let nextUrl = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${desde}&fecha_final=${hasta}&page_size=100`;
       let paginas = 0;
@@ -1771,7 +1778,7 @@ const server = http.createServer(async (req, res) => {
     try {
       const nombreBuscado = (urlObj.searchParams.get('nombre') || '').toUpperCase().trim().replace(/\s+/g,' ');
       const desde = urlObj.searchParams.get('desde') || '01/01/2026';
-      const hasta = urlObj.searchParams.get('hasta') || fmtDateEC(new Date());
+      const hasta = urlObj.searchParams.get('hasta') || fmtDateEC(nowEC());
       let todos = [];
       let nextUrl = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${desde}&fecha_final=${hasta}&page_size=100`;
       let paginas = 0;
@@ -1905,7 +1912,7 @@ const server = http.createServer(async (req, res) => {
     try {
       const nombre = urlObj.searchParams.get('q') || 'cosetika';
       const desde = urlObj.searchParams.get('desde') || '01/06/2026';
-      const hasta = urlObj.searchParams.get('hasta') || fmtDateEC(new Date());
+      const hasta = urlObj.searchParams.get('hasta') || fmtDateEC(nowEC());
       // Paginar para obtener más resultados
       let encontrados = [];
       let nextUrl = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${desde}&fecha_final=${hasta}&page_size=100`;
@@ -2066,7 +2073,7 @@ const server = http.createServer(async (req, res) => {
         ejemplo_frecuencia: clientes[0]?.frecuencia?.slice(0,3) || []
       };
     });
-    const anioActual = new Date().getFullYear();
+    const anioActual = nowEC().getFullYear();
     let totalLineasProductosMes = 0, totalLineasProductosMesAnioActual = 0, clientesConProductosMes = 0;
     Object.values(DATA_CACHE||{}).forEach(clientes=>{
       (clientes||[]).forEach(cli=>{
@@ -2136,7 +2143,7 @@ const server = http.createServer(async (req, res) => {
       // (fecha real del servidor al momento de subir el Excel) — mismo patrón que
       // mercately_registros: cada subida reemplaza el acumulado de este mes, nunca de
       // meses anteriores ya cerrados.
-      const ahora = new Date();
+      const ahora = nowEC();
       const anioActual = ahora.getFullYear(), mesActual = ahora.getMonth()+1;
       const asesorasGuardadas = [];
       for (const [asesora, cantidad] of Object.entries(clientesPorVendedor||{})) {
@@ -2168,7 +2175,7 @@ const server = http.createServer(async (req, res) => {
     try {
       const nombreBuscado = (urlObj.searchParams.get('nombre') || '').toUpperCase().trim();
       const desde = urlObj.searchParams.get('desde') || '01/01/2025';
-      const hasta = urlObj.searchParams.get('hasta') || fmtDateEC(new Date());
+      const hasta = urlObj.searchParams.get('hasta') || fmtDateEC(nowEC());
       let todos = [];
       let nextUrl = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${desde}&fecha_final=${hasta}&page_size=100`;
       let paginas = 0;
@@ -2222,7 +2229,7 @@ const server = http.createServer(async (req, res) => {
       const marcaBuscada = (urlObj.searchParams.get('marca') || '').toUpperCase().trim();
       const anio = parseInt(urlObj.searchParams.get('anio')) || new Date().getFullYear();
       const desde = urlObj.searchParams.get('desde') || `01/01/${anio}`;
-      const hasta = urlObj.searchParams.get('hasta') || fmtDateEC(new Date());
+      const hasta = urlObj.searchParams.get('hasta') || fmtDateEC(nowEC());
 
       // 1) Calcular EN VIVO desde Contifico (rehace generarDataJson para el rango)
       const dataEnVivo = await generarDataJson(desde, hasta);
@@ -2538,7 +2545,7 @@ const server = http.createServer(async (req, res) => {
     try {
       const backup = await generarBackupCompleto();
       const json = JSON.stringify(backup, null, 2);
-      const fechaStr = fmtDateEC(new Date()).split('/').join('-');
+      const fechaStr = fmtDateEC(nowEC()).split('/').join('-');
       await registrarDescargaBackup();
       res.writeHead(200, {
         'Content-Type': 'application/json',
