@@ -2176,6 +2176,62 @@ function normalizarTextoControl(s){
   return (s||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Z0-9 ]/g,'').trim();
 }
 
+// Distancia de Levenshtein simple — para tolerar pequeños typos entre palabras
+// (ej. "MIRIAM" vs "MIRIAN", una sola letra de diferencia)
+function distanciaEdicion(a, b){
+  const m = a.length, n = b.length;
+  if(m === 0) return n;
+  if(n === 0) return m;
+  const dp = Array.from({length: m+1}, () => new Array(n+1).fill(0));
+  for(let i=0;i<=m;i++) dp[i][0]=i;
+  for(let j=0;j<=n;j++) dp[0][j]=j;
+  for(let i=1;i<=m;i++){
+    for(let j=1;j<=n;j++){
+      dp[i][j] = a[i-1]===b[j-1] ? dp[i-1][j-1] : 1+Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
+    }
+  }
+  return dp[m][n];
+}
+
+// Dos palabras "coinciden" si son iguales, o muy parecidas (typo de 1-2 letras según largo)
+function palabrasCoinciden(p1, p2){
+  if(p1 === p2) return true;
+  if(p1.length < 3 || p2.length < 3) return false; // evita falsos positivos en iniciales sueltas
+  const tolerancia = Math.min(p1.length, p2.length) >= 6 ? 2 : 1;
+  return distanciaEdicion(p1, p2) <= tolerancia;
+}
+
+// Compara dos nombres por palabras en común (orden no importa) — soporta nombres
+// incompletos ("ALBA SALAZAR" vs "ALBA NATALIA SALAZAR ULLOA"), typos ("MIRIAM" vs
+// "MIRIAN"), y exige al menos 2 palabras coincidentes (o 1 si el nombre es muy corto)
+// para evitar matches falsos solo por compartir un nombre de pila muy común.
+function nombresCoinciden(nombreA, nombreB){
+  if(!nombreA || !nombreB) return false;
+  const palabrasA = nombreA.split(' ').filter(w => w.length >= 3);
+  const palabrasB = nombreB.split(' ').filter(w => w.length >= 3);
+  if(palabrasA.length === 0 || palabrasB.length === 0) return false;
+
+  let coincidencias = 0;
+  const usadasB = new Set();
+  for(const pa of palabrasA){
+    for(let i=0;i<palabrasB.length;i++){
+      if(usadasB.has(i)) continue;
+      if(palabrasCoinciden(pa, palabrasB[i])){
+        coincidencias++;
+        usadasB.add(i);
+        break;
+      }
+    }
+  }
+
+  const minPalabras = Math.min(palabrasA.length, palabrasB.length);
+  // Si uno de los nombres tiene una sola palabra significativa, exigimos esa coincida;
+  // si ambos tienen 2+ palabras, exigimos al menos 2 coincidencias (nombre + apellido)
+  // para evitar falsos positivos por un solo nombre de pila compartido (ej. "María").
+  if(minPalabras === 1) return coincidencias >= 1;
+  return coincidencias >= 2;
+}
+
 async function renderControlContenido(){
   const cont = document.getElementById('control-content');
   if(!cont) return;
@@ -2221,7 +2277,7 @@ async function renderControlContenido(){
     const nombreNorm = normalizarTextoControl(pedido.cliente_nombre);
     if(pedido.facturado && pedido.documento_factura) return { match:true, documento: pedido.documento_factura };
     if(!nombreNorm) return { match:false };
-    const f = facturasNorm.find(f => f.nombre && (f.nombre.includes(nombreNorm) || nombreNorm.includes(f.nombre)));
+    const f = facturasNorm.find(f => f.nombre && nombresCoinciden(f.nombre, nombreNorm));
     return f ? { match:true, documento:f.documento } : { match:false };
   }
 
@@ -2229,8 +2285,8 @@ async function renderControlContenido(){
     const nombreNorm = normalizarTextoControl(pedido.cliente_nombre);
     if(!nombreNorm) return { match:false };
     const e = enviosNorm.find(e =>
-      (e.destinatario && (e.destinatario.includes(nombreNorm) || nombreNorm.includes(e.destinatario))) ||
-      (e.razonSocial && (e.razonSocial.includes(nombreNorm) || nombreNorm.includes(e.razonSocial)))
+      (e.destinatario && nombresCoinciden(e.destinatario, nombreNorm)) ||
+      (e.razonSocial && nombresCoinciden(e.razonSocial, nombreNorm))
     );
     return e ? { match:true, guia:e.guia } : { match:false };
   }
@@ -2294,8 +2350,10 @@ async function renderControlContenido(){
                 <td style="padding:7px 12px;color:var(--muted);font-size:11px;white-space:nowrap">#${p.numero_pedido}</td>
                 <td style="padding:7px 12px;font-weight:500;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p.cliente_nombre||''}">${p.cliente_nombre||'—'}</td>
                 <td style="padding:7px 12px;text-align:right;color:var(--brown);font-weight:600">${fmt(parseFloat(p.total||0))}</td>
-                <td style="padding:7px 12px;text-align:center" title="${fac.documento?('Factura '+fac.documento):''}">
-                  ${fac.match ? '<i class="ti ti-check" style="color:#10b981;font-size:18px;font-weight:700"></i>' : '<i class="ti ti-x" style="color:#ef4444;font-size:18px;font-weight:700"></i>'}
+                <td style="padding:7px 12px;text-align:center" title="${fac.documento?('Factura '+fac.documento):'Click para marcar como facturado manualmente'}">
+                  ${fac.match
+                    ? '<i class="ti ti-check" style="color:#10b981;font-size:18px;font-weight:700"></i>'
+                    : `<i class="ti ti-x" style="color:#ef4444;font-size:18px;font-weight:700;cursor:pointer" onclick="marcarFacturadoManual('${p.numero_pedido}')"></i>`}
                 </td>
                 <td style="padding:7px 12px;text-align:center" title="${env.guia?('Guía '+env.guia):''}">
                   ${env.match ? '<i class="ti ti-check" style="color:#10b981;font-size:18px;font-weight:700"></i>' : '<i class="ti ti-x" style="color:#ef4444;font-size:18px;font-weight:700"></i>'}
@@ -2305,6 +2363,21 @@ async function renderControlContenido(){
         </table>
       </div>`}
     </div>`;
+}
+
+async function marcarFacturadoManual(numeroPedido){
+  const documento = prompt('Número de factura asociada (opcional, puedes dejarlo vacío):');
+  if(documento === null) return; // canceló
+  try{
+    await fetch('/api/pedidos-web/marcar-facturado', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ numeroPedido, documentoFactura: documento || null })
+    });
+    await renderControlContenido();
+  } catch(e){
+    alert('Error al marcar como facturado: ' + e.message);
+  }
 }
 
 async function resincronizarPedidosWeb(btn){
