@@ -3447,6 +3447,9 @@ function selCliente(nombre){
       <div style="flex:1;min-width:0">
         <div class="cli-name" title="${nombre}">${nombre}</div>
         <div class="cli-sub">Total: <strong style="color:var(--brown)">${fmt(c.total)}</strong> · ${c.num_compras} facturas · ${vendActual}</div>
+        ${c.ruc ? `<div style="font-size:11px;color:var(--muted);margin-top:2px"><i class="ti ti-id-badge" style="font-size:11px;margin-right:3px"></i>${c.ruc}</div>` : ''}
+        ${c.telefono ? `<div style="font-size:11px;color:var(--muted);margin-top:2px"><i class="ti ti-phone" style="font-size:11px;margin-right:3px"></i><a href="tel:${c.telefono}" style="color:var(--muted);text-decoration:none">${c.telefono}</a></div>` : ''}
+        ${c.direccion ? `<div style="font-size:11px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${c.direccion}"><i class="ti ti-map-pin" style="font-size:11px;margin-right:3px"></i>${c.direccion}</div>` : ''}
       </div>
       <button class="back-btn" onclick="renderVendedor('${vendActual.replace(/'/g,"\'")}')"><i class="ti ti-arrow-left"></i> Volver</button>
     </div>
@@ -3709,6 +3712,9 @@ function selClienteProvincia(nombre, provincia){
       <div style="flex:1;min-width:0">
         <div class="cli-name" title="${nombre}">${nombre}</div>
         <div class="cli-sub">Total: <strong style="color:var(--brown)">${fmt(c.total)}</strong> · ${c.num_compras} facturas · ${vendNombre}</div>
+        ${c.ruc ? `<div style="font-size:11px;color:var(--muted);margin-top:2px"><i class="ti ti-id-badge" style="font-size:11px;margin-right:3px"></i>${c.ruc}</div>` : ''}
+        ${c.telefono ? `<div style="font-size:11px;color:var(--muted);margin-top:2px"><i class="ti ti-phone" style="font-size:11px;margin-right:3px"></i><a href="tel:${c.telefono}" style="color:var(--muted);text-decoration:none">${c.telefono}</a></div>` : ''}
+        ${c.direccion ? `<div style="font-size:11px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${c.direccion}"><i class="ti ti-map-pin" style="font-size:11px;margin-right:3px"></i>${c.direccion}</div>` : ''}
       </div>
       <button class="back-btn" onclick="renderProvincias('${provincia.replace(/'/g,"\'")}')"><i class="ti ti-arrow-left"></i> Volver</button>
     </div>

@@ -160,9 +160,12 @@ async function generarDataJson(fi, ff) {
       if (!vendedores[vendId]) vendedores[vendId] = { nombre: vendNom, clientes: {} };
       vendedores[vendId].nombre = vendNom;
       const vObj = vendedores[vendId].clientes;
-      if (!vObj[cliId]) vObj[cliId] = { id: cliId, nombre: cliNom, ruc: cliRuc, total: 0, subtotal: 0, num_compras: 0, provincia: cliProv, marcas: {}, marcasPorAnio: {}, marcasPorMes: {}, productos: {}, frecuencia: {} };
+      if (!vObj[cliId]) vObj[cliId] = { id: cliId, nombre: cliNom, ruc: cliRuc, total: 0, subtotal: 0, num_compras: 0, provincia: cliProv, marcas: {}, marcasPorAnio: {}, marcasPorMes: {}, productos: {}, frecuencia: {}, telefono: '', direccion: '' };
       const cli = vObj[cliId];
       cli.nombre = cliNom; cli.ruc = cliRuc;
+      // Teléfono y dirección: se actualiza cada vez que aparece en una factura nueva
+      if(doc.cliente?.telefono) cli.telefono = doc.cliente.telefono;
+      if(doc.cliente?.direccion) cli.direccion = doc.cliente.direccion;
       // La provincia se recalcula siempre con el valor más reciente de cliProv, en vez de
       // quedarse fija con el primer valor calculado. Esto es necesario porque el override
       // manual de provincias (Excel subido por Fernando) puede actualizarse en cualquier
@@ -226,6 +229,8 @@ async function generarDataJson(fi, ff) {
   Object.values(vendedores).forEach(vend => {
     resultado[vend.nombre] = Object.values(vend.clientes).map(cli => ({
       id: cli.id, nombre: cli.nombre, ruc: cli.ruc,
+      telefono: cli.telefono || '',
+      direccion: cli.direccion || '',
       total: Math.round(cli.total * 100) / 100,
       subtotal: Math.round(cli.subtotal * 100) / 100,
       num_compras: cli.num_compras, provincia: cli.provincia,
@@ -738,6 +743,8 @@ async function fusionarMesActualEnCache() {
         // Igual que en la fusión anual: copiar la provincia recién calculada (que ya
         // respeta el override más reciente) de vuelta al cliente existente en DATA_CACHE.
         if(cliMes.provincia) cli.provincia = cliMes.provincia;
+        if(cliMes.telefono) cli.telefono = cliMes.telefono;
+        if(cliMes.direccion) cli.direccion = cliMes.direccion;
         cli.frecuencia = (cli.frecuencia||[]).concat(cliMes.frecuencia);
         cli.frecuencia_dia = (cli.frecuencia_dia||[]).concat(cliMes.frecuencia_dia||[]);
         cli.marcas_anio = consolidarMarcasAnio((cli.marcas_anio||[]).concat(cliMes.marcas_anio));
@@ -825,6 +832,8 @@ async function fusionarAnioActualEnCache(anioActual, dataAnio) {
       // de vuelta al cliente existente en DATA_CACHE (por eso un override subido después
       // de que el cliente ya existiera en caché nunca se reflejaba, aun regenerando).
       if(cliAnio.provincia) cli.provincia = cliAnio.provincia;
+      if(cliAnio.telefono) cli.telefono = cliAnio.telefono;
+      if(cliAnio.direccion) cli.direccion = cliAnio.direccion;
       cli.frecuencia = (cli.frecuencia||[]).concat(cliAnio.frecuencia);
       cli.frecuencia_dia = (cli.frecuencia_dia||[]).concat(cliAnio.frecuencia_dia||[]);
       cli.marcas_anio = (cli.marcas_anio||[]).concat(cliAnio.marcas_anio);
