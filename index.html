@@ -3462,12 +3462,24 @@ function selCliente(nombre){
       </div>
       <div class="card">
         <div class="card-title"><i class="ti ti-calendar-stats"></i> Frecuencia por mes</div>
-        ${c.frecuencia.length?c.frecuencia.map(f=>`
-          <div class="freq-row">
-            <span class="freq-lbl">${MESES[f.mes]||f.mes}</span>
-            <div class="freq-track"><div class="freq-fill" style="width:${pct(f.total,maxFreq)}%;min-width:${f.total>0?'36px':'0'}"><span>${fmt(f.total)}</span></div></div>
-            <span class="freq-count">${f.compras} compra${f.compras>1?'s':''}</span>
-          </div>`).join(''):'<p style="font-size:12px;color:var(--muted)">Sin historial</p>'}
+        ${(()=>{
+          const freqMap = {};
+          (c.frecuencia||[]).forEach(f => {
+            const k = `${f.anio||2026}-${String(f.mes).padStart(2,'0')}`;
+            if(!freqMap[k]) freqMap[k] = { anio: f.anio||2026, mes: f.mes, total: 0, subtotal: 0, compras: 0 };
+            freqMap[k].total = Math.round((freqMap[k].total + (f.total||0))*100)/100;
+            freqMap[k].subtotal = Math.round((freqMap[k].subtotal + (f.subtotal||0))*100)/100;
+            freqMap[k].compras += (f.compras||0);
+          });
+          const freqDedup = Object.values(freqMap).sort((a,b) => a.anio!==b.anio ? a.anio-b.anio : a.mes-b.mes);
+          const maxF = Math.max(...freqDedup.map(f=>f.total), 1);
+          return freqDedup.length ? freqDedup.map(f=>`
+            <div class="freq-row">
+              <span class="freq-lbl">${MESES[f.mes]||f.mes}</span>
+              <div class="freq-track"><div class="freq-fill" style="width:${pct(f.total,maxF)}%;min-width:${f.total>0?'36px':'0'}"><span>${fmt(f.total)}</span></div></div>
+              <span class="freq-count">${f.compras} compra${f.compras>1?'s':''}</span>
+            </div>`).join('') : '<p style="font-size:12px;color:var(--muted)">Sin historial</p>';
+        })()}
         <div style="margin-top:8px;font-size:11px;color:var(--muted)">Total: <strong>${c.num_compras}</strong> facturas · <strong style="color:var(--brown)">${fmt(c.total)}</strong></div>
         ${(c.marcas||[]).length?`
         <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:10px">
@@ -3712,12 +3724,24 @@ function selClienteProvincia(nombre, provincia){
       </div>
       <div class="card">
         <div class="card-title"><i class="ti ti-calendar-stats"></i> Frecuencia por mes</div>
-        ${c.frecuencia.length?c.frecuencia.map(f=>`
-          <div class="freq-row">
-            <span class="freq-lbl">${MESES[f.mes]||f.mes}</span>
-            <div class="freq-track"><div class="freq-fill" style="width:${pct(f.total,maxFreq)}%;min-width:${f.total>0?'36px':'0'}"><span>${fmt(f.total)}</span></div></div>
-            <span class="freq-count">${f.compras} compra${f.compras>1?'s':''}</span>
-          </div>`).join(''):'<p style="font-size:12px;color:var(--muted)">Sin historial</p>'}
+        ${(()=>{
+          const freqMap = {};
+          (c.frecuencia||[]).forEach(f => {
+            const k = `${f.anio||2026}-${String(f.mes).padStart(2,'0')}`;
+            if(!freqMap[k]) freqMap[k] = { anio: f.anio||2026, mes: f.mes, total: 0, subtotal: 0, compras: 0 };
+            freqMap[k].total = Math.round((freqMap[k].total + (f.total||0))*100)/100;
+            freqMap[k].subtotal = Math.round((freqMap[k].subtotal + (f.subtotal||0))*100)/100;
+            freqMap[k].compras += (f.compras||0);
+          });
+          const freqDedup = Object.values(freqMap).sort((a,b) => a.anio!==b.anio ? a.anio-b.anio : a.mes-b.mes);
+          const maxF = Math.max(...freqDedup.map(f=>f.total), 1);
+          return freqDedup.length ? freqDedup.map(f=>`
+            <div class="freq-row">
+              <span class="freq-lbl">${MESES[f.mes]||f.mes}</span>
+              <div class="freq-track"><div class="freq-fill" style="width:${pct(f.total,maxF)}%;min-width:${f.total>0?'36px':'0'}"><span>${fmt(f.total)}</span></div></div>
+              <span class="freq-count">${f.compras} compra${f.compras>1?'s':''}</span>
+            </div>`).join('') : '<p style="font-size:12px;color:var(--muted)">Sin historial</p>';
+        })()}
         <div style="margin-top:8px;font-size:11px;color:var(--muted)">Total: <strong>${c.num_compras}</strong> facturas · <strong style="color:var(--brown)">${fmt(c.total)}</strong></div>
         ${(c.marcas||[]).length?`
         <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:10px">
