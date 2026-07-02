@@ -1490,6 +1490,20 @@ async function initDB() {
       );
       CREATE INDEX IF NOT EXISTS idx_testers_cliente ON testers(cliente_id);
       CREATE INDEX IF NOT EXISTS idx_testers_nombre ON testers(LOWER(cliente_nombre));
+      CREATE TABLE IF NOT EXISTS personas (
+        id SERIAL PRIMARY KEY,
+        cedula VARCHAR(20),
+        ruc VARCHAR(20),
+        razon_social VARCHAR(500) NOT NULL,
+        telefono VARCHAR(50),
+        direccion TEXT,
+        email VARCHAR(255),
+        vendedor VARCHAR(255),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_personas_cedula ON personas(cedula);
+      CREATE INDEX IF NOT EXISTS idx_personas_ruc ON personas(ruc);
+      CREATE INDEX IF NOT EXISTS idx_personas_nombre ON personas(LOWER(razon_social));
     `);
     const usuarios = [
       { nombre: 'Fernando Espíndola', usuario: 'Fernando', password: '1234', rol: 'admin', modulos: 'ventas,visitas,kpis,inventario,config' },
@@ -2844,6 +2858,80 @@ const server = http.createServer(async (req, res) => {
   }
 
   // TESTERS — registro de testers entregados a clientes
+  // PERSONAS — directorio de clientes cargado desde el Excel mensual de Contifico
+  // GET /api/personas/buscar?q=nombre_o_cedula → busca por nombre, cédula o RUC
+  if (urlPath === '/api/personas/buscar' && req.method === 'GET') {
+    try {
+      const q = (urlObj.searchParams.get('q')||'').trim();
+      if (!q || q.length < 2) {
+        res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify([])); return;
+      }
+      const r = await pool.query(
+        `SELECT razon_social, cedula, ruc, telefono, direccion, email, vendedor
+         FROM personas
+         WHERE LOWER(razon_social) LIKE LOWER($1) OR cedula LIKE $1 OR ruc LIKE $1
+         LIMIT 5`,
+        [`%${q}%`]
+      );
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.rows));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+  // POST /api/personas/subir → carga masiva del Excel Personas.xls
+  if (urlPath === '/api/personas/subir' && req.method === 'POST') {
+    try {
+      const buf = await bodyBuffer(req);
+      const archivo = parseMultipartFile(buf, req.headers['content-type']);
+      if (!archivo) {
+        res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'No se encontró archivo'})); return;
+      }
+      // Parsear con xlsx (xlrd no disponible en Node — usamos xlsx que soporta .xls)
+      const wb = XLSX.read(archivo.buffer, { type: 'buffer' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const filas = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+      // Fila 2 (índice 2) contiene los encabezados reales
+      const hdrs = (filas[2]||[]).map(h => String(h||'').trim());
+      const iRuc    = hdrs.indexOf('RUC');
+      const iCed    = hdrs.indexOf('Cédula');
+      const iNom    = hdrs.indexOf('Razón Social');
+      const iTel    = hdrs.indexOf('Teléfonos');
+      const iDir    = hdrs.indexOf('Dirección');
+      const iEmail  = hdrs.indexOf('Email');
+      const iVend   = hdrs.indexOf('Vendedor Asignado');
+      if (iNom === -1) {
+        res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'No se encontró columna Razón Social'})); return;
+      }
+      await pool.query('TRUNCATE TABLE personas RESTART IDENTITY');
+      let insertados = 0;
+      const LOTE = 200;
+      const datos = filas.slice(3).filter(r => r && r[iNom]);
+      for (let i = 0; i < datos.length; i += LOTE) {
+        const lote = datos.slice(i, i + LOTE);
+        const vals = []; const params = [];
+        lote.forEach((r, j) => {
+          const b = j * 7;
+          vals.push(`($${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6},$${b+7})`);
+          params.push(
+            String(r[iCed]||'').trim() || null,
+            String(r[iRuc]||'').trim() || null,
+            String(r[iNom]||'').trim(),
+            String(r[iTel]||'').trim() || null,
+            String(r[iDir]||'').trim() || null,
+            String(r[iEmail]||'').trim() || null,
+            String(r[iVend]||'').trim() || null
+          );
+        });
+        await pool.query(
+          `INSERT INTO personas(cedula,ruc,razon_social,telefono,direccion,email,vendedor) VALUES ${vals.join(',')}`,
+          params
+        );
+        insertados += lote.length;
+      }
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, insertados}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
   // GET /api/testers/resumen → clientes agrupados con conteo y última entrega (rápido)
   if (urlPath === '/api/testers/resumen' && req.method === 'GET') {
     try {
