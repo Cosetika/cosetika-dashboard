@@ -1482,6 +1482,7 @@ async function initDB() {
         id SERIAL PRIMARY KEY,
         cliente_id VARCHAR(100) NOT NULL,
         cliente_nombre VARCHAR(500) NOT NULL,
+        cliente_cedula VARCHAR(50),
         categoria VARCHAR(255),
         producto TEXT NOT NULL,
         codigo VARCHAR(50),
@@ -1490,6 +1491,8 @@ async function initDB() {
       );
       CREATE INDEX IF NOT EXISTS idx_testers_cliente ON testers(cliente_id);
       CREATE INDEX IF NOT EXISTS idx_testers_nombre ON testers(LOWER(cliente_nombre));
+      CREATE INDEX IF NOT EXISTS idx_testers_cedula ON testers(cliente_cedula);
+      ALTER TABLE testers ADD COLUMN IF NOT EXISTS cliente_cedula VARCHAR(50);
       CREATE TABLE IF NOT EXISTS personas (
         id SERIAL PRIMARY KEY,
         cedula VARCHAR(50),
@@ -2949,11 +2952,11 @@ const server = http.createServer(async (req, res) => {
   if (urlPath === '/api/testers/resumen' && req.method === 'GET') {
     try {
       const r = await pool.query(
-        `SELECT cliente_id, cliente_nombre,
+        `SELECT cliente_id, cliente_nombre, cliente_cedula,
                 COUNT(*) AS total,
                 TO_CHAR(MAX(fecha_entrega), 'YYYY-MM-DD') AS ultima_entrega
          FROM testers
-         GROUP BY cliente_id, cliente_nombre
+         GROUP BY cliente_id, cliente_nombre, cliente_cedula
          ORDER BY cliente_nombre`
       );
       res.writeHead(200,{'Content-Type':'application/json'});
@@ -3007,34 +3010,27 @@ const server = http.createServer(async (req, res) => {
   // GET /api/testers?clienteId=XXX        → testers de un cliente específico
   if (urlPath === '/api/testers' && req.method === 'GET') {
     try {
-      const clienteId = urlObj.searchParams.get('clienteId');
-      const nombre    = urlObj.searchParams.get('nombre');
+      const clienteId  = urlObj.searchParams.get('clienteId');
+      const nombre     = urlObj.searchParams.get('nombre');
+      const cedula     = urlObj.searchParams.get('cedula');
       let r;
-      if (clienteId || nombre) {
-        // Busca por cliente_id exacto, o por palabras del nombre del cliente
-        // Los testers del Excel tienen formato "Apellido Nombre" — buscamos
-        // cualquier palabra significativa (3+ letras) del nombre en Contifico
+      if (cedula) {
+        // Búsqueda por cédula/RUC — más precisa que por nombre
+        r = await pool.query(
+          `SELECT * FROM testers WHERE cliente_cedula=$1 ORDER BY fecha_entrega DESC NULLS LAST`,
+          [cedula]
+        );
+      } else if (clienteId || nombre) {
         const palabras = (nombre||clienteId||'')
-          .toUpperCase()
-          .replace(/[^A-ZÁÉÍÓÚÑ ]/gi,'')
-          .split(' ')
-          .filter(p => p.length >= 4);
-
-        // Construir condición OR por cada palabra
+          .toUpperCase().replace(/[^A-ZÁÉÍÓÚÑ ]/gi,'').split(' ').filter(p=>p.length>=4);
         if (palabras.length > 0) {
-          const conds = palabras.map((_,i) => `UPPER(cliente_id) LIKE $${i+2} OR UPPER(cliente_nombre) LIKE $${i+2}`);
+          const conds = palabras.map((_,i)=>`UPPER(cliente_id) LIKE $${i+2} OR UPPER(cliente_nombre) LIKE $${i+2}`);
           r = await pool.query(
-            `SELECT * FROM testers
-             WHERE cliente_id = $1
-             OR ${conds.join(' OR ')}
-             ORDER BY fecha_entrega DESC NULLS LAST`,
+            `SELECT * FROM testers WHERE cliente_id=$1 OR ${conds.join(' OR ')} ORDER BY fecha_entrega DESC NULLS LAST`,
             [clienteId||'', ...palabras.map(p=>`%${p}%`)]
           );
         } else {
-          r = await pool.query(
-            `SELECT * FROM testers WHERE cliente_id=$1 ORDER BY fecha_entrega DESC NULLS LAST`,
-            [clienteId||'']
-          );
+          r = await pool.query(`SELECT * FROM testers WHERE cliente_id=$1 ORDER BY fecha_entrega DESC NULLS LAST`,[clienteId||'']);
         }
       } else {
         r = await pool.query('SELECT * FROM testers ORDER BY cliente_nombre, fecha_entrega DESC NULLS LAST');
@@ -3046,15 +3042,20 @@ const server = http.createServer(async (req, res) => {
   // POST /api/testers → registrar un nuevo tester entregado
   if (urlPath === '/api/testers' && req.method === 'POST') {
     try {
-      const { clienteId, clienteNombre, categoria, producto, codigo, fechaEntrega } = await bodyJSON(req);
+      const { clienteId, clienteNombre, clienteCedula, categoria, producto, codigo, fechaEntrega } = await bodyJSON(req);
       if (!clienteId || !producto) {
-        res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'Faltan datos'}));
-        return;
+        res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'Faltan datos'})); return;
+      }
+      // Si viene con cédula, actualizar la cédula en todos los registros previos del cliente
+      if (clienteCedula) {
+        await pool.query(
+          `UPDATE testers SET cliente_cedula=$1 WHERE (cliente_id=$2 OR LOWER(cliente_nombre)=LOWER($2)) AND cliente_cedula IS NULL`,
+          [clienteCedula, clienteId]
+        );
       }
       await pool.query(
-        `INSERT INTO testers(cliente_id, cliente_nombre, categoria, producto, codigo, fecha_entrega)
-         VALUES($1,$2,$3,$4,$5,$6)`,
-        [clienteId, clienteNombre||'', categoria||null, producto, codigo||null, fechaEntrega||null]
+        `INSERT INTO testers(cliente_id, cliente_nombre, cliente_cedula, categoria, producto, codigo, fecha_entrega) VALUES($1,$2,$3,$4,$5,$6,$7)`,
+        [clienteId, clienteNombre||'', clienteCedula||null, categoria||null, producto, codigo||null, fechaEntrega||null]
       );
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }

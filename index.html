@@ -4931,8 +4931,9 @@ async function renderTesters(){
         })();
         const id = (c.cliente_id||c.cliente_nombre).replace(/'/g,"\\'");
         const nom = (c.cliente_nombre||'').replace(/'/g,"\\'");
+        const ced = (c.cliente_cedula||'').replace(/'/g,"\\'");
         return `<div class="tester-cli-row" data-nombre="${(c.cliente_nombre||'').toLowerCase()}"
-          onclick="renderTestersDetalle('${id}','${nom}')"
+          onclick="renderTestersDetalle('${id}','${nom}','${ced}')"
           style="display:flex;align-items:center;gap:12px;padding:11px 14px;background:white;border-radius:10px;border:1px solid var(--border);margin-bottom:8px;cursor:pointer"
           onmouseover="this.style.borderColor='var(--brown)';this.style.background='#faf9f8'"
           onmouseout="this.style.borderColor='var(--border)';this.style.background='white'">
@@ -4999,104 +5000,139 @@ function filtrarListaTesters(q){
 }
 
 function agregarClienteTester(){
-  const nombre = prompt('Nombre de la cliente:');
-  if(!nombre || !nombre.trim()) return;
-  renderTestersDetalle(nombre.trim(), nombre.trim());
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px';
+  overlay.innerHTML = `
+    <div style="background:white;border-radius:14px;width:100%;max-width:380px;box-shadow:0 20px 60px rgba(0,0,0,0.2)">
+      <div style="padding:16px 18px;border-bottom:0.5px solid #e5e5e5;display:flex;align-items:center;justify-content:space-between">
+        <div style="font-size:14px;font-weight:600"><i class="ti ti-user-plus" style="color:var(--brown);margin-right:8px"></i>Nueva cliente</div>
+        <button onclick="this.closest('[style*=fixed]').remove()" style="background:none;border:none;font-size:18px;color:#9ca3af;cursor:pointer"><i class="ti ti-x"></i></button>
+      </div>
+      <div style="padding:18px">
+        <p style="font-size:12px;color:var(--muted);margin-bottom:14px">Ingresa la cédula o RUC — el sistema busca si ya existe en el directorio</p>
+        <div style="margin-bottom:12px">
+          <label style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:6px">Cédula / RUC *</label>
+          <input type="text" id="nueva-cli-cedula" placeholder="Ej: 1712345678"
+            style="width:100%;padding:9px 12px;border:1px solid #e5e5e5;border-radius:8px;font-size:13px;outline:none;box-sizing:border-box">
+        </div>
+        <div style="margin-bottom:12px">
+          <label style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:6px">Nombre</label>
+          <input type="text" id="nueva-cli-nombre" placeholder="Nombre completo"
+            style="width:100%;padding:9px 12px;border:1px solid #e5e5e5;border-radius:8px;font-size:13px;outline:none;box-sizing:border-box">
+          <div id="nueva-cli-match" style="margin-top:6px;font-size:11px;color:var(--muted)"></div>
+        </div>
+        <div style="display:flex;gap:10px">
+          <button onclick="this.closest('[style*=fixed]').remove()"
+            style="flex:1;padding:10px;font-size:13px;border:1px solid #e5e5e5;border-radius:8px;background:white;color:#6b7280;cursor:pointer">
+            Cancelar
+          </button>
+          <button onclick="confirmarNuevaCliente()"
+            style="flex:1;padding:10px;font-size:13px;border:none;border-radius:8px;background:var(--brown);color:white;cursor:pointer;font-weight:500">
+            Continuar
+          </button>
+        </div>
+      </div>
+    </div>`;
+  overlay.querySelector('#nueva-cli-cedula').addEventListener('input', async function(){
+    const q = this.value.trim();
+    const matchDiv = overlay.querySelector('#nueva-cli-match');
+    if(q.length < 6){ matchDiv.textContent = ''; return; }
+    try{
+      const r = await fetch('/api/personas/buscar?q=' + encodeURIComponent(q));
+      const rows = await r.json();
+      if(rows.length > 0){
+        const p = rows[0];
+        overlay.querySelector('#nueva-cli-nombre').value = p.razon_social || '';
+        matchDiv.innerHTML = '<span style="color:#16a34a">✓ Encontrada: '+p.razon_social+'</span>';
+      } else {
+        matchDiv.innerHTML = '<span style="color:#92400e">No encontrada — se registrará como nueva</span>';
+      }
+    } catch(e){}
+  });
+  overlay.addEventListener('click', e => { if(e.target===overlay) overlay.remove(); });
+  document.body.appendChild(overlay);
+  setTimeout(()=>overlay.querySelector('#nueva-cli-cedula').focus(), 100);
+}
+
+async function confirmarNuevaCliente(){
+  const cedula = document.getElementById('nueva-cli-cedula')?.value.trim();
+  const nombre = document.getElementById('nueva-cli-nombre')?.value.trim();
+  if(!cedula){ alert('La cédula o RUC es obligatoria'); return; }
+  if(!nombre){ alert('Por favor ingresa el nombre'); return; }
+  document.querySelector('[style*="position:fixed"][style*="z-index:200"]')?.remove();
+  await renderTestersDetalle(cedula, nombre, cedula);
 }
 
 async function renderTestersLista(){ await renderTesters(); }
 
-async function renderTestersDetalle(clienteId, clienteNombre){
+async function renderTestersDetalle(clienteId, clienteNombre, clienteCedula){
   const cont = document.getElementById('doc-tab-content');
   if(!cont) return;
   cont.innerHTML = '<div style="font-size:13px;color:var(--muted);padding:20px 0;text-align:center">Cargando...</div>';
-
+  const cedula = clienteCedula || '';
+  const url = cedula
+    ? '/api/testers?cedula=' + encodeURIComponent(cedula)
+    : '/api/testers?clienteId=' + encodeURIComponent(clienteId) + '&nombre=' + encodeURIComponent(clienteNombre||'');
   let testers = [];
-  try{
-    const r = await fetch('/api/testers?clienteId=' + encodeURIComponent(clienteId));
-    testers = await r.json();
-  } catch(e){ console.error(e); }
+  try{ const r = await fetch(url); testers = await r.json(); } catch(e){}
 
-  // Parsear fecha segura
-  function fmtFechaTester(f){
-    if(!f) return '—';
-    const s = typeof f === 'string' ? f : (f.toISOString ? f.toISOString() : String(f));
-    const p = s.substring(0,10).split('-');
-    if(p.length !== 3) return '—';
-    const m = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-    return `${parseInt(p[2])} ${m[parseInt(p[1])]} ${p[0]}`;
-  }
+  const porMarca = {};
+  testers.forEach(t => {
+    const marca = t.categoria || 'Sin categoría';
+    if(!porMarca[marca]) porMarca[marca] = [];
+    porMarca[marca].push(t);
+  });
 
-  cont.innerHTML = `
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
-      <button onclick="renderTesters()"
-        style="width:34px;height:34px;border-radius:50%;border:1px solid var(--border);background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">
-        <i class="ti ti-arrow-left" style="font-size:15px;color:var(--muted)"></i>
-      </button>
-      <div>
-        <div style="font-size:15px;font-weight:600;color:var(--text)">${clienteNombre}</div>
-        <div style="font-size:11px;color:var(--muted)">${testers.length} tester${testers.length!==1?'s':''} entregados</div>
-      </div>
-    </div>
+  const mesesFT = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  function fmtFT(f){ if(!f) return '—'; const s=String(f).substring(0,10).split('-'); return parseInt(s[2])+' '+mesesFT[parseInt(s[1])]+' '+s[0].substring(2); }
 
-    <!-- Formulario agregar tester -->
-    <div class="card" style="margin-bottom:14px;border:2px dashed var(--border)">
-      <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">
-        <i class="ti ti-plus" style="margin-right:5px"></i>Agregar tester
-      </div>
-      <div style="position:relative;margin-bottom:10px">
-        <input type="text" id="tester-buscar-prod" placeholder="Buscar por código BSK o nombre del producto..."
-          oninput="mostrarSugerenciasProducto(this.value)"
-          onblur="setTimeout(()=>{const s=document.getElementById('tester-sugerencias');if(s)s.style.display='none'},200)"
-          style="width:100%;padding:9px 12px;font-size:13px;border:1px solid var(--border);border-radius:8px;outline:none;box-sizing:border-box"
-          onfocus="this.style.borderColor='var(--brown)'" onblur="this.style.borderColor='var(--border)'">
-        <div id="tester-sugerencias" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid var(--border);border-radius:8px;z-index:100;box-shadow:0 4px 12px rgba(0,0,0,0.1);max-height:220px;overflow-y:auto"></div>
-      </div>
-      <div id="tester-producto-sel" style="display:none;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:#166534;align-items:center;gap:8px">
-        <i class="ti ti-check" style="font-size:14px"></i>
-        <span id="tester-producto-sel-text"></span>
-      </div>
-      <div style="display:flex;gap:8px;align-items:center">
-        <input type="date" id="tester-fecha" value="${new Date().toISOString().split('T')[0]}"
-          style="padding:8px 10px;font-size:13px;border:1px solid var(--border);border-radius:8px;outline:none;flex:1"
-          onfocus="this.style.borderColor='var(--brown)'" onblur="this.style.borderColor='var(--border)'">
-        <button onclick="guardarNuevoTester('${clienteId.replace(/'/g,"\\'")}','${clienteNombre.replace(/'/g,"\\'")}')"
-          style="padding:8px 16px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500;white-space:nowrap">
-          <i class="ti ti-check" style="margin-right:4px"></i>Guardar
-        </button>
-      </div>
-    </div>
+  const idSafe = clienteId.replace(/'/g,"\\'");
+  const nomSafe = (clienteNombre||'').replace(/'/g,"\\'");
 
-    <!-- Lista de testers entregados -->
-    <div class="card">
-      <div class="card-title"><i class="ti ti-flask"></i> Testers entregados</div>
-      ${testers.length === 0
-        ? '<p style="font-size:13px;color:var(--muted);padding:8px 0">Sin testers registrados aún — agrega uno arriba</p>'
-        : `<div style="overflow-x:auto">
-          <table style="width:100%;border-collapse:collapse;font-size:12px">
-            <thead><tr style="background:#faf9f8;border-bottom:1px solid var(--border)">
-              <th style="padding:7px 10px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase">Fecha</th>
-              <th style="padding:7px 10px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase">Categoría</th>
-              <th style="padding:7px 10px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase">Producto</th>
-            </tr></thead>
-            <tbody>
-              ${[...testers].sort((a,b)=>{
-                const fa = a.fecha_entrega ? String(a.fecha_entrega).substring(0,10) : '';
-                const fb = b.fecha_entrega ? String(b.fecha_entrega).substring(0,10) : '';
-                return fb.localeCompare(fa);
-              }).map(t=>`
-                <tr style="border-bottom:0.5px solid var(--border)">
-                  <td style="padding:7px 10px;color:var(--brown);font-size:11px;white-space:nowrap">${fmtFechaTester(t.fecha_entrega)}</td>
-                  <td style="padding:7px 10px;color:var(--muted);white-space:nowrap">${t.categoria||'—'}</td>
-                  <td style="padding:7px 10px;font-weight:500">${t.producto||'—'}</td>
-                </tr>`).join('')}
-            </tbody>
-          </table>
-        </div>`}
-    </div>`;
+  let marcasHTML = '';
+  Object.entries(porMarca).sort((a,b)=>b[1].length-a[1].length).forEach(([marca, items]) => {
+    let itemsHTML = '';
+    [...items].sort((a,b)=>String(b.fecha_entrega||'').localeCompare(String(a.fecha_entrega||''))).forEach(t => {
+      itemsHTML += '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:0.5px solid var(--border)">'
+        + '<span style="font-size:11px;color:var(--brown);white-space:nowrap;width:80px;flex-shrink:0">'+fmtFT(t.fecha_entrega)+'</span>'
+        + '<span style="flex:1;font-size:12px">'+t.producto+'</span>'
+        + '<button onclick="borrarTester('+t.id+',\''+idSafe+'\',\''+nomSafe+'\',\''+cedula+'\')" style="width:26px;height:26px;border:1px solid #fca5a5;background:#fef2f2;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-trash" style="font-size:11px;color:#ef4444"></i></button>'
+        + '</div>';
+    });
+    marcasHTML += '<div class="card" style="margin-bottom:8px">'
+      + '<div onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display===\'none\'?\'block\':\'none\'" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer">'
+      + '<div style="font-size:13px;font-weight:600">'+marca+'</div>'
+      + '<span style="background:#fffbeb;color:#92400e;border:1px solid #fde68a;border-radius:12px;padding:2px 8px;font-size:11px;font-weight:600">'+items.length+' producto'+(items.length>1?'s':'')+'</span>'
+      + '</div><div style="display:none;margin-top:10px">'+itemsHTML+'</div></div>';
+  });
+
+  cont.innerHTML = '<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">'
+    + '<button onclick="renderTesters()" style="width:34px;height:34px;border-radius:50%;border:1px solid var(--border);background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-arrow-left" style="font-size:15px;color:var(--muted)"></i></button>'
+    + '<div><div style="font-size:15px;font-weight:600">'+clienteNombre+'</div>'
+    + '<div style="font-size:11px;color:var(--muted)">'+(cedula?'Cédula: '+cedula+' · ':'')+testers.length+' tester'+(testers.length!==1?'s':'')+'</div></div></div>'
+    + '<div class="card" style="margin-bottom:14px;border:2px dashed var(--border)">'
+    + '<div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px"><i class="ti ti-plus" style="margin-right:5px"></i>Agregar tester</div>'
+    + '<div style="position:relative;margin-bottom:10px">'
+    + '<input type="text" id="tester-buscar-prod" placeholder="Buscar por código BSK o nombre..." oninput="mostrarSugerenciasProducto(this.value)" onblur="setTimeout(()=>{const s=document.getElementById(\'tester-sugerencias\');if(s)s.style.display=\'none\'},200)" style="width:100%;padding:9px 12px;font-size:13px;border:1px solid var(--border);border-radius:8px;outline:none;box-sizing:border-box">'
+    + '<div id="tester-sugerencias" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid var(--border);border-radius:8px;z-index:100;box-shadow:0 4px 12px rgba(0,0,0,0.1);max-height:220px;overflow-y:auto"></div></div>'
+    + '<div id="tester-producto-sel" style="display:none;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:#166534;align-items:center;gap:8px"><i class="ti ti-check"></i> <span id="tester-producto-sel-text"></span></div>'
+    + '<div style="display:flex;gap:8px;align-items:center">'
+    + '<input type="date" id="tester-fecha" value="'+new Date().toISOString().split('T')[0]+'" style="padding:8px 10px;font-size:13px;border:1px solid var(--border);border-radius:8px;outline:none;flex:1">'
+    + '<button onclick="guardarNuevoTester(\''+idSafe+'\',\''+nomSafe+'\',\''+cedula+'\')" style="padding:8px 16px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500;white-space:nowrap"><i class="ti ti-check" style="margin-right:4px"></i>Guardar</button>'
+    + '</div></div>'
+    + (testers.length === 0 ? '<p style="font-size:13px;color:var(--muted)">Sin testers registrados — agrega uno arriba</p>' : marcasHTML);
 
   _testerProdSelData = null;
 }
+
+async function borrarTester(id, clienteId, clienteNombre, cedula){
+  if(!confirm('¿Eliminar este tester?')) return;
+  try{
+    await fetch('/api/testers/' + id, { method:'DELETE' });
+    await renderTestersDetalle(clienteId, clienteNombre, cedula);
+  } catch(e){ alert('Error: '+e.message); }
+}
+
 
 let _testerProdSelData = null;
 function mostrarSugerenciasProducto(q){
@@ -5126,7 +5162,7 @@ function seleccionarProductoTester(nombre, categoria, codigo){
   sel.style.display = 'flex';
 }
 
-async function guardarNuevoTester(clienteId, clienteNombre){
+async function guardarNuevoTester(clienteId, clienteNombre, clienteCedula){
   if(!_testerProdSelData){
     alert('Selecciona un producto del catálogo primero');
     return;
@@ -5138,6 +5174,7 @@ async function guardarNuevoTester(clienteId, clienteNombre){
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({
         clienteId, clienteNombre,
+        clienteCedula: clienteCedula || null,
         categoria: _testerProdSelData.categoria,
         producto: _testerProdSelData.nombre,
         codigo: _testerProdSelData.codigo || null,
