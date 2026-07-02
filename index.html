@@ -4899,7 +4899,13 @@ async function renderTesters(){
   // Cargar lista de forma async sin bloquear el render
   try {
     const r = await fetch('/api/testers/resumen');
-    const clientes = await r.json();
+    const txt = await r.text();
+    let clientes;
+    try { clientes = JSON.parse(txt); } catch(e) {
+      const lista = document.getElementById('testers-lista-clientes');
+      if(lista) lista.innerHTML = '<div style="color:#ef4444;font-size:12px;padding:10px">Error JSON: '+txt.substring(0,200)+'</div>';
+      return;
+    }
     const lista = document.getElementById('testers-lista-clientes');
     if(!lista) return;
 
