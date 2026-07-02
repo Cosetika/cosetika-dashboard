@@ -1492,10 +1492,10 @@ async function initDB() {
       CREATE INDEX IF NOT EXISTS idx_testers_nombre ON testers(LOWER(cliente_nombre));
       CREATE TABLE IF NOT EXISTS personas (
         id SERIAL PRIMARY KEY,
-        cedula VARCHAR(20),
-        ruc VARCHAR(20),
+        cedula VARCHAR(50),
+        ruc VARCHAR(50),
         razon_social VARCHAR(500) NOT NULL,
-        telefono VARCHAR(50),
+        telefono VARCHAR(200),
         direccion TEXT,
         email VARCHAR(255),
         vendedor VARCHAR(255),
@@ -1504,6 +1504,9 @@ async function initDB() {
       CREATE INDEX IF NOT EXISTS idx_personas_cedula ON personas(cedula);
       CREATE INDEX IF NOT EXISTS idx_personas_ruc ON personas(ruc);
       CREATE INDEX IF NOT EXISTS idx_personas_nombre ON personas(LOWER(razon_social));
+      ALTER TABLE personas ALTER COLUMN telefono TYPE VARCHAR(200);
+      ALTER TABLE personas ALTER COLUMN cedula TYPE VARCHAR(50);
+      ALTER TABLE personas ALTER COLUMN ruc TYPE VARCHAR(50);
     `);
     const usuarios = [
       { nombre: 'Fernando Espíndola', usuario: 'Fernando', password: '1234', rol: 'admin', modulos: 'ventas,visitas,kpis,inventario,config' },
@@ -3008,15 +3011,31 @@ const server = http.createServer(async (req, res) => {
       const nombre    = urlObj.searchParams.get('nombre');
       let r;
       if (clienteId || nombre) {
-        // Busca por cliente_id exacto O por nombre (fuzzy) para cubrir ambos casos
-        r = await pool.query(
-          `SELECT * FROM testers
-           WHERE cliente_id = $1
-              OR LOWER(cliente_nombre) LIKE LOWER($2)
-              OR LOWER(cliente_id) LIKE LOWER($2)
-           ORDER BY fecha_entrega DESC NULLS LAST, created_at DESC`,
-          [clienteId || nombre || '', `%${nombre || clienteId || ''}%`]
-        );
+        // Busca por cliente_id exacto, o por palabras del nombre del cliente
+        // Los testers del Excel tienen formato "Apellido Nombre" — buscamos
+        // cualquier palabra significativa (3+ letras) del nombre en Contifico
+        const palabras = (nombre||clienteId||'')
+          .toUpperCase()
+          .replace(/[^A-ZÁÉÍÓÚÑ ]/gi,'')
+          .split(' ')
+          .filter(p => p.length >= 4);
+
+        // Construir condición OR por cada palabra
+        if (palabras.length > 0) {
+          const conds = palabras.map((_,i) => `UPPER(cliente_id) LIKE $${i+2} OR UPPER(cliente_nombre) LIKE $${i+2}`);
+          r = await pool.query(
+            `SELECT * FROM testers
+             WHERE cliente_id = $1
+             OR ${conds.join(' OR ')}
+             ORDER BY fecha_entrega DESC NULLS LAST`,
+            [clienteId||'', ...palabras.map(p=>`%${p}%`)]
+          );
+        } else {
+          r = await pool.query(
+            `SELECT * FROM testers WHERE cliente_id=$1 ORDER BY fecha_entrega DESC NULLS LAST`,
+            [clienteId||'']
+          );
+        }
       } else {
         r = await pool.query('SELECT * FROM testers ORDER BY cliente_nombre, fecha_entrega DESC NULLS LAST');
       }
