@@ -3428,6 +3428,12 @@ function filtrarClientesVendedor(q){
   if(sinResultados) sinResultados.style.display = visibles===0 ? 'block' : 'none';
 }
 
+function toggleInfoCliente(id){
+  const el = document.getElementById(id);
+  if(!el) return;
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
 function selCliente(nombre){
   const clientes=DATA[vendActual]||[];
   const c=clientes.find(x=>x.nombre===nombre);
@@ -3448,13 +3454,18 @@ function selCliente(nombre){
     <div class="cli-header">
       <div class="cli-avatar">${iniciales}</div>
       <div style="flex:1;min-width:0">
-        <div class="cli-name" title="${nombre}">${nombre}</div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <div class="cli-name" title="${nombre}">${nombre}</div>
+          ${(c.ruc||c.telefono||c.direccion)?`<button onclick="toggleInfoCliente('info-${c.id}')" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;font-size:11px;border:1px solid var(--border);border-radius:12px;background:white;cursor:pointer;color:var(--muted)"><i class="ti ti-info-circle" style="font-size:12px"></i> Info</button>`:''}
+        </div>
         <div class="cli-sub">Total: <strong style="color:var(--brown)">${fmt(c.total)}</strong> · ${c.num_compras} facturas · ${vendActual}</div>
-        ${c.ruc ? `<div style="font-size:11px;color:var(--muted);margin-top:2px"><i class="ti ti-id-badge" style="font-size:11px;margin-right:3px"></i>${c.ruc}</div>` : ''}
-        ${c.telefono ? `<div style="font-size:11px;color:var(--muted);margin-top:2px"><i class="ti ti-phone" style="font-size:11px;margin-right:3px"></i><a href="tel:${c.telefono}" style="color:var(--muted);text-decoration:none">${c.telefono}</a></div>` : ''}
-        ${c.direccion ? `<div style="font-size:11px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${c.direccion}"><i class="ti ti-map-pin" style="font-size:11px;margin-right:3px"></i>${c.direccion}</div>` : ''}
+        <div id="info-${c.id}" style="display:none;margin-top:8px;background:#faf9f8;border:1px solid var(--border);border-radius:8px;padding:10px 12px">
+          ${c.ruc?`<div style="font-size:12px;margin-bottom:4px"><i class="ti ti-id-badge" style="color:var(--brown);margin-right:5px"></i><strong>RUC/Cédula:</strong> ${c.ruc}</div>`:''}
+          ${c.telefono?`<div style="font-size:12px;margin-bottom:4px"><i class="ti ti-phone" style="color:var(--brown);margin-right:5px"></i><strong>Teléfono:</strong> <a href="tel:${c.telefono}" style="color:var(--brown)">${c.telefono}</a></div>`:''}
+          ${c.direccion?`<div style="font-size:12px"><i class="ti ti-map-pin" style="color:var(--brown);margin-right:5px"></i><strong>Dirección:</strong> ${c.direccion}</div>`:''}
+        </div>
       </div>
-      <button class="back-btn" onclick="renderVendedor('${vendActual.replace(/'/g,"\'")}')"><i class="ti ti-arrow-left"></i> Volver</button>
+      <button class="back-btn" onclick="renderVendedor('${vendActual}')"><i class="ti ti-arrow-left"></i> Volver</button>
     </div>
     <div class="row2">
       <div class="card">
@@ -3741,11 +3752,16 @@ function selClienteProvincia(nombre, provincia){
     <div class="cli-header">
       <div class="cli-avatar">${iniciales}</div>
       <div style="flex:1;min-width:0">
-        <div class="cli-name" title="${nombre}">${nombre}</div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <div class="cli-name" title="${nombre}">${nombre}</div>
+          ${(c.ruc||c.telefono||c.direccion)?`<button onclick="toggleInfoCliente('info-p-${c.id}')" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;font-size:11px;border:1px solid var(--border);border-radius:12px;background:white;cursor:pointer;color:var(--muted)"><i class="ti ti-info-circle" style="font-size:12px"></i> Info</button>`:''}
+        </div>
         <div class="cli-sub">Total: <strong style="color:var(--brown)">${fmt(c.total)}</strong> · ${c.num_compras} facturas · ${vendNombre}</div>
-        ${c.ruc ? `<div style="font-size:11px;color:var(--muted);margin-top:2px"><i class="ti ti-id-badge" style="font-size:11px;margin-right:3px"></i>${c.ruc}</div>` : ''}
-        ${c.telefono ? `<div style="font-size:11px;color:var(--muted);margin-top:2px"><i class="ti ti-phone" style="font-size:11px;margin-right:3px"></i><a href="tel:${c.telefono}" style="color:var(--muted);text-decoration:none">${c.telefono}</a></div>` : ''}
-        ${c.direccion ? `<div style="font-size:11px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${c.direccion}"><i class="ti ti-map-pin" style="font-size:11px;margin-right:3px"></i>${c.direccion}</div>` : ''}
+        <div id="info-p-${c.id}" style="display:none;margin-top:8px;background:#faf9f8;border:1px solid var(--border);border-radius:8px;padding:10px 12px">
+          ${c.ruc?`<div style="font-size:12px;margin-bottom:4px"><i class="ti ti-id-badge" style="color:var(--brown);margin-right:5px"></i><strong>RUC/Cédula:</strong> ${c.ruc}</div>`:''}
+          ${c.telefono?`<div style="font-size:12px;margin-bottom:4px"><i class="ti ti-phone" style="color:var(--brown);margin-right:5px"></i><strong>Teléfono:</strong> <a href="tel:${c.telefono}" style="color:var(--brown)">${c.telefono}</a></div>`:''}
+          ${c.direccion?`<div style="font-size:12px"><i class="ti ti-map-pin" style="color:var(--brown);margin-right:5px"></i><strong>Dirección:</strong> ${c.direccion}</div>`:''}
+        </div>
       </div>
       <button class="back-btn" onclick="renderProvincias('${provincia.replace(/'/g,"\'")}')"><i class="ti ti-arrow-left"></i> Volver</button>
     </div>
