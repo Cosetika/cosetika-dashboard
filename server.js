@@ -2844,6 +2844,31 @@ const server = http.createServer(async (req, res) => {
   }
 
   // TESTERS — registro de testers entregados a clientes
+  // POST /api/testers/bulk → carga masiva de testers desde array JSON (solo admin)
+  // Body: { registros: [{clienteNombre, categoria, producto, codigo, fechaEntrega},...] }
+  if (urlPath === '/api/testers/bulk' && req.method === 'POST') {
+    try {
+      const { registros, limpiar } = await bodyJSON(req);
+      if (!Array.isArray(registros)) {
+        res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'registros debe ser array'}));
+        return;
+      }
+      if (limpiar) await pool.query('TRUNCATE TABLE testers RESTART IDENTITY');
+      let ok = 0, errores = 0;
+      for (const r of registros) {
+        try {
+          await pool.query(
+            `INSERT INTO testers(cliente_id, cliente_nombre, categoria, producto, codigo, fecha_entrega)
+             VALUES($1,$2,$3,$4,$5,$6)`,
+            [r.clienteNombre, r.clienteNombre, r.categoria||null, r.producto, r.codigo||null, r.fechaEntrega||null]
+          );
+          ok++;
+        } catch(e) { errores++; }
+      }
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, insertados:ok, errores}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
   // GET /api/testers                      → todos los testers
   // GET /api/testers?clienteId=XXX        → testers de un cliente específico
   if (urlPath === '/api/testers' && req.method === 'GET') {
