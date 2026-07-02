@@ -3555,23 +3555,39 @@ function selCliente(nombre){
     </div>
     <div id="detalle-testers-${c.id}" style="margin-top:0"></div>`;
 
-  // Cargar testers del cliente de forma asíncrona
+  // Cargar testers del cliente agrupados por marca
   fetch('/api/testers?clienteId=' + encodeURIComponent(c.id) + '&nombre=' + encodeURIComponent(c.nombre||''))
     .then(r=>r.json())
     .then(testers => {
       const cont = document.getElementById('detalle-testers-' + c.id);
       if(!cont || testers.length === 0) return;
-      const meses = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-      function fmtT(f){ if(!f) return '—'; const s=String(f).substring(0,10).split('-'); return parseInt(s[2])+' '+meses[parseInt(s[1])]+' '+s[0].substring(2); }
-      const filas = [...testers].sort((a,b)=>String(b.fecha_entrega||'').localeCompare(String(a.fecha_entrega||'')))
-        .map(t => '<tr style="border-bottom:0.5px solid var(--border)"><td style="padding:6px 8px;color:var(--brown);white-space:nowrap;font-size:11px">'+fmtT(t.fecha_entrega)+'</td><td style="padding:6px 8px;font-weight:500;font-size:11px">'+t.producto+'</td></tr>')
-        .join('');
-      cont.innerHTML = '<div class="card" style="margin-top:10px"><div class="card-title"><i class="ti ti-flask"></i> Testers entregados</div>'
-        + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">'
-        + '<thead><tr style="background:#faf9f8;border-bottom:1px solid var(--border)">'
-        + '<th style="padding:6px 8px;text-align:left;color:var(--muted);font-size:9px;text-transform:uppercase">Fecha</th>'
-        + '<th style="padding:6px 8px;text-align:left;color:var(--muted);font-size:9px;text-transform:uppercase">Producto</th>'
-        + '</tr></thead><tbody>' + filas + '</tbody></table></div></div>';
+      const mesesT = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+      function fmtT(f){ if(!f) return '—'; const s=String(f).substring(0,10).split('-'); return parseInt(s[2])+' '+mesesT[parseInt(s[1])]+' '+s[0].substring(2); }
+      function getMarca(prod,cat){
+        const p=(prod||'').toUpperCase(); const c2=(cat||'').toUpperCase();
+        if(p.startsWith('BSK')||c2==='BIOSKIN'||c2.includes('BSK')) return 'BIOSKIN';
+        if(p.startsWith('ABH')||['AYURVEDIC','KERATIN','COLLASTIN','SMOOTING','CURLS'].some(x=>p.includes(x))) return 'ERAYBA';
+        if(/^(K\d|N\d|BS\d)/.test(p)) return 'ERAYBA';
+        if(['POSTER','EXHIBIDOR','CATÁLOGO','CATALOGO','CINTILLO'].some(x=>p.includes(x)||c2.includes(x))) return 'MATERIAL EXHIBICIÓN';
+        return 'ZIAJA';
+      }
+      const porMarca = {};
+      testers.forEach(t => { const m=getMarca(t.producto,t.categoria); if(!porMarca[m]) porMarca[m]=[]; porMarca[m].push(t); });
+      let html = '<div class="card" style="margin-top:10px"><div class="card-title"><i class="ti ti-flask"></i> Testers entregados</div>';
+      Object.entries(porMarca).sort((a,b)=>b[1].length-a[1].length).forEach(([marca,items]) => {
+        const uid = 'tm-'+c.id+'-'+marca.replace(/\s/g,'_');
+        const filas = [...items].sort((a,b)=>String(b.fecha_entrega||'').localeCompare(String(a.fecha_entrega||'')))
+          .map(t=>'<tr style="border-bottom:0.5px solid var(--border)"><td style="padding:5px 8px;color:var(--brown);white-space:nowrap;font-size:11px">'+fmtT(t.fecha_entrega)+'</td><td style="padding:5px 8px;font-size:11px;font-weight:500">'+t.producto+'</td></tr>').join('');
+        html += '<div style="margin-bottom:6px;border:1px solid var(--border);border-radius:8px;overflow:hidden">'
+          +'<div onclick="var el=document.getElementById(\''+uid+'\');el.style.display=el.style.display===\'none\'?\'block\':\'none\'" style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;cursor:pointer;background:#faf9f8">'
+          +'<span style="font-size:12px;font-weight:600">'+marca+'</span>'
+          +'<span style="background:#fffbeb;color:#92400e;border:1px solid #fde68a;border-radius:12px;padding:1px 7px;font-size:11px;font-weight:600">'+items.length+'</span>'
+          +'</div>'
+          +'<div id="'+uid+'" style="display:none"><table style="width:100%;border-collapse:collapse"><tbody>'+filas+'</tbody></table></div>'
+          +'</div>';
+      });
+      html += '</div>';
+      cont.innerHTML = html;
     }).catch(()=>{});
 }
 
@@ -3850,17 +3866,33 @@ function selClienteProvincia(nombre, provincia){
     .then(testers => {
       const cont = document.getElementById('detalle-testers-' + c.id);
       if(!cont || testers.length === 0) return;
-      const meses = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-      function fmtT2(f){ if(!f) return '—'; const s=String(f).substring(0,10).split('-'); return parseInt(s[2])+' '+meses[parseInt(s[1])]+' '+s[0].substring(2); }
-      const filas2 = [...testers].sort((a,b)=>String(b.fecha_entrega||'').localeCompare(String(a.fecha_entrega||'')))
-        .map(t => '<tr style="border-bottom:0.5px solid var(--border)"><td style="padding:6px 8px;color:var(--brown);white-space:nowrap;font-size:11px">'+fmtT2(t.fecha_entrega)+'</td><td style="padding:6px 8px;font-weight:500;font-size:11px">'+t.producto+'</td></tr>')
-        .join('');
-      cont.innerHTML = '<div class="card" style="margin-top:10px"><div class="card-title"><i class="ti ti-flask"></i> Testers entregados</div>'
-        + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">'
-        + '<thead><tr style="background:#faf9f8;border-bottom:1px solid var(--border)">'
-        + '<th style="padding:6px 8px;text-align:left;color:var(--muted);font-size:9px;text-transform:uppercase">Fecha</th>'
-        + '<th style="padding:6px 8px;text-align:left;color:var(--muted);font-size:9px;text-transform:uppercase">Producto</th>'
-        + '</tr></thead><tbody>' + filas2 + '</tbody></table></div></div>';
+      const mesesT2 = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+      function fmtT2(f){ if(!f) return '—'; const s=String(f).substring(0,10).split('-'); return parseInt(s[2])+' '+mesesT2[parseInt(s[1])]+' '+s[0].substring(2); }
+      function getMarca2(prod,cat){
+        const p=(prod||'').toUpperCase(); const c2=(cat||'').toUpperCase();
+        if(p.startsWith('BSK')||c2==='BIOSKIN'||c2.includes('BSK')) return 'BIOSKIN';
+        if(p.startsWith('ABH')||['AYURVEDIC','KERATIN','COLLASTIN','SMOOTING','CURLS'].some(x=>p.includes(x))) return 'ERAYBA';
+        if(/^(K\d|N\d|BS\d)/.test(p)) return 'ERAYBA';
+        if(['POSTER','EXHIBIDOR','CATÁLOGO','CATALOGO','CINTILLO'].some(x=>p.includes(x)||c2.includes(x))) return 'MATERIAL EXHIBICIÓN';
+        return 'ZIAJA';
+      }
+      const porMarca2 = {};
+      testers.forEach(t => { const m=getMarca2(t.producto,t.categoria); if(!porMarca2[m]) porMarca2[m]=[]; porMarca2[m].push(t); });
+      let html2 = '<div class="card" style="margin-top:10px"><div class="card-title"><i class="ti ti-flask"></i> Testers entregados</div>';
+      Object.entries(porMarca2).sort((a,b)=>b[1].length-a[1].length).forEach(([marca,items]) => {
+        const uid2 = 'tp-'+c.id+'-'+marca.replace(/\s/g,'_');
+        const filas2b = [...items].sort((a,b)=>String(b.fecha_entrega||'').localeCompare(String(a.fecha_entrega||'')))
+          .map(t=>'<tr style="border-bottom:0.5px solid var(--border)"><td style="padding:5px 8px;color:var(--brown);white-space:nowrap;font-size:11px">'+fmtT2(t.fecha_entrega)+'</td><td style="padding:5px 8px;font-size:11px;font-weight:500">'+t.producto+'</td></tr>').join('');
+        html2 += '<div style="margin-bottom:6px;border:1px solid var(--border);border-radius:8px;overflow:hidden">'
+          +'<div onclick="var el=document.getElementById(\''+uid2+'\');el.style.display=el.style.display===\'none\'?\'block\':\'none\'" style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;cursor:pointer;background:#faf9f8">'
+          +'<span style="font-size:12px;font-weight:600">'+marca+'</span>'
+          +'<span style="background:#fffbeb;color:#92400e;border:1px solid #fde68a;border-radius:12px;padding:1px 7px;font-size:11px;font-weight:600">'+items.length+'</span>'
+          +'</div>'
+          +'<div id="'+uid2+'" style="display:none"><table style="width:100%;border-collapse:collapse"><tbody>'+filas2b+'</tbody></table></div>'
+          +'</div>';
+      });
+      html2 += '</div>';
+      cont.innerHTML = html2;
     }).catch(()=>{});
 }
 
