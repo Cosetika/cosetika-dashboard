@@ -162,6 +162,7 @@
   <div class="stab" id="stab-marcas" onclick="setSubtab('marcas')" style="padding:10px 6px;font-size:11px">Marcas</div>
   <div class="stab" id="stab-cpf" onclick="setSubtab('cpf')" style="padding:10px 6px;font-size:11px">Clientes</div>
   <div class="stab" id="stab-prov" onclick="setSubtab('prov')" style="padding:10px 6px;font-size:11px">Provincias</div>
+  <div class="stab" id="stab-testers" onclick="setSubtab('testers')" style="padding:10px 6px;font-size:11px">Testers</div>
 </div>
 
 <!-- Botón refresh flotante para móvil -->
@@ -1132,6 +1133,9 @@ function setSubtab(tab){
     // Clientes (mismo bug ya corregido en la pestaña Marcas).
     vendActual = null;
     renderProvincias();
+  } else if(tab==='testers'){
+    sidebar.classList.add('hidden'); body.classList.add('full-width');
+    renderTesters();
   }
 }
 
@@ -4669,6 +4673,167 @@ function renderReportes(){
 }
 
 function setReportesTab(tab){ window._reportesTab=tab; renderReportes(); }
+
+// ─── TESTERS: panel de testers gratuitos entregados por asesora ──────────────
+const ASESORAS_TESTERS = ['Daniela Villegas Chamorro','Liseth Gavilanes','Karen Rebeca Mora','María Caridad Zea','Nicole Yanira Leon','Giovanna Portilla'];
+
+async function renderTesters(){
+  const usuario = window.usuarioActual || {};
+  const rol = usuario.rol || '';
+  const esAdmin = rol === 'admin' || rol === 'jefa_ventas';
+
+  document.getElementById('main').innerHTML = `
+    <div class="breadcrumb" style="margin-bottom:12px">
+      <i class="ti ti-flask" style="color:var(--brown);font-size:12px"></i>
+      <span style="font-weight:500">Testers</span>
+    </div>
+    <div id="testers-content"><div style="font-size:13px;color:var(--muted);padding:20px 0;text-align:center">Cargando...</div></div>`;
+
+  await renderTestersContenido();
+}
+
+async function renderTestersContenido(){
+  const cont = document.getElementById('testers-content');
+  if(!cont) return;
+
+  const usuario = window.usuarioActual || {};
+  const rol = usuario.rol || '';
+  const esAdmin = rol === 'admin' || rol === 'jefa_ventas';
+  const asesoraSelActual = window._testersAsesora || (esAdmin ? null : (window._nombreRealAsesora || usuario.nombre));
+
+  let rows = [];
+  try {
+    const url = asesoraSelActual
+      ? `/api/testers?asesora=${encodeURIComponent(asesoraSelActual)}`
+      : '/api/testers';
+    const r = await fetch(url);
+    rows = await r.json();
+  } catch(e){ console.error(e); }
+
+  // Agrupar por cliente (nombre_cliente o nombre_tab como fallback)
+  const porCliente = {};
+  rows.forEach(r => {
+    const key = r.nombre_cliente ? `${r.nombre_cliente}__${r.asesora}` : `${r.nombre_tab}__${r.asesora}`;
+    if(!porCliente[key]) porCliente[key] = {
+      nombre: r.nombre_cliente || null,
+      tab: r.nombre_tab,
+      asesora: r.asesora,
+      items: []
+    };
+    porCliente[key].items.push(r);
+  });
+
+  const clientes = Object.values(porCliente).sort((a,b) => (a.tab||'').localeCompare(b.tab||''));
+  const totalItems = rows.length;
+  const clientesConNombre = clientes.filter(c=>c.nombre).length;
+
+  cont.innerHTML = `
+    <!-- Selector de asesora (solo admin/jefa) + botón de subida -->
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px">
+      ${esAdmin ? `
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button onclick="window._testersAsesora=null;renderTestersContenido()"
+            style="padding:5px 12px;font-size:11px;border-radius:20px;cursor:pointer;border:1px solid ${!asesoraSelActual?'var(--brown)':'var(--border)'};background:${!asesoraSelActual?'var(--brown)':'white'};color:${!asesoraSelActual?'white':'var(--muted)'}">
+            Todas
+          </button>
+          ${ASESORAS_TESTERS.map(a=>`
+            <button onclick="window._testersAsesora='${a.replace(/'/g,"\\'")}';renderTestersContenido()"
+              style="padding:5px 12px;font-size:11px;border-radius:20px;cursor:pointer;border:1px solid ${a===asesoraSelActual?'var(--brown)':'var(--border)'};background:${a===asesoraSelActual?'var(--brown)':'white'};color:${a===asesoraSelActual?'white':'var(--muted)'}">
+              ${a.split(' ')[0]}
+            </button>`).join('')}
+        </div>` : '<div></div>'}
+      <div style="display:flex;align-items:center;gap:10px">
+        <input type="file" id="testers-file-input" accept=".xlsx" style="display:none"
+          onchange="subirExcelTesters(event, '${(asesoraSelActual||'').replace(/'/g,"\\'")}')">
+        <button onclick="document.getElementById('testers-file-input').click()"
+          style="padding:7px 14px;font-size:12px;border-radius:8px;border:1px solid var(--brown);background:rgba(160,104,74,0.08);color:var(--brown);cursor:pointer;display:flex;align-items:center;gap:6px;font-weight:500;white-space:nowrap">
+          <i class="ti ti-upload" style="font-size:14px"></i> Subir Excel
+          ${asesoraSelActual ? `<span style="font-size:10px;opacity:0.7">(${asesoraSelActual.split(' ')[0]})</span>` : ''}
+        </button>
+        <span id="testers-upload-status" style="font-size:12px;color:var(--muted)"></span>
+      </div>
+    </div>
+
+    <!-- KPIs -->
+    <div class="kpi-row" style="margin-bottom:16px">
+      <div class="kpi"><div class="kpi-label">Testers entregados</div><div class="kpi-val" style="color:var(--brown)">${totalItems}</div><div class="kpi-sub">registros totales</div></div>
+      <div class="kpi"><div class="kpi-label">Clientes</div><div class="kpi-val">${clientes.length}</div><div class="kpi-sub">${clientesConNombre} con nombre</div></div>
+    </div>
+
+    <!-- Lista de clientes con sus testers -->
+    ${clientes.length === 0 ? `
+      <div class="card" style="text-align:center;padding:40px 20px;color:var(--muted)">
+        <i class="ti ti-flask-off" style="font-size:36px;opacity:0.35"></i>
+        <p style="margin-top:10px;font-size:14px">No hay testers registrados${asesoraSelActual?' para esta asesora':''}</p>
+        <p style="font-size:12px;margin-top:4px">Sube el Excel de testers usando el botón de arriba</p>
+      </div>` :
+    clientes.map(c => {
+      const nombre = c.nombre || `(sin nombre — tab: ${c.tab})`;
+      const iniciales = (c.nombre || c.tab).split(' ').slice(0,2).map(w=>w[0]||'').join('').toUpperCase();
+      return `
+      <div class="card" style="margin-bottom:10px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+          <div style="width:36px;height:36px;border-radius:50%;background:${c.nombre?'var(--brown)':'#d1d5db'};color:white;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;flex-shrink:0">${iniciales}</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;font-weight:600;color:var(--text)">${nombre}</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:1px">
+              ${esAdmin ? `<span style="color:var(--brown)">${c.asesora.split(' ')[0]}</span> · ` : ''}
+              ${c.items.length} tester${c.items.length!==1?'s':''}
+            </div>
+          </div>
+        </div>
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:11px">
+            <thead><tr style="background:#faf9f8;border-bottom:1px solid var(--border)">
+              <th style="padding:6px 10px;text-align:left;color:var(--muted);text-transform:uppercase;font-size:9px;letter-spacing:1px">Categoría</th>
+              <th style="padding:6px 10px;text-align:left;color:var(--muted);text-transform:uppercase;font-size:9px;letter-spacing:1px">Producto</th>
+              <th style="padding:6px 10px;text-align:center;color:var(--muted);text-transform:uppercase;font-size:9px;letter-spacing:1px">Fecha entrega</th>
+            </tr></thead>
+            <tbody>
+              ${c.items.map(item => `
+                <tr style="border-bottom:0.5px solid var(--border)">
+                  <td style="padding:6px 10px;color:var(--muted);white-space:nowrap">${item.categoria||'—'}</td>
+                  <td style="padding:6px 10px;font-weight:500">${item.producto||'—'}</td>
+                  <td style="padding:6px 10px;text-align:center;color:${item.fecha_entrega?'var(--brown)':'var(--muted)'};white-space:nowrap">
+                    ${item.fecha_entrega ? new Date(item.fecha_entrega+'T12:00:00').toLocaleDateString('es-EC',{day:'numeric',month:'short',year:'numeric'}) : '—'}
+                  </td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+    }).join('')}`;
+}
+
+async function subirExcelTesters(event, asesora){
+  const file = event.target.files[0];
+  if(!file) return;
+  if(!asesora){
+    alert('Selecciona primero la asesora (chip arriba) antes de subir el Excel');
+    event.target.value = '';
+    return;
+  }
+  const status = document.getElementById('testers-upload-status');
+  status.textContent = 'Subiendo...';
+  try {
+    const form = new FormData();
+    form.append('file', file);
+    const r = await fetch(`/api/testers/subir?asesora=${encodeURIComponent(asesora)}`, {
+      method: 'POST',
+      body: form
+    });
+    const data = await r.json();
+    if(data.ok){
+      status.textContent = `✓ ${data.registros} registros cargados`;
+      await renderTestersContenido();
+    } else {
+      status.textContent = 'Error: ' + (data.error||'desconocido');
+    }
+  } catch(e){
+    status.textContent = 'Error: ' + e.message;
+  }
+  event.target.value = '';
+}
 
 async function renderInversiones(){
   const cont = document.getElementById('reportes-content');

@@ -1112,6 +1112,72 @@ function parsearExcelProvincias(buffer) {
   return { overrides, filasConProvincia, filasSinIdentificador, totalFilas: filas.length - filaEncabezado - 1, clientesPorVendedor };
 }
 
+// Parsea el Excel de testers (formato Cosétika: cada hoja = un cliente).
+// Por cada hoja extrae el nombre real del cliente (fila CLIENTE si no es NUEVO),
+// y por cada producto con fecha registrada genera un registro.
+// Soporta hasta 3 columnas de fecha por producto (entregas repetidas).
+function parsearExcelTesters(buffer, asesora) {
+  const wb = XLSX.read(buffer, { type: 'buffer', cellDates: true });
+  const registros = [];
+
+  for (const sheetName of wb.SheetNames) {
+    const ws = wb.Sheets[sheetName];
+    const filas = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: false, dateNF: 'yyyy-mm-dd' });
+
+    let nombreReal = null;
+    let datosInicio = null;
+
+    for (let i = 0; i < filas.length; i++) {
+      const fila = filas[i] || [];
+      const celda0 = String(fila[0] || '').trim().toUpperCase();
+
+      if (celda0 === 'CLIENTE') {
+        const val = String(fila[1] || '').trim().replace(/^:/, '').trim();
+        if (val.toUpperCase() !== 'NUEVO' && val !== '') {
+          nombreReal = val;
+        }
+      }
+      if (celda0 === 'CATEGORIA') {
+        datosInicio = i + 1;
+        break;
+      }
+    }
+
+    if (datosInicio === null) continue;
+
+    for (let i = datosInicio; i < filas.length; i++) {
+      const fila = filas[i] || [];
+      if (!fila[0]) continue;
+      const categoria = String(fila[0] || '').trim();
+      const producto  = String(fila[1] || '').trim();
+      if (!categoria || !producto) continue;
+
+      // Columnas 2, 3, 4 = hasta 3 fechas de entrega
+      for (const colIdx of [2, 3, 4]) {
+        const valFecha = fila[colIdx];
+        if (!valFecha) continue;
+        let fechaStr = null;
+        if (typeof valFecha === 'string' && valFecha.match(/^\d{4}-\d{2}-\d{2}/)) {
+          fechaStr = valFecha.substring(0, 10);
+        } else if (typeof valFecha === 'string' && valFecha.trim()) {
+          // Texto como "MAR" — guardamos null para la fecha pero sí registramos el tester
+          fechaStr = null;
+        }
+        // Si hay algo en esa columna (incluye texto), registrar el tester
+        registros.push({
+          tab: sheetName.trim(),
+          cliente: nombreReal || null,
+          categoria,
+          producto,
+          fecha: fechaStr
+        });
+      }
+    }
+  }
+
+  return registros;
+}
+
 
 async function cargarInventarioDesdeDB() {
   try {
@@ -1412,6 +1478,18 @@ async function initDB() {
       CREATE INDEX IF NOT EXISTS idx_pedidos_cedula ON pedidos_web(cedula_ruc);
       CREATE INDEX IF NOT EXISTS idx_pedidos_cliente ON pedidos_web(LOWER(cliente_nombre));
       ALTER TABLE pedidos_web ADD COLUMN IF NOT EXISTS html_crudo TEXT;
+      CREATE TABLE IF NOT EXISTS testers (
+        id SERIAL PRIMARY KEY,
+        asesora VARCHAR(255) NOT NULL,
+        nombre_tab VARCHAR(255) NOT NULL,
+        nombre_cliente VARCHAR(500),
+        categoria VARCHAR(255),
+        producto TEXT NOT NULL,
+        fecha_entrega DATE,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_testers_asesora ON testers(asesora);
+      CREATE INDEX IF NOT EXISTS idx_testers_cliente ON testers(LOWER(COALESCE(nombre_cliente,nombre_tab)));
     `);
     const usuarios = [
       { nombre: 'Fernando Espíndola', usuario: 'Fernando', password: '1234', rol: 'admin', modulos: 'ventas,visitas,kpis,inventario,config' },
@@ -2765,7 +2843,67 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // DIAGNÓSTICO: ver el RUC/Cédula real que trae Contifico para un cliente por nombre
+  // TESTERS — subida de Excel por asesora y consulta del panel
+  // POST /api/testers/subir?asesora=María+Caridad+Zea  → parsea el Excel y guarda en BD
+  if (urlPath === '/api/testers/subir' && req.method === 'POST') {
+    try {
+      const asesora = decodeURIComponent(urlObj.searchParams.get('asesora') || '').trim();
+      if (!asesora) {
+        res.writeHead(400, {'Content-Type':'application/json'});
+        res.end(JSON.stringify({ ok:false, error:'Falta el parámetro asesora' }));
+        return;
+      }
+      const buf = await bodyBuffer(req);
+      const archivo = parseMultipartFile(buf, req.headers['content-type']);
+      if (!archivo) {
+        res.writeHead(400, {'Content-Type':'application/json'});
+        res.end(JSON.stringify({ ok:false, error:'No se encontró el archivo' }));
+        return;
+      }
+      const registros = parsearExcelTesters(archivo.buffer, asesora);
+      // Borrar registros anteriores de esta asesora y reemplazar
+      await pool.query('DELETE FROM testers WHERE asesora=$1', [asesora]);
+      for (const r of registros) {
+        await pool.query(
+          `INSERT INTO testers(asesora, nombre_tab, nombre_cliente, categoria, producto, fecha_entrega)
+           VALUES($1,$2,$3,$4,$5,$6)`,
+          [asesora, r.tab, r.cliente || null, r.categoria, r.producto, r.fecha || null]
+        );
+      }
+      res.writeHead(200, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:true, asesora, registros: registros.length }));
+    } catch(e) {
+      res.writeHead(500, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:false, error: e.message }));
+    }
+    return;
+  }
+  // GET /api/testers?asesora=X  → todos los testers de una asesora
+  // GET /api/testers             → todos los testers de todas las asesoras
+  if (urlPath === '/api/testers' && req.method === 'GET') {
+    try {
+      const asesora = urlObj.searchParams.get('asesora');
+      const cliente = urlObj.searchParams.get('cliente');
+      let r;
+      if (asesora && cliente) {
+        r = await pool.query(
+          `SELECT * FROM testers WHERE asesora=$1 AND (LOWER(nombre_cliente) LIKE LOWER($2) OR LOWER(nombre_tab) LIKE LOWER($2)) ORDER BY fecha_entrega DESC`,
+          [asesora, `%${cliente}%`]
+        );
+      } else if (asesora) {
+        r = await pool.query('SELECT * FROM testers WHERE asesora=$1 ORDER BY nombre_tab, fecha_entrega DESC', [asesora]);
+      } else {
+        r = await pool.query('SELECT * FROM testers ORDER BY asesora, nombre_tab, fecha_entrega DESC');
+      }
+      res.writeHead(200, {'Content-Type':'application/json'});
+      res.end(JSON.stringify(r.rows));
+    } catch(e) {
+      res.writeHead(500, {'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message}));
+    }
+    return;
+  }
+
+
   if (urlPath === '/api/provincias/diagnostico-cliente' && req.method === 'GET') {
     try {
       const nombreBuscado = (urlObj.searchParams.get('nombre') || '').toUpperCase().trim();
