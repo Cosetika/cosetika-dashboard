@@ -3561,25 +3561,17 @@ function selCliente(nombre){
     .then(testers => {
       const cont = document.getElementById('detalle-testers-' + c.id);
       if(!cont || testers.length === 0) return;
-      cont.innerHTML = `
-        <div class="card" style="margin-top:10px">
-          <div class="card-title"><i class="ti ti-flask"></i> Testers entregados</div>
-          <table style="width:100%;border-collapse:collapse;font-size:11px">
-            <thead><tr style="background:#faf9f8;border-bottom:1px solid var(--border)">
-              <th style="padding:6px 8px;text-align:left;color:var(--muted);font-size:9px;text-transform:uppercase">Fecha</th>
-              <th style="padding:6px 8px;text-align:left;color:var(--muted);font-size:9px;text-transform:uppercase">Producto</th>
-            </tr></thead>
-            <tbody>
-              \${testers.sort((a,b)=>new Date(b.fecha_entrega||0)-new Date(a.fecha_entrega||0)).map(t=>\`
-                <tr style="border-bottom:0.5px solid var(--border)">
-                  <td style="padding:6px 8px;color:var(--brown);white-space:nowrap">
-                    \${t.fecha_entrega ? new Date(t.fecha_entrega+'T12:00:00').toLocaleDateString('es-EC',{day:'numeric',month:'short',year:'2-digit'}) : '—'}
-                  </td>
-                  <td style="padding:6px 8px;font-weight:500">\${t.producto}</td>
-                </tr>\`).join('')}
-            </tbody>
-          </table>
-        </div>`;
+      const meses = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+      function fmtT(f){ if(!f) return '—'; const s=String(f).substring(0,10).split('-'); return parseInt(s[2])+' '+meses[parseInt(s[1])]+' '+s[0].substring(2); }
+      const filas = [...testers].sort((a,b)=>String(b.fecha_entrega||'').localeCompare(String(a.fecha_entrega||'')))
+        .map(t => '<tr style="border-bottom:0.5px solid var(--border)"><td style="padding:6px 8px;color:var(--brown);white-space:nowrap;font-size:11px">'+fmtT(t.fecha_entrega)+'</td><td style="padding:6px 8px;font-weight:500;font-size:11px">'+t.producto+'</td></tr>')
+        .join('');
+      cont.innerHTML = '<div class="card" style="margin-top:10px"><div class="card-title"><i class="ti ti-flask"></i> Testers entregados</div>'
+        + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">'
+        + '<thead><tr style="background:#faf9f8;border-bottom:1px solid var(--border)">'
+        + '<th style="padding:6px 8px;text-align:left;color:var(--muted);font-size:9px;text-transform:uppercase">Fecha</th>'
+        + '<th style="padding:6px 8px;text-align:left;color:var(--muted);font-size:9px;text-transform:uppercase">Producto</th>'
+        + '</tr></thead><tbody>' + filas + '</tbody></table></div></div>';
     }).catch(()=>{});
 }
 
@@ -3858,25 +3850,17 @@ function selClienteProvincia(nombre, provincia){
     .then(testers => {
       const cont = document.getElementById('detalle-testers-' + c.id);
       if(!cont || testers.length === 0) return;
-      cont.innerHTML = `
-        <div class="card" style="margin-top:10px">
-          <div class="card-title"><i class="ti ti-flask"></i> Testers entregados</div>
-          <table style="width:100%;border-collapse:collapse;font-size:11px">
-            <thead><tr style="background:#faf9f8;border-bottom:1px solid var(--border)">
-              <th style="padding:6px 8px;text-align:left;color:var(--muted);font-size:9px;text-transform:uppercase">Fecha</th>
-              <th style="padding:6px 8px;text-align:left;color:var(--muted);font-size:9px;text-transform:uppercase">Producto</th>
-            </tr></thead>
-            <tbody>
-              \${testers.sort((a,b)=>new Date(b.fecha_entrega||0)-new Date(a.fecha_entrega||0)).map(t=>\`
-                <tr style="border-bottom:0.5px solid var(--border)">
-                  <td style="padding:6px 8px;color:var(--brown);white-space:nowrap">
-                    \${t.fecha_entrega ? new Date(t.fecha_entrega+'T12:00:00').toLocaleDateString('es-EC',{day:'numeric',month:'short',year:'2-digit'}) : '—'}
-                  </td>
-                  <td style="padding:6px 8px;font-weight:500">\${t.producto}</td>
-                </tr>\`).join('')}
-            </tbody>
-          </table>
-        </div>`;
+      const meses = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+      function fmtT2(f){ if(!f) return '—'; const s=String(f).substring(0,10).split('-'); return parseInt(s[2])+' '+meses[parseInt(s[1])]+' '+s[0].substring(2); }
+      const filas2 = [...testers].sort((a,b)=>String(b.fecha_entrega||'').localeCompare(String(a.fecha_entrega||'')))
+        .map(t => '<tr style="border-bottom:0.5px solid var(--border)"><td style="padding:6px 8px;color:var(--brown);white-space:nowrap;font-size:11px">'+fmtT2(t.fecha_entrega)+'</td><td style="padding:6px 8px;font-weight:500;font-size:11px">'+t.producto+'</td></tr>')
+        .join('');
+      cont.innerHTML = '<div class="card" style="margin-top:10px"><div class="card-title"><i class="ti ti-flask"></i> Testers entregados</div>'
+        + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">'
+        + '<thead><tr style="background:#faf9f8;border-bottom:1px solid var(--border)">'
+        + '<th style="padding:6px 8px;text-align:left;color:var(--muted);font-size:9px;text-transform:uppercase">Fecha</th>'
+        + '<th style="padding:6px 8px;text-align:left;color:var(--muted);font-size:9px;text-transform:uppercase">Producto</th>'
+        + '</tr></thead><tbody>' + filas2 + '</tbody></table></div></div>';
     }).catch(()=>{});
 }
 
