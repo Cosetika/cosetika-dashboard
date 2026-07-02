@@ -5114,18 +5114,18 @@ async function renderTestersDetalle(clienteId, clienteNombre, clienteCedula){
 
   const porMarca = {};
   function extraerMarca(producto, categoria){
-    const p = (producto||'').toUpperCase();
-    const c = (categoria||'').toUpperCase();
-    if(p.includes('MANUKA') || p.includes('MANUKA TREE')) return 'MANUKA TREE';
-    if(p.includes('ACAI') || p.includes('AÇAI')) return 'ACAI BERRY';
-    if(p.includes('JAZMIN') || p.includes('JAZMÍN')) return 'JAZMÍN';
-    if(p.includes('MANTECA DE CACAO')) return 'MANTECA DE CACAO';
-    if(p.includes('NIACINAMIDA') || p.includes('VITAMIN C.B3') || p.includes('NIACINAMIDE')) return 'NIACINAMIDA';
-    if(p.includes('VITAMINA C') || p.includes('VITAMIN C')) return 'VITAMINA C';
-    if(p.includes('BSK') || c.includes('BSK') || c === 'BIOSKIN') return 'BIOSKIN';
-    if(p.includes('BB CREAM') || p.includes('ILUMINADORA') || p.includes('DERMOCALMANTE') || p.includes('ANTI-IMPERFEC') || p.includes('PANTALLA SOLAR') || p.includes('PROTECTOR SOLAR') || p.includes('ESPUMA') || p.includes('DESMAQUILLADOR') || p.includes('LIMPIADOR') || p.includes('CONTORNO DE OJOS')) return 'ZIAJA';
-    if(p.includes('POSTER') || p.includes('EXHIBIDOR') || p.includes('CATÁLOGO') || p.includes('CATALOGO') || p.includes('CINTILLO') || c === 'POSTER' || c === 'EXHIBIDOR' || c === 'CATÁLOGO' || c === 'CINTILLO') return 'MATERIAL EXHIBICIÓN';
-    return categoria || 'Otros';
+    const p = (producto||'').toUpperCase().trim();
+    const c = (categoria||'').toUpperCase().trim();
+    // BIOSKIN: código BSK o categoría BioSkin/BSK
+    if(p.startsWith('BSK') || /^BSK\d+/.test(p) || c === 'BIOSKIN' || /BSK\d*/.test(c)) return 'BIOSKIN';
+    // ERAYBA: líneas BS (smooting), K (keratin), N (collastin), ABH (ayurvedic)
+    if(p.startsWith('ABH') || p.startsWith('BS1') || p.startsWith('BS S') ||
+       /^K\d+/.test(p) || /^N\d+/.test(p) || /^BS\d+/.test(p)) return 'ERAYBA';
+    if(['ABH','AYURVEDIC','KERATIN','COLLASTIN','SMOOTING','SILVER NO-YELLOW','CURLS'].some(x=>p.includes(x))) return 'ERAYBA';
+    // MATERIAL DE EXHIBICIÓN
+    if(['POSTER','EXHIBIDOR','CATÁLOGO','CATALOGO','CINTILLO'].some(x=>p.includes(x)||c.includes(x))) return 'MATERIAL EXHIBICIÓN';
+    // Todo lo demás es ZIAJA
+    return 'ZIAJA';
   }
   testers.forEach(t => {
     const marca = extraerMarca(t.producto, t.categoria);
