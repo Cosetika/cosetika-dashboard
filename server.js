@@ -2860,29 +2860,46 @@ const server = http.createServer(async (req, res) => {
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
     return;
   }
-  // POST /api/testers/bulk → carga masiva
-  // Body: { registros: [{clienteNombre, categoria, producto, codigo, fechaEntrega},...] }
+  // POST /api/testers/bulk → carga masiva en lotes de 200 filas por INSERT
   if (urlPath === '/api/testers/bulk' && req.method === 'POST') {
     try {
       const { registros, limpiar } = await bodyJSON(req);
       if (!Array.isArray(registros)) {
-        res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'registros debe ser array'}));
+        res.writeHead(400,{'Content-Type':'application/json'});
+        res.end(JSON.stringify({ok:false,error:'registros debe ser array'}));
         return;
       }
       if (limpiar) await pool.query('TRUNCATE TABLE testers RESTART IDENTITY');
-      let ok = 0, errores = 0;
-      for (const r of registros) {
-        try {
-          await pool.query(
-            `INSERT INTO testers(cliente_id, cliente_nombre, categoria, producto, codigo, fecha_entrega)
-             VALUES($1,$2,$3,$4,$5,$6)`,
-            [r.clienteNombre, r.clienteNombre, r.categoria||null, r.producto, r.codigo||null, r.fechaEntrega||null]
+      const LOTE = 200;
+      let insertados = 0;
+      for (let i = 0; i < registros.length; i += LOTE) {
+        const lote = registros.slice(i, i + LOTE);
+        const valores = [];
+        const params = [];
+        lote.forEach((r, j) => {
+          const b = j * 6;
+          valores.push(`($${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6})`);
+          params.push(
+            r.clienteNombre||r.cliente_nombre||'',
+            r.clienteNombre||r.cliente_nombre||'',
+            r.categoria||null,
+            r.producto||'',
+            r.codigo||null,
+            r.fechaEntrega||r.fecha_entrega||null
           );
-          ok++;
-        } catch(e) { errores++; }
+        });
+        await pool.query(
+          `INSERT INTO testers(cliente_id,cliente_nombre,categoria,producto,codigo,fecha_entrega) VALUES ${valores.join(',')}`,
+          params
+        );
+        insertados += lote.length;
       }
-      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, insertados:ok, errores}));
-    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ok:true, insertados}));
+    } catch(e) {
+      res.writeHead(500,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ok:false,error:e.message}));
+    }
     return;
   }
   // GET /api/testers                      → todos los testers

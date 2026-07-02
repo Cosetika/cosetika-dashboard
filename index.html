@@ -4885,24 +4885,39 @@ async function cargarTesters(btn){
   const status = document.getElementById('carga-status');
   btn.disabled = true;
   btn.innerHTML = '<i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i> Cargando...';
-  if(status) status.textContent = 'Enviando 1.922 registros al servidor...';
+
   try {
-    const r = await fetch('/api/testers/bulk', {
+    // Primero limpiar la tabla
+    await fetch('/api/testers/bulk', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ registros: TESTERS_DATOS_INICIALES, limpiar: true })
+      body: JSON.stringify({ registros: [], limpiar: true })
     });
-    const data = await r.json();
-    if(data.ok){
-      if(status) status.innerHTML = `<span style="color:#16a34a">✓ ${data.insertados} registros cargados correctamente</span>`;
-      setTimeout(() => renderTesters(), 1500);
-    } else {
-      if(status) status.innerHTML = `<span style="color:#ef4444">Error: ${data.error}</span>`;
-      btn.disabled = false;
+
+    // Enviar en lotes de 200 para evitar timeouts
+    const LOTE = 200;
+    const total = TESTERS_DATOS_INICIALES.length;
+    let insertados = 0;
+
+    for(let i = 0; i < total; i += LOTE){
+      const lote = TESTERS_DATOS_INICIALES.slice(i, i + LOTE);
+      const r = await fetch('/api/testers/bulk', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ registros: lote, limpiar: false })
+      });
+      const data = await r.json();
+      if(!data.ok) throw new Error(data.error || 'Error en lote ' + i);
+      insertados += data.insertados;
+      if(status) status.textContent = `Cargando... ${insertados}/${total}`;
     }
+
+    if(status) status.innerHTML = `<span style="color:#16a34a">✓ ${insertados} registros cargados correctamente</span>`;
+    setTimeout(() => renderTesters(), 1500);
   } catch(e) {
     if(status) status.innerHTML = `<span style="color:#ef4444">Error: ${e.message}</span>`;
     btn.disabled = false;
+    btn.innerHTML = '<i class="ti ti-upload" style="margin-right:6px"></i>Reintentar';
   }
 }
 
