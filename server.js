@@ -1478,8 +1478,7 @@ async function initDB() {
       CREATE INDEX IF NOT EXISTS idx_pedidos_cedula ON pedidos_web(cedula_ruc);
       CREATE INDEX IF NOT EXISTS idx_pedidos_cliente ON pedidos_web(LOWER(cliente_nombre));
       ALTER TABLE pedidos_web ADD COLUMN IF NOT EXISTS html_crudo TEXT;
-      DROP TABLE IF EXISTS testers;
-      CREATE TABLE testers (
+      CREATE TABLE IF NOT EXISTS testers (
         id SERIAL PRIMARY KEY,
         cliente_id VARCHAR(100) NOT NULL,
         cliente_nombre VARCHAR(500) NOT NULL,
