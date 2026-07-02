@@ -162,7 +162,6 @@
   <div class="stab" id="stab-marcas" onclick="setSubtab('marcas')" style="padding:10px 6px;font-size:11px">Marcas</div>
   <div class="stab" id="stab-cpf" onclick="setSubtab('cpf')" style="padding:10px 6px;font-size:11px">Clientes</div>
   <div class="stab" id="stab-prov" onclick="setSubtab('prov')" style="padding:10px 6px;font-size:11px">Provincias</div>
-  <div class="stab" id="stab-testers" onclick="setSubtab('testers')" style="padding:10px 6px;font-size:11px">Testers</div>
 </div>
 
 <!-- Botón refresh flotante para móvil -->
@@ -1128,14 +1127,8 @@ function setSubtab(tab){
     else renderHome();
   } else if(tab==='prov'){
     sidebar.classList.add('hidden'); body.classList.add('full-width');
-    // Provincias siempre muestra el total de TODA la empresa — no debe heredar un
-    // filtro de vendedora que haya quedado activo de una navegación anterior por
-    // Clientes (mismo bug ya corregido en la pestaña Marcas).
     vendActual = null;
     renderProvincias();
-  } else if(tab==='testers'){
-    sidebar.classList.add('hidden'); body.classList.add('full-width');
-    renderTesters();
   }
 }
 
@@ -2413,6 +2406,11 @@ function renderFacturasHoy(){
         background:${docTab==='facturas'?'var(--brown)':'white'};color:${docTab==='facturas'?'white':'var(--muted)'}">
         <i class="ti ti-receipt" style="margin-right:5px"></i>Facturas
       </button>
+      <button onclick="setDocTab('testers')"
+        style="flex:1;padding:11px;font-size:13px;font-weight:500;border:none;cursor:pointer;transition:all 0.2s;
+        background:${docTab==='testers'?'var(--brown)':'white'};color:${docTab==='testers'?'white':'var(--muted)'}">
+        <i class="ti ti-flask" style="margin-right:5px"></i>Testers
+      </button>
       <button onclick="setDocTab('envios')"
         style="flex:1;padding:11px;font-size:13px;font-weight:500;border:none;cursor:pointer;transition:all 0.2s;
         background:${docTab==='envios'?'var(--brown)':'white'};color:${docTab==='envios'?'white':'var(--muted)'}">
@@ -2427,6 +2425,7 @@ function renderFacturasHoy(){
     <div id="doc-tab-content"></div>`;
   if(docTab==='envios') renderEnvios();
   else if(docTab==='control') renderControl();
+  else if(docTab==='testers') renderTesters();
   else renderDocFacturas();
 }
 
@@ -3501,7 +3500,35 @@ function selCliente(nombre){
             </div>`).join('')}
         </div>`:''}
       </div>
-    </div>`;
+    </div>
+    <div id="detalle-testers-${c.id}" style="margin-top:0"></div>`;
+
+  // Cargar testers del cliente de forma asíncrona
+  fetch('/api/testers?clienteId=' + encodeURIComponent(c.id))
+    .then(r=>r.json())
+    .then(testers => {
+      const cont = document.getElementById('detalle-testers-' + c.id);
+      if(!cont || testers.length === 0) return;
+      cont.innerHTML = `
+        <div class="card" style="margin-top:10px">
+          <div class="card-title"><i class="ti ti-flask"></i> Testers entregados</div>
+          <table style="width:100%;border-collapse:collapse;font-size:11px">
+            <thead><tr style="background:#faf9f8;border-bottom:1px solid var(--border)">
+              <th style="padding:6px 8px;text-align:left;color:var(--muted);font-size:9px;text-transform:uppercase">Fecha</th>
+              <th style="padding:6px 8px;text-align:left;color:var(--muted);font-size:9px;text-transform:uppercase">Producto</th>
+            </tr></thead>
+            <tbody>
+              \${testers.sort((a,b)=>new Date(b.fecha_entrega||0)-new Date(a.fecha_entrega||0)).map(t=>\`
+                <tr style="border-bottom:0.5px solid var(--border)">
+                  <td style="padding:6px 8px;color:var(--brown);white-space:nowrap">
+                    \${t.fecha_entrega ? new Date(t.fecha_entrega+'T12:00:00').toLocaleDateString('es-EC',{day:'numeric',month:'short',year:'2-digit'}) : '—'}
+                  </td>
+                  <td style="padding:6px 8px;font-weight:500">\${t.producto}</td>
+                </tr>\`).join('')}
+            </tbody>
+          </table>
+        </div>`;
+    }).catch(()=>{});
 }
 
 
@@ -3766,7 +3793,34 @@ function selClienteProvincia(nombre, provincia){
             </div>`).join('')}
         </div>`:''}
       </div>
-    </div>`;
+    </div>
+    <div id="detalle-testers-${c.id}" style="margin-top:0"></div>`;
+
+  fetch('/api/testers?clienteId=' + encodeURIComponent(c.id))
+    .then(r=>r.json())
+    .then(testers => {
+      const cont = document.getElementById('detalle-testers-' + c.id);
+      if(!cont || testers.length === 0) return;
+      cont.innerHTML = `
+        <div class="card" style="margin-top:10px">
+          <div class="card-title"><i class="ti ti-flask"></i> Testers entregados</div>
+          <table style="width:100%;border-collapse:collapse;font-size:11px">
+            <thead><tr style="background:#faf9f8;border-bottom:1px solid var(--border)">
+              <th style="padding:6px 8px;text-align:left;color:var(--muted);font-size:9px;text-transform:uppercase">Fecha</th>
+              <th style="padding:6px 8px;text-align:left;color:var(--muted);font-size:9px;text-transform:uppercase">Producto</th>
+            </tr></thead>
+            <tbody>
+              \${testers.sort((a,b)=>new Date(b.fecha_entrega||0)-new Date(a.fecha_entrega||0)).map(t=>\`
+                <tr style="border-bottom:0.5px solid var(--border)">
+                  <td style="padding:6px 8px;color:var(--brown);white-space:nowrap">
+                    \${t.fecha_entrega ? new Date(t.fecha_entrega+'T12:00:00').toLocaleDateString('es-EC',{day:'numeric',month:'short',year:'2-digit'}) : '—'}
+                  </td>
+                  <td style="padding:6px 8px;font-weight:500">\${t.producto}</td>
+                </tr>\`).join('')}
+            </tbody>
+          </table>
+        </div>`;
+    }).catch(()=>{});
 }
 
 
@@ -4674,165 +4728,296 @@ function renderReportes(){
 
 function setReportesTab(tab){ window._reportesTab=tab; renderReportes(); }
 
-// ─── TESTERS: panel de testers gratuitos entregados por asesora ──────────────
-const ASESORAS_TESTERS = ['Daniela Villegas Chamorro','Liseth Gavilanes','Karen Rebeca Mora','María Caridad Zea','Nicole Yanira Leon','Giovanna Portilla'];
 
-async function renderTesters(){
-  const usuario = window.usuarioActual || {};
-  const rol = usuario.rol || '';
-  const esAdmin = rol === 'admin' || rol === 'jefa_ventas';
+// ─── TESTERS: catálogo fijo de productos Cosétika ────────────────────────────
+const CATALOGO_TESTERS = [
+  {codigo:null,categoria:'GEL LIMPIADOR',nombre:'VITAMIN C.B3 NIACINAMIDE FACE CLEANSING GEL'},
+  {codigo:null,categoria:'EXFOLIANTE',nombre:'VITAMIN C.B3 NIACINAMIDE FACE SCRUB GEL'},
+  {codigo:null,categoria:'TONICO FACIAL',nombre:'VITAMIN C.B3 NIACINAMIDE ACID FACE TONER'},
+  {codigo:null,categoria:'CREMA DE DIA',nombre:'VITAMIN C.B3 NIACINAMIDE WAKE ME UP FACE CREAM'},
+  {codigo:null,categoria:'CREMA DE NOCHE',nombre:'VITAMIN C.B3 NIACINAMIDE NIGHT CREAM'},
+  {codigo:null,categoria:'SERUM',nombre:'VITAMIN C.B3 NIACINAMIDE ACTIVE FACE SERUM'},
+  {codigo:null,categoria:'BALSAMO CORPORAL',nombre:'VITAMIN C.B3 NIACINAMIDE BODY BALM'},
+  {codigo:null,categoria:'CREMA DE DIA',nombre:'MANUKA TREE CREMA DE DÍA 50 ML'},
+  {codigo:null,categoria:'CREMA DE NOCHE',nombre:'MANUKA TREE CREMA DE NOCHE 50 ML'},
+  {codigo:null,categoria:'EXFOLIANTE',nombre:'MANUKA TREE EXFOLIANTE FACIAL 75 ML'},
+  {codigo:null,categoria:'GEL LIMPIADOR',nombre:'MANUKA TREE GEL FACIAL LIMPIADOR 200 ML'},
+  {codigo:null,categoria:'TONICO FACIAL',nombre:'MANUKA TREE TÓNICO FACIAL 200 ML'},
+  {codigo:null,categoria:'CREMA DE DIA',nombre:'ACAI BERRY CREMA FACIAL REGENERADORA 50 ML'},
+  {codigo:null,categoria:'GEL LIMPIADOR',nombre:'ACAI BERRY GEL FACIAL EXFOLIANTE MICELAR 200 ML'},
+  {codigo:null,categoria:'SERUM',nombre:'ACAI BERRY SERÚM 50 ML'},
+  {codigo:null,categoria:'TONICO FACIAL',nombre:'ACAI BERRY TÓNICO FACIAL CON ÁCIDO HIALURÓNICO 200 ML'},
+  {codigo:null,categoria:'AGUA MICELAR',nombre:'JAZMÍN AGUA MICELAR 200 ML'},
+  {codigo:null,categoria:'CONTORNO DE OJOS',nombre:'JAZMÍN CONTORNO DE OJOS ANTIARRUGAS 15 ML'},
+  {codigo:null,categoria:'CREMA DE DIA',nombre:'JAZMÍN CREMA DE DÍA ANTIARRUGAS 50 ML'},
+  {codigo:null,categoria:'CREMA DE NOCHE',nombre:'JAZMÍN CREMA DE NOCHE ANTIARRUGAS 50 ML'},
+  {codigo:null,categoria:'SERUM',nombre:'JAZMÍN SERUM ANTIARRUGAS 30 ML'},
+  {codigo:null,categoria:'CREMA DE MANOS',nombre:'MANTECA DE CACAO CREMA DE MANOS REGENERANTE 80 ML'},
+  {codigo:null,categoria:'GEL DE DUCHA',nombre:'MANTECA DE CACAO GEL DE DUCHA CREMOSO 500 ML'},
+  {codigo:null,categoria:'LOCION CORPORAL',nombre:'MANTECA DE CACAO LOCIÓN CORPORAL HIDRATANTE 400 ML'},
+  {codigo:null,categoria:'LIMPIADOR',nombre:'ESPUMA FACIAL LIMPIADORA 150 ML'},
+  {codigo:null,categoria:'DESMAQUILLADOR',nombre:'DESMAQUILLADOR DUO-PHASE 120 ML'},
+  {codigo:null,categoria:'CREMA',nombre:'BB CREAM'},
+  {codigo:null,categoria:'PANTALLA SOLAR',nombre:'PROTECTOR SOLAR FACIAL ANTIOXIDANTE VIT.C SPF 50+ 50 ML'},
+  {codigo:null,categoria:'PANTALLA SOLAR',nombre:'PROTECTOR SOLAR TINTE NATURAL'},
+  {codigo:null,categoria:'PANTALLA SOLAR',nombre:'PROTECTOR SOLAR MATIFICANTE'},
+  {codigo:null,categoria:'VITAMINA C',nombre:'CREMA DE DÍA VITAMINA C'},
+  {codigo:null,categoria:'VITAMINA C',nombre:'CREMA DE NOCHE VITAMINA C'},
+  {codigo:null,categoria:'VITAMINA C',nombre:'ESENCIA REVITALIZANTE VITAMINA C'},
+  {codigo:null,categoria:'ILUMINADORA',nombre:'CREMA DE DIA ILUMINADORA'},
+  {codigo:null,categoria:'ILUMINADORA',nombre:'CREMA DE NOCHE ILUMINADORA'},
+  {codigo:null,categoria:'ILUMINADORA',nombre:'GEL CORRECTOR ILUMINADOR'},
+  {codigo:null,categoria:'CREMA',nombre:'CREMA DERMOCALMANTE'},
+  {codigo:null,categoria:'CONTORNO DE OJOS',nombre:'CONTORNO DE OJOS HIDRATANTE'},
+  {codigo:null,categoria:'CREMA',nombre:'ANTI-IMPERFECCIONES'},
+  {codigo:null,categoria:'POSTER',nombre:'POSTER ACAI BERRY'},
+  {codigo:null,categoria:'POSTER',nombre:'POSTER JAZMÍN'},
+  {codigo:null,categoria:'POSTER',nombre:'POSTER MANUKA TREE'},
+  {codigo:null,categoria:'POSTER',nombre:'POSTER VITAMINA C'},
+  {codigo:null,categoria:'POSTER',nombre:'POSTER ANTIMANCHAS'},
+  {codigo:null,categoria:'POSTER',nombre:'POSTER NIACINAMIDA'},
+  {codigo:null,categoria:'CATÁLOGO',nombre:'CATÁLOGO NUEVO'},
+  {codigo:null,categoria:'EXHIBIDOR',nombre:'EXHIBIDOR PEQUEÑO'},
+  {codigo:null,categoria:'EXHIBIDOR',nombre:'EXHIBIDOR GRANDE'},
+  {codigo:null,categoria:'CINTILLO',nombre:'CINTILLO'},
+  {codigo:'BSK2',categoria:'BIOSKIN',nombre:'BSK2 FIRMPRO'},
+  {codigo:'BSK3',categoria:'BIOSKIN',nombre:'BSK3 BOTOPEPTIDOS'},
+  {codigo:'BSK5',categoria:'BIOSKIN',nombre:'BSK5 ACIDO HIALURONICO'},
+  {codigo:'BSK6',categoria:'BIOSKIN',nombre:'BSK6 PDRN'},
+  {codigo:'BSK7',categoria:'BIOSKIN',nombre:'BSK7 BRIGHTPRO'},
+  {codigo:'BSK9',categoria:'BIOSKIN',nombre:'BSK9 EXOSOMAS HAIRPRO'},
+  {codigo:'BSK10',categoria:'BIOSKIN',nombre:'BSK10 LIPOPRO'},
+  {codigo:'BSK14',categoria:'BIOSKIN',nombre:'BSK14 TRANEXPRO'},
+  {codigo:'BSK23',categoria:'BIOSKIN',nombre:'BSK23 ALCACHOFA'},
+  {codigo:'BSK29',categoria:'BIOSKIN',nombre:'BSK29 BIOPLAX'},
+  {codigo:'BSK31',categoria:'BIOSKIN',nombre:'BSK31 LIP SHINE'},
+  {codigo:'BSK32',categoria:'BIOSKIN',nombre:'BSK32 EYE PRO'},
+  {codigo:'BSK35',categoria:'BIOSKIN',nombre:'BSK35 HIALURONIDASA'},
+  {codigo:'BSK36',categoria:'BIOSKIN',nombre:'BSK36 COLLAGEN'},
+  {codigo:'BSK37',categoria:'BIOSKIN',nombre:'BSK37 EXOSOMA BOOSTER'},
+  {codigo:'BSK81',categoria:'BIOSKIN',nombre:'BSK81 PEELING MEDIUM'},
+  {codigo:'BSK82',categoria:'BIOSKIN',nombre:'BSK82 PEELING SOFT'},
+  {codigo:'BSK83',categoria:'BIOSKIN',nombre:'BSK83 PEEL PROCLEAR'},
+  {codigo:'BSK87',categoria:'BIOSKIN',nombre:'BSK87 PEELPRO BRIGHTENING'},
+  {codigo:'BSK88',categoria:'BIOSKIN',nombre:'BSK88 LOCION NEUTRALIZANTE'},
+];
 
-  document.getElementById('main').innerHTML = `
-    <div class="breadcrumb" style="margin-bottom:12px">
-      <i class="ti ti-flask" style="color:var(--brown);font-size:12px"></i>
-      <span style="font-weight:500">Testers</span>
-    </div>
-    <div id="testers-content"><div style="font-size:13px;color:var(--muted);padding:20px 0;text-align:center">Cargando...</div></div>`;
-
-  await renderTestersContenido();
+function buscarEnCatalogo(q){
+  if(!q || q.length < 2) return [];
+  const norm = q.toUpperCase().replace(/\s+/g,' ').trim();
+  return CATALOGO_TESTERS.filter(p =>
+    (p.codigo && p.codigo.toUpperCase().startsWith(norm)) ||
+    p.nombre.toUpperCase().includes(norm) ||
+    p.categoria.toUpperCase().includes(norm)
+  ).slice(0, 8);
 }
 
-async function renderTestersContenido(){
-  const cont = document.getElementById('testers-content');
+async function renderTesters(){
+  document.getElementById('doc-tab-content').innerHTML = `<div id="testers-main-content"></div>`;
+  await renderTestersLista();
+}
+
+async function renderTestersLista(){
+  const cont = document.getElementById('testers-main-content');
   if(!cont) return;
+  cont.innerHTML = '<div style="font-size:13px;color:var(--muted);padding:20px 0;text-align:center">Cargando clientes...</div>';
 
-  const usuario = window.usuarioActual || {};
-  const rol = usuario.rol || '';
-  const esAdmin = rol === 'admin' || rol === 'jefa_ventas';
-  const asesoraSelActual = window._testersAsesora || (esAdmin ? null : (window._nombreRealAsesora || usuario.nombre));
-
-  let rows = [];
-  try {
-    const url = asesoraSelActual
-      ? `/api/testers?asesora=${encodeURIComponent(asesoraSelActual)}`
-      : '/api/testers';
-    const r = await fetch(url);
-    rows = await r.json();
-  } catch(e){ console.error(e); }
-
-  // Agrupar por cliente (nombre_cliente o nombre_tab como fallback)
-  const porCliente = {};
-  rows.forEach(r => {
-    const key = r.nombre_cliente ? `${r.nombre_cliente}__${r.asesora}` : `${r.nombre_tab}__${r.asesora}`;
-    if(!porCliente[key]) porCliente[key] = {
-      nombre: r.nombre_cliente || null,
-      tab: r.nombre_tab,
-      asesora: r.asesora,
-      items: []
-    };
-    porCliente[key].items.push(r);
+  // Carga los testers ya registrados para saber qué clientes tienen
+  let testers = [];
+  try{ const r = await fetch('/api/testers'); testers = await r.json(); } catch(e){}
+  const testersMap = {}; // clienteId → cantidad
+  testers.forEach(t => {
+    const k = t.cliente_id || t.cliente_nombre;
+    testersMap[k] = (testersMap[k]||0) + 1;
   });
 
-  const clientes = Object.values(porCliente).sort((a,b) => (a.tab||'').localeCompare(b.tab||''));
-  const totalItems = rows.length;
-  const clientesConNombre = clientes.filter(c=>c.nombre).length;
+  // Lista de todos los clientes del DATA (todas las asesoras)
+  const todosClientes = [];
+  Object.values(DATA||{}).forEach(lista => {
+    lista.forEach(c => {
+      if(!todosClientes.find(x=>x.id===c.id)) todosClientes.push(c);
+    });
+  });
+  todosClientes.sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''));
 
   cont.innerHTML = `
-    <!-- Selector de asesora (solo admin/jefa) + botón de subida -->
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px">
-      ${esAdmin ? `
-        <div style="display:flex;gap:6px;flex-wrap:wrap">
-          <button onclick="window._testersAsesora=null;renderTestersContenido()"
-            style="padding:5px 12px;font-size:11px;border-radius:20px;cursor:pointer;border:1px solid ${!asesoraSelActual?'var(--brown)':'var(--border)'};background:${!asesoraSelActual?'var(--brown)':'white'};color:${!asesoraSelActual?'white':'var(--muted)'}">
-            Todas
-          </button>
-          ${ASESORAS_TESTERS.map(a=>`
-            <button onclick="window._testersAsesora='${a.replace(/'/g,"\\'")}';renderTestersContenido()"
-              style="padding:5px 12px;font-size:11px;border-radius:20px;cursor:pointer;border:1px solid ${a===asesoraSelActual?'var(--brown)':'var(--border)'};background:${a===asesoraSelActual?'var(--brown)':'white'};color:${a===asesoraSelActual?'white':'var(--muted)'}">
-              ${a.split(' ')[0]}
-            </button>`).join('')}
-        </div>` : '<div></div>'}
-      <div style="display:flex;align-items:center;gap:10px">
-        <input type="file" id="testers-file-input" accept=".xlsx" style="display:none"
-          onchange="subirExcelTesters(event, '${(asesoraSelActual||'').replace(/'/g,"\\'")}')">
-        <button onclick="document.getElementById('testers-file-input').click()"
-          style="padding:7px 14px;font-size:12px;border-radius:8px;border:1px solid var(--brown);background:rgba(160,104,74,0.08);color:var(--brown);cursor:pointer;display:flex;align-items:center;gap:6px;font-weight:500;white-space:nowrap">
-          <i class="ti ti-upload" style="font-size:14px"></i> Subir Excel
-          ${asesoraSelActual ? `<span style="font-size:10px;opacity:0.7">(${asesoraSelActual.split(' ')[0]})</span>` : ''}
-        </button>
-        <span id="testers-upload-status" style="font-size:12px;color:var(--muted)"></span>
+    <!-- Buscador -->
+    <div style="position:relative;margin-bottom:16px">
+      <i class="ti ti-search" style="position:absolute;left:11px;top:50%;transform:translateY(-50%);font-size:14px;color:var(--muted)"></i>
+      <input type="text" id="testers-buscar-cliente" placeholder="Buscar cliente..."
+        oninput="filtrarListaTesters(this.value)"
+        style="width:100%;padding:9px 12px 9px 34px;font-size:13px;border:1px solid var(--border);border-radius:10px;outline:none;box-sizing:border-box"
+        onfocus="this.style.borderColor='var(--brown)'" onblur="this.style.borderColor='var(--border)'">
+    </div>
+    <div id="testers-lista-clientes">
+      ${todosClientes.map(c=>{
+        const count = testersMap[c.id] || testersMap[c.nombre] || 0;
+        const iniciales = (c.nombre||'').split(' ').slice(0,2).map(w=>w[0]||'').join('').toUpperCase();
+        return `
+        <div class="tester-cli-row" data-nombre="${(c.nombre||'').toLowerCase()}"
+          onclick="renderTestersDetalle('${c.id.replace(/'/g,"\\'")}','${(c.nombre||'').replace(/'/g,"\\'")}')"
+          style="display:flex;align-items:center;gap:12px;padding:11px 14px;background:white;border-radius:10px;border:1px solid var(--border);margin-bottom:8px;cursor:pointer;transition:all 0.15s"
+          onmouseover="this.style.background='#faf9f8';this.style.borderColor='var(--brown)'"
+          onmouseout="this.style.background='white';this.style.borderColor='var(--border)'">
+          <div style="width:36px;height:36px;border-radius:50%;background:${count>0?'var(--brown)':'#d1d5db'};color:white;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;flex-shrink:0">${iniciales}</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.nombre||'—'}</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:1px">${c.ruc||''}</div>
+          </div>
+          <div style="text-align:right;flex-shrink:0">
+            ${count>0
+              ? `<span style="background:#fffbeb;color:#92400e;border:1px solid #fde68a;border-radius:12px;padding:2px 8px;font-size:11px;font-weight:600">${count} tester${count>1?'s':''}</span>`
+              : `<span style="color:#d1d5db;font-size:11px">Sin testers</span>`}
+          </div>
+          <i class="ti ti-chevron-right" style="color:var(--muted);font-size:14px;flex-shrink:0"></i>
+        </div>`;
+      }).join('')}
+    </div>`;
+}
+
+function filtrarListaTesters(q){
+  const norm = q.toLowerCase();
+  document.querySelectorAll('.tester-cli-row').forEach(row => {
+    const nombre = row.dataset.nombre || '';
+    row.style.display = (!norm || nombre.includes(norm)) ? '' : 'none';
+  });
+}
+
+async function renderTestersDetalle(clienteId, clienteNombre){
+  const cont = document.getElementById('testers-main-content');
+  if(!cont) return;
+  cont.innerHTML = '<div style="font-size:13px;color:var(--muted);padding:20px 0;text-align:center">Cargando testers...</div>';
+
+  let testers = [];
+  try{
+    const r = await fetch('/api/testers?clienteId=' + encodeURIComponent(clienteId));
+    testers = await r.json();
+  } catch(e){}
+
+  cont.innerHTML = `
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+      <button onclick="renderTestersLista()"
+        style="width:34px;height:34px;border-radius:50%;border:1px solid var(--border);background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+        <i class="ti ti-arrow-left" style="font-size:15px;color:var(--muted)"></i>
+      </button>
+      <div>
+        <div style="font-size:15px;font-weight:600;color:var(--text)">${clienteNombre}</div>
+        <div style="font-size:11px;color:var(--muted)">${testers.length} tester${testers.length!==1?'s':''} entregados</div>
       </div>
     </div>
 
-    <!-- KPIs -->
-    <div class="kpi-row" style="margin-bottom:16px">
-      <div class="kpi"><div class="kpi-label">Testers entregados</div><div class="kpi-val" style="color:var(--brown)">${totalItems}</div><div class="kpi-sub">registros totales</div></div>
-      <div class="kpi"><div class="kpi-label">Clientes</div><div class="kpi-val">${clientes.length}</div><div class="kpi-sub">${clientesConNombre} con nombre</div></div>
+    <!-- Formulario agregar tester -->
+    <div class="card" style="margin-bottom:14px;border:2px dashed var(--border)">
+      <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">
+        <i class="ti ti-plus" style="margin-right:5px"></i>Agregar tester
+      </div>
+      <div style="position:relative;margin-bottom:10px">
+        <input type="text" id="tester-buscar-prod" placeholder="Buscar por código BSK o nombre del producto..."
+          oninput="mostrarSugerenciasProducto(this.value)"
+          onblur="setTimeout(()=>document.getElementById('tester-sugerencias').style.display='none',200)"
+          style="width:100%;padding:9px 12px;font-size:13px;border:1px solid var(--border);border-radius:8px;outline:none;box-sizing:border-box"
+          onfocus="this.style.borderColor='var(--brown)'" onblur_="this.style.borderColor='var(--border)'">
+        <div id="tester-sugerencias" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid var(--border);border-radius:8px;z-index:100;box-shadow:0 4px 12px rgba(0,0,0,0.1);max-height:220px;overflow-y:auto"></div>
+      </div>
+      <div id="tester-producto-sel" style="display:none;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:#166534;display:flex;align-items:center;gap:8px">
+        <i class="ti ti-check" style="font-size:14px"></i>
+        <span id="tester-producto-sel-text"></span>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="date" id="tester-fecha" value="${new Date().toISOString().split('T')[0]}"
+          style="padding:8px 10px;font-size:13px;border:1px solid var(--border);border-radius:8px;outline:none;flex:1"
+          onfocus="this.style.borderColor='var(--brown)'" onblur="this.style.borderColor='var(--border)'">
+        <button onclick="guardarNuevoTester('${clienteId.replace(/'/g,"\\'")}','${clienteNombre.replace(/'/g,"\\'")}')"
+          style="padding:8px 16px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500;white-space:nowrap">
+          <i class="ti ti-check" style="margin-right:4px"></i>Guardar
+        </button>
+      </div>
     </div>
 
-    <!-- Lista de clientes con sus testers -->
-    ${clientes.length === 0 ? `
-      <div class="card" style="text-align:center;padding:40px 20px;color:var(--muted)">
-        <i class="ti ti-flask-off" style="font-size:36px;opacity:0.35"></i>
-        <p style="margin-top:10px;font-size:14px">No hay testers registrados${asesoraSelActual?' para esta asesora':''}</p>
-        <p style="font-size:12px;margin-top:4px">Sube el Excel de testers usando el botón de arriba</p>
-      </div>` :
-    clientes.map(c => {
-      const nombre = c.nombre || `(sin nombre — tab: ${c.tab})`;
-      const iniciales = (c.nombre || c.tab).split(' ').slice(0,2).map(w=>w[0]||'').join('').toUpperCase();
-      return `
-      <div class="card" style="margin-bottom:10px">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-          <div style="width:36px;height:36px;border-radius:50%;background:${c.nombre?'var(--brown)':'#d1d5db'};color:white;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;flex-shrink:0">${iniciales}</div>
-          <div style="flex:1;min-width:0">
-            <div style="font-size:13px;font-weight:600;color:var(--text)">${nombre}</div>
-            <div style="font-size:11px;color:var(--muted);margin-top:1px">
-              ${esAdmin ? `<span style="color:var(--brown)">${c.asesora.split(' ')[0]}</span> · ` : ''}
-              ${c.items.length} tester${c.items.length!==1?'s':''}
-            </div>
-          </div>
-        </div>
-        <div style="overflow-x:auto">
-          <table style="width:100%;border-collapse:collapse;font-size:11px">
+    <!-- Lista de testers entregados -->
+    <div class="card">
+      <div class="card-title"><i class="ti ti-flask"></i> Testers entregados</div>
+      ${testers.length === 0
+        ? '<p style="font-size:13px;color:var(--muted);padding:8px 0">Sin testers registrados aún</p>'
+        : `<div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:12px">
             <thead><tr style="background:#faf9f8;border-bottom:1px solid var(--border)">
-              <th style="padding:6px 10px;text-align:left;color:var(--muted);text-transform:uppercase;font-size:9px;letter-spacing:1px">Categoría</th>
-              <th style="padding:6px 10px;text-align:left;color:var(--muted);text-transform:uppercase;font-size:9px;letter-spacing:1px">Producto</th>
-              <th style="padding:6px 10px;text-align:center;color:var(--muted);text-transform:uppercase;font-size:9px;letter-spacing:1px">Fecha entrega</th>
+              <th style="padding:7px 10px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase">Fecha</th>
+              <th style="padding:7px 10px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase">Categoría</th>
+              <th style="padding:7px 10px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase">Producto</th>
             </tr></thead>
             <tbody>
-              ${c.items.map(item => `
+              ${testers.sort((a,b)=>new Date(b.fecha_entrega||0)-new Date(a.fecha_entrega||0)).map(t=>`
                 <tr style="border-bottom:0.5px solid var(--border)">
-                  <td style="padding:6px 10px;color:var(--muted);white-space:nowrap">${item.categoria||'—'}</td>
-                  <td style="padding:6px 10px;font-weight:500">${item.producto||'—'}</td>
-                  <td style="padding:6px 10px;text-align:center;color:${item.fecha_entrega?'var(--brown)':'var(--muted)'};white-space:nowrap">
-                    ${item.fecha_entrega ? new Date(item.fecha_entrega+'T12:00:00').toLocaleDateString('es-EC',{day:'numeric',month:'short',year:'numeric'}) : '—'}
+                  <td style="padding:7px 10px;color:var(--brown);font-size:11px;white-space:nowrap">
+                    ${t.fecha_entrega ? new Date(t.fecha_entrega+'T12:00:00').toLocaleDateString('es-EC',{day:'numeric',month:'short',year:'numeric'}) : '—'}
                   </td>
+                  <td style="padding:7px 10px;color:var(--muted);white-space:nowrap">${t.categoria||'—'}</td>
+                  <td style="padding:7px 10px;font-weight:500">${t.producto||'—'}</td>
                 </tr>`).join('')}
             </tbody>
           </table>
-        </div>
-      </div>`;
-    }).join('')}`;
+        </div>`}
+    </div>`;
+
+  // Guardar referencia del producto seleccionado
+  window._testerProdSel = null;
 }
 
-async function subirExcelTesters(event, asesora){
-  const file = event.target.files[0];
-  if(!file) return;
-  if(!asesora){
-    alert('Selecciona primero la asesora (chip arriba) antes de subir el Excel');
-    event.target.value = '';
+let _testerProdSelData = null;
+function mostrarSugerenciasProducto(q){
+  const sug = document.getElementById('tester-sugerencias');
+  if(!sug) return;
+  const resultados = buscarEnCatalogo(q);
+  if(resultados.length === 0 || !q || q.length < 2){
+    sug.style.display = 'none';
     return;
   }
-  const status = document.getElementById('testers-upload-status');
-  status.textContent = 'Subiendo...';
-  try {
-    const form = new FormData();
-    form.append('file', file);
-    const r = await fetch(`/api/testers/subir?asesora=${encodeURIComponent(asesora)}`, {
+  sug.style.display = 'block';
+  sug.innerHTML = resultados.map(p=>`
+    <div onclick="seleccionarProductoTester('${p.nombre.replace(/'/g,"\\'")}','${p.categoria.replace(/'/g,"\\'")}','${(p.codigo||'').replace(/'/g,"\\'")}')"
+      style="padding:9px 12px;cursor:pointer;border-bottom:0.5px solid var(--border);transition:background 0.1s"
+      onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='white'">
+      <span style="font-size:12px;font-weight:500;color:var(--text)">${p.nombre}</span>
+      <span style="font-size:10px;color:var(--muted);margin-left:8px">${p.codigo?'<span style="color:var(--brown);font-weight:600">'+p.codigo+'</span> · ':''} ${p.categoria}</span>
+    </div>`).join('');
+}
+
+function seleccionarProductoTester(nombre, categoria, codigo){
+  _testerProdSelData = { nombre, categoria, codigo };
+  document.getElementById('tester-buscar-prod').value = nombre;
+  document.getElementById('tester-sugerencias').style.display = 'none';
+  const sel = document.getElementById('tester-producto-sel');
+  document.getElementById('tester-producto-sel-text').textContent = (codigo ? codigo + ' — ' : '') + nombre;
+  sel.style.display = 'flex';
+}
+
+async function guardarNuevoTester(clienteId, clienteNombre){
+  if(!_testerProdSelData){
+    alert('Selecciona un producto del catálogo primero');
+    return;
+  }
+  const fecha = document.getElementById('tester-fecha')?.value || new Date().toISOString().split('T')[0];
+  try{
+    const r = await fetch('/api/testers', {
       method: 'POST',
-      body: form
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        clienteId, clienteNombre,
+        categoria: _testerProdSelData.categoria,
+        producto: _testerProdSelData.nombre,
+        codigo: _testerProdSelData.codigo || null,
+        fechaEntrega: fecha
+      })
     });
     const data = await r.json();
     if(data.ok){
-      status.textContent = `✓ ${data.registros} registros cargados`;
-      await renderTestersContenido();
-    } else {
-      status.textContent = 'Error: ' + (data.error||'desconocido');
-    }
-  } catch(e){
-    status.textContent = 'Error: ' + e.message;
-  }
-  event.target.value = '';
+      _testerProdSelData = null;
+      document.getElementById('tester-buscar-prod').value = '';
+      document.getElementById('tester-producto-sel').style.display = 'none';
+      await renderTestersDetalle(clienteId, clienteNombre);
+    } else { alert('Error: ' + (data.error||'desconocido')); }
+  } catch(e){ alert('Error: '+e.message); }
 }
 
 async function renderInversiones(){

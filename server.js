@@ -1480,16 +1480,16 @@ async function initDB() {
       ALTER TABLE pedidos_web ADD COLUMN IF NOT EXISTS html_crudo TEXT;
       CREATE TABLE IF NOT EXISTS testers (
         id SERIAL PRIMARY KEY,
-        asesora VARCHAR(255) NOT NULL,
-        nombre_tab VARCHAR(255) NOT NULL,
-        nombre_cliente VARCHAR(500),
+        cliente_id VARCHAR(100) NOT NULL,
+        cliente_nombre VARCHAR(500) NOT NULL,
         categoria VARCHAR(255),
         producto TEXT NOT NULL,
+        codigo VARCHAR(50),
         fecha_entrega DATE,
         created_at TIMESTAMP DEFAULT NOW()
       );
-      CREATE INDEX IF NOT EXISTS idx_testers_asesora ON testers(asesora);
-      CREATE INDEX IF NOT EXISTS idx_testers_cliente ON testers(LOWER(COALESCE(nombre_cliente,nombre_tab)));
+      CREATE INDEX IF NOT EXISTS idx_testers_cliente ON testers(cliente_id);
+      CREATE INDEX IF NOT EXISTS idx_testers_nombre ON testers(LOWER(cliente_nombre));
     `);
     const usuarios = [
       { nombre: 'Fernando Espíndola', usuario: 'Fernando', password: '1234', rol: 'admin', modulos: 'ventas,visitas,kpis,inventario,config' },
@@ -2843,63 +2843,49 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // TESTERS — subida de Excel por asesora y consulta del panel
-  // POST /api/testers/subir?asesora=María+Caridad+Zea  → parsea el Excel y guarda en BD
-  if (urlPath === '/api/testers/subir' && req.method === 'POST') {
-    try {
-      const asesora = decodeURIComponent(urlObj.searchParams.get('asesora') || '').trim();
-      if (!asesora) {
-        res.writeHead(400, {'Content-Type':'application/json'});
-        res.end(JSON.stringify({ ok:false, error:'Falta el parámetro asesora' }));
-        return;
-      }
-      const buf = await bodyBuffer(req);
-      const archivo = parseMultipartFile(buf, req.headers['content-type']);
-      if (!archivo) {
-        res.writeHead(400, {'Content-Type':'application/json'});
-        res.end(JSON.stringify({ ok:false, error:'No se encontró el archivo' }));
-        return;
-      }
-      const registros = parsearExcelTesters(archivo.buffer, asesora);
-      // Borrar registros anteriores de esta asesora y reemplazar
-      await pool.query('DELETE FROM testers WHERE asesora=$1', [asesora]);
-      for (const r of registros) {
-        await pool.query(
-          `INSERT INTO testers(asesora, nombre_tab, nombre_cliente, categoria, producto, fecha_entrega)
-           VALUES($1,$2,$3,$4,$5,$6)`,
-          [asesora, r.tab, r.cliente || null, r.categoria, r.producto, r.fecha || null]
-        );
-      }
-      res.writeHead(200, {'Content-Type':'application/json'});
-      res.end(JSON.stringify({ ok:true, asesora, registros: registros.length }));
-    } catch(e) {
-      res.writeHead(500, {'Content-Type':'application/json'});
-      res.end(JSON.stringify({ ok:false, error: e.message }));
-    }
-    return;
-  }
-  // GET /api/testers?asesora=X  → todos los testers de una asesora
-  // GET /api/testers             → todos los testers de todas las asesoras
+  // TESTERS — registro de testers entregados a clientes
+  // GET /api/testers                      → todos los testers
+  // GET /api/testers?clienteId=XXX        → testers de un cliente específico
   if (urlPath === '/api/testers' && req.method === 'GET') {
     try {
-      const asesora = urlObj.searchParams.get('asesora');
-      const cliente = urlObj.searchParams.get('cliente');
+      const clienteId = urlObj.searchParams.get('clienteId');
       let r;
-      if (asesora && cliente) {
+      if (clienteId) {
         r = await pool.query(
-          `SELECT * FROM testers WHERE asesora=$1 AND (LOWER(nombre_cliente) LIKE LOWER($2) OR LOWER(nombre_tab) LIKE LOWER($2)) ORDER BY fecha_entrega DESC`,
-          [asesora, `%${cliente}%`]
+          'SELECT * FROM testers WHERE cliente_id=$1 ORDER BY fecha_entrega DESC NULLS LAST, created_at DESC',
+          [clienteId]
         );
-      } else if (asesora) {
-        r = await pool.query('SELECT * FROM testers WHERE asesora=$1 ORDER BY nombre_tab, fecha_entrega DESC', [asesora]);
       } else {
-        r = await pool.query('SELECT * FROM testers ORDER BY asesora, nombre_tab, fecha_entrega DESC');
+        r = await pool.query('SELECT * FROM testers ORDER BY cliente_nombre, fecha_entrega DESC NULLS LAST');
       }
-      res.writeHead(200, {'Content-Type':'application/json'});
-      res.end(JSON.stringify(r.rows));
-    } catch(e) {
-      res.writeHead(500, {'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message}));
-    }
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.rows));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+  // POST /api/testers → registrar un nuevo tester entregado
+  if (urlPath === '/api/testers' && req.method === 'POST') {
+    try {
+      const { clienteId, clienteNombre, categoria, producto, codigo, fechaEntrega } = await bodyJSON(req);
+      if (!clienteId || !producto) {
+        res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'Faltan datos'}));
+        return;
+      }
+      await pool.query(
+        `INSERT INTO testers(cliente_id, cliente_nombre, categoria, producto, codigo, fecha_entrega)
+         VALUES($1,$2,$3,$4,$5,$6)`,
+        [clienteId, clienteNombre||'', categoria||null, producto, codigo||null, fechaEntrega||null]
+      );
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+  // DELETE /api/testers/:id → eliminar un tester específico
+  if (urlPath.startsWith('/api/testers/') && req.method === 'DELETE') {
+    try {
+      const id = parseInt(urlPath.split('/').pop());
+      await pool.query('DELETE FROM testers WHERE id=$1', [id]);
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
   }
 
