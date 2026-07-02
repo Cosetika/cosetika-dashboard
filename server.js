@@ -2952,12 +2952,12 @@ const server = http.createServer(async (req, res) => {
   if (urlPath === '/api/testers/resumen' && req.method === 'GET') {
     try {
       const r = await pool.query(
-        `SELECT cliente_id, cliente_nombre, cliente_cedula,
+        `SELECT cliente_id, MAX(cliente_nombre) AS cliente_nombre, MAX(cliente_cedula) AS cliente_cedula,
                 COUNT(*) AS total,
                 TO_CHAR(MAX(fecha_entrega), 'YYYY-MM-DD') AS ultima_entrega
          FROM testers
-         GROUP BY cliente_id, cliente_nombre, cliente_cedula
-         ORDER BY cliente_nombre`
+         GROUP BY cliente_id
+         ORDER BY MAX(cliente_nombre)`
       );
       res.writeHead(200,{'Content-Type':'application/json'});
       res.end(JSON.stringify(r.rows));

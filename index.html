@@ -4984,7 +4984,11 @@ async function cargarTesters(btn){
     }
 
     if(status) status.innerHTML = `<span style="color:#16a34a">✓ ${insertados} registros cargados correctamente</span>`;
-    setTimeout(() => renderTesters(), 1500);
+    setTimeout(() => {
+      // Asegurarse de estar en el tab correcto antes de renderizar
+      window._docTab = 'testers';
+      renderFacturasHoy();
+    }, 1500);
   } catch(e) {
     if(status) status.innerHTML = `<span style="color:#ef4444">Error: ${e.message}</span>`;
     btn.disabled = false;
