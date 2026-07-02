@@ -4983,12 +4983,38 @@ async function cargarTesters(btn){
       if(status) status.textContent = `Cargando... ${insertados}/${total}`;
     }
 
-    if(status) status.innerHTML = `<span style="color:#16a34a">✓ ${insertados} registros cargados correctamente</span>`;
-    setTimeout(() => {
-      // Asegurarse de estar en el tab correcto antes de renderizar
-      window._docTab = 'testers';
-      renderFacturasHoy();
-    }, 1500);
+    if(status) status.innerHTML = `<span style="color:#16a34a">✓ ${insertados} registros cargados</span>`;
+    // Refrescar directamente la lista sin recrear toda la pantalla
+    setTimeout(async () => {
+      try {
+        const r2 = await fetch('/api/testers/resumen');
+        const clientes = await r2.json();
+        const lista = document.getElementById('testers-lista-clientes');
+        if(!lista) { renderTesters(); return; }
+        const meses2 = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+        lista.innerHTML = '<div style="font-size:12px;color:var(--muted);margin-bottom:10px">'+clientes.length+' clientes con testers</div>'
+          + clientes.map(c => {
+            const iniciales = (c.cliente_nombre||'').split(' ').slice(0,2).map(w=>w[0]||'').join('').toUpperCase();
+            const f = c.ultima_entrega;
+            const p = f ? f.substring(0,10).split('-') : null;
+            const fechaUlt = p ? parseInt(p[2])+' '+meses2[parseInt(p[1])]+' '+p[0] : '—';
+            const id = (c.cliente_id||c.cliente_nombre).replace(/'/g,"\\'");
+            const nom = (c.cliente_nombre||'').replace(/'/g,"\\'");
+            const ced = (c.cliente_cedula||'').replace(/'/g,"\\'");
+            const iniciales2 = iniciales || '?';
+            return '<div class="tester-cli-row" data-nombre="'+(c.cliente_nombre||'').toLowerCase()+'"'
+              +' onclick="renderTestersDetalle(\''+id+'\',\''+nom+'\',\''+ced+'\')"'
+              +' style="display:flex;align-items:center;gap:12px;padding:11px 14px;background:white;border-radius:10px;border:1px solid var(--border);margin-bottom:8px;cursor:pointer"'
+              +' onmouseover="this.style.borderColor=\'var(--brown)\';this.style.background=\'#faf9f8\'"'
+              +' onmouseout="this.style.borderColor=\'var(--border)\';this.style.background=\'white\'">'
+              +'<div style="width:36px;height:36px;border-radius:50%;background:var(--brown);color:white;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;flex-shrink:0">'+iniciales2+'</div>'
+              +'<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(c.cliente_nombre||'—')+'</div>'
+              +'<div style="font-size:11px;color:var(--muted);margin-top:1px">Última entrega: '+fechaUlt+'</div></div>'
+              +'<span style="background:#fffbeb;color:#92400e;border:1px solid #fde68a;border-radius:12px;padding:2px 8px;font-size:11px;font-weight:600;flex-shrink:0">'+c.total+'</span>'
+              +'<i class="ti ti-chevron-right" style="color:var(--muted);font-size:14px;flex-shrink:0"></i></div>';
+          }).join('');
+      } catch(e) { renderTesters(); }
+    }, 500);
   } catch(e) {
     if(status) status.innerHTML = `<span style="color:#ef4444">Error: ${e.message}</span>`;
     btn.disabled = false;
