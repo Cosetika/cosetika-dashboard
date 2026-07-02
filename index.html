@@ -4945,19 +4945,29 @@ function agregarClienteTester(){
 async function renderTestersLista(){ await renderTesters(); }
 
 async function renderTestersDetalle(clienteId, clienteNombre){
-  const cont = document.getElementById('testers-main-content');
+  const cont = document.getElementById('doc-tab-content');
   if(!cont) return;
-  cont.innerHTML = '<div style="font-size:13px;color:var(--muted);padding:20px 0;text-align:center">Cargando testers...</div>';
+  cont.innerHTML = '<div style="font-size:13px;color:var(--muted);padding:20px 0;text-align:center">Cargando...</div>';
 
   let testers = [];
   try{
     const r = await fetch('/api/testers?clienteId=' + encodeURIComponent(clienteId));
     testers = await r.json();
-  } catch(e){}
+  } catch(e){ console.error(e); }
+
+  // Parsear fecha segura
+  function fmtFechaTester(f){
+    if(!f) return '—';
+    const s = typeof f === 'string' ? f : (f.toISOString ? f.toISOString() : String(f));
+    const p = s.substring(0,10).split('-');
+    if(p.length !== 3) return '—';
+    const m = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+    return `${parseInt(p[2])} ${m[parseInt(p[1])]} ${p[0]}`;
+  }
 
   cont.innerHTML = `
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
-      <button onclick="renderTestersLista()"
+      <button onclick="renderTesters()"
         style="width:34px;height:34px;border-radius:50%;border:1px solid var(--border);background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">
         <i class="ti ti-arrow-left" style="font-size:15px;color:var(--muted)"></i>
       </button>
@@ -4975,12 +4985,12 @@ async function renderTestersDetalle(clienteId, clienteNombre){
       <div style="position:relative;margin-bottom:10px">
         <input type="text" id="tester-buscar-prod" placeholder="Buscar por código BSK o nombre del producto..."
           oninput="mostrarSugerenciasProducto(this.value)"
-          onblur="setTimeout(()=>document.getElementById('tester-sugerencias').style.display='none',200)"
+          onblur="setTimeout(()=>{const s=document.getElementById('tester-sugerencias');if(s)s.style.display='none'},200)"
           style="width:100%;padding:9px 12px;font-size:13px;border:1px solid var(--border);border-radius:8px;outline:none;box-sizing:border-box"
-          onfocus="this.style.borderColor='var(--brown)'" onblur_="this.style.borderColor='var(--border)'">
+          onfocus="this.style.borderColor='var(--brown)'" onblur="this.style.borderColor='var(--border)'">
         <div id="tester-sugerencias" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid var(--border);border-radius:8px;z-index:100;box-shadow:0 4px 12px rgba(0,0,0,0.1);max-height:220px;overflow-y:auto"></div>
       </div>
-      <div id="tester-producto-sel" style="display:none;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:#166534;display:flex;align-items:center;gap:8px">
+      <div id="tester-producto-sel" style="display:none;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:#166534;align-items:center;gap:8px">
         <i class="ti ti-check" style="font-size:14px"></i>
         <span id="tester-producto-sel-text"></span>
       </div>
@@ -4999,7 +5009,7 @@ async function renderTestersDetalle(clienteId, clienteNombre){
     <div class="card">
       <div class="card-title"><i class="ti ti-flask"></i> Testers entregados</div>
       ${testers.length === 0
-        ? '<p style="font-size:13px;color:var(--muted);padding:8px 0">Sin testers registrados aún</p>'
+        ? '<p style="font-size:13px;color:var(--muted);padding:8px 0">Sin testers registrados aún — agrega uno arriba</p>'
         : `<div style="overflow-x:auto">
           <table style="width:100%;border-collapse:collapse;font-size:12px">
             <thead><tr style="background:#faf9f8;border-bottom:1px solid var(--border)">
@@ -5008,11 +5018,13 @@ async function renderTestersDetalle(clienteId, clienteNombre){
               <th style="padding:7px 10px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase">Producto</th>
             </tr></thead>
             <tbody>
-              ${testers.sort((a,b)=>new Date(b.fecha_entrega||0)-new Date(a.fecha_entrega||0)).map(t=>`
+              ${[...testers].sort((a,b)=>{
+                const fa = a.fecha_entrega ? String(a.fecha_entrega).substring(0,10) : '';
+                const fb = b.fecha_entrega ? String(b.fecha_entrega).substring(0,10) : '';
+                return fb.localeCompare(fa);
+              }).map(t=>`
                 <tr style="border-bottom:0.5px solid var(--border)">
-                  <td style="padding:7px 10px;color:var(--brown);font-size:11px;white-space:nowrap">
-                    ${t.fecha_entrega ? new Date(t.fecha_entrega+'T12:00:00').toLocaleDateString('es-EC',{day:'numeric',month:'short',year:'numeric'}) : '—'}
-                  </td>
+                  <td style="padding:7px 10px;color:var(--brown);font-size:11px;white-space:nowrap">${fmtFechaTester(t.fecha_entrega)}</td>
                   <td style="padding:7px 10px;color:var(--muted);white-space:nowrap">${t.categoria||'—'}</td>
                   <td style="padding:7px 10px;font-weight:500">${t.producto||'—'}</td>
                 </tr>`).join('')}
@@ -5021,8 +5033,7 @@ async function renderTestersDetalle(clienteId, clienteNombre){
         </div>`}
     </div>`;
 
-  // Guardar referencia del producto seleccionado
-  window._testerProdSel = null;
+  _testerProdSelData = null;
 }
 
 let _testerProdSelData = null;
