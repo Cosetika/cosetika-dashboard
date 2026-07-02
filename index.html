@@ -3556,7 +3556,7 @@ function selCliente(nombre){
     <div id="detalle-testers-${c.id}" style="margin-top:0"></div>`;
 
   // Cargar testers del cliente de forma asíncrona
-  fetch('/api/testers?clienteId=' + encodeURIComponent(c.id))
+  fetch('/api/testers?clienteId=' + encodeURIComponent(c.id) + '&nombre=' + encodeURIComponent(c.nombre||''))
     .then(r=>r.json())
     .then(testers => {
       const cont = document.getElementById('detalle-testers-' + c.id);
@@ -3853,7 +3853,7 @@ function selClienteProvincia(nombre, provincia){
     </div>
     <div id="detalle-testers-${c.id}" style="margin-top:0"></div>`;
 
-  fetch('/api/testers?clienteId=' + encodeURIComponent(c.id))
+  fetch('/api/testers?clienteId=' + encodeURIComponent(c.id) + '&nombre=' + encodeURIComponent(c.nombre||''))
     .then(r=>r.json())
     .then(testers => {
       const cont = document.getElementById('detalle-testers-' + c.id);

@@ -2889,22 +2889,32 @@ const server = http.createServer(async (req, res) => {
       const wb = XLSX.read(archivo.buffer, { type: 'buffer' });
       const ws = wb.Sheets[wb.SheetNames[0]];
       const filas = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
-      // Fila 2 (índice 2) contiene los encabezados reales
-      const hdrs = (filas[2]||[]).map(h => String(h||'').trim());
-      const iRuc    = hdrs.indexOf('RUC');
-      const iCed    = hdrs.indexOf('Cédula');
-      const iNom    = hdrs.indexOf('Razón Social');
-      const iTel    = hdrs.indexOf('Teléfonos');
-      const iDir    = hdrs.indexOf('Dirección');
-      const iEmail  = hdrs.indexOf('Email');
-      const iVend   = hdrs.indexOf('Vendedor Asignado');
-      if (iNom === -1) {
+      // Buscar la fila que contiene 'Razón Social' — puede estar en índice 2 o variar
+      let iHdr = -1;
+      for(let i = 0; i < Math.min(10, filas.length); i++){
+        const fila = filas[i] || [];
+        if(fila.some(c => String(c||'').includes('Raz') && String(c||'').includes('Social'))){
+          iHdr = i; break;
+        }
+      }
+      if(iHdr === -1){
+        res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'No se encontró fila de encabezados con Razón Social'})); return;
+      }
+      const hdrs = (filas[iHdr]||[]).map(h => String(h||'').trim());
+      const iRuc   = hdrs.findIndex(h => h === 'RUC');
+      const iCed   = hdrs.findIndex(h => h.includes('dula'));
+      const iNom   = hdrs.findIndex(h => h.includes('Raz') && h.includes('Social'));
+      const iTel   = hdrs.findIndex(h => h.includes('fono'));
+      const iDir   = hdrs.findIndex(h => h.includes('irecci'));
+      const iEmail = hdrs.findIndex(h => h.toLowerCase().includes('email') || h.toLowerCase().includes('correo'));
+      const iVend  = hdrs.findIndex(h => h.includes('Vendedor'));
+      if(iNom === -1){
         res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'No se encontró columna Razón Social'})); return;
       }
       await pool.query('TRUNCATE TABLE personas RESTART IDENTITY');
       let insertados = 0;
       const LOTE = 200;
-      const datos = filas.slice(3).filter(r => r && r[iNom]);
+      const datos = filas.slice(iHdr + 1).filter(r => r && r[iNom]);
       for (let i = 0; i < datos.length; i += LOTE) {
         const lote = datos.slice(i, i + LOTE);
         const vals = []; const params = [];
@@ -2995,11 +3005,17 @@ const server = http.createServer(async (req, res) => {
   if (urlPath === '/api/testers' && req.method === 'GET') {
     try {
       const clienteId = urlObj.searchParams.get('clienteId');
+      const nombre    = urlObj.searchParams.get('nombre');
       let r;
-      if (clienteId) {
+      if (clienteId || nombre) {
+        // Busca por cliente_id exacto O por nombre (fuzzy) para cubrir ambos casos
         r = await pool.query(
-          'SELECT * FROM testers WHERE cliente_id=$1 ORDER BY fecha_entrega DESC NULLS LAST, created_at DESC',
-          [clienteId]
+          `SELECT * FROM testers
+           WHERE cliente_id = $1
+              OR LOWER(cliente_nombre) LIKE LOWER($2)
+              OR LOWER(cliente_id) LIKE LOWER($2)
+           ORDER BY fecha_entrega DESC NULLS LAST, created_at DESC`,
+          [clienteId || nombre || '', `%${nombre || clienteId || ''}%`]
         );
       } else {
         r = await pool.query('SELECT * FROM testers ORDER BY cliente_nombre, fecha_entrega DESC NULLS LAST');
