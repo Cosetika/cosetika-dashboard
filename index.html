@@ -5113,8 +5113,22 @@ async function renderTestersDetalle(clienteId, clienteNombre, clienteCedula){
   try{ const r = await fetch(url); testers = await r.json(); } catch(e){}
 
   const porMarca = {};
+  function extraerMarca(producto, categoria){
+    const p = (producto||'').toUpperCase();
+    const c = (categoria||'').toUpperCase();
+    if(p.includes('MANUKA') || p.includes('MANUKA TREE')) return 'MANUKA TREE';
+    if(p.includes('ACAI') || p.includes('AÇAI')) return 'ACAI BERRY';
+    if(p.includes('JAZMIN') || p.includes('JAZMÍN')) return 'JAZMÍN';
+    if(p.includes('MANTECA DE CACAO')) return 'MANTECA DE CACAO';
+    if(p.includes('NIACINAMIDA') || p.includes('VITAMIN C.B3') || p.includes('NIACINAMIDE')) return 'NIACINAMIDA';
+    if(p.includes('VITAMINA C') || p.includes('VITAMIN C')) return 'VITAMINA C';
+    if(p.includes('BSK') || c.includes('BSK') || c === 'BIOSKIN') return 'BIOSKIN';
+    if(p.includes('BB CREAM') || p.includes('ILUMINADORA') || p.includes('DERMOCALMANTE') || p.includes('ANTI-IMPERFEC') || p.includes('PANTALLA SOLAR') || p.includes('PROTECTOR SOLAR') || p.includes('ESPUMA') || p.includes('DESMAQUILLADOR') || p.includes('LIMPIADOR') || p.includes('CONTORNO DE OJOS')) return 'ZIAJA';
+    if(p.includes('POSTER') || p.includes('EXHIBIDOR') || p.includes('CATÁLOGO') || p.includes('CATALOGO') || p.includes('CINTILLO') || c === 'POSTER' || c === 'EXHIBIDOR' || c === 'CATÁLOGO' || c === 'CINTILLO') return 'MATERIAL EXHIBICIÓN';
+    return categoria || 'Otros';
+  }
   testers.forEach(t => {
-    const marca = t.categoria || 'Sin categoría';
+    const marca = extraerMarca(t.producto, t.categoria);
     if(!porMarca[marca]) porMarca[marca] = [];
     porMarca[marca].push(t);
   });
