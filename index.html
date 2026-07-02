@@ -11,62 +11,59 @@
     *{box-sizing:border-box;margin:0;padding:0}
     :root{--brown:#A0684A;--brown-dark:#1a0e08;--bl:rgba(160,104,74,0.12);--bg:#f4f1ee;--card:#fff;--text:#1a1a1a;--muted:#6b6b6b;--border:rgba(0,0,0,0.08)}
     body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
-    /* ── NUEVA NAVEGACIÓN SIDEBAR ─────────────────────────── */
-    /* Sidebar oscuro fijo en desktop, deslizable en mobile */
-    .nav-sidebar{position:fixed;top:0;left:0;width:200px;height:100vh;background:#1a1108;display:flex;flex-direction:column;z-index:200;transition:transform 0.25s cubic-bezier(0.4,0,0.2,1)}
-    .nav-sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:199}
-    .nav-logo{padding:16px 14px 12px;border-bottom:0.5px solid #2a1a0a;display:flex;align-items:center;gap:10px}
+    /* ── NAVEGACIÓN SIDEBAR ──────────────────────────────── */
+    /* Desktop: sidebar fijo, contenido con margen izquierdo */
+    .nav-sidebar{position:fixed;top:0;left:0;width:195px;height:100vh;background:#1a1108;display:flex;flex-direction:column;z-index:300}
+    .nav-sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:299}
+    .nav-logo{padding:16px 14px 12px;border-bottom:0.5px solid #2a1a0a;display:flex;align-items:center;gap:10px;flex-shrink:0}
     .logo-c{width:30px;height:30px;background:var(--brown);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;color:#fff;font-style:italic;font-family:Georgia,serif;flex-shrink:0}
     .logo-name{font-size:12px;font-weight:500;letter-spacing:1.5px;color:#fff}
     .logo-sl{font-size:8.5px;color:#5a4a3a;letter-spacing:0.5px}
     .nav-items{flex:1;padding:8px 0;overflow-y:auto;scrollbar-width:none}
     .nav-items::-webkit-scrollbar{display:none}
-    .nav-item{display:flex;align-items:center;gap:9px;padding:8px 12px;margin:1px 8px;border-radius:7px;cursor:pointer;color:#8a7a6a;font-size:12px;font-weight:400;transition:all 0.15s;border-left:2px solid transparent}
+    .nav-item{display:flex;align-items:center;gap:9px;padding:8px 10px;margin:1px 6px;border-radius:7px;cursor:pointer;color:#8a7a6a;font-size:12px;font-weight:400;transition:all 0.15s;border-left:2px solid transparent}
     .nav-item:hover{background:rgba(160,104,74,0.1);color:#c9a07a}
-    .nav-item.active{background:rgba(160,104,74,0.15);color:#A0684A;font-weight:500;border-left-color:#A0684A}
+    .nav-item.active{background:rgba(160,104,74,0.18);color:#A0684A;font-weight:500;border-left-color:#A0684A}
     .nav-item i{font-size:16px;flex-shrink:0}
-    .nav-item-sub{display:flex;align-items:center;gap:9px;padding:6px 12px 6px 38px;margin:0 8px;border-radius:6px;cursor:pointer;color:#6a5a4a;font-size:11px;transition:all 0.15s}
-    .nav-item-sub:hover{background:rgba(160,104,74,0.08);color:#c9a07a}
-    .nav-item-sub.active{color:#A0684A;font-weight:500}
-    .nav-divider{height:0.5px;background:#2a1a0a;margin:6px 12px}
-    .nav-footer{padding:10px 14px;border-top:0.5px solid #2a1a0a;display:flex;align-items:center;gap:8px}
-    .nav-avatar{width:26px;height:26px;border-radius:50%;background:var(--brown);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:#fff;flex-shrink:0}
+    .nav-divider{height:0.5px;background:#2a1a0a;margin:6px 10px}
+    .nav-footer{padding:10px 12px;border-top:0.5px solid #2a1a0a;display:flex;align-items:center;gap:8px;flex-shrink:0}
+    .nav-avatar{width:26px;height:26px;border-radius:50%;background:var(--brown);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:#fff;flex-shrink:0;cursor:pointer}
     .nav-user-name{font-size:11px;color:#9a8a7a;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .nav-user-rol{font-size:9px;color:#4a3a2a}
 
-    /* Header mobile */
-    .mobile-header{display:none;background:#1a1108;padding:10px 16px;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+    /* App layout: contenido empujado a la derecha en desktop */
+    .app-layout{min-height:100vh}
+    .app-content{margin-left:195px;min-height:100vh;display:flex;flex-direction:column}
+    .mobile-header{display:none;background:#1a1108;padding:10px 16px;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:200}
     .mobile-header-title{color:#fff;font-size:13px;font-weight:500;letter-spacing:1px}
     .ham-btn{background:none;border:none;color:#A0684A;cursor:pointer;padding:4px;display:flex;align-items:center;justify-content:center}
 
-    /* Sub-tabs (horizontales para el módulo activo) */
-    .subtabs-bar{background:#fff;border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:none;display:flex;position:sticky;top:0;z-index:50}
+    /* Sub-tabs horizontales */
+    .subtabs-bar{background:#fff;border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:none;display:none;position:sticky;top:0;z-index:100}
     .subtabs-bar::-webkit-scrollbar{display:none}
-    .stab{padding:10px 14px;font-size:11px;font-weight:500;color:var(--muted);cursor:pointer;border:none;background:white;white-space:nowrap;border-bottom:2px solid transparent;transition:all 0.2s}
+    .stab{padding:10px 16px;font-size:12px;font-weight:500;color:var(--muted);cursor:pointer;border:none;background:white;white-space:nowrap;border-bottom:2px solid transparent;transition:all 0.15s;flex-shrink:0}
     .stab:hover{color:var(--text)}
-    .stab.active{color:var(--brown);border-bottom-color:var(--brown);background:white}
+    .stab.active{color:var(--brown);border-bottom-color:var(--brown)}
 
-    /* Layout principal */
-    .app-layout{display:flex;min-height:100vh}
-    .app-content{margin-left:200px;flex:1;display:flex;flex-direction:column;min-width:0}
-    .body{display:grid;grid-template-columns:170px 1fr;min-height:calc(100vh - 52px)}.body.full-width{grid-template-columns:1fr}
+    /* Body interno (sidebar de vendedoras) */
+    .body{display:grid;grid-template-columns:170px 1fr;flex:1}.body.full-width{grid-template-columns:1fr}
     .sidebar{background:#fff;border-right:1px solid var(--border);padding:12px 10px;overflow-y:auto}
     .sidebar.hidden{display:none}
 
-    /* Módulo activo chip en mobile subtabs */
+    /* Mobile: sidebar oculto, se desliza al abrir */
     @media(max-width:768px){
-      .nav-sidebar{transform:translateX(-100%)}
+      .nav-sidebar{transform:translateX(-100%);transition:transform 0.25s ease}
       .nav-sidebar.open{transform:translateX(0)}
       .nav-sidebar-overlay.visible{display:block}
       .mobile-header{display:flex}
       .app-content{margin-left:0}
-      .body{grid-template-columns:1fr;min-height:calc(100vh - 96px)}
+      .body{grid-template-columns:1fr}
       .kpi-row{grid-template-columns:repeat(2,1fr)}
       .row2{grid-template-columns:1fr}
       .hbar-lbl{width:90px;min-width:90px}
       .hbar-val{min-width:50px}
     }
-    /* Ocultar los elementos viejos de nav */
+    /* Ocultar nav vieja */
     .header,.mods,.submenu{display:none!important}
     .badge{background:rgba(160,104,74,0.25);border:1px solid var(--brown);color:#c9a07a;font-size:11px;padding:3px 10px;border-radius:20px}
     .icon-btn{background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.2);color:#fff;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:15px}
