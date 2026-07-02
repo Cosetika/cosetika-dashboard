@@ -1478,7 +1478,8 @@ async function initDB() {
       CREATE INDEX IF NOT EXISTS idx_pedidos_cedula ON pedidos_web(cedula_ruc);
       CREATE INDEX IF NOT EXISTS idx_pedidos_cliente ON pedidos_web(LOWER(cliente_nombre));
       ALTER TABLE pedidos_web ADD COLUMN IF NOT EXISTS html_crudo TEXT;
-      CREATE TABLE IF NOT EXISTS testers (
+      DROP TABLE IF EXISTS testers;
+      CREATE TABLE testers (
         id SERIAL PRIMARY KEY,
         cliente_id VARCHAR(100) NOT NULL,
         cliente_nombre VARCHAR(500) NOT NULL,
@@ -1490,13 +1491,6 @@ async function initDB() {
       );
       CREATE INDEX IF NOT EXISTS idx_testers_cliente ON testers(cliente_id);
       CREATE INDEX IF NOT EXISTS idx_testers_nombre ON testers(LOWER(cliente_nombre));
-      -- Migración: agregar columnas si la tabla existe con estructura vieja
-      ALTER TABLE testers ADD COLUMN IF NOT EXISTS cliente_id VARCHAR(100);
-      ALTER TABLE testers ADD COLUMN IF NOT EXISTS cliente_nombre VARCHAR(500);
-      ALTER TABLE testers ADD COLUMN IF NOT EXISTS codigo VARCHAR(50);
-      -- Poblar cliente_id desde nombre_cliente o nombre_tab si viene de estructura vieja
-      UPDATE testers SET cliente_id = COALESCE(nombre_cliente, nombre_tab) WHERE cliente_id IS NULL;
-      UPDATE testers SET cliente_nombre = COALESCE(nombre_cliente, nombre_tab) WHERE cliente_nombre IS NULL;
     `);
     const usuarios = [
       { nombre: 'Fernando Espíndola', usuario: 'Fernando', password: '1234', rol: 'admin', modulos: 'ventas,visitas,kpis,inventario,config' },
@@ -2857,7 +2851,7 @@ const server = http.createServer(async (req, res) => {
       const r = await pool.query(
         `SELECT cliente_id, cliente_nombre,
                 COUNT(*) AS total,
-                MAX(fecha_entrega) AS ultima_entrega
+                TO_CHAR(MAX(fecha_entrega), 'YYYY-MM-DD') AS ultima_entrega
          FROM testers
          GROUP BY cliente_id, cliente_nombre
          ORDER BY cliente_nombre`

@@ -4858,10 +4858,15 @@ async function renderTesters(){
     lista.innerHTML = `<div style="font-size:12px;color:var(--muted);margin-bottom:10px">${clientes.length} clientes con testers</div>` +
       clientes.map(c => {
         const iniciales = (c.cliente_nombre||'').split(' ').slice(0,2).map(w=>w[0]||'').join('').toUpperCase();
-        const fechaUlt = c.ultima_entrega ? (() => {
-            const d = new Date(c.ultima_entrega);
-            return isNaN(d) ? '—' : d.toLocaleDateString('es-EC',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'});
-          })() : '—';
+        const fechaUlt = (() => {
+          const f = c.ultima_entrega;
+          if(!f) return '—';
+          const str = typeof f === 'string' ? f : f.toISOString ? f.toISOString() : String(f);
+          const parts = str.substring(0,10).split('-');
+          if(parts.length !== 3) return '—';
+          const meses = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+          return `${parseInt(parts[2])} ${meses[parseInt(parts[1])]} ${parts[0]}`;
+        })();
         const id = (c.cliente_id||c.cliente_nombre).replace(/'/g,"\\'");
         const nom = (c.cliente_nombre||'').replace(/'/g,"\\'");
         return `<div class="tester-cli-row" data-nombre="${(c.cliente_nombre||'').toLowerCase()}"
