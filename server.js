@@ -2844,7 +2844,23 @@ const server = http.createServer(async (req, res) => {
   }
 
   // TESTERS — registro de testers entregados a clientes
-  // POST /api/testers/bulk → carga masiva de testers desde array JSON (solo admin)
+  // GET /api/testers/resumen → clientes agrupados con conteo y última entrega (rápido)
+  if (urlPath === '/api/testers/resumen' && req.method === 'GET') {
+    try {
+      const r = await pool.query(
+        `SELECT cliente_id, cliente_nombre,
+                COUNT(*) AS total,
+                MAX(fecha_entrega) AS ultima_entrega
+         FROM testers
+         GROUP BY cliente_id, cliente_nombre
+         ORDER BY cliente_nombre`
+      );
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify(r.rows));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+  // POST /api/testers/bulk → carga masiva
   // Body: { registros: [{clienteNombre, categoria, producto, codigo, fechaEntrega},...] }
   if (urlPath === '/api/testers/bulk' && req.method === 'POST') {
     try {
