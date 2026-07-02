@@ -11,34 +11,65 @@
     *{box-sizing:border-box;margin:0;padding:0}
     :root{--brown:#A0684A;--brown-dark:#1a0e08;--bl:rgba(160,104,74,0.12);--bg:#f4f1ee;--card:#fff;--text:#1a1a1a;--muted:#6b6b6b;--border:rgba(0,0,0,0.08)}
     body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
-    .header{background:var(--brown-dark);padding:12px 20px;display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid var(--brown)}
-    .logo{display:flex;align-items:center;gap:10px}
-    .logo-c{width:40px;height:40px;background:var(--brown);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:19px;font-weight:700;color:#fff;font-style:italic;font-family:Georgia,serif;flex-shrink:0}
-    .logo-name{font-size:17px;font-weight:500;letter-spacing:2px;color:#fff}
-    .logo-sl{font-size:9px;color:#fff;letter-spacing:1px}
-    .hdr-right{display:flex;align-items:center;gap:8px}
-    .badge{background:rgba(160,104,74,0.25);border:1px solid var(--brown);color:#c9a07a;font-size:11px;padding:3px 10px;border-radius:20px}
-    .icon-btn{background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.2);color:#fff;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:15px}
-    .icon-btn:hover{background:var(--brown)}
+    /* ── NUEVA NAVEGACIÓN SIDEBAR ─────────────────────────── */
+    /* Sidebar oscuro fijo en desktop, deslizable en mobile */
+    .nav-sidebar{position:fixed;top:0;left:0;width:200px;height:100vh;background:#1a1108;display:flex;flex-direction:column;z-index:200;transition:transform 0.25s cubic-bezier(0.4,0,0.2,1)}
+    .nav-sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:199}
+    .nav-logo{padding:16px 14px 12px;border-bottom:0.5px solid #2a1a0a;display:flex;align-items:center;gap:10px}
+    .logo-c{width:30px;height:30px;background:var(--brown);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;color:#fff;font-style:italic;font-family:Georgia,serif;flex-shrink:0}
+    .logo-name{font-size:12px;font-weight:500;letter-spacing:1.5px;color:#fff}
+    .logo-sl{font-size:8.5px;color:#5a4a3a;letter-spacing:0.5px}
+    .nav-items{flex:1;padding:8px 0;overflow-y:auto;scrollbar-width:none}
+    .nav-items::-webkit-scrollbar{display:none}
+    .nav-item{display:flex;align-items:center;gap:9px;padding:8px 12px;margin:1px 8px;border-radius:7px;cursor:pointer;color:#8a7a6a;font-size:12px;font-weight:400;transition:all 0.15s;border-left:2px solid transparent}
+    .nav-item:hover{background:rgba(160,104,74,0.1);color:#c9a07a}
+    .nav-item.active{background:rgba(160,104,74,0.15);color:#A0684A;font-weight:500;border-left-color:#A0684A}
+    .nav-item i{font-size:16px;flex-shrink:0}
+    .nav-item-sub{display:flex;align-items:center;gap:9px;padding:6px 12px 6px 38px;margin:0 8px;border-radius:6px;cursor:pointer;color:#6a5a4a;font-size:11px;transition:all 0.15s}
+    .nav-item-sub:hover{background:rgba(160,104,74,0.08);color:#c9a07a}
+    .nav-item-sub.active{color:#A0684A;font-weight:500}
+    .nav-divider{height:0.5px;background:#2a1a0a;margin:6px 12px}
+    .nav-footer{padding:10px 14px;border-top:0.5px solid #2a1a0a;display:flex;align-items:center;gap:8px}
+    .nav-avatar{width:26px;height:26px;border-radius:50%;background:var(--brown);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:#fff;flex-shrink:0}
+    .nav-user-name{font-size:11px;color:#9a8a7a;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .nav-user-rol{font-size:9px;color:#4a3a2a}
 
-    /* MÓDULOS PRINCIPALES */
-    .mods{display:grid;grid-template-columns:repeat(5,1fr);background:#fff;border-bottom:1px solid var(--border)}
-    .mod{display:flex;flex-direction:column;align-items:center;gap:3px;padding:10px 4px;cursor:pointer;border-bottom:3px solid transparent;color:var(--muted);font-size:11px;font-weight:500;transition:all 0.2s}
-    .mod.active{border-bottom-color:var(--brown);color:var(--brown)}
-    .mod i{font-size:20px;transition:color 0.2s}
-    .mod.active i{color:var(--brown)}
+    /* Header mobile */
+    .mobile-header{display:none;background:#1a1108;padding:10px 16px;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+    .mobile-header-title{color:#fff;font-size:13px;font-weight:500;letter-spacing:1px}
+    .ham-btn{background:none;border:none;color:#A0684A;cursor:pointer;padding:4px;display:flex;align-items:center;justify-content:center}
 
-    /* SUBMENÚ DE VENTAS */
-    .submenu{display:none;background:#fff;border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:none}
-    .submenu::-webkit-scrollbar{display:none}
-    .submenu.visible{display:flex}
-    .stab{flex:1;padding:10px 4px;font-size:11px;font-weight:500;color:var(--muted);cursor:pointer;border:none;background:white;text-align:center;transition:all 0.2s;white-space:nowrap;min-width:0}
+    /* Sub-tabs (horizontales para el módulo activo) */
+    .subtabs-bar{background:#fff;border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:none;display:flex;position:sticky;top:0;z-index:50}
+    .subtabs-bar::-webkit-scrollbar{display:none}
+    .stab{padding:10px 14px;font-size:11px;font-weight:500;color:var(--muted);cursor:pointer;border:none;background:white;white-space:nowrap;border-bottom:2px solid transparent;transition:all 0.2s}
     .stab:hover{color:var(--text)}
-    .stab.active{background:var(--brown);color:#fff}
+    .stab.active{color:var(--brown);border-bottom-color:var(--brown);background:white}
 
-    .body{display:grid;grid-template-columns:170px 1fr;min-height:calc(100vh - 120px)}.body.full-width{grid-template-columns:1fr}
+    /* Layout principal */
+    .app-layout{display:flex;min-height:100vh}
+    .app-content{margin-left:200px;flex:1;display:flex;flex-direction:column;min-width:0}
+    .body{display:grid;grid-template-columns:170px 1fr;min-height:calc(100vh - 52px)}.body.full-width{grid-template-columns:1fr}
     .sidebar{background:#fff;border-right:1px solid var(--border);padding:12px 10px;overflow-y:auto}
     .sidebar.hidden{display:none}
+
+    /* Módulo activo chip en mobile subtabs */
+    @media(max-width:768px){
+      .nav-sidebar{transform:translateX(-100%)}
+      .nav-sidebar.open{transform:translateX(0)}
+      .nav-sidebar-overlay.visible{display:block}
+      .mobile-header{display:flex}
+      .app-content{margin-left:0}
+      .body{grid-template-columns:1fr;min-height:calc(100vh - 96px)}
+      .kpi-row{grid-template-columns:repeat(2,1fr)}
+      .row2{grid-template-columns:1fr}
+      .hbar-lbl{width:90px;min-width:90px}
+      .hbar-val{min-width:50px}
+    }
+    /* Ocultar los elementos viejos de nav */
+    .header,.mods,.submenu{display:none!important}
+    .badge{background:rgba(160,104,74,0.25);border:1px solid var(--brown);color:#c9a07a;font-size:11px;padding:3px 10px;border-radius:20px}
+    .icon-btn{background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.2);color:#fff;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:15px}
     .sb-title{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px}
     .vend-item{display:flex;align-items:center;gap:6px;padding:5px 7px;border-radius:6px;cursor:pointer;font-size:11px;color:var(--text);margin-bottom:1px;transition:background 0.15s}
     .vend-item:hover{background:#faf9f8}
@@ -124,52 +155,66 @@
 </head>
 <body>
 
-<div class="header">
-  <div class="logo">
+<!-- Overlay para cerrar sidebar en mobile -->
+<div class="nav-sidebar-overlay" id="nav-overlay" onclick="closeSidebar()"></div>
+
+<!-- SIDEBAR NUEVO -->
+<div class="nav-sidebar" id="nav-sidebar">
+  <!-- Logo -->
+  <div class="nav-logo">
     <div class="logo-c">C</div>
     <div>
       <div class="logo-name">COSÉTIKA</div>
       <div class="logo-sl">Innovación Europea en Belleza</div>
     </div>
   </div>
-  <div class="hdr-right">
-
-    <div class="icon-btn" id="btn-backup" title="Descargar backup" style="display:none" onclick="descargarBackupDB()">
-      <i class="ti ti-database-export"></i>
+  <!-- Nav items -->
+  <div class="nav-items" id="nav-items">
+    <div class="nav-item active" id="nav-ventas" onclick="navSetMod('ventas')"><i class="ti ti-home"></i>Inicio</div>
+    <div class="nav-item" id="nav-visitas" onclick="navSetMod('visitas')"><i class="ti ti-map-pin"></i>Visitas</div>
+    <div class="nav-item" id="nav-kpis" onclick="navSetMod('kpis')"><i class="ti ti-trending-up"></i>KPIs</div>
+    <div class="nav-item" id="nav-inventario" onclick="navSetMod('inventario')"><i class="ti ti-package"></i>Inventario</div>
+    <div class="nav-item" id="nav-reportes" style="display:none" onclick="navSetMod('reportes')"><i class="ti ti-file-analytics"></i>Reportes</div>
+    <div class="nav-divider"></div>
+    <div class="nav-item" id="nav-config" style="display:none" onclick="navSetMod('config')"><i class="ti ti-settings"></i>Configuración</div>
+  </div>
+  <!-- Footer usuario -->
+  <div class="nav-footer">
+    <div class="nav-avatar" id="nav-avatar"></div>
+    <div style="flex:1;min-width:0">
+      <div class="nav-user-name" id="nav-user-name">Cargando...</div>
+      <div class="nav-user-rol" id="nav-user-rol"></div>
     </div>
-    <div class="icon-btn" id="btn-config" title="Configuración" style="display:none" onclick="setMod('config')"><i class="ti ti-settings"></i></div>
-    <div style="display:flex;align-items:center;gap:8px">
-      <div id="hdr-avatar" style="width:32px;height:32px;border-radius:50%;background:var(--brown);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;flex-shrink:0;transition:background 0.3s;cursor:pointer" title="Cerrar sesión" onclick="if(confirm('¿Cerrar sesión?')){sessionStorage.clear();window.location.href='/login';}"></div>
-      <div class="icon-btn" title="Cerrar sesión" onclick="if(confirm('¿Cerrar sesión?')){sessionStorage.clear();window.location.href='/login';}">
-        <i class="ti ti-logout" style="font-size:16px;color:#e8c9a8"></i>
-      </div>
-    </div>
+    <button onclick="if(confirm('¿Cerrar sesión?')){sessionStorage.clear();window.location.href='/login';}" style="background:none;border:none;cursor:pointer;padding:4px;" title="Cerrar sesión">
+      <i class="ti ti-logout" style="font-size:16px;color:#5a4a3a"></i>
+    </button>
   </div>
 </div>
 
-<div class="mods" id="mods-bar">
-  <div class="mod active" id="mod-ventas" onclick="setMod('ventas')"><i class="ti ti-home"></i>Inicio</div>
-  <div class="mod" id="mod-visitas" onclick="setMod('visitas')"><i class="ti ti-map-pin"></i>Visitas</div>
-  <div class="mod" id="mod-kpis" onclick="setMod('kpis')"><i class="ti ti-trending-up"></i>KPIs</div>
-  <div class="mod" id="mod-inventario" onclick="setMod('inventario')"><i class="ti ti-package"></i>Inventario</div>
-  <div class="mod" id="mod-reportes" onclick="setMod('reportes')" style="display:none"><i class="ti ti-file-analytics"></i>Reportes</div>
-  <div class="mod" id="mod-config" onclick="setMod('config')" style="display:none"><i class="ti ti-settings"></i>Config</div>
-</div>
+<!-- Layout principal -->
+<div class="app-layout">
+  <!-- Header mobile -->
+  <div class="mobile-header" id="mobile-header">
+    <button class="ham-btn" onclick="openSidebar()"><i class="ti ti-menu-2" style="font-size:22px"></i></button>
+    <span class="mobile-header-title" id="mobile-mod-title">COSÉTIKA</span>
+    <div class="nav-avatar" id="mobile-avatar" style="cursor:pointer" onclick="if(confirm('¿Cerrar sesión?')){sessionStorage.clear();window.location.href='/login';}"></div>
+  </div>
 
-<div class="submenu" id="submenu-ventas" style="border-radius:0">
-  <div class="stab active" id="stab-facturas" onclick="setSubtab('facturas')" style="background:var(--brown);color:#fff;padding:10px 6px;font-size:11px">Documentos</div>
-  <div class="stab" id="stab-ventas" onclick="setSubtab('ventas')" style="padding:10px 6px;font-size:11px">Ventas</div>
-  <div class="stab" id="stab-marcas" onclick="setSubtab('marcas')" style="padding:10px 6px;font-size:11px">Marcas</div>
-  <div class="stab" id="stab-cpf" onclick="setSubtab('cpf')" style="padding:10px 6px;font-size:11px">Clientes</div>
-  <div class="stab" id="stab-prov" onclick="setSubtab('prov')" style="padding:10px 6px;font-size:11px">Provincias</div>
-</div>
+  <div class="app-content" id="app-content">
+    <!-- Sub-tabs (se insertan dinámicamente según el módulo) -->
+    <div class="subtabs-bar" id="subtabs-bar" style="display:none">
+      <div class="stab active" id="stab-facturas" onclick="setSubtab('facturas')">Documentos</div>
+      <div class="stab" id="stab-ventas" onclick="setSubtab('ventas')">Ventas</div>
+      <div class="stab" id="stab-marcas" onclick="setSubtab('marcas')">Marcas</div>
+      <div class="stab" id="stab-cpf" onclick="setSubtab('cpf')">Clientes</div>
+      <div class="stab" id="stab-prov" onclick="setSubtab('prov')">Provincias</div>
+    </div>
 
 <!-- Botón refresh flotante para móvil -->
 <button id="btn-refresh-mobile" onclick="location.reload()" title="Actualizar"
   style="display:none;position:fixed;bottom:20px;right:20px;z-index:100;width:44px;height:44px;border-radius:50%;background:var(--brown);color:white;border:none;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,0.2);align-items:center;justify-content:center;font-size:18px">
   <i class="ti ti-refresh"></i>
 </button>
-
 
 <div class="body" id="body">
   <div class="sidebar" id="sidebar">
@@ -328,18 +373,56 @@ let vendActual=null;
 let modActual='ventas';
 let subtabActual='facturas'; // facturas = pantalla inicial
 
+// ─── FUNCIONES DEL SIDEBAR ──────────────────────────────────────────────────
+function openSidebar(){
+  document.getElementById('nav-sidebar').classList.add('open');
+  document.getElementById('nav-overlay').classList.add('visible');
+}
+function closeSidebar(){
+  document.getElementById('nav-sidebar').classList.remove('open');
+  document.getElementById('nav-overlay').classList.remove('visible');
+}
+
+const MOD_LABELS = {
+  ventas:'Inicio', visitas:'Visitas', kpis:'KPIs',
+  inventario:'Inventario', reportes:'Reportes', config:'Configuración'
+};
+const MOD_SUBTABS = {
+  ventas: true
+};
+
+function navSetMod(mod){
+  closeSidebar();
+  setMod(mod);
+}
+
 function setMod(mod){
+  // Actualizar sidebar items activos
+  document.querySelectorAll('.nav-item').forEach(m=>m.classList.remove('active'));
+  document.getElementById('nav-'+mod)?.classList.add('active');
+  // Compat con código viejo que usa mod-* IDs
   document.querySelectorAll('.mod').forEach(m=>m.classList.remove('active'));
   document.getElementById('mod-'+mod)?.classList.add('active');
-  modActual=mod;
-  const isVentas = mod==='ventas';
-  document.getElementById('submenu-ventas').classList.toggle('visible', isVentas);
+
+  modActual = mod;
+
+  // Título mobile
+  document.getElementById('mobile-mod-title').textContent = MOD_LABELS[mod] || mod;
+
+  // Sub-tabs: solo mostrar en módulo ventas
+  const subtabsBar = document.getElementById('subtabs-bar');
+  const isVentas = mod === 'ventas';
+  if(subtabsBar) subtabsBar.style.display = isVentas ? 'flex' : 'none';
+
+  // Submenu viejo (compat)
+  const subm = document.getElementById('submenu-ventas');
+  if(subm) subm.classList.toggle('visible', isVentas);
+
   if(!isVentas){
     document.getElementById('sidebar').classList.add('hidden');
     document.getElementById('body').classList.add('full-width');
   }
   if(mod==='ventas'){
-    // Restaurar estado del subtab actual
     if(subtabActual==='facturas') setSubtab('facturas');
     else if(subtabActual==='ventas') setSubtab('ventas');
     else if(subtabActual==='prov') setSubtab('prov');
@@ -363,6 +446,7 @@ function setMod(mod){
       </div>`;
   }
 }
+
 
 // ─── MÓDULO INVENTARIO ──────────────────────────────────────────────────────
 const SEMAFORO_COLORS = {
@@ -4516,10 +4600,19 @@ document.addEventListener('DOMContentLoaded', function() {
   const hdrNombre = document.getElementById('hdr-nombre');
   if(hdrAvatar){
     hdrAvatar.textContent = iniciales;
-    // Color personalizado por vendedora (se aplica después de cargar VEND_COLORS)
     setTimeout(()=>{ hdrAvatar.style.background = getVendColor(usuarioActual.nombre) || 'var(--brown)'; }, 100);
   }
   if(hdrNombre) hdrNombre.textContent = nombre;
+
+  // Nuevo sidebar: avatar, nombre, rol
+  const navAvatar = document.getElementById('nav-avatar');
+  const mobileAvatar = document.getElementById('mobile-avatar');
+  const navUserName = document.getElementById('nav-user-name');
+  const navUserRol = document.getElementById('nav-user-rol');
+  if(navAvatar){ navAvatar.textContent = iniciales; navAvatar.title = usuarioActual.nombre; }
+  if(mobileAvatar){ mobileAvatar.textContent = iniciales; }
+  if(navUserName) navUserName.textContent = usuarioActual.nombre;
+  if(navUserRol) navUserRol.textContent = usuarioActual.rol || '';
 
   // Botón config + módulo Reportes solo para admin
   if(usuarioActual.rol === 'admin'){
@@ -4527,12 +4620,21 @@ document.addEventListener('DOMContentLoaded', function() {
     if(btnCfg) btnCfg.style.display = 'flex';
     const modRep = document.getElementById('mod-reportes');
     if(modRep) modRep.style.display = 'flex';
+    const navRep = document.getElementById('nav-reportes');
+    if(navRep) navRep.style.display = 'flex';
+    const navCfg = document.getElementById('nav-config');
+    if(navCfg) navCfg.style.display = 'flex';
     const btnBackup = document.getElementById('btn-backup');
     if(btnBackup){ btnBackup.style.display = 'flex'; actualizarEstadoBotonBackup(); }
   }
 
-  // Módulos según permisos — config y reportes controlados arriba
+  // Módulos según permisos
   const modulos = usuarioActual.modulos ? usuarioActual.modulos.split(',') : [];
+  document.querySelectorAll('.nav-item').forEach(m => {
+    const id = m.id.replace('nav-', '');
+    if(id === 'config' || id === 'reportes') return;
+    if(id && !modulos.includes(id) && id !== 'ventas') m.style.display = 'none';
+  });
   document.querySelectorAll('.mod').forEach(m => {
     const id = m.id.replace('mod-', '');
     if(id === 'config' || id === 'reportes') return;
@@ -6173,5 +6275,7 @@ async function editarCasaAbierta(nombre, anio, mes){
 }
 
 </script>
+</div><!-- /app-content -->
+</div><!-- /app-layout -->
 </body>
 </html>
