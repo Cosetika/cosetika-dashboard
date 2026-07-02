@@ -1189,43 +1189,34 @@ function mergearVentasHoy(docs){
 function setSubtab(tab){
   document.querySelectorAll('.stab').forEach(s=>{
     s.classList.remove('active');
-    s.style.background='white';
-    s.style.color='var(--muted)';
+    s.style.background='';
+    s.style.color='';
   });
   const activeTab = document.getElementById('stab-'+tab);
-  if(activeTab){
-    activeTab.classList.add('active');
-    activeTab.style.background='var(--brown)';
-    activeTab.style.color='#fff';
-  }
+  if(activeTab) activeTab.classList.add('active');
   subtabActual=tab;
   const sidebar = document.getElementById('sidebar');
   const body = document.getElementById('body');
+  // Mostrar subtabs bar
+  const subtabsBar = document.getElementById('subtabs-bar');
+  if(subtabsBar) subtabsBar.style.display = 'flex';
+  sidebar?.classList.add('hidden'); body?.classList.add('full-width');
   if(tab==='facturas'){
-    sidebar.classList.add('hidden'); body.classList.add('full-width');
     renderFacturasHoy();
   } else if(tab==='marcas'){
-    sidebar.classList.add('hidden'); body.classList.add('full-width');
-    // Marcas siempre muestra el total de TODA la empresa — no debe heredar un filtro
-    // de vendedora que haya quedado activo de una navegación anterior por Clientes
-    // (ese filtro fantasma hacía que los totales de marca aparecieran muy por debajo
-    // de lo real, sin ningún indicador visible de que estaba filtrando).
     vendActual = null;
     renderMarcasPanel();
   } else if(tab==='ventas'){
-    sidebar.classList.add('hidden'); body.classList.add('full-width');
     renderVentasPanel();
   } else if(tab==='cpf'){
-    sidebar.classList.add('hidden'); body.classList.add('full-width');
-    // Para una asesora sin vendActual fijado aún, usar su nombre real ya resuelto
-    // (puede diferir del nombre guardado en usuarios — ver resolverNombreReal)
     if(!vendActual && window._nombreRealAsesora) vendActual = window._nombreRealAsesora;
     if(vendActual) renderVendedor(vendActual);
     else renderHome();
   } else if(tab==='prov'){
-    sidebar.classList.add('hidden'); body.classList.add('full-width');
     vendActual = null;
     renderProvincias();
+  } else if(tab==='testers'){
+    renderTesters();
   }
 }
 
@@ -1243,8 +1234,9 @@ function initVendedoras(){
       <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${v}</span>
     </div>`).join('');
   
-  // Mostrar submenu de ventas
-  document.getElementById('submenu-ventas').classList.add('visible');
+  // Mostrar subtabs
+  const sb2 = document.getElementById('subtabs-bar');
+  if(sb2) sb2.style.display = 'flex';
   renderHome();
 }
 
