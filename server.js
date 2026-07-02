@@ -1490,6 +1490,13 @@ async function initDB() {
       );
       CREATE INDEX IF NOT EXISTS idx_testers_cliente ON testers(cliente_id);
       CREATE INDEX IF NOT EXISTS idx_testers_nombre ON testers(LOWER(cliente_nombre));
+      -- Migración: agregar columnas si la tabla existe con estructura vieja
+      ALTER TABLE testers ADD COLUMN IF NOT EXISTS cliente_id VARCHAR(100);
+      ALTER TABLE testers ADD COLUMN IF NOT EXISTS cliente_nombre VARCHAR(500);
+      ALTER TABLE testers ADD COLUMN IF NOT EXISTS codigo VARCHAR(50);
+      -- Poblar cliente_id desde nombre_cliente o nombre_tab si viene de estructura vieja
+      UPDATE testers SET cliente_id = COALESCE(nombre_cliente, nombre_tab) WHERE cliente_id IS NULL;
+      UPDATE testers SET cliente_nombre = COALESCE(nombre_cliente, nombre_tab) WHERE cliente_nombre IS NULL;
     `);
     const usuarios = [
       { nombre: 'Fernando Espíndola', usuario: 'Fernando', password: '1234', rol: 'admin', modulos: 'ventas,visitas,kpis,inventario,config' },
