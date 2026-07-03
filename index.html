@@ -3682,9 +3682,9 @@ function selCliente(nombre){
               <span style="font-size:11px;color:var(--muted);min-width:70px;text-align:right">${fmt(m.total)}</span>
             </div>`).join('')}
         </div>`:''}
+        <div id="detalle-testers-${c.id}" style="margin-top:10px"></div>
       </div>
-    </div>
-    <div id="detalle-testers-${c.id}" style="margin-top:0"></div>`;
+    </div>`;
 
   // Cargar testers del cliente agrupados por marca
   fetch('/api/testers?clienteId=' + encodeURIComponent(c.id) + '&nombre=' + encodeURIComponent(c.nombre||''))
@@ -3704,7 +3704,7 @@ function selCliente(nombre){
       }
       const porMarca = {};
       testers.forEach(t => { const m=getMarca(t.producto,t.categoria); if(!porMarca[m]) porMarca[m]=[]; porMarca[m].push(t); });
-      let html = '<div class="card" style="margin-top:10px"><div class="card-title"><i class="ti ti-flask"></i> Testers entregados</div>';
+      let html = '<div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px"><div style="font-size:11px;font-weight:600;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px"><i class="ti ti-flask"></i> Testers entregados</div>';
       Object.entries(porMarca).sort((a,b)=>b[1].length-a[1].length).forEach(([marca,items]) => {
         const uid = 'tm-'+c.id+'-'+marca.replace(/\s/g,'_');
         const filas = [...items].sort((a,b)=>String(b.fecha_entrega||'').localeCompare(String(a.fecha_entrega||'')))
@@ -3988,9 +3988,9 @@ function selClienteProvincia(nombre, provincia){
               <span style="font-size:11px;color:var(--muted);min-width:70px;text-align:right">${fmt(m.total)}</span>
             </div>`).join('')}
         </div>`:''}
+        <div id="detalle-testers-${c.id}" style="margin-top:10px"></div>
       </div>
-    </div>
-    <div id="detalle-testers-${c.id}" style="margin-top:0"></div>`;
+    </div>`;
 
   fetch('/api/testers?clienteId=' + encodeURIComponent(c.id) + '&nombre=' + encodeURIComponent(c.nombre||''))
     .then(r=>r.json())
@@ -4009,7 +4009,7 @@ function selClienteProvincia(nombre, provincia){
       }
       const porMarca2 = {};
       testers.forEach(t => { const m=getMarca2(t.producto,t.categoria); if(!porMarca2[m]) porMarca2[m]=[]; porMarca2[m].push(t); });
-      let html2 = '<div class="card" style="margin-top:10px"><div class="card-title"><i class="ti ti-flask"></i> Testers entregados</div>';
+      let html2 = '<div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px"><div style="font-size:11px;font-weight:600;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px"><i class="ti ti-flask"></i> Testers entregados</div>';
       Object.entries(porMarca2).sort((a,b)=>b[1].length-a[1].length).forEach(([marca,items]) => {
         const uid2 = 'tp-'+c.id+'-'+marca.replace(/\s/g,'_');
         const filas2b = [...items].sort((a,b)=>String(b.fecha_entrega||'').localeCompare(String(a.fecha_entrega||'')))
