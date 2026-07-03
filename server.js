@@ -333,44 +333,34 @@ function resolverInventarioContraCatalogo(filasProducto) {
   return { productos, sinMatch };
 }
 
-// Rotación mensual: promedio de unidades vendidas en los meses anteriores a fechaCorte.
-// Usa los meses del año actual que tienen datos (hasta el mes anterior al corte).
-// Divide entre los meses con datos reales, no un número fijo.
+// Rotación mensual: promedio de los últimos 3 meses cerrados antes de la fecha de corte.
+// "Cerrado" = mes completo, no el mes actual si está en curso.
 function calcularRotacionMensual(fechaCorte) {
-  const [anioCorte, mesCorte, diaCorte] = fechaCorte.split('-').map(Number);
+  const [anioCorte, mesCorte] = fechaCorte.split('-').map(Number);
 
-  // Meses a considerar: desde Enero del año actual hasta el mes anterior al corte
-  // Si el día de corte >= 15, incluir también el mes de corte (ya tiene suficientes datos)
-  const mesMaximo = diaCorte >= 15 ? mesCorte : mesCorte - 1;
-  const mesesValidos = [];
-  for (let m = 1; m <= mesMaximo; m++) {
-    if (m === 0) continue;
-    mesesValidos.push({ anio: anioCorte, mes: m });
-  }
-  // Si no hay meses válidos del año actual, tomar últimos 3 del año anterior
-  if (mesesValidos.length === 0) {
-    for (let m = 10; m <= 12; m++) mesesValidos.push({ anio: anioCorte - 1, mes: m });
+  // Construir los 3 meses cerrados anteriores al mes de corte
+  const meses3 = [];
+  let a = anioCorte, m = mesCorte;
+  for (let i = 0; i < 3; i++) {
+    m -= 1;
+    if (m === 0) { m = 12; a -= 1; }
+    meses3.push({ anio: a, mes: m });
   }
 
   const acumulado = {};
-  const mesesConDatos = new Set();
   Object.values(DATA_CACHE||{}).forEach(clientes => {
     (clientes||[]).forEach(cli => {
       (cli.productos_mes||[]).forEach(pm => {
-        const match = mesesValidos.some(x => x.anio===pm.anio && x.mes===pm.mes);
-        if (!match) return;
+        if (!meses3.some(x => x.anio===pm.anio && x.mes===pm.mes)) return;
         const key = pm.id || pm.nombre;
         acumulado[key] = (acumulado[key]||0) + (pm.cantidad||0);
-        mesesConDatos.add(`${pm.anio}-${pm.mes}`);
       });
     });
   });
 
-  // Dividir entre meses con datos reales (mínimo 1)
-  const numMeses = Math.max(mesesConDatos.size, 1);
   const rotacion = {};
-  Object.entries(acumulado).forEach(([id, total]) => { rotacion[id] = total / numMeses; });
-  console.log(`Rotación: ${numMeses} meses con datos (${[...mesesConDatos].sort().join(', ')})`);
+  Object.entries(acumulado).forEach(([id, total]) => { rotacion[id] = total / 3; });
+  console.log(`Rotación: últimos 3 meses cerrados (${meses3.map(x=>x.mes+'/'+x.anio).join(', ')})`);
   return rotacion;
 }
 
