@@ -38,12 +38,14 @@
     .mobile-header-title{color:#fff;font-size:13px;font-weight:500;letter-spacing:1px}
     .ham-btn{background:none;border:none;color:#A0684A;cursor:pointer;padding:4px;display:flex;align-items:center;justify-content:center}
 
-    /* Sub-tabs horizontales */
-    .subtabs-bar{background:#fff;border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:none;display:none;position:sticky;top:0;z-index:100}
-    .subtabs-bar::-webkit-scrollbar{display:none}
-    .stab{padding:10px 16px;font-size:12px;font-weight:500;color:var(--muted);cursor:pointer;border:none;background:white;white-space:nowrap;border-bottom:2px solid transparent;transition:all 0.15s;flex-shrink:0}
-    .stab:hover{color:var(--text)}
-    .stab.active{color:var(--brown);border-bottom-color:var(--brown)}
+    /* Sub-items del sidebar */
+    .nav-sub-item{display:flex;align-items:center;gap:8px;padding:7px 10px 7px 32px;margin:1px 6px;border-radius:6px;cursor:pointer;color:#6a5a4a;font-size:11px;transition:all 0.15s}
+    .nav-sub-item:hover{background:rgba(160,104,74,0.08);color:#c9a07a}
+    .nav-sub-item.active{color:#A0684A;font-weight:500;background:rgba(160,104,74,0.1)}
+
+    /* Sub-tabs — oculta siempre, navegación va en sidebar */
+    .subtabs-bar{display:none!important}
+    .stab{display:none}
 
     /* Body interno (sidebar de vendedoras) */
     .body{display:grid;grid-template-columns:170px 1fr;flex:1}.body.full-width{grid-template-columns:1fr}
@@ -167,7 +169,18 @@
   </div>
   <!-- Nav items -->
   <div class="nav-items" id="nav-items">
-    <div class="nav-item active" id="nav-ventas" onclick="navSetMod('ventas')"><i class="ti ti-home"></i>Inicio</div>
+    <!-- INICIO con sub-items colapsables -->
+    <div class="nav-item active" id="nav-ventas" onclick="navToggleInicio()">
+      <i class="ti ti-home"></i>Inicio
+      <i class="ti ti-chevron-down" id="nav-ventas-chevron" style="margin-left:auto;font-size:12px;transition:transform 0.2s"></i>
+    </div>
+    <div id="nav-inicio-subs" style="overflow:hidden;transition:max-height 0.25s ease">
+      <div class="nav-sub-item active" id="navsub-facturas" onclick="navSetSubtab('facturas')"><i class="ti ti-receipt" style="font-size:13px"></i>Documentos</div>
+      <div class="nav-sub-item" id="navsub-ventas" onclick="navSetSubtab('ventas')"><i class="ti ti-chart-bar" style="font-size:13px"></i>Ventas</div>
+      <div class="nav-sub-item" id="navsub-marcas" onclick="navSetSubtab('marcas')"><i class="ti ti-tag" style="font-size:13px"></i>Marcas</div>
+      <div class="nav-sub-item" id="navsub-cpf" onclick="navSetSubtab('cpf')"><i class="ti ti-users" style="font-size:13px"></i>Clientes</div>
+      <div class="nav-sub-item" id="navsub-prov" onclick="navSetSubtab('prov')"><i class="ti ti-map" style="font-size:13px"></i>Provincias</div>
+    </div>
     <div class="nav-item" id="nav-visitas" onclick="navSetMod('visitas')"><i class="ti ti-map-pin"></i>Visitas</div>
     <div class="nav-item" id="nav-kpis" onclick="navSetMod('kpis')"><i class="ti ti-trending-up"></i>KPIs</div>
     <div class="nav-item" id="nav-inventario" onclick="navSetMod('inventario')"><i class="ti ti-package"></i>Inventario</div>
@@ -380,6 +393,42 @@ function closeSidebar(){
   document.getElementById('nav-overlay').classList.remove('visible');
 }
 
+function navToggleInicio(){
+  // Si no estamos en ventas, ir a ventas y abrir subs
+  if(modActual !== 'ventas'){
+    navSetMod('ventas');
+    return;
+  }
+  // Colapsar/expandir sub-items
+  const subs = document.getElementById('nav-inicio-subs');
+  const chev = document.getElementById('nav-ventas-chevron');
+  if(!subs) return;
+  const isOpen = subs.style.maxHeight !== '0px' && subs.style.maxHeight !== '';
+  subs.style.maxHeight = isOpen ? '0px' : '300px';
+  if(chev) chev.style.transform = isOpen ? '' : 'rotate(180deg)';
+}
+
+function navSetSubtab(tab){
+  closeSidebar();
+  // Marcar sub-item activo
+  document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
+  document.getElementById('navsub-'+tab)?.classList.add('active');
+  // Asegurarse de estar en módulo ventas
+  if(modActual !== 'ventas'){
+    document.querySelectorAll('.nav-item').forEach(m=>m.classList.remove('active'));
+    document.getElementById('nav-ventas')?.classList.add('active');
+    modActual = 'ventas';
+    document.getElementById('mobile-mod-title').textContent = 'Inicio';
+    // Abrir subs
+    const subs = document.getElementById('nav-inicio-subs');
+    const chev = document.getElementById('nav-ventas-chevron');
+    if(subs) subs.style.maxHeight = '300px';
+    if(chev) chev.style.transform = 'rotate(180deg)';
+  }
+  setSubtab(tab);
+}
+
+
 const MOD_LABELS = {
   ventas:'Inicio', visitas:'Visitas', kpis:'KPIs',
   inventario:'Inventario', reportes:'Reportes', config:'Configuración'
@@ -390,6 +439,16 @@ const MOD_SUBTABS = {
 
 function navSetMod(mod){
   closeSidebar();
+  // Colapsar subs de inicio si vamos a otro módulo
+  const subs = document.getElementById('nav-inicio-subs');
+  const chev = document.getElementById('nav-ventas-chevron');
+  if(mod !== 'ventas'){
+    if(subs) subs.style.maxHeight = '0px';
+    if(chev) chev.style.transform = '';
+  } else {
+    if(subs) subs.style.maxHeight = '300px';
+    if(chev) chev.style.transform = 'rotate(180deg)';
+  }
   setMod(mod);
 }
 
@@ -1184,17 +1243,14 @@ function mergearVentasHoy(docs){
 
 
 function setSubtab(tab){
-  document.querySelectorAll('.stab').forEach(s=>{
-    s.classList.remove('active');
-    s.style.background='';
-    s.style.color='';
-  });
-  const activeTab = document.getElementById('stab-'+tab);
-  if(activeTab) activeTab.classList.add('active');
+  document.querySelectorAll('.stab').forEach(s=>{ s.classList.remove('active'); s.style.background=''; s.style.color=''; });
+  document.getElementById('stab-'+tab)?.classList.add('active');
+  // Sincronizar sub-item del sidebar
+  document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
+  document.getElementById('navsub-'+tab)?.classList.add('active');
   subtabActual=tab;
   const sidebar = document.getElementById('sidebar');
   const body = document.getElementById('body');
-  // Mostrar subtabs bar
   const subtabsBar = document.getElementById('subtabs-bar');
   if(subtabsBar) subtabsBar.style.display = 'flex';
   sidebar?.classList.add('hidden'); body?.classList.add('full-width');
@@ -1231,9 +1287,11 @@ function initVendedoras(){
       <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${v}</span>
     </div>`).join('');
   
-  // Mostrar subtabs
-  const sb2 = document.getElementById('subtabs-bar');
-  if(sb2) sb2.style.display = 'flex';
+  // Expandir sub-items de Inicio al cargar
+  const subs = document.getElementById('nav-inicio-subs');
+  const chev = document.getElementById('nav-ventas-chevron');
+  if(subs) subs.style.maxHeight = '300px';
+  if(chev) chev.style.transform = 'rotate(180deg)';
   renderHome();
 }
 
