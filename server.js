@@ -840,7 +840,7 @@ async function fusionarAnioActualEnCache(anioActual, dataAnio) {
       cli.frecuencia_dia = (cli.frecuencia_dia||[]).concat(cliAnio.frecuencia_dia||[]);
       cli.marcas_anio = (cli.marcas_anio||[]).concat(cliAnio.marcas_anio);
       cli.marcas_mes = (cli.marcas_mes||[]).concat(cliAnio.marcas_mes);
-      cli.productos_mes = (cli.productos_mes||[]).concat(cliAnio.productos_mes||[]);
+      cli.productos_mes = consolidarProductosMes((cli.productos_mes||[]).concat(cliAnio.productos_mes||[]));
       // cli.marcas: reconstruir COMPLETO desde marcas_anio (ya correctamente filtrado/
       // reinsertado arriba), nunca acumular sobre el cli.marcas anterior.
       cli.marcas = consolidarMarcasAnio((cli.marcas_anio||[]).map(ma=>({anio:0,marca:ma.marca,total:ma.total})))
