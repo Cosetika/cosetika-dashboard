@@ -717,11 +717,10 @@ function renderInventarioContenido(data, marca){
     <div style="border:1px solid var(--border);border-radius:12px;overflow:hidden">
       <table id="inv-tabla" style="width:100%;border-collapse:collapse;table-layout:fixed;font-size:13px">
         <colgroup>
-          <col style="width:4%"><col style="width:9%"><col style="width:29%"><col style="width:10%"><col style="width:13%"><col style="width:11%"><col style="width:11%"><col style="width:13%">
+          <col style="width:8%"><col style="width:30%"><col style="width:8%"><col style="width:7%"><col style="width:7%"><col style="width:7%"><col style="width:9%"><col style="width:9%"><col style="width:8%"><col style="width:7%">
         </colgroup>
         <thead>
           <tr style="background:#f7f5f1">
-            <th style="text-align:left;padding:9px 10px;font-weight:600;color:var(--muted);font-size:11px"></th>
             <th style="text-align:left;padding:9px 10px;font-weight:600;color:var(--muted);font-size:11px">SKU</th>
             <th style="text-align:left;padding:9px 10px;font-weight:600;color:var(--muted);font-size:11px">PRODUCTO</th>
             <th style="text-align:right;padding:9px 10px;font-weight:600;color:var(--muted);font-size:11px">STOCK</th>
@@ -731,33 +730,34 @@ function renderInventarioContenido(data, marca){
             <th style="text-align:right;padding:9px 10px;font-weight:600;color:var(--muted);font-size:11px">ROTACIÓN/MES</th>
             <th style="text-align:right;padding:9px 10px;font-weight:600;color:var(--muted);font-size:11px">COBERTURA</th>
             <th style="text-align:center;padding:9px 10px;font-weight:600;color:var(--muted);font-size:11px">ESTADO</th>
-            <th style="text-align:right;padding:9px 10px;font-weight:600;color:var(--muted);font-size:11px">
-              COBERTURA
+            <th style="text-align:right;padding:9px 10px;font-weight:600;color:var(--muted);font-size:11px;white-space:nowrap">
+              FALTA
               <select id="inv-meses-sel" onchange="recalcularColumnaFalta(this.value)"
-                style="margin-left:6px;font-size:10px;padding:2px 4px;border:1px solid var(--border);border-radius:4px;background:white;color:var(--text);cursor:pointer;font-weight:500">
-                <option value="6">6 meses</option>
-                <option value="9">9 meses</option>
-                <option value="12" selected>12 meses</option>
+                style="margin-left:4px;font-size:10px;padding:2px 4px;border:1px solid var(--border);border-radius:4px;background:white;color:var(--text);cursor:pointer;font-weight:500">
+                <option value="6">6m</option>
+                <option value="9">9m</option>
+                <option value="12" selected>12m</option>
               </select>
             </th>
           </tr>
         </thead>
         <tbody>
-          ${lista.length===0 ? `<tr><td colspan="11" style="padding:20px;text-align:center;color:var(--muted);font-size:13px">Sin productos para esta marca</td></tr>` :
+          ${lista.length===0 ? `<tr><td colspan="10" style="padding:20px;text-align:center;color:var(--muted);font-size:13px">Sin productos para esta marca</td></tr>` :
           lista.map(p=>{
             const sc = SEMAFORO_COLORS[p.semaforo] || SEMAFORO_COLORS.rojo;
             const falta = p.necesidad_12_meses;
-            return `<tr style="border-top:0.5px solid var(--border)">
-              <td style="padding:8px 10px"><div style="width:8px;height:8px;border-radius:50%;background:${sc.dot}"></div></td>
+            return `<tr style="border-top:0.5px solid var(--border);background:${p.semaforo==='rojo'?'rgba(220,38,38,0.03)':p.semaforo==='amarillo'?'rgba(245,158,11,0.03)':''}">
               <td style="padding:8px 10px;color:var(--muted);font-size:12px">${p.sku||''}</td>
-              <td style="padding:8px 10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p.nombre}">${p.nombre}</td>
-              <td style="padding:8px 10px;text-align:right">${Math.round(p.stock)}</td>
+              <td style="padding:8px 10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p.nombre}">
+                <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${sc.dot};margin-right:6px;flex-shrink:0;vertical-align:middle"></span>${p.nombre}
+              </td>
+              <td style="padding:8px 10px;text-align:right;font-weight:500">${Math.round(p.stock)}</td>
               <td style="padding:8px 10px;text-align:right;color:var(--muted)">${(p.ventas3&&p.ventas3[0])?p.ventas3[0].cantidad:0}</td>
               <td style="padding:8px 10px;text-align:right;color:var(--muted)">${(p.ventas3&&p.ventas3[1])?p.ventas3[1].cantidad:0}</td>
               <td style="padding:8px 10px;text-align:right;color:var(--muted)">${(p.ventas3&&p.ventas3[2])?p.ventas3[2].cantidad:0}</td>
               <td style="padding:8px 10px;text-align:right">${p.rotacion_mensual}</td>
-              <td style="padding:8px 10px;text-align:right;font-weight:600;color:${sc.text}">${p.cobertura_meses} meses</td>
-              <td style="padding:8px 10px;text-align:center"><span style="background:${sc.bg};color:${sc.text};font-size:10.5px;padding:3px 10px;border-radius:10px;font-weight:600">${sc.label}</span></td>
+              <td style="padding:8px 10px;text-align:right;font-weight:600;color:${sc.text}">${p.cobertura_meses}m</td>
+              <td style="padding:8px 10px;text-align:center"><span style="background:${sc.bg};color:${sc.text};font-size:10px;padding:3px 8px;border-radius:10px;font-weight:600">${sc.label}</span></td>
               <td class="inv-falta-cell" data-rot="${p.rotacion_mensual}" data-stock="${Math.round(p.stock)}" style="padding:8px 10px;text-align:right;font-weight:600;color:${falta>0?'#791F1F':'#085041'}">${falta>0?falta:`(${Math.abs(falta)})`}</td>
             </tr>`;
           }).join('')}
