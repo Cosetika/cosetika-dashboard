@@ -215,8 +215,8 @@
       <i class="ti ti-chevron-right" id="nav-visitas-chevron" style="margin-left:auto;font-size:12px;transition:transform 0.2s"></i>
     </div>
     <div id="nav-visitas-subs" style="max-height:0;overflow:hidden;transition:max-height 0.25s ease">
-      <div class="nav-sub-item" id="navsub-visitas-plan" onclick="navSetMod('visitas-plan')"><i class="ti ti-calendar" style="font-size:13px"></i>Planificación</div>
-      <div class="nav-sub-item" id="navsub-visitas-real" onclick="navSetMod('visitas')"><i class="ti ti-check" style="font-size:13px"></i>Realizadas</div>
+      <div class="nav-sub-item" id="navsub-visitas-plan" onclick="navGoVisitas('planificacion')"><i class="ti ti-calendar" style="font-size:13px"></i>Planificación</div>
+      <div class="nav-sub-item" id="navsub-visitas-real" onclick="navGoVisitas('realizadas')"><i class="ti ti-check" style="font-size:13px"></i>Realizadas</div>
     </div>
 
     <div class="nav-divider"></div>
@@ -517,6 +517,15 @@ const MOD_LABELS = {
 const MOD_SUBTABS = {
   ventas: true
 };
+
+function navGoVisitas(tab){
+  closeSidebar();
+  window._visitaTab = tab;
+  document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
+  document.getElementById(tab==='planificacion'?'navsub-visitas-plan':'navsub-visitas-real')?.classList.add('active');
+  if(modActual !== 'visitas') setMod('visitas');
+  else renderModVisitas();
+}
 
 function navSetMod(mod){
   closeSidebar();
@@ -838,20 +847,7 @@ async function descargarBackupDB(){
 
 function renderModVisitas(){
   const tab = window._visitaTab || 'realizadas';
-  document.getElementById('main').innerHTML = `
-    <div style="display:flex;gap:0;background:white;border-radius:12px;border:1px solid var(--border);overflow:hidden;margin-bottom:12px">
-      <button onclick="setVisitaTab('planificacion')"
-        style="flex:1;padding:11px;font-size:13px;font-weight:500;border:none;cursor:pointer;transition:all 0.2s;
-        background:${tab==='planificacion'?'var(--brown)':'white'};color:${tab==='planificacion'?'white':'var(--muted)'}">
-        <i class="ti ti-calendar" style="margin-right:5px"></i>Planificación
-      </button>
-      <button onclick="setVisitaTab('realizadas')"
-        style="flex:1;padding:11px;font-size:13px;font-weight:500;border:none;cursor:pointer;transition:all 0.2s;
-        background:${tab==='realizadas'?'var(--brown)':'white'};color:${tab==='realizadas'?'white':'var(--muted)'}">
-        <i class="ti ti-check" style="margin-right:5px"></i>Realizadas
-      </button>
-    </div>
-    <div id="visitas-content"></div>`;
+  document.getElementById('main').innerHTML = '<div id="visitas-content"></div>';
   if(tab==='realizadas') renderVisitasRealizadas();
   else renderPlanificacion();
 }
@@ -2628,30 +2624,7 @@ async function renderControl(){
 function renderFacturasHoy(){
   subtabActual='facturas';
   const docTab = window._docTab || 'facturas';
-  document.getElementById('main').innerHTML = `
-    <div style="display:flex;gap:0;background:white;border-radius:12px;border:1px solid var(--border);overflow:hidden;margin-bottom:12px">
-      <button onclick="setDocTab('facturas')"
-        style="flex:1;padding:11px;font-size:13px;font-weight:500;border:none;cursor:pointer;transition:all 0.2s;
-        background:${docTab==='facturas'?'var(--brown)':'white'};color:${docTab==='facturas'?'white':'var(--muted)'}">
-        <i class="ti ti-receipt" style="margin-right:5px"></i>Facturas
-      </button>
-      <button onclick="setDocTab('testers')"
-        style="flex:1;padding:11px;font-size:13px;font-weight:500;border:none;cursor:pointer;transition:all 0.2s;
-        background:${docTab==='testers'?'var(--brown)':'white'};color:${docTab==='testers'?'white':'var(--muted)'}">
-        <i class="ti ti-flask" style="margin-right:5px"></i>Testers
-      </button>
-      <button onclick="setDocTab('envios')"
-        style="flex:1;padding:11px;font-size:13px;font-weight:500;border:none;cursor:pointer;transition:all 0.2s;
-        background:${docTab==='envios'?'var(--brown)':'white'};color:${docTab==='envios'?'white':'var(--muted)'}">
-        <i class="ti ti-truck-delivery" style="margin-right:5px"></i>Envíos
-      </button>
-      <button onclick="setDocTab('control')"
-        style="flex:1;padding:11px;font-size:13px;font-weight:500;border:none;cursor:pointer;transition:all 0.2s;
-        background:${docTab==='control'?'var(--brown)':'white'};color:${docTab==='control'?'white':'var(--muted)'}">
-        <i class="ti ti-clipboard-check" style="margin-right:5px"></i>Control
-      </button>
-    </div>
-    <div id="doc-tab-content"></div>`;
+  document.getElementById('main').innerHTML = `<div id="doc-tab-content"></div>`;
   if(docTab==='envios') renderEnvios();
   else if(docTab==='control') renderControl();
   else if(docTab==='testers') renderTesters();
