@@ -738,21 +738,21 @@ function renderInventarioContenido(data, marca){
     <div style="border:1px solid var(--border);border-radius:12px;overflow:hidden">
       <table id="inv-tabla" style="width:100%;border-collapse:collapse;table-layout:fixed;font-size:13px">
         <colgroup>
-          <col style="width:8%"><col style="width:30%"><col style="width:8%"><col style="width:7%"><col style="width:7%"><col style="width:7%"><col style="width:9%"><col style="width:9%"><col style="width:8%"><col style="width:7%">
+          <col style="width:6%"><col style="width:26%"><col style="width:6%"><col style="width:6%"><col style="width:6%"><col style="width:6%"><col style="width:9%"><col style="width:8%"><col style="width:7%"><col style="width:10%">
         </colgroup>
         <thead>
           <tr style="background:#f7f5f1">
-            <th style="text-align:left;padding:9px 10px;font-weight:600;color:var(--muted);font-size:11px">SKU</th>
-            <th style="text-align:left;padding:9px 10px;font-weight:600;color:var(--muted);font-size:11px">PRODUCTO</th>
-            <th style="text-align:right;padding:9px 10px;font-weight:600;color:var(--muted);font-size:11px">STOCK</th>
-            <th style="text-align:right;padding:9px 10px;font-weight:600;color:var(--muted);font-size:11px">${meses3labels[0]}</th>
-            <th style="text-align:right;padding:9px 10px;font-weight:600;color:var(--muted);font-size:11px">${meses3labels[1]}</th>
-            <th style="text-align:right;padding:9px 10px;font-weight:600;color:var(--muted);font-size:11px">${meses3labels[2]}</th>
-            <th style="text-align:right;padding:9px 10px;font-weight:600;color:var(--muted);font-size:11px">ROTACIÓN/MES</th>
-            <th style="text-align:right;padding:9px 10px;font-weight:600;color:var(--muted);font-size:11px">COBERTURA</th>
-            <th style="text-align:center;padding:9px 10px;font-weight:600;color:var(--muted);font-size:11px">ESTADO</th>
-            <th style="text-align:right;padding:9px 10px;font-weight:600;color:var(--muted);font-size:11px;white-space:nowrap">
-              FALTA
+            <th style="text-align:left;padding:7px 6px;font-weight:600;color:var(--muted);font-size:10px">SKU</th>
+            <th style="text-align:left;padding:7px 6px;font-weight:600;color:var(--muted);font-size:10px">PRODUCTO</th>
+            <th style="text-align:right;padding:7px 6px;font-weight:600;color:var(--muted);font-size:10px">STOCK</th>
+            <th style="text-align:right;padding:7px 6px;font-weight:600;color:var(--muted);font-size:10px">${meses3labels[0]}</th>
+            <th style="text-align:right;padding:7px 6px;font-weight:600;color:var(--muted);font-size:10px">${meses3labels[1]}</th>
+            <th style="text-align:right;padding:7px 6px;font-weight:600;color:var(--muted);font-size:10px">${meses3labels[2]}</th>
+            <th style="text-align:right;padding:7px 6px;font-weight:600;color:var(--muted);font-size:10px">ROTACIÓN/MES</th>
+            <th style="text-align:right;padding:7px 6px;font-weight:600;color:var(--muted);font-size:10px">COBERTURA</th>
+            <th style="text-align:center;padding:7px 4px;font-weight:600;color:var(--muted);font-size:10px">ESTADO</th>
+            <th style="text-align:right;padding:7px 6px;font-weight:600;color:var(--muted);font-size:10px;white-space:nowrap">
+              PROYECCIÓN
               <select id="inv-meses-sel" onchange="recalcularColumnaFalta(this.value)"
                 style="margin-left:4px;font-size:10px;padding:2px 4px;border:1px solid var(--border);border-radius:4px;background:white;color:var(--text);cursor:pointer;font-weight:500">
                 <option value="6">6m</option>
@@ -768,18 +768,18 @@ function renderInventarioContenido(data, marca){
             const sc = SEMAFORO_COLORS[p.semaforo] || SEMAFORO_COLORS.rojo;
             const falta = p.necesidad_12_meses;
             return `<tr style="border-top:0.5px solid var(--border);background:${p.semaforo==='rojo'?'rgba(220,38,38,0.03)':p.semaforo==='amarillo'?'rgba(245,158,11,0.03)':''}">
-              <td style="padding:8px 10px;color:var(--muted);font-size:12px">${p.sku||''}</td>
-              <td style="padding:8px 10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p.nombre}">
+              <td style="padding:6px 6px;color:var(--muted);font-size:11px">${p.sku||''}</td>
+              <td style="padding:6px 6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px" title="${p.nombre}">
                 <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${sc.dot};margin-right:6px;flex-shrink:0;vertical-align:middle"></span>${p.nombre}
               </td>
               <td style="padding:8px 10px;text-align:right;font-weight:500">${Math.round(p.stock)}</td>
-              <td style="padding:8px 10px;text-align:right;color:var(--muted)">${(p.ventas3&&p.ventas3[0])?p.ventas3[0].cantidad:0}</td>
-              <td style="padding:8px 10px;text-align:right;color:var(--muted)">${(p.ventas3&&p.ventas3[1])?p.ventas3[1].cantidad:0}</td>
-              <td style="padding:8px 10px;text-align:right;color:var(--muted)">${(p.ventas3&&p.ventas3[2])?p.ventas3[2].cantidad:0}</td>
-              <td style="padding:8px 10px;text-align:right">${p.rotacion_mensual}</td>
-              <td style="padding:8px 10px;text-align:right;font-weight:600;color:${sc.text}">${p.cobertura_meses}m</td>
-              <td style="padding:8px 10px;text-align:center"><span style="background:${sc.bg};color:${sc.text};font-size:10px;padding:3px 8px;border-radius:10px;font-weight:600">${sc.label}</span></td>
-              <td class="inv-falta-cell" data-rot="${p.rotacion_mensual}" data-stock="${Math.round(p.stock)}" style="padding:8px 10px;text-align:right;font-weight:600;color:${falta>0?'#791F1F':'#085041'}">${falta>0?falta:`(${Math.abs(falta)})`}</td>
+              <td style="padding:6px 8px;text-align:right;color:var(--muted)">${(p.ventas3&&p.ventas3[0])?p.ventas3[0].cantidad:0}</td>
+              <td style="padding:6px 8px;text-align:right;color:var(--muted)">${(p.ventas3&&p.ventas3[1])?p.ventas3[1].cantidad:0}</td>
+              <td style="padding:6px 8px;text-align:right;color:var(--muted)">${(p.ventas3&&p.ventas3[2])?p.ventas3[2].cantidad:0}</td>
+              <td style="padding:6px 8px;text-align:right">${Math.round(p.rotacion_mensual)}</td>
+              <td style="padding:6px 8px;text-align:right;font-weight:600;color:${sc.text}">${p.cobertura_meses}m</td>
+              <td style="padding:6px 4px;text-align:center"><span style="background:${sc.bg};color:${sc.text};font-size:9px;padding:2px 5px;border-radius:8px;font-weight:600">${sc.label}</span></td>
+              <td class="inv-falta-cell" data-rot="${p.rotacion_mensual}" data-stock="${Math.round(p.stock)}" style="padding:6px 8px;text-align:right;font-weight:600;color:${falta>0?'#791F1F':'#085041'}">${falta>0?falta:`(${Math.abs(falta)})`}</td>
             </tr>`;
           }).join('')}
         </tbody>
@@ -849,7 +849,7 @@ function descargarInventarioExcel(marca, fechaCorteFmt){
     'Rotación mensual': p.rotacion_mensual,
     'Cobertura (meses)': p.cobertura_meses,
     'Estado': (SEMAFORO_COLORS[p.semaforo]||{}).label || p.semaforo,
-    [`Falta para ${mesesSel} meses`]: p.necesidad_n_meses ?? p.necesidad_12_meses
+    [`Proyección ${mesesSel}m`]: p.necesidad_n_meses ?? p.necesidad_12_meses
   }));
   const ws = XLSX.utils.json_to_sheet(filas);
   ws['!cols'] = [{wch:10},{wch:45},{wch:10},{wch:9},{wch:14},{wch:14},{wch:13},{wch:16}];
