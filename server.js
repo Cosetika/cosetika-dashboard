@@ -385,13 +385,35 @@ function calcularSemaforo(marca, coberturaMeses) {
 function construirInventarioPorMarca(marcaFiltro) {
   if (!INVENTARIO_CACHE) return { fecha_corte: null, productos: [] };
   const rotacion = calcularRotacionMensual(INVENTARIO_CACHE.fecha_corte);
+
+  // Calcular los 3 meses cerrados para mostrar ventas individuales
+  const [anioCorte, mesCorte] = INVENTARIO_CACHE.fecha_corte.split('-').map(Number);
+  const meses3 = [];
+  let a = anioCorte, m = mesCorte;
+  for(let i = 0; i < 3; i++){
+    m -= 1; if(m === 0){ m = 12; a -= 1; }
+    meses3.unshift({ anio: a, mes: m }); // orden cronológico
+  }
+
+  // Acumular ventas por producto por mes
+  const ventasMes = {}; // { prodId: { 'anio-mes': cantidad } }
+  Object.values(DATA_CACHE||{}).forEach(clientes => {
+    (clientes||[]).forEach(cli => {
+      (cli.productos_mes||[]).forEach(pm => {
+        if(!meses3.some(x => x.anio===pm.anio && x.mes===pm.mes)) return;
+        const key = pm.id || pm.nombre;
+        if(!ventasMes[key]) ventasMes[key] = {};
+        const mk = `${pm.anio}-${pm.mes}`;
+        ventasMes[key][mk] = (ventasMes[key][mk]||0) + (pm.cantidad||0);
+      });
+    });
+  });
+
+  const MESES_LABEL = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+
   const productosDelCatalogo = Object.entries(catalogoProductos)
     .filter(([id, info]) => (info.marca||'').toUpperCase() === marcaFiltro)
-    // Excluir "PROMOS": son combos armados a partir de otros productos, no tienen
-    // stock propio ni rotación real — no aplica pedir reabastecimiento de ellos.
     .filter(([id, info]) => !(info.nombre||'').trim().toUpperCase().startsWith('PROMO'))
-    // Excluir "Línea completa/Línea Facial/...": son agrupadores de catálogo, no
-    // productos físicos con stock propio en bodega.
     .filter(([id, info]) => !(info.nombre||'').trim().toUpperCase().startsWith('LÍNEA') && !(info.nombre||'').trim().toUpperCase().startsWith('LINEA'));
 
   const lista = productosDelCatalogo.map(([id, info]) => {
@@ -399,9 +421,15 @@ function construirInventarioPorMarca(marcaFiltro) {
     const stock = inv ? inv.cantidad : 0;
     const rotacionMensual = rotacion[id] || 0;
     const cobertura = rotacionMensual > 0 ? stock / rotacionMensual : (stock > 0 ? 99 : 0);
-    // Cobertura 12 meses: cuántas unidades faltan (o sobran, si es negativo) para
-    // tener cubierto todo el año a partir de la rotación actual.
     const necesidad12Meses = (rotacionMensual * 12) - stock;
+
+    // Ventas de cada uno de los 3 meses cerrados
+    const vm = ventasMes[id] || {};
+    const ventas3 = meses3.map(x => ({
+      label: MESES_LABEL[x.mes],
+      cantidad: Math.round(vm[`${x.anio}-${x.mes}`] || 0)
+    }));
+
     return {
       id,
       sku: info.codigo || (inv ? inv.sku : ''),
@@ -411,11 +439,12 @@ function construirInventarioPorMarca(marcaFiltro) {
       rotacion_mensual: Math.round(rotacionMensual*100)/100,
       cobertura_meses: Math.round(cobertura*10)/10,
       necesidad_12_meses: Math.round(necesidad12Meses),
-      semaforo: calcularSemaforo(marcaFiltro, cobertura)
+      semaforo: calcularSemaforo(marcaFiltro, cobertura),
+      ventas3
     };
   }).sort((a,b) => a.cobertura_meses - b.cobertura_meses);
 
-  return { fecha_corte: INVENTARIO_CACHE.fecha_corte, productos: lista };
+  return { fecha_corte: INVENTARIO_CACHE.fecha_corte, productos: lista, meses3labels: meses3.map(x=>MESES_LABEL[x.mes]) };
 }
 
 async function sincronizarHoy() {

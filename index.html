@@ -671,6 +671,8 @@ function renderInventarioContenido(data, marca){
     return a.cobertura_meses - b.cobertura_meses;
   });
   window._invListaActual = lista;
+  const meses3labels = data.meses3labels || ['M1','M2','M3'];
+  window._invMeses3labels = meses3labels;
 
   const fechaCorteFmt = (() => {
     const [y,m,d] = data.fecha_corte.split('-');
@@ -723,6 +725,9 @@ function renderInventarioContenido(data, marca){
             <th style="text-align:left;padding:9px 10px;font-weight:600;color:var(--muted);font-size:11px">SKU</th>
             <th style="text-align:left;padding:9px 10px;font-weight:600;color:var(--muted);font-size:11px">PRODUCTO</th>
             <th style="text-align:right;padding:9px 10px;font-weight:600;color:var(--muted);font-size:11px">STOCK</th>
+            <th style="text-align:right;padding:9px 10px;font-weight:600;color:var(--muted);font-size:11px">${meses3labels[0]}</th>
+            <th style="text-align:right;padding:9px 10px;font-weight:600;color:var(--muted);font-size:11px">${meses3labels[1]}</th>
+            <th style="text-align:right;padding:9px 10px;font-weight:600;color:var(--muted);font-size:11px">${meses3labels[2]}</th>
             <th style="text-align:right;padding:9px 10px;font-weight:600;color:var(--muted);font-size:11px">ROTACIÓN/MES</th>
             <th style="text-align:right;padding:9px 10px;font-weight:600;color:var(--muted);font-size:11px">COBERTURA</th>
             <th style="text-align:center;padding:9px 10px;font-weight:600;color:var(--muted);font-size:11px">ESTADO</th>
@@ -738,7 +743,7 @@ function renderInventarioContenido(data, marca){
           </tr>
         </thead>
         <tbody>
-          ${lista.length===0 ? `<tr><td colspan="8" style="padding:20px;text-align:center;color:var(--muted);font-size:13px">Sin productos para esta marca</td></tr>` :
+          ${lista.length===0 ? `<tr><td colspan="11" style="padding:20px;text-align:center;color:var(--muted);font-size:13px">Sin productos para esta marca</td></tr>` :
           lista.map(p=>{
             const sc = SEMAFORO_COLORS[p.semaforo] || SEMAFORO_COLORS.rojo;
             const falta = p.necesidad_12_meses;
@@ -747,6 +752,9 @@ function renderInventarioContenido(data, marca){
               <td style="padding:8px 10px;color:var(--muted);font-size:12px">${p.sku||''}</td>
               <td style="padding:8px 10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p.nombre}">${p.nombre}</td>
               <td style="padding:8px 10px;text-align:right">${Math.round(p.stock)}</td>
+              <td style="padding:8px 10px;text-align:right;color:var(--muted)">${(p.ventas3&&p.ventas3[0])?p.ventas3[0].cantidad:0}</td>
+              <td style="padding:8px 10px;text-align:right;color:var(--muted)">${(p.ventas3&&p.ventas3[1])?p.ventas3[1].cantidad:0}</td>
+              <td style="padding:8px 10px;text-align:right;color:var(--muted)">${(p.ventas3&&p.ventas3[2])?p.ventas3[2].cantidad:0}</td>
               <td style="padding:8px 10px;text-align:right">${p.rotacion_mensual}</td>
               <td style="padding:8px 10px;text-align:right;font-weight:600;color:${sc.text}">${p.cobertura_meses} meses</td>
               <td style="padding:8px 10px;text-align:center"><span style="background:${sc.bg};color:${sc.text};font-size:10.5px;padding:3px 10px;border-radius:10px;font-weight:600">${sc.label}</span></td>
@@ -808,11 +816,15 @@ function descargarInventarioExcel(marca, fechaCorteFmt){
   const lista = window._invListaActual || [];
   if(lista.length===0 || typeof XLSX==='undefined') return;
   const mesesSel = window._invMesesSel || 12;
+  const ml = window._invMeses3labels || ['M1','M2','M3'];
   const filas = lista.map(p => ({
     'SKU': p.sku || '',
     'Producto': p.nombre,
     'Marca': p.marca,
     'Stock': Math.round(p.stock),
+    [ml[0]]: (p.ventas3&&p.ventas3[0])?p.ventas3[0].cantidad:0,
+    [ml[1]]: (p.ventas3&&p.ventas3[1])?p.ventas3[1].cantidad:0,
+    [ml[2]]: (p.ventas3&&p.ventas3[2])?p.ventas3[2].cantidad:0,
     'Rotación mensual': p.rotacion_mensual,
     'Cobertura (meses)': p.cobertura_meses,
     'Estado': (SEMAFORO_COLORS[p.semaforo]||{}).label || p.semaforo,
