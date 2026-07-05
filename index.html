@@ -164,7 +164,7 @@
     <div class="logo-c">C</div>
     <div>
       <div class="logo-name">COSÉTIKA</div>
-      <div class="logo-sl">Innovación Europea en Belleza</div>
+      
     </div>
   </div>
   <!-- Nav items -->
@@ -224,7 +224,15 @@
     <div class="nav-item" id="nav-inventario" onclick="navSetMod('inventario')"><i class="ti ti-package"></i>Inventario</div>
     <div class="nav-item" id="nav-reportes" style="display:none" onclick="navSetMod('reportes')"><i class="ti ti-file-analytics"></i>Reportes</div>
     <div class="nav-divider"></div>
-    <div class="nav-item" id="nav-config" style="display:none" onclick="navSetMod('config')"><i class="ti ti-settings"></i>Configuración</div>
+    <div class="nav-item" id="nav-config" style="display:none" onclick="navToggleGroup('nav-config-subs','nav-config-chevron','config')">
+      <i class="ti ti-settings"></i>Configuración
+      <i class="ti ti-chevron-right" id="nav-config-chevron" style="margin-left:auto;font-size:12px;transition:transform 0.2s"></i>
+    </div>
+    <div id="nav-config-subs" style="max-height:0;overflow:hidden;transition:max-height 0.25s ease">
+      <div class="nav-sub-item" id="navsub-cfg-credenciales" onclick="navGoConfig('credenciales')"><i class="ti ti-key" style="font-size:13px"></i>Credenciales</div>
+      <div class="nav-sub-item" id="navsub-cfg-permisos" onclick="navGoConfig('permisos')"><i class="ti ti-shield" style="font-size:13px"></i>Permisos</div>
+      <div class="nav-sub-item" id="navsub-cfg-sync" onclick="navGoConfig('sync')"><i class="ti ti-refresh" style="font-size:13px"></i>Sincronización</div>
+    </div>
   </div>
   <!-- Footer usuario -->
   <div class="nav-footer">
@@ -437,11 +445,11 @@ function navToggleGroup(subsId, chevId, mod){
   if(!subs) return;
   const isOpen = subs.style.maxHeight !== '0px' && subs.style.maxHeight !== '';
   // Cerrar todos los grupos primero
-  ['nav-inicio-subs','nav-clientes-subs','nav-plan-subs','nav-visitas-subs'].forEach(id => {
+  ['nav-inicio-subs','nav-clientes-subs','nav-plan-subs','nav-visitas-subs','nav-config-subs'].forEach(id => {
     const el = document.getElementById(id);
     if(el) el.style.maxHeight = '0px';
   });
-  ['nav-ventas-chevron','nav-clientes-chevron','nav-plan-chevron','nav-visitas-chevron'].forEach(id => {
+  ['nav-ventas-chevron','nav-clientes-chevron','nav-plan-chevron','nav-visitas-chevron','nav-config-chevron'].forEach(id => {
     const el = document.getElementById(id);
     if(el) el.style.transform = '';
   });
@@ -486,10 +494,10 @@ function navSetSubtab(tab){
   const enInicio = ['facturas','testers','envios','control'].includes(tab);
   const enClientes = ['cpf','prov'].includes(tab);
   // Cerrar todos los grupos
-  ['nav-inicio-subs','nav-clientes-subs','nav-plan-subs','nav-visitas-subs'].forEach(id=>{
+  ['nav-inicio-subs','nav-clientes-subs','nav-plan-subs','nav-visitas-subs','nav-config-subs'].forEach(id=>{
     const el = document.getElementById(id); if(el) el.style.maxHeight='0px';
   });
-  ['nav-ventas-chevron','nav-clientes-chevron','nav-plan-chevron','nav-visitas-chevron'].forEach(id=>{
+  ['nav-ventas-chevron','nav-clientes-chevron','nav-plan-chevron','nav-visitas-chevron','nav-config-chevron'].forEach(id=>{
     const el = document.getElementById(id); if(el) el.style.transform='';
   });
   if(enInicio){
@@ -518,6 +526,19 @@ const MOD_SUBTABS = {
   ventas: true
 };
 
+function navGoConfig(tab){
+  closeSidebar();
+  window._configTabActiva = tab;
+  document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
+  document.getElementById('navsub-cfg-'+tab)?.classList.add('active');
+  const subs = document.getElementById('nav-config-subs');
+  const chev = document.getElementById('nav-config-chevron');
+  if(subs) subs.style.maxHeight = '200px';
+  if(chev) chev.style.transform = 'rotate(180deg)';
+  if(modActual !== 'config'){ setMod('config'); }
+  else showConfigTab(tab);
+}
+
 function navGoVisitas(tab){
   closeSidebar();
   window._visitaTab = tab;
@@ -530,10 +551,10 @@ function navGoVisitas(tab){
 function navSetMod(mod){
   closeSidebar();
   // Colapsar todos los grupos
-  ['nav-inicio-subs','nav-clientes-subs','nav-plan-subs','nav-visitas-subs'].forEach(id=>{
+  ['nav-inicio-subs','nav-clientes-subs','nav-plan-subs','nav-visitas-subs','nav-config-subs'].forEach(id=>{
     const el = document.getElementById(id); if(el) el.style.maxHeight='0px';
   });
-  ['nav-ventas-chevron','nav-clientes-chevron','nav-plan-chevron','nav-visitas-chevron'].forEach(id=>{
+  ['nav-ventas-chevron','nav-clientes-chevron','nav-plan-chevron','nav-visitas-chevron','nav-config-chevron'].forEach(id=>{
     const el = document.getElementById(id); if(el) el.style.transform='';
   });
   // Si es ventas, expandir inicio
@@ -916,26 +937,10 @@ async function renderConfig(){
   }
   let usuarios=[];
   try{ const r=await fetch('/api/usuarios'); usuarios=await r.json(); }catch(e){}
-  await cargarSkuPorMarcaDesdeServidor(); // refrescar por si cambió desde otro dispositivo
+  await cargarSkuPorMarcaDesdeServidor();
   const MODS_LISTA=['ventas','visitas','kpis','inventario'];
   document.getElementById('main').innerHTML=`
-    <div class="breadcrumb" style="margin-bottom:12px"><i class="ti ti-settings" style="color:var(--brown);font-size:12px"></i><span style="font-weight:500">Configuración</span></div>
-    <div style="display:flex;gap:0;background:white;border-radius:12px;border:1px solid var(--border);overflow:hidden;margin-bottom:16px">
-      <button onclick="showConfigTab('credenciales')" id="cfg-btn-credenciales"
-        style="flex:1;padding:11px;font-size:13px;font-weight:500;border:none;cursor:pointer;transition:all 0.2s;background:var(--brown);color:white">
-        <i class="ti ti-key" style="margin-right:5px"></i>Credenciales
-      </button>
-      <button onclick="showConfigTab('permisos')" id="cfg-btn-permisos"
-        style="flex:1;padding:11px;font-size:13px;font-weight:500;border:none;cursor:pointer;transition:all 0.2s;background:white;color:var(--muted)">
-        <i class="ti ti-shield" style="margin-right:5px"></i>Permisos
-      </button>
-      <button onclick="showConfigTab('sync')" id="cfg-btn-sync"
-        style="flex:1;padding:11px;font-size:13px;font-weight:500;border:none;cursor:pointer;transition:all 0.2s;background:white;color:var(--muted)">
-        <i class="ti ti-refresh" style="margin-right:5px"></i>Sincronización
-      </button>
-    </div>
-
-    <div id="cfg-credenciales">
+    <div id="cfg-credenciales" style="display:none">
       <div class="card">
         <div class="card-title"><i class="ti ti-key"></i> Cambiar contraseñas</div>
         ${usuarios.map(u=>`
@@ -1013,6 +1018,9 @@ async function renderConfig(){
           <button onclick="sincronizarCatalogoBtnClick()" style="padding:8px 18px;background:white;color:var(--brown);border:1px solid var(--brown);border-radius:8px;font-size:13px;cursor:pointer">
             <i class="ti ti-tag"></i> Sync catálogo de productos
           </button>
+          <button id="btn-backup" onclick="descargarBackupDB()" style="padding:8px 18px;background:white;color:var(--brown);border:1px solid var(--brown);border-radius:8px;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:6px">
+            <i class="ti ti-database-export"></i> Descargar backup BD
+          </button>
         </div>
         <div id="sync-status" style="margin-top:12px;font-size:12px;color:var(--muted)"></div>
       </div>
@@ -1064,8 +1072,12 @@ async function renderConfig(){
         <div id="mercately-cfg-content"><div class="loader" style="padding:20px"><i class="ti ti-loader"></i></div></div>
       </div>
     </div>`;
+  // Mostrar la tab que corresponde según lo que se navegó desde el sidebar
+  const tabActiva = window._configTabActiva || 'credenciales';
+  showConfigTab(tabActiva);
   cargarEstadoProvincias();
   renderMercatelyConfig();
+  actualizarEstadoBotonBackup();
 }
 
 async function renderMercatelyConfig(){
