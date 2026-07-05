@@ -4764,7 +4764,7 @@ document.addEventListener('DOMContentLoaded', function() {
   const modulos = usuarioActual.modulos ? usuarioActual.modulos.split(',') : [];
   document.querySelectorAll('.nav-item').forEach(m => {
     const id = m.id.replace('nav-', '');
-    if(id === 'config' || id === 'reportes') return;
+    if(['config','reportes','ventas-mod','marcas-mod','clientes','planificacion','visitas'].includes(id)) return;
     if(id && !modulos.includes(id) && id !== 'ventas') m.style.display = 'none';
   });
   document.querySelectorAll('.mod').forEach(m => {
