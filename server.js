@@ -1292,9 +1292,19 @@ async function cargarDataDesdeDB() {
     if (r.rows.length > 0) {
       DATA_CACHE = JSON.parse(r.rows[0].datos);
       DATA_CACHE_TS = new Date().toISOString();
+      // Consolidar productos_mes al cargar para eliminar duplicados acumulados
+      // (bug histórico donde fusionarAnioActualEnCache concatenaba sin consolidar)
+      Object.values(DATA_CACHE).forEach(clientes => {
+        (clientes||[]).forEach(cli => {
+          if(cli.productos_mes && cli.productos_mes.length > 0) {
+            cli.productos_mes = consolidarProductosMes(cli.productos_mes);
+          }
+        });
+      });
       console.log('✓ DATA cargada desde PostgreSQL: ' + Object.keys(DATA_CACHE).length + ' vendedoras');
+      // Disparar regeneración del año actual en background para limpiar datos desde Contifico
+      setTimeout(() => regenerarDataAutomatico(), 5000);
     } else {
-      // Fallback: cargar desde data.json si existe
       try {
         const raw = fs.readFileSync(path.join(__dirname, 'data.json'), 'utf8');
         DATA_CACHE = JSON.parse(raw);
