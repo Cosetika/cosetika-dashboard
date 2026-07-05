@@ -726,7 +726,15 @@ function renderInventarioContenido(data, marca){
             <th style="text-align:right;padding:9px 10px;font-weight:600;color:var(--muted);font-size:11px">ROTACIÓN/MES</th>
             <th style="text-align:right;padding:9px 10px;font-weight:600;color:var(--muted);font-size:11px">COBERTURA</th>
             <th style="text-align:center;padding:9px 10px;font-weight:600;color:var(--muted);font-size:11px">ESTADO</th>
-            <th style="text-align:right;padding:9px 10px;font-weight:600;color:var(--muted);font-size:11px">FALTA 12 MESES</th>
+            <th style="text-align:right;padding:9px 10px;font-weight:600;color:var(--muted);font-size:11px">
+              COBERTURA
+              <select id="inv-meses-sel" onchange="recalcularColumnaFalta(this.value)"
+                style="margin-left:6px;font-size:10px;padding:2px 4px;border:1px solid var(--border);border-radius:4px;background:white;color:var(--text);cursor:pointer;font-weight:500">
+                <option value="6">6 meses</option>
+                <option value="9">9 meses</option>
+                <option value="12" selected>12 meses</option>
+              </select>
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -742,7 +750,7 @@ function renderInventarioContenido(data, marca){
               <td style="padding:8px 10px;text-align:right">${p.rotacion_mensual}</td>
               <td style="padding:8px 10px;text-align:right;font-weight:600;color:${sc.text}">${p.cobertura_meses} meses</td>
               <td style="padding:8px 10px;text-align:center"><span style="background:${sc.bg};color:${sc.text};font-size:10.5px;padding:3px 10px;border-radius:10px;font-weight:600">${sc.label}</span></td>
-              <td style="padding:8px 10px;text-align:right;font-weight:600;color:${falta>0?'#791F1F':'#085041'}">${falta>0?falta:`(${Math.abs(falta)})`}</td>
+              <td class="inv-falta-cell" data-rot="${p.rotacion_mensual}" data-stock="${Math.round(p.stock)}" style="padding:8px 10px;text-align:right;font-weight:600;color:${falta>0?'#791F1F':'#085041'}">${falta>0?falta:`(${Math.abs(falta)})`}</td>
             </tr>`;
           }).join('')}
         </tbody>
@@ -751,9 +759,27 @@ function renderInventarioContenido(data, marca){
 
     <p style="font-size:11px;color:var(--muted);margin-top:10px">
       <i class="ti ti-info-circle" style="font-size:12px;vertical-align:-1px;margin-right:3px"></i>
-      Ziaja / Erayba / Ziaja Pro: rojo &lt; 3 meses, amarillo 3–4 meses. Bioskin: rojo &lt; 1 mes, amarillo 1–1.5 meses. "Falta 12 meses" = unidades necesarias para cubrir un año completo según la rotación actual; entre paréntesis significa que ya tienes ese excedente.
+      Ziaja / Erayba / Ziaja Pro: rojo &lt; 3 meses, amarillo 3–4 meses. Bioskin: rojo &lt; 1 mes, amarillo 1–1.5 meses. "Cobertura N meses" = unidades necesarias para cubrir el período seleccionado según la rotación actual; entre paréntesis significa que ya tienes ese excedente.
     </p>
   `;
+}
+
+function recalcularColumnaFalta(meses){
+  meses = parseInt(meses) || 12;
+  document.querySelectorAll('.inv-falta-cell').forEach(td => {
+    const rot = parseFloat(td.dataset.rot) || 0;
+    const stock = parseFloat(td.dataset.stock) || 0;
+    const falta = Math.round((rot * meses) - stock);
+    td.textContent = falta > 0 ? falta : `(${Math.abs(falta)})`;
+    td.style.color = falta > 0 ? '#791F1F' : '#085041';
+  });
+  // Actualizar también la lista interna para el Excel
+  if(window._invListaActual){
+    window._invListaActual.forEach(p => {
+      p.necesidad_n_meses = Math.round((p.rotacion_mensual * meses) - p.stock);
+    });
+    window._invMesesSel = meses;
+  }
 }
 
 async function subirExcelInventario(event){
@@ -781,6 +807,7 @@ async function subirExcelInventario(event){
 function descargarInventarioExcel(marca, fechaCorteFmt){
   const lista = window._invListaActual || [];
   if(lista.length===0 || typeof XLSX==='undefined') return;
+  const mesesSel = window._invMesesSel || 12;
   const filas = lista.map(p => ({
     'SKU': p.sku || '',
     'Producto': p.nombre,
@@ -789,7 +816,7 @@ function descargarInventarioExcel(marca, fechaCorteFmt){
     'Rotación mensual': p.rotacion_mensual,
     'Cobertura (meses)': p.cobertura_meses,
     'Estado': (SEMAFORO_COLORS[p.semaforo]||{}).label || p.semaforo,
-    'Falta para 12 meses': p.necesidad_12_meses
+    [`Falta para ${mesesSel} meses`]: p.necesidad_n_meses ?? p.necesidad_12_meses
   }));
   const ws = XLSX.utils.json_to_sheet(filas);
   ws['!cols'] = [{wch:10},{wch:45},{wch:10},{wch:9},{wch:14},{wch:14},{wch:13},{wch:16}];
