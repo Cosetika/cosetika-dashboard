@@ -169,19 +169,57 @@
   </div>
   <!-- Nav items -->
   <div class="nav-items" id="nav-items">
-    <!-- INICIO con sub-items colapsables -->
-    <div class="nav-item active" id="nav-ventas" onclick="navToggleInicio()">
+
+    <!-- INICIO -->
+    <div class="nav-item active" id="nav-ventas" onclick="navToggleGroup('nav-inicio-subs','nav-ventas-chevron','ventas')">
       <i class="ti ti-home"></i>Inicio
-      <i class="ti ti-chevron-down" id="nav-ventas-chevron" style="margin-left:auto;font-size:12px;transition:transform 0.2s"></i>
+      <i class="ti ti-chevron-down" id="nav-ventas-chevron" style="margin-left:auto;font-size:12px;transition:transform 0.2s;transform:rotate(180deg)"></i>
     </div>
-    <div id="nav-inicio-subs" style="overflow:hidden;transition:max-height 0.25s ease">
-      <div class="nav-sub-item active" id="navsub-facturas" onclick="navSetSubtab('facturas')"><i class="ti ti-receipt" style="font-size:13px"></i>Documentos</div>
-      <div class="nav-sub-item" id="navsub-ventas" onclick="navSetSubtab('ventas')"><i class="ti ti-chart-bar" style="font-size:13px"></i>Ventas</div>
-      <div class="nav-sub-item" id="navsub-marcas" onclick="navSetSubtab('marcas')"><i class="ti ti-tag" style="font-size:13px"></i>Marcas</div>
-      <div class="nav-sub-item" id="navsub-cpf" onclick="navSetSubtab('cpf')"><i class="ti ti-users" style="font-size:13px"></i>Clientes</div>
-      <div class="nav-sub-item" id="navsub-prov" onclick="navSetSubtab('prov')"><i class="ti ti-map" style="font-size:13px"></i>Provincias</div>
+    <div id="nav-inicio-subs" style="max-height:300px;overflow:hidden;transition:max-height 0.25s ease">
+      <div class="nav-sub-item active" id="navsub-facturas" onclick="navSetSubtab('facturas')"><i class="ti ti-receipt" style="font-size:13px"></i>Facturas</div>
+      <div class="nav-sub-item" id="navsub-testers" onclick="navSetDocTab('testers')"><i class="ti ti-flask" style="font-size:13px"></i>Testers</div>
+      <div class="nav-sub-item" id="navsub-envios" onclick="navSetDocTab('envios')"><i class="ti ti-truck-delivery" style="font-size:13px"></i>Envíos</div>
+      <div class="nav-sub-item" id="navsub-control" onclick="navSetDocTab('control')"><i class="ti ti-clipboard-check" style="font-size:13px"></i>Control</div>
     </div>
-    <div class="nav-item" id="nav-visitas" onclick="navSetMod('visitas')"><i class="ti ti-map-pin"></i>Visitas</div>
+
+    <!-- VENTAS -->
+    <div class="nav-item" id="nav-ventas-mod" onclick="navSetSubtab('ventas')"><i class="ti ti-chart-bar"></i>Ventas</div>
+
+    <!-- MARCAS -->
+    <div class="nav-item" id="nav-marcas-mod" onclick="navSetSubtab('marcas')"><i class="ti ti-tag"></i>Marcas</div>
+
+    <!-- CLIENTES -->
+    <div class="nav-item" id="nav-clientes" onclick="navToggleGroup('nav-clientes-subs','nav-clientes-chevron','clientes')">
+      <i class="ti ti-users"></i>Clientes
+      <i class="ti ti-chevron-right" id="nav-clientes-chevron" style="margin-left:auto;font-size:12px;transition:transform 0.2s"></i>
+    </div>
+    <div id="nav-clientes-subs" style="max-height:0;overflow:hidden;transition:max-height 0.25s ease">
+      <div class="nav-sub-item" id="navsub-cpf" onclick="navSetSubtab('cpf')"><i class="ti ti-user-dollar" style="font-size:13px"></i>Compras</div>
+      <div class="nav-sub-item" id="navsub-prov" onclick="navSetSubtab('prov')"><i class="ti ti-map-pin" style="font-size:13px"></i>Provincia</div>
+    </div>
+
+    <!-- PLANIFICACIÓN -->
+    <div class="nav-item" id="nav-planificacion" onclick="navToggleGroup('nav-plan-subs','nav-plan-chevron','planificacion')">
+      <i class="ti ti-calendar-event"></i>Planificación
+      <i class="ti ti-chevron-right" id="nav-plan-chevron" style="margin-left:auto;font-size:12px;transition:transform 0.2s"></i>
+    </div>
+    <div id="nav-plan-subs" style="max-height:0;overflow:hidden;transition:max-height 0.25s ease">
+      <div class="nav-sub-item" id="navsub-capacitaciones" onclick="navSetMod('capacitaciones')"><i class="ti ti-school" style="font-size:13px"></i>Capacitaciones</div>
+      <div class="nav-sub-item" id="navsub-giras" onclick="navSetMod('giras')"><i class="ti ti-road" style="font-size:13px"></i>Giras</div>
+      <div class="nav-sub-item" id="navsub-casas" onclick="navSetMod('casas')"><i class="ti ti-building-store" style="font-size:13px"></i>Casas Abiertas</div>
+    </div>
+
+    <!-- VISITAS -->
+    <div class="nav-item" id="nav-visitas" onclick="navToggleGroup('nav-visitas-subs','nav-visitas-chevron','visitas')">
+      <i class="ti ti-map-pin"></i>Visitas
+      <i class="ti ti-chevron-right" id="nav-visitas-chevron" style="margin-left:auto;font-size:12px;transition:transform 0.2s"></i>
+    </div>
+    <div id="nav-visitas-subs" style="max-height:0;overflow:hidden;transition:max-height 0.25s ease">
+      <div class="nav-sub-item" id="navsub-visitas-plan" onclick="navSetMod('visitas-plan')"><i class="ti ti-calendar" style="font-size:13px"></i>Planificación</div>
+      <div class="nav-sub-item" id="navsub-visitas-real" onclick="navSetMod('visitas')"><i class="ti ti-check" style="font-size:13px"></i>Realizadas</div>
+    </div>
+
+    <div class="nav-divider"></div>
     <div class="nav-item" id="nav-kpis" onclick="navSetMod('kpis')"><i class="ti ti-trending-up"></i>KPIs</div>
     <div class="nav-item" id="nav-inventario" onclick="navSetMod('inventario')"><i class="ti ti-package"></i>Inventario</div>
     <div class="nav-item" id="nav-reportes" style="display:none" onclick="navSetMod('reportes')"><i class="ti ti-file-analytics"></i>Reportes</div>
@@ -393,37 +431,80 @@ function closeSidebar(){
   document.getElementById('nav-overlay').classList.remove('visible');
 }
 
-function navToggleInicio(){
-  // Si no estamos en ventas, ir a ventas y abrir subs
-  if(modActual !== 'ventas'){
-    navSetMod('ventas');
-    return;
-  }
-  // Colapsar/expandir sub-items
-  const subs = document.getElementById('nav-inicio-subs');
-  const chev = document.getElementById('nav-ventas-chevron');
+function navToggleGroup(subsId, chevId, mod){
+  const subs = document.getElementById(subsId);
+  const chev = document.getElementById(chevId);
   if(!subs) return;
   const isOpen = subs.style.maxHeight !== '0px' && subs.style.maxHeight !== '';
-  subs.style.maxHeight = isOpen ? '0px' : '300px';
-  if(chev) chev.style.transform = isOpen ? '' : 'rotate(180deg)';
+  // Cerrar todos los grupos primero
+  ['nav-inicio-subs','nav-clientes-subs','nav-plan-subs','nav-visitas-subs'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el) el.style.maxHeight = '0px';
+  });
+  ['nav-ventas-chevron','nav-clientes-chevron','nav-plan-chevron','nav-visitas-chevron'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el) el.style.transform = '';
+  });
+  // Si estaba cerrado, abrir este
+  if(!isOpen){
+    subs.style.maxHeight = '300px';
+    if(chev) chev.style.transform = 'rotate(180deg)';
+  }
+  // Navegar al módulo si aplica
+  if(mod === 'ventas' && modActual !== 'ventas') setMod('ventas');
+  else if(mod === 'clientes' && modActual === 'ventas') {/* ya en ventas, solo expandir */}
 }
 
-function navSetSubtab(tab){
+function navSetDocTab(tab){
   closeSidebar();
-  // Marcar sub-item activo
-  document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
-  document.getElementById('navsub-'+tab)?.classList.add('active');
-  // Asegurarse de estar en módulo ventas
+  // Asegurar que estamos en ventas y luego ir al doc tab
   if(modActual !== 'ventas'){
     document.querySelectorAll('.nav-item').forEach(m=>m.classList.remove('active'));
     document.getElementById('nav-ventas')?.classList.add('active');
     modActual = 'ventas';
     document.getElementById('mobile-mod-title').textContent = 'Inicio';
-    // Abrir subs
-    const subs = document.getElementById('nav-inicio-subs');
-    const chev = document.getElementById('nav-ventas-chevron');
-    if(subs) subs.style.maxHeight = '300px';
-    if(chev) chev.style.transform = 'rotate(180deg)';
+  }
+  // Abrir inicio subs
+  const subs = document.getElementById('nav-inicio-subs');
+  const chev = document.getElementById('nav-ventas-chevron');
+  if(subs) subs.style.maxHeight = '300px';
+  if(chev) chev.style.transform = 'rotate(180deg)';
+  // Marcar sub activo
+  document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
+  document.getElementById('navsub-'+tab)?.classList.add('active');
+  // Ir al doc tab (dentro de Inicio-Facturas)
+  window._docTab = tab;
+  renderFacturasHoy();
+  closeSidebar();
+}
+
+function navSetSubtab(tab){
+  closeSidebar();
+  document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
+  document.getElementById('navsub-'+tab)?.classList.add('active');
+  // Determinar qué grupo expandir
+  const enInicio = ['facturas','testers','envios','control'].includes(tab);
+  const enClientes = ['cpf','prov'].includes(tab);
+  // Cerrar todos los grupos
+  ['nav-inicio-subs','nav-clientes-subs','nav-plan-subs','nav-visitas-subs'].forEach(id=>{
+    const el = document.getElementById(id); if(el) el.style.maxHeight='0px';
+  });
+  ['nav-ventas-chevron','nav-clientes-chevron','nav-plan-chevron','nav-visitas-chevron'].forEach(id=>{
+    const el = document.getElementById(id); if(el) el.style.transform='';
+  });
+  if(enInicio){
+    document.getElementById('nav-inicio-subs').style.maxHeight='300px';
+    document.getElementById('nav-ventas-chevron').style.transform='rotate(180deg)';
+  } else if(enClientes){
+    document.getElementById('nav-clientes-subs').style.maxHeight='300px';
+    document.getElementById('nav-clientes-chevron').style.transform='rotate(180deg)';
+  }
+  // Asegurar módulo ventas activo
+  if(modActual !== 'ventas'){
+    document.querySelectorAll('.nav-item').forEach(m=>m.classList.remove('active'));
+    document.getElementById('nav-ventas')?.classList.add('active');
+    modActual = 'ventas';
+    document.getElementById('mobile-mod-title').textContent = 'Inicio';
   }
   setSubtab(tab);
 }
@@ -439,13 +520,17 @@ const MOD_SUBTABS = {
 
 function navSetMod(mod){
   closeSidebar();
-  // Colapsar subs de inicio si vamos a otro módulo
-  const subs = document.getElementById('nav-inicio-subs');
-  const chev = document.getElementById('nav-ventas-chevron');
-  if(mod !== 'ventas'){
-    if(subs) subs.style.maxHeight = '0px';
-    if(chev) chev.style.transform = '';
-  } else {
+  // Colapsar todos los grupos
+  ['nav-inicio-subs','nav-clientes-subs','nav-plan-subs','nav-visitas-subs'].forEach(id=>{
+    const el = document.getElementById(id); if(el) el.style.maxHeight='0px';
+  });
+  ['nav-ventas-chevron','nav-clientes-chevron','nav-plan-chevron','nav-visitas-chevron'].forEach(id=>{
+    const el = document.getElementById(id); if(el) el.style.transform='';
+  });
+  // Si es ventas, expandir inicio
+  if(mod === 'ventas'){
+    const subs = document.getElementById('nav-inicio-subs');
+    const chev = document.getElementById('nav-ventas-chevron');
     if(subs) subs.style.maxHeight = '300px';
     if(chev) chev.style.transform = 'rotate(180deg)';
   }
