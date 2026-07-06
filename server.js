@@ -724,8 +724,8 @@ function consolidarProductosMes(lista){
 let regenerandoEnProceso = false;
 
 async function fusionarMesActualEnCache() {
-  if (!DATA_CACHE || Object.keys(DATA_CACHE).length === 0) return; // esperar a que haya data base cargada
-  if (regenerandoEnProceso) { console.log('Fusión incremental omitida: regeneración manual en curso'); return; }
+  if (!DATA_CACHE || Object.keys(DATA_CACHE).length === 0) return;
+  if (regenerandoEnProceso) { console.log('Fusión incremental omitida: regeneración en curso'); return; }
   regenerandoEnProceso = true;
   try {
     const hoy = nowEC();
@@ -733,91 +733,23 @@ async function fusionarMesActualEnCache() {
     const mesActual = hoy.getMonth() + 1;
     const desde = fmtDateEC(new Date(anioActual, hoy.getMonth(), 1));
     const hasta = fmtDateEC(hoy);
-    const dataMes = await generarDataJson(desde, hasta); // solo el mes en curso, rápido
 
-    // Paso 1: quitar de DATA_CACHE cualquier dato del mes/año actual (será reemplazado limpio)
-    Object.keys(DATA_CACHE).forEach(vendNom => {
-      DATA_CACHE[vendNom].forEach(cli => {
-        const freqMesViejo = (cli.frecuencia||[]).find(f=>f.anio===anioActual&&f.mes===mesActual);
-        if (freqMesViejo) {
-          cli.total = Math.round((cli.total - freqMesViejo.total)*100)/100;
-          cli.subtotal = Math.round((cli.subtotal - freqMesViejo.subtotal)*100)/100;
-          cli.num_compras = Math.max(0, (cli.num_compras||0) - freqMesViejo.compras);
-        }
-        cli.frecuencia = (cli.frecuencia||[]).filter(f => !(f.anio===anioActual && f.mes===mesActual));
-        // frecuencia_dia: igual que frecuencia, se quita la porción del mes actual (será reemplazada limpia en el Paso 2)
-        cli.frecuencia_dia = (cli.frecuencia_dia||[]).filter(f => !(f.anio===anioActual && f.mes===mesActual));
-        // Restar del año actual lo que correspondía al mes actual (para no perder otros meses del mismo año)
-        const marcasMesViejo = (cli.marcas_mes||[]).filter(x=>x.anio===anioActual&&x.mes===mesActual);
-        cli.marcas_anio = (cli.marcas_anio||[]).map(ma=>{
-          if(ma.anio!==anioActual) return ma;
-          const aRestar = marcasMesViejo.find(m=>m.marca===ma.marca);
-          return aRestar ? {...ma, total: Math.round((ma.total-aRestar.total)*100)/100} : ma;
-        }).filter(ma=>ma.total>0 || ma.anio!==anioActual);
-        cli.marcas_mes = (cli.marcas_mes||[]).filter(x => !(x.anio===anioActual && x.mes===mesActual));
-        // productos_mes: igual que marcas_mes, se quita la porción del mes actual (será reemplazada limpia en el Paso 2)
-        cli.productos_mes = (cli.productos_mes||[]).filter(x => !(x.anio===anioActual && x.mes===mesActual));
-      });
+    // Obtener data del año completo hasta hoy desde Contifico
+    const fi = `${anioActual}-01-01`;
+    const dataMes = await generarDataJson(fi, hasta);
+
+    // Reemplazar DATA_CACHE completamente con datos frescos del año actual
+    // Esto evita cualquier acumulación o duplicación — siempre es la fuente de verdad
+    Object.entries(dataMes).forEach(([vendNom, clientesFrescos]) => {
+      DATA_CACHE[vendNom] = clientesFrescos;
     });
 
-    // Paso 2: insertar los datos frescos del mes en curso
-    Object.entries(dataMes).forEach(([vendNom, clientesMes]) => {
-      if (!DATA_CACHE[vendNom]) DATA_CACHE[vendNom] = [];
-      const porId = {}; DATA_CACHE[vendNom].forEach(c => { porId[c.id] = c; });
-      const nuevos = [];
-      clientesMes.forEach(cliMes => {
-        let cli = porId[cliMes.id];
-        if (!cli) { nuevos.push(cliMes); return; }
-        cli.total = Math.round((cli.total + cliMes.total) * 100) / 100;
-        cli.subtotal = Math.round((cli.subtotal + cliMes.subtotal) * 100) / 100;
-        cli.num_compras = (cli.num_compras||0) + cliMes.num_compras;
-        // Igual que en la fusión anual: copiar la provincia recién calculada (que ya
-        // respeta el override más reciente) de vuelta al cliente existente en DATA_CACHE.
-        if(cliMes.provincia) cli.provincia = cliMes.provincia;
-        if(cliMes.telefono) cli.telefono = cliMes.telefono;
-        if(cliMes.direccion) cli.direccion = cliMes.direccion;
-        cli.frecuencia = (cli.frecuencia||[]).concat(cliMes.frecuencia);
-        cli.frecuencia_dia = (cli.frecuencia_dia||[]).concat(cliMes.frecuencia_dia||[]);
-        cli.marcas_anio = consolidarMarcasAnio((cli.marcas_anio||[]).concat(cliMes.marcas_anio));
-        cli.marcas_mes = consolidarMarcasMes((cli.marcas_mes||[]).concat(cliMes.marcas_mes));
-        cli.productos_mes = consolidarProductosMes((cli.productos_mes||[]).concat(cliMes.productos_mes||[]));
-        // cli.marcas: reconstruir COMPLETO desde marcas_anio (que ya está bien mantenido,
-        // con resta/suma correcta del mes actual arriba) — NUNCA acumular sobre el cli.marcas
-        // anterior, porque ese campo no tenía el mismo tratamiento y se duplicaba cada 15 min.
-        cli.marcas = consolidarMarcasAnio((cli.marcas_anio||[]).map(ma=>({anio:0,marca:ma.marca,total:ma.total})))
-          .map(m=>({marca:m.marca,total:m.total})).sort((a,b)=>b.total-a.total);
-        // Productos: NO se pueden sumar incrementalmente como antes (eso causaba doble conteo
-        // cada 15 min, acumulando el mismo mes sobre sí mismo). En vez de eso, se reconstruye
-        // cli.productos = productos_historico (todo excepto el mes en curso) + productos del
-        // mes actual recién calculado desde cero. productos_historico se actualiza solo cuando
-        // cambia el mes (ver más abajo), nunca durante el mes en curso.
-        if (!cli.productos_historico_anio || !cli.productos_historico_mes ||
-            cli.productos_historico_anio !== anioActual || cli.productos_historico_mes !== mesActual) {
-          // Cambió el mes (o es la primera fusión tras un deploy/regeneración):
-          // todo lo que había en cli.productos hasta ahora pasa a ser histórico.
-          cli.productos_historico = (cli.productos||[]).map(p=>({...p}));
-          cli.productos_historico_anio = anioActual;
-          cli.productos_historico_mes = mesActual;
-        }
-        const prodMap = {}; (cli.productos_historico||[]).forEach(p=>{ prodMap[p.id||p.nombre] = {...p}; });
-        (cliMes.productos||[]).forEach(p=>{
-          const k = p.id||p.nombre;
-          if(prodMap[k]){ prodMap[k] = {...prodMap[k], cantidad: prodMap[k].cantidad + p.cantidad, total: Math.round((prodMap[k].total+p.total)*100)/100}; }
-          else prodMap[k] = {...p};
-        });
-        cli.productos = Object.values(prodMap).sort((a,b)=>b.cantidad-a.cantidad);
-      });
-      DATA_CACHE[vendNom] = Object.values(porId).concat(nuevos);
-    });
-
-    // Reordenar por total descendente
+    // Reordenar
     Object.keys(DATA_CACHE).forEach(v => DATA_CACHE[v].sort((a,b)=>b.total-a.total));
-    // Persistir en PostgreSQL para que sobreviva deploys/reinicios
     await guardarDataEnDB(DATA_CACHE);
-
-    console.log(`✓ Fusión incremental del mes en curso completada (${desde} - ${hasta})`);
+    console.log(`✓ Fusión completa (${fi} - ${hasta}): ${Object.keys(DATA_CACHE).length} vendedoras`);
   } catch(e) {
-    console.error('Error fusionando mes actual:', e.message);
+    console.error('Error en fusión:', e.message);
   }
   regenerandoEnProceso = false;
 }
