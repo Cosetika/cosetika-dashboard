@@ -1744,7 +1744,7 @@ async function mostrarVentasHoy(){
             <tbody>
               ${(data.documentos||[]).map(d=>`
                 <tr style="border-bottom:0.5px solid var(--border)">
-                  <td style="padding:7px 10px;color:var(--muted);font-size:11px;white-space:nowrap">${(d.documento||'').slice(-5)||'—'}</td>
+                  <td style="padding:7px 10px;color:var(--muted);font-size:11px;white-space:nowrap">${(d.documento||'')||'—'}</td>
                   <td style="padding:7px 10px;font-weight:500;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${d.cliente_nombre||d.cliente?.razon_social||'—'}">${d.cliente_nombre||d.cliente?.razon_social||'—'}</td>
                   <td style="padding:7px 10px;color:var(--muted);white-space:nowrap">${(d.vendedor?.razon_social||d.vendedor?.nombre||'—').split(' ')[0]}</td>
                   <td style="padding:7px 10px;text-align:right;color:var(--brown);font-weight:500;white-space:nowrap">$${parseFloat(d.total||0).toLocaleString('es-EC',{minimumFractionDigits:0,maximumFractionDigits:0})}</td>
@@ -3082,21 +3082,12 @@ async function resincronizarPedidosWeb(btn){
 async function renderPedidosWeb(fechaSel){
   const cont = document.getElementById('doc-tab-content');
   if(!cont) return;
-
-  // Fecha seleccionada — por defecto hoy
   if(!fechaSel) fechaSel = window._pedidosFecha || new Date().toISOString().split('T')[0];
   window._pedidosFecha = fechaSel;
-
   cont.innerHTML = '<div style="padding:30px;text-align:center;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:22px"></i></div>';
-
   let pedidos = [];
-  try {
-    const r = await fetch('/api/pedidos-web?fecha=' + fechaSel);
-    pedidos = await r.json();
-  } catch(e){ console.error(e); }
-
-  // Navegación por día
-  const fechaObj = new Date(fechaSel + 'T12:00:00');
+  try{ const r = await fetch('/api/pedidos-web?fecha='+fechaSel); pedidos = await r.json(); }catch(e){}
+  const fechaObj = new Date(fechaSel+'T12:00:00');
   const ayer = new Date(fechaObj); ayer.setDate(fechaObj.getDate()-1);
   const manana = new Date(fechaObj); manana.setDate(fechaObj.getDate()+1);
   const hoy = new Date().toISOString().split('T')[0];
@@ -3104,78 +3095,56 @@ async function renderPedidosWeb(fechaSel){
   const meses = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
   const esHoy = fechaSel === hoy;
   const labelFecha = esHoy
-    ? `Hoy · ${fechaObj.getDate()} ${meses[fechaObj.getMonth()]} ${fechaObj.getFullYear()}`
-    : `${fechaObj.getDate()} ${meses[fechaObj.getMonth()]} ${fechaObj.getFullYear()}`;
-
+    ? ('Hoy · '+fechaObj.getDate()+' '+meses[fechaObj.getMonth()]+' '+fechaObj.getFullYear())
+    : (fechaObj.getDate()+' '+meses[fechaObj.getMonth()]+' '+fechaObj.getFullYear());
   const totalDia = pedidos.reduce((s,p)=>s+parseFloat(p.total||0),0);
 
-  cont.innerHTML = `
-    <!-- Navegación por día -->
-    <div style="display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:20px">
-      <button onclick="renderPedidosWeb('${fmtNav(ayer)}')"
-        style="width:34px;height:34px;border-radius:50%;border:1px solid var(--border);background:white;cursor:pointer;display:flex;align-items:center;justify-content:center">
-        <i class="ti ti-chevron-left" style="font-size:16px;color:var(--muted)"></i>
-      </button>
-      <div style="text-align:center">
-        <div style="font-size:16px;font-weight:600">${labelFecha}</div>
-        <div style="font-size:12px;color:var(--muted)">${pedidos.length} pedido${pedidos.length!==1?'s':''} · $${totalDia.toFixed(2)}</div>
-      </div>
-      <button onclick="renderPedidosWeb('${fmtNav(manana)}')" ${esHoy?'disabled style="opacity:0.3;cursor:default;"':'style="cursor:pointer;"'}
-        style="width:34px;height:34px;border-radius:50%;border:1px solid var(--border);background:white;display:flex;align-items:center;justify-content:center">
-        <i class="ti ti-chevron-right" style="font-size:16px;color:var(--muted)"></i>
-      </button>
-    </div>
+  let html = '<div style="display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:20px">'
+    + '<button onclick="renderPedidosWeb(\'' + fmtNav(ayer) + '\')" style="width:34px;height:34px;border-radius:50%;border:1px solid var(--border);background:white;cursor:pointer;display:flex;align-items:center;justify-content:center"><i class="ti ti-chevron-left" style="font-size:16px;color:var(--muted)"></i></button>'
+    + '<div style="text-align:center"><div style="font-size:16px;font-weight:600">'+labelFecha+'</div>'
+    + '<div style="font-size:12px;color:var(--muted)">'+pedidos.length+' pedido'+(pedidos.length!==1?'s':'')+' · $'+totalDia.toFixed(2)+'</div></div>'
+    + '<button onclick="renderPedidosWeb(\'' + fmtNav(manana) + '\')" '+(esHoy?'disabled style="opacity:0.3;cursor:default;"':'')+' style="width:34px;height:34px;border-radius:50%;border:1px solid var(--border);background:white;display:flex;align-items:center;justify-content:center"><i class="ti ti-chevron-right" style="font-size:16px;color:var(--muted)"></i></button>'
+    + '</div>';
 
-    ${pedidos.length === 0 ? `
-    <div style="text-align:center;padding:40px;color:var(--muted)">
-      <i class="ti ti-inbox" style="font-size:36px;opacity:0.3"></i>
-      <p style="margin-top:10px">Sin pedidos este día</p>
-    </div>` :
-    pedidos.map(p => {
+  if(pedidos.length === 0){
+    html += '<div style="text-align:center;padding:40px;color:var(--muted)"><i class="ti ti-inbox" style="font-size:36px;opacity:0.3"></i><p style="margin-top:10px">Sin pedidos este día</p></div>';
+  } else {
+    // Header de columnas
+    html += '<div style="display:flex;align-items:center;gap:12px;padding:4px 16px 8px;border-bottom:1px solid var(--border);margin-bottom:8px">'
+      + '<div style="font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px;min-width:90px;flex-shrink:0">N° Pedido</div>'
+      + '<div style="flex:1;font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Cliente</div>'
+      + '<div style="font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px;flex-shrink:0;min-width:80px;text-align:right">Total</div>'
+      + '<div style="width:30px"></div></div>';
+
+    pedidos.forEach(function(p){
       let prods = [];
-      try { prods = Array.isArray(p.productos) ? p.productos : JSON.parse(p.productos||'[]'); } catch(e){}
+      try{ prods = Array.isArray(p.productos)?p.productos:JSON.parse(p.productos||'[]'); }catch(e){}
       const prodId = 'prod-'+p.numero_pedido;
-      return `
-      <div style="background:white;border-radius:12px;border:1px solid var(--border);margin-bottom:8px;overflow:hidden">
-        <div onclick="togglePedidoDetalle('${prodId}')"
-          style="display:flex;align-items:center;gap:12px;padding:13px 16px;cursor:pointer"
-          onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='white'">
-          <div style="font-size:13px;font-weight:600;color:var(--muted);flex-shrink:0;min-width:80px">#${p.numero_pedido}</div>
-          <div style="flex:1;font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.cliente_nombre||'—'}</div>
-          <div style="font-size:15px;font-weight:700;color:var(--brown);flex-shrink:0">$${parseFloat(p.total||0).toFixed(2)}</div>
-          <i class="ti ti-chevron-down" id="chev-${prodId}" style="font-size:14px;color:var(--muted);transition:transform 0.2s;flex-shrink:0"></i>
-        </div>
-        <div id="${prodId}" style="display:none;border-top:0.5px solid var(--border)">
-          <table style="width:100%;border-collapse:collapse;font-size:12px">
-            <thead>
-              <tr style="background:#faf9f8">
-                <th style="padding:8px 16px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:600">Producto</th>
-                <th style="padding:8px 10px;text-align:center;font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:600">Cant.</th>
-                <th style="padding:8px 16px;text-align:right;font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:600">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${prods.length ? prods.map(pr => {
-                const nombre = pr.nombre||pr.name||pr.producto||'—';
-                const cant = pr.cantidad||pr.qty||pr.quantity||1;
-                const total = parseFloat(pr.total||pr.subtotal||pr.precio||pr.price||0);
-                return `<tr style="border-top:0.5px solid var(--border)">
-                  <td style="padding:9px 16px">${nombre}</td>
-                  <td style="padding:9px 10px;text-align:center;color:var(--muted)">${cant}</td>
-                  <td style="padding:9px 16px;text-align:right;font-weight:500;color:var(--brown)">$${total.toFixed(2)}</td>
-                </tr>`;
-              }).join('') : `<tr><td colspan="3" style="padding:14px 16px;color:var(--muted);text-align:center">Sin detalle</td></tr>`}
-            </tbody>
-            <tfoot>
-              <tr style="border-top:1px solid var(--border);background:#faf9f8">
-                <td colspan="2" style="padding:9px 16px;font-weight:600">Total pedido</td>
-                <td style="padding:9px 16px;text-align:right;font-weight:700;color:var(--brown)">$${parseFloat(p.total||0).toFixed(2)}</td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-      </div>`;
-    }).join('')}`;
+      html += '<div style="background:white;border-radius:12px;border:1px solid var(--border);margin-bottom:8px;overflow:hidden">'
+        + '<div onclick="togglePedidoDetalle(\'' + prodId + '\')" style="display:flex;align-items:center;gap:12px;padding:13px 16px;cursor:pointer" onmouseover="this.style.background=&quot;#faf9f8&quot;" onmouseout="this.style.background=&quot;white&quot;">'
+        + '<div style="font-size:13px;font-weight:600;color:var(--muted);flex-shrink:0;min-width:90px">#'+p.numero_pedido+'</div>'
+        + '<div style="flex:1;font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+( p.cliente_nombre||'—')+'</div>'
+        + '<div style="font-size:15px;font-weight:700;color:var(--brown);flex-shrink:0;min-width:80px;text-align:right">$'+parseFloat(p.total||0).toFixed(2)+'</div>'
+        + '<i class="ti ti-chevron-down" id="chev-'+prodId+'" style="font-size:14px;color:var(--muted);transition:transform 0.2s;flex-shrink:0"></i>'
+        + '</div>'
+        + '<div id="'+prodId+'" style="display:none;border-top:0.5px solid var(--border)">'
+        + '<table style="width:100%;border-collapse:collapse;font-size:12px">'
+        + '<thead><tr style="background:#faf9f8"><th style="padding:8px 16px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:600">Producto</th><th style="padding:8px 10px;text-align:center;font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:600">Cant.</th><th style="padding:8px 16px;text-align:right;font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:600">Total</th></tr></thead>'
+        + '<tbody>';
+      if(prods.length){
+        prods.forEach(function(pr){
+          const nombre = pr.nombre||pr.name||pr.producto||'—';
+          const cant = pr.cantidad||pr.qty||pr.quantity||1;
+          const total = parseFloat(pr.total||pr.subtotal||pr.precio||pr.price||0);
+          html += '<tr style="border-top:0.5px solid var(--border)"><td style="padding:9px 16px">'+nombre+'</td><td style="padding:9px 10px;text-align:center;color:var(--muted)">'+cant+'</td><td style="padding:9px 16px;text-align:right;font-weight:500;color:var(--brown)">$'+total.toFixed(2)+'</td></tr>';
+        });
+      } else {
+        html += '<tr><td colspan="3" style="padding:14px 16px;color:var(--muted);text-align:center">Sin detalle</td></tr>';
+      }
+      html += '</tbody><tfoot><tr style="border-top:1px solid var(--border);background:#faf9f8"><td colspan="2" style="padding:9px 16px;font-weight:600">Total pedido</td><td style="padding:9px 16px;text-align:right;font-weight:700;color:var(--brown)">$'+parseFloat(p.total||0).toFixed(2)+'</td></tr></tfoot></table></div></div>';
+    });
+  }
+  cont.innerHTML = html;
 }
 
 function togglePedidoDetalle(id){
@@ -3360,16 +3329,16 @@ async function renderDocFacturas(){
         `<div style="overflow-x:auto">
           <table style="width:100%;border-collapse:collapse;font-size:12px">
             <thead><tr style="background:#faf9f8;border-bottom:1px solid var(--border)">
-              <th style="padding:7px 12px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Factura</th>
-              <th style="padding:7px 12px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Cliente</th>
+              <th style="padding:7px 12px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">N° Factura</th>
+              <th style="padding:7px 12px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Nombre del Cliente</th>
               <th style="padding:7px 12px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Vendedora</th>
               <th style="padding:7px 12px;text-align:right;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Sin IVA</th>
-              <th style="padding:7px 12px;text-align:right;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Con IVA</th>
+              <th style="padding:7px 12px;text-align:right;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Valor Total</th>
             </tr></thead>
             <tbody>
               ${docs.map(d=>`
                 <tr style="border-bottom:0.5px solid var(--border);transition:background 0.1s" onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='transparent'">
-                  <td style="padding:7px 12px;color:var(--muted);font-size:11px;white-space:nowrap">${(d.documento||'').slice(-5)||'—'}</td>
+                  <td style="padding:7px 12px;color:var(--muted);font-size:11px;white-space:nowrap">${(d.documento||'')||'—'}</td>
                   <td style="padding:7px 12px;font-weight:500;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${d.cliente_nombre||''}">${d.cliente_nombre||'—'}</td>
                   <td style="padding:7px 12px;color:var(--muted);white-space:nowrap">${(d.vendedor?.razon_social||d.vendedor?.nombre||'—').split(' ')[0]}</td>
                   <td style="padding:7px 12px;text-align:right;color:var(--brown);font-weight:600">${fmt(parseFloat(d.subtotal||d.total/1.15||0))}</td>
@@ -6017,7 +5986,7 @@ function mostrarSugerenciasProducto(q){
   sug.innerHTML = resultados.map(p=>`
     <div onclick="seleccionarProductoTester('${p.nombre.replace(/'/g,"\\'")}','${p.categoria.replace(/'/g,"\\'")}','${(p.codigo||'').replace(/'/g,"\\'")}')"
       style="padding:9px 12px;cursor:pointer;border-bottom:0.5px solid var(--border);transition:background 0.1s"
-      onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='white'">
+      onmouseover="this.style.background=&quot;#faf9f8&quot;" onmouseout="this.style.background=&quot;white&quot;">
       <span style="font-size:12px;font-weight:500;color:var(--text)">${p.nombre}</span>
       <span style="font-size:10px;color:var(--muted);margin-left:8px">${p.codigo?'<span style="color:var(--brown);font-weight:600">'+p.codigo+'</span> · ':''} ${p.categoria}</span>
     </div>`).join('');
