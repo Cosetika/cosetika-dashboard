@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Planificación de Capacitaciones — Cosétika</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #EFF3F0;
+    --paper: #FFFFFF;
+    --ink: #1C2B28;
+    --ink-soft: #5C6C68;
+    --accent: #7A2E3A;
+    --accent-soft: #F1DFE2;
+    --gold: #97762A;
+    --line: #DFE6E2;
+    --line-strong: #C9D3CE;
+    --radius: 14px;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font-family:'Inter',sans-serif;
+    min-height:100vh;
+    padding:40px 20px 80px;
+  }
+  .wrap{max-width:980px;margin:0 auto;}
+
+  .eyebrow{
+    font-size:12px;
+    letter-spacing:.14em;
+    text-transform:uppercase;
+    color:var(--ink-soft);
+    font-weight:600;
+    margin-bottom:6px;
+  }
+  .top{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    gap:16px;
+    margin-bottom:28px;
+    flex-wrap:wrap;
+  }
+
+  .month-nav{
+    display:flex;
+    align-items:center;
+    gap:18px;
+  }
+  .month-nav button{
+    width:38px;height:38px;
+    border-radius:50%;
+    border:1px solid var(--line-strong);
+    background:var(--paper);
+    color:var(--ink);
+    font-size:16px;
+    cursor:pointer;
+    display:flex;align-items:center;justify-content:center;
+    transition:background .15s, transform .1s;
+  }
+  .month-nav button:hover{background:var(--accent-soft); border-color:var(--accent);}
+  .month-nav button:active{transform:scale(.94);}
+  .month-title{
+    font-family:'Fraunces', serif;
+    font-size:38px;
+    font-weight:500;
+    letter-spacing:.01em;
+    min-width:280px;
+    text-align:center;
+  }
+  .month-title small{
+    display:block;
+    font-family:'Inter',sans-serif;
+    font-size:13px;
+    font-weight:600;
+    color:var(--ink-soft);
+    letter-spacing:.08em;
+    margin-top:2px;
+  }
+
+  .edit-toggle{
+    display:flex;
+    align-items:center;
+    gap:10px;
+  }
+  #editBtn{
+    font-family:'Inter',sans-serif;
+    font-size:13px;
+    font-weight:600;
+    padding:10px 16px;
+    border-radius:999px;
+    border:1px solid var(--line-strong);
+    background:var(--paper);
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    gap:8px;
+    color:var(--ink);
+  }
+  #editBtn.active{
+    background:var(--accent);
+    border-color:var(--accent);
+    color:#fff;
+  }
+  #saveIndicator{
+    font-size:12px;
+    color:var(--ink-soft);
+    opacity:0;
+    transition:opacity .3s;
+  }
+  #saveIndicator.show{opacity:1;}
+  #saveIndicator.error{color:var(--accent);}
+
+  .colheads{
+    display:grid;
+    grid-template-columns:92px 1.1fr 1.6fr 1.7fr 1fr .9fr 32px;
+    gap:14px;
+    padding:0 20px 10px;
+    font-size:11px;
+    letter-spacing:.1em;
+    text-transform:uppercase;
+    color:var(--ink-soft);
+    font-weight:700;
+  }
+
+  .list{display:flex; flex-direction:column; gap:10px;}
+
+  .row{
+    background:var(--paper);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    display:grid;
+    grid-template-columns:92px 1.1fr 1.6fr 1.7fr 1fr .9fr 32px;
+    gap:14px;
+    align-items:center;
+    padding:14px 20px;
+    position:relative;
+  }
+  .row::before{
+    content:"";
+    position:absolute;
+    left:106px;
+    top:10px;
+    bottom:10px;
+    border-left:1px dashed var(--line-strong);
+  }
+
+  .date-tile{
+    background:var(--ink);
+    color:#fff;
+    border-radius:10px;
+    padding:8px 4px;
+    text-align:center;
+    font-family:'IBM Plex Mono', monospace;
+  }
+  .date-tile .dow{
+    font-size:9px;
+    letter-spacing:.1em;
+    opacity:.7;
+    display:block;
+  }
+  .date-tile .day{
+    font-size:22px;
+    font-weight:600;
+    line-height:1.1;
+    display:block;
+  }
+  .date-tile .mon{
+    font-size:9px;
+    letter-spacing:.12em;
+    opacity:.7;
+    display:block;
+  }
+  .date-tile input{
+    width:100%;
+    background:transparent;
+    border:none;
+    color:#fff;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12px;
+    text-align:center;
+    outline:none;
+  }
+  .date-tile input::-webkit-calendar-picker-indicator{filter:invert(1); opacity:.8;}
+
+  .cell{font-size:14px; color:var(--ink); word-break:break-word;}
+  .cell.empty{color:var(--ink-soft); font-style:italic;}
+  .cell input, .cell textarea{
+    width:100%;
+    font-family:'Inter',sans-serif;
+    font-size:14px;
+    color:var(--ink);
+    border:1px solid transparent;
+    background:transparent;
+    padding:6px 8px;
+    border-radius:8px;
+    resize:none;
+    outline:none;
+  }
+  .cell input:hover, .cell textarea:hover{background:var(--bg);}
+  .cell input:focus, .cell textarea:focus{background:#fff; border-color:var(--accent);}
+
+  .valor-cell{
+    font-family:'IBM Plex Mono', monospace;
+    font-weight:600;
+    color:var(--gold);
+    font-size:14px;
+  }
+  .valor-cell input{font-family:'IBM Plex Mono', monospace; color:var(--gold); font-weight:600;}
+
+  .del-btn{
+    width:26px;height:26px;
+    border-radius:50%;
+    border:1px solid var(--line-strong);
+    background:var(--paper);
+    color:var(--ink-soft);
+    cursor:pointer;
+    font-size:13px;
+    display:none;
+    align-items:center;justify-content:center;
+  }
+  .del-btn:hover{background:var(--accent); color:#fff; border-color:var(--accent);}
+  .edit-on .del-btn{display:flex;}
+
+  .summary{
+    font-size:13px;
+    color:var(--ink-soft);
+    margin:-10px 0 22px 4px;
+  }
+  .summary strong{color:var(--ink); font-weight:600;}
+
+  .add-row{
+    margin-top:6px;
+    padding:14px;
+    border-radius:var(--radius);
+    border:1.5px dashed var(--line-strong);
+    background:transparent;
+    color:var(--ink-soft);
+    font-family:'Inter',sans-serif;
+    font-size:13px;
+    font-weight:600;
+    cursor:pointer;
+    width:100%;
+    display:none;
+  }
+  .add-row:hover{border-color:var(--accent); color:var(--accent); background:var(--accent-soft);}
+  .edit-on .add-row{display:block;}
+
+  .empty-state{
+    text-align:center;
+    padding:60px 20px;
+    color:var(--ink-soft);
+    font-size:14px;
+  }
+  .empty-state .big{
+    font-family:'Fraunces', serif;
+    font-size:20px;
+    color:var(--ink);
+    margin-bottom:6px;
+    display:block;
+  }
+
+  .footnote{
+    text-align:center;
+    font-size:12px;
+    color:var(--ink-soft);
+    margin-top:30px;
+  }
+
+  @media (max-width:760px){
+    .colheads{display:none;}
+    .row{
+      grid-template-columns:70px 1fr;
+      grid-template-areas:
+        "date city"
+        "date tema"
+        "date dir"
+        "date horario"
+        "date valor";
+      row-gap:6px;
+    }
+    .row::before{left:84px;}
+    .row > .date-tile{grid-area:date;}
+    .row > [data-field="ciudad"]{grid-area:city;}
+    .row > [data-field="tema"]{grid-area:tema;}
+    .row > [data-field="direccion"]{grid-area:dir;}
+    .row > [data-field="horario"]{grid-area:horario;}
+    .row > [data-field="valor"]{grid-area:valor;}
+    .del-btn{position:absolute; top:10px; right:10px;}
+    .month-title{font-size:28px; min-width:auto;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="top">
+    <div>
+      <div class="eyebrow">Cosétika · Planificación</div>
+      <div class="month-nav">
+        <button id="prevBtn" aria-label="Mes anterior">‹</button>
+        <div class="month-title" id="monthTitle">JULIO<small>2026</small></div>
+        <button id="nextBtn" aria-label="Mes siguiente">›</button>
+      </div>
+    </div>
+    <div class="edit-toggle">
+      <span id="saveIndicator">Guardado</span>
+      <button id="editBtn">🔒 Modo edición</button>
+    </div>
+  </div>
+
+  <div class="summary" id="summary"></div>
+
+  <div class="colheads">
+    <div>Fecha</div>
+    <div>Ciudad</div>
+    <div>Tema</div>
+    <div>Dirección</div>
+    <div>Horario</div>
+    <div>Valor</div>
+    <div></div>
+  </div>
+
+  <div class="list" id="list"></div>
+
+  <button class="add-row" id="addBtn">+ Agregar capacitación</button>
+
+  <div class="footnote">Los cambios se guardan automáticamente · Solo Giovanna puede activar el modo edición</div>
+</div>
+
+<script>
+// Si tu API vive en otra ruta o dominio, ajusta esta constante.
+const API_BASE = '/api/capacitaciones';
+
+const monthNames = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'];
+const dowNames = ['DOM','LUN','MAR','MIÉ','JUE','VIE','SÁB'];
+const monAbbr = ['ENE','FEB','MAR','ABR','MAY','JUN','JUL','AGO','SEP','OCT','NOV','DIC'];
+
+let current = { year: 2026, month: 6 }; // julio 2026 (0-indexed)
+let editMode = false;
+let editCode = null; // se llena al activar modo edición
+let rows = [];
+
+const listEl = document.getElementById('list');
+const monthTitleEl = document.getElementById('monthTitle');
+const summaryEl = document.getElementById('summary');
+const editBtn = document.getElementById('editBtn');
+const addBtn = document.getElementById('addBtn');
+const saveIndicator = document.getElementById('saveIndicator');
+
+function showSaved(msg, isError){
+  saveIndicator.textContent = msg || 'Guardado';
+  saveIndicator.classList.toggle('error', !!isError);
+  saveIndicator.classList.add('show');
+  setTimeout(()=>saveIndicator.classList.remove('show'), 1500);
+}
+
+async function apiRequest(method, path, body){
+  const headers = { 'Content-Type': 'application/json' };
+  if (editCode) headers['x-edit-code'] = editCode;
+  const res = await fetch(API_BASE + path, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined
+  });
+  if (res.status === 403){
+    exitEditMode();
+    alert('Tu código de edición ya no es válido. Vuelve a activar el modo edición.');
+    throw new Error('forbidden');
+  }
+  if (!res.ok && res.status !== 204){
+    throw new Error('request failed: ' + res.status);
+  }
+  return res.status === 204 ? null : res.json();
+}
+
+async function loadMonth(){
+  listEl.innerHTML = '<div class="empty-state">Cargando…</div>';
+  try{
+    rows = await apiRequest('GET', `?year=${current.year}&month=${current.month+1}`);
+  }catch(e){
+    rows = [];
+    listEl.innerHTML = '<div class="empty-state">No se pudo conectar con el servidor. Intenta de nuevo.</div>';
+    return;
+  }
+  render();
+}
+
+function renderTitle(){
+  monthTitleEl.innerHTML = `${monthNames[current.month]}<small>${current.year}</small>`;
+}
+
+function renderSummary(){
+  const total = rows.reduce((sum, r)=> sum + (parseFloat(r.valor)||0), 0);
+  summaryEl.innerHTML = rows.length
+    ? `<strong>${rows.length}</strong> capacitación${rows.length===1?'':'es'} planificada${rows.length===1?'':'s'} · <strong>$${total.toFixed(2)}</strong> en valor total`
+    : '';
+}
+
+function toDateInputValue(fecha){
+  if(!fecha) return '';
+  return String(fecha).slice(0,10); // 'YYYY-MM-DD' de un ISO string o Date
+}
+
+function dateParts(fecha){
+  const val = toDateInputValue(fecha);
+  if(!val) return { dow:'—', day:'–', mon:'' };
+  const d = new Date(val + 'T00:00:00');
+  if(isNaN(d)) return { dow:'—', day:'–', mon:'' };
+  return { dow: dowNames[d.getDay()], day: d.getDate(), mon: monAbbr[d.getMonth()] };
+}
+
+function render(){
+  document.body.classList.toggle('edit-on', editMode);
+  listEl.classList.toggle('edit-on', editMode);
+  renderTitle();
+  renderSummary();
+
+  if(rows.length === 0){
+    listEl.innerHTML = `<div class="empty-state">
+      <span class="big">Sin capacitaciones este mes</span>
+      ${editMode ? 'Usa "+ Agregar capacitación" para empezar a planificar.' : 'Aún no hay nada planificado para ' + monthNames[current.month].toLowerCase() + '.'}
+    </div>`;
+    return;
+  }
+
+  rows.sort((a,b)=> toDateInputValue(a.fecha).localeCompare(toDateInputValue(b.fecha)));
+
+  listEl.innerHTML = '';
+  rows.forEach(row => {
+    const dp = dateParts(row.fecha);
+    const el = document.createElement('div');
+    el.className = 'row';
+
+    el.innerHTML = `
+      <div class="date-tile">
+        ${editMode
+          ? `<input type="date" value="${toDateInputValue(row.fecha)}" data-field="fecha">`
+          : `<span class="dow">${dp.dow}</span><span class="day">${dp.day}</span><span class="mon">${dp.mon}</span>`
+        }
+      </div>
+      <div class="cell" data-field="ciudad">${fieldMarkup(row, 'ciudad', 'Ciudad')}</div>
+      <div class="cell" data-field="tema">${fieldMarkup(row, 'tema', 'Tema')}</div>
+      <div class="cell" data-field="direccion">${fieldMarkup(row, 'direccion', 'Dirección')}</div>
+      <div class="cell" data-field="horario">${fieldMarkup(row, 'horario', 'Horario')}</div>
+      <div class="cell valor-cell" data-field="valor">${editMode ? `<input type="text" inputmode="decimal" value="${row.valor||''}" data-field="valor" placeholder="0.00">` : (row.valor ? '$'+parseFloat(row.valor).toFixed(2) : '—')}</div>
+      <button class="del-btn" title="Eliminar">✕</button>
+    `;
+
+    el.querySelectorAll('input').forEach(inp => {
+      inp.addEventListener('change', async ()=>{
+        row[inp.dataset.field] = inp.value;
+        try{
+          await apiRequest('PUT', `/${row.id}`, { [inp.dataset.field]: inp.value });
+          showSaved('Guardado');
+        }catch(e){
+          showSaved('Error al guardar', true);
+        }
+        if(inp.dataset.field === 'fecha') render();
+      });
+    });
+    el.querySelector('.del-btn').addEventListener('click', async ()=>{
+      try{
+        await apiRequest('DELETE', `/${row.id}`);
+        rows = rows.filter(r => r.id !== row.id);
+        render();
+        showSaved('Eliminado');
+      }catch(e){
+        showSaved('Error al eliminar', true);
+      }
+    });
+
+    listEl.appendChild(el);
+  });
+}
+
+function fieldMarkup(row, field, placeholder){
+  if(editMode){
+    return `<input type="text" value="${(row[field]||'').toString().replace(/"/g,'&quot;')}" data-field="${field}" placeholder="${placeholder}">`;
+  }
+  return row[field] ? row[field] : `<span class="empty">—</span>`;
+}
+
+addBtn.addEventListener('click', async ()=>{
+  const firstOfMonth = `${current.year}-${String(current.month+1).padStart(2,'0')}-01`;
+  try{
+    const created = await apiRequest('POST', '', { fecha: firstOfMonth, ciudad:'', tema:'', direccion:'', horario:'', valor:0 });
+    rows.push(created);
+    render();
+    showSaved('Agregado');
+  }catch(e){
+    showSaved('Error al agregar', true);
+  }
+});
+
+function exitEditMode(){
+  editMode = false;
+  editCode = null;
+  editBtn.classList.remove('active');
+  editBtn.innerHTML = '🔒 Modo edición';
+  render();
+}
+
+editBtn.addEventListener('click', ()=>{
+  if(editMode){
+    exitEditMode();
+    return;
+  }
+  const code = prompt('Código de acceso para editar:');
+  if(code){
+    editCode = code;
+    editMode = true;
+    editBtn.classList.add('active');
+    editBtn.innerHTML = '🔓 Editando';
+    render();
+  }
+});
+
+document.getElementById('prevBtn').addEventListener('click', ()=>{
+  current.month--;
+  if(current.month < 0){ current.month = 11; current.year--; }
+  loadMonth();
+});
+document.getElementById('nextBtn').addEventListener('click', ()=>{
+  current.month++;
+  if(current.month > 11){ current.month = 0; current.year++; }
+  loadMonth();
+});
+
+loadMonth();
+</script>
+</body>
+</html>
