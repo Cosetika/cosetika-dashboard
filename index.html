@@ -468,6 +468,7 @@ function navSetDocTab(tab){
   closeSidebar();
   const DOC_LABELS = {facturas:'Facturas', pedidos:'Pedidos', testers:'Testers', envios:'Envíos', control:'Control'};
   document.getElementById('mobile-mod-title').textContent = DOC_LABELS[tab] || tab;
+  document.getElementById('mobile-mod-title').textContent = DOC_LABELS[tab] || tab;
   if(modActual !== 'ventas'){
     document.querySelectorAll('.nav-item').forEach(m=>m.classList.remove('active'));
     document.getElementById('nav-ventas')?.classList.add('active');
@@ -578,10 +579,12 @@ function setMod(mod){
     document.getElementById('body').classList.add('full-width');
   }
   if(mod==='ventas'){
-    if(subtabActual==='facturas') setSubtab('facturas');
-    else if(subtabActual==='ventas') setSubtab('ventas');
-    else if(subtabActual==='prov') setSubtab('prov');
-    else setSubtab('cpf');
+    // Siempre ir a Pedidos al entrar a Inicio desde otro módulo
+    window._docTab = 'pedidos';
+    // Marcar Pedidos como activo en sidebar
+    document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
+    document.getElementById('navsub-pedidos')?.classList.add('active');
+    renderFacturasHoy();
   } else if(mod==='visitas'){
     renderModVisitas();
   } else if(mod==='config'){
