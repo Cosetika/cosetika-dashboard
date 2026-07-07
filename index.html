@@ -461,7 +461,10 @@ function navToggleGroup(subsId, chevId, mod){
   }
   // Navegar al módulo si aplica
   if(mod === 'ventas' && modActual !== 'ventas') setMod('ventas');
-  else if(mod === 'clientes' && modActual === 'ventas') {/* ya en ventas, solo expandir */}
+  else if(mod === 'clientes') {/* expandir solo */}
+  else if(mod === 'config') { window._configTabActiva = 'credenciales'; setMod('config'); }
+  else if(mod === 'planificacion') {/* expandir solo */}
+  else if(mod === 'visitas') { if(modActual !== 'visitas') setMod('visitas'); }
 }
 
 function navSetDocTab(tab){
