@@ -523,7 +523,13 @@ function navSetSubtab(tab){
     document.getElementById('nav-ventas')?.classList.add('active');
     modActual = 'ventas';
   }
-  setSubtab(tab);
+  // Para tabs de documentos, setear _docTab antes de renderizar
+  if(['facturas','pedidos','testers','envios','control'].includes(tab)){
+    window._docTab = tab;
+    renderFacturasHoy();
+  } else {
+    setSubtab(tab);
+  }
 }
 
 function navSetMod(mod){
@@ -1844,7 +1850,10 @@ function initVendedoras(){
   const chev = document.getElementById('nav-ventas-chevron');
   if(subs) subs.style.maxHeight = '300px';
   if(chev) chev.style.transform = 'rotate(180deg)';
-  renderHome();
+  window._docTab = 'pedidos';
+  document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
+  document.getElementById('navsub-pedidos')?.classList.add('active');
+  renderFacturasHoy();
 }
 
 function selVendedorTodo(el){
