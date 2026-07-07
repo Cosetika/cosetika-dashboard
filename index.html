@@ -492,6 +492,37 @@ function navGoVisitas(tab){
   else renderModVisitas();
 }
 
+function navSetSubtab(tab){
+  closeSidebar();
+  const SUB_LABELS = {
+    facturas:'Facturas', testers:'Testers', envios:'Envíos', control:'Control',
+    ventas:'Ventas', marcas:'Marcas', cpf:'Clientes', prov:'Provincias'
+  };
+  document.getElementById('mobile-mod-title').textContent = SUB_LABELS[tab] || tab;
+  document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
+  document.getElementById('navsub-'+tab)?.classList.add('active');
+  const enInicio = ['facturas','testers','envios','control'].includes(tab);
+  const enClientes = ['cpf','prov'].includes(tab);
+  ['nav-inicio-subs','nav-clientes-subs','nav-plan-subs','nav-visitas-subs','nav-config-subs'].forEach(id=>{
+    const el = document.getElementById(id); if(el) el.style.maxHeight='0px';
+  });
+  ['nav-ventas-chevron','nav-clientes-chevron','nav-plan-chevron','nav-visitas-chevron','nav-config-chevron'].forEach(id=>{
+    const el = document.getElementById(id); if(el) el.style.transform='';
+  });
+  if(enInicio){
+    document.getElementById('nav-inicio-subs').style.maxHeight='300px';
+    document.getElementById('nav-ventas-chevron').style.transform='rotate(180deg)';
+  } else if(enClientes){
+    document.getElementById('nav-clientes-subs').style.maxHeight='300px';
+    document.getElementById('nav-clientes-chevron').style.transform='rotate(180deg)';
+  }
+  if(modActual !== 'ventas'){
+    document.querySelectorAll('.nav-item').forEach(m=>m.classList.remove('active'));
+    document.getElementById('nav-ventas')?.classList.add('active');
+    modActual = 'ventas';
+  }
+  setSubtab(tab);
+}
 
 function navSetMod(mod){
   closeSidebar();
@@ -1145,9 +1176,8 @@ async function renderPlanMes(modulo, anio, mes){
 
   document.getElementById('main').innerHTML = `
   <div style="max-width:900px;margin:0 auto">
+    <div style="text-align:center;margin-bottom:16px"><span style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px">${cfg.titulo}</span></div>
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
-    <div style="text-align:center;margin-bottom:6px"><span style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px">${cfg.titulo}</span></div>
-    <div style="margin-bottom:16px"></div>
       <button onclick="renderPlanMes('${modulo}',${prevAnio},${prevMes})"
         style="width:38px;height:38px;border-radius:50%;border:1px solid var(--border);background:white;cursor:pointer;display:flex;align-items:center;justify-content:center">
         <i class="ti ti-chevron-left" style="font-size:16px;color:var(--muted)"></i>
