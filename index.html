@@ -205,8 +205,9 @@
     </div>
     <div id="nav-plan-subs" style="max-height:0;overflow:hidden;transition:max-height 0.25s ease">
       <div class="nav-sub-item" id="navsub-capacitaciones" onclick="navGoCapacitaciones()"><i class="ti ti-school" style="font-size:13px"></i>Capacitaciones</div>
-      <div class="nav-sub-item" id="navsub-giras" onclick="navSetMod('giras')"><i class="ti ti-road" style="font-size:13px"></i>Giras</div>
-      <div class="nav-sub-item" id="navsub-casas" onclick="navSetMod('casas')"><i class="ti ti-building-store" style="font-size:13px"></i>Casas Abiertas</div>
+      <div class="nav-sub-item" id="navsub-institutos" onclick="navGoPlan('institutos')"><i class="ti ti-building" style="font-size:13px"></i>Institutos</div>
+      <div class="nav-sub-item" id="navsub-giras" onclick="navGoPlan('giras')"><i class="ti ti-road" style="font-size:13px"></i>Giras</div>
+      <div class="nav-sub-item" id="navsub-casas" onclick="navGoPlan('casas_abiertas')"><i class="ti ti-building-store" style="font-size:13px"></i>Casas Abiertas</div>
     </div>
 
     <!-- VISITAS -->
@@ -1105,6 +1106,231 @@ async function borrarCapacitacion(id, mesKey){
   await fetch(`/api/capacitaciones/${id}`, { method:'DELETE' });
   const [ay, mm] = mesKey.split('-');
   await renderCapacitacionesMes(parseInt(ay), parseInt(mm));
+}
+
+// ─── INSTITUTOS / GIRAS / CASAS ABIERTAS — módulos genéricos de planificación ─
+
+function navGoPlan(modulo){
+  closeSidebar();
+  const navIds = {institutos:'navsub-capacitaciones', giras:'navsub-giras', casas_abiertas:'navsub-casas'};
+  document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
+  document.getElementById(navIds[modulo])?.classList.add('active');
+  const subs = document.getElementById('nav-plan-subs');
+  const chev = document.getElementById('nav-plan-chevron');
+  if(subs) subs.style.maxHeight = '200px';
+  if(chev) chev.style.transform = 'rotate(180deg)';
+  modActual = modulo;
+  document.getElementById('mobile-mod-title').textContent = {giras:'Giras',casas_abiertas:'Casas Abiertas',institutos:'Institutos'}[modulo]||modulo;
+  document.getElementById('sidebar')?.classList.add('hidden');
+  document.getElementById('body')?.classList.add('full-width');
+  if(!window[`_${modulo}Mes`]) window[`_${modulo}Mes`] = new Date().getMonth()+1;
+  if(!window[`_${modulo}Anio`]) window[`_${modulo}Anio`] = new Date().getFullYear();
+  renderPlanMes(modulo, window[`_${modulo}Anio`], window[`_${modulo}Mes`]);
+}
+
+// Definición de columnas por módulo
+const PLAN_CONFIG = {
+  institutos: {
+    titulo: 'Institutos',
+    tabla: 'institutos',
+    campos: [
+      { key:'fecha', label:'Fecha', type:'date', required:true },
+      { key:'nombre_instituto', label:'Nombre del Instituto', type:'text', placeholder:'Ej: Centro de Estética XYZ' },
+      { key:'actividad', label:'Actividad', type:'select', options:['Clase','Práctica'] }
+    ],
+    tarjeta: (r) => ({
+      titulo: r.nombre_instituto || 'Sin nombre',
+      chips: [
+        r.actividad ? { icon:'ti-book', text: r.actividad } : null,
+      ].filter(Boolean)
+    })
+  },
+  giras: {
+    titulo: 'Giras',
+    tabla: 'giras',
+    campos: [
+      { key:'fecha', label:'Fecha', type:'date', required:true },
+      { key:'asesora', label:'Asesora', type:'text', placeholder:'Nombre de la asesora' },
+      { key:'ciudad', label:'Ciudad', type:'text', placeholder:'Ej: Guayaquil' },
+      { key:'valor_viaticos', label:'Valor Viáticos ($)', type:'number', placeholder:'0.00' }
+    ],
+    tarjeta: (r) => ({
+      titulo: r.ciudad || 'Sin ciudad',
+      chips: [
+        r.asesora ? { icon:'ti-user', text: r.asesora } : null,
+        r.valor_viaticos ? { icon:'ti-currency-dollar', text: `$${parseFloat(r.valor_viaticos).toFixed(2)}` } : null,
+      ].filter(Boolean)
+    })
+  },
+  casas_abiertas: {
+    titulo: 'Casas Abiertas',
+    tabla: 'casas_abiertas',
+    campos: [
+      { key:'fecha', label:'Fecha', type:'date', required:true },
+      { key:'asesora', label:'Asesora', type:'text', placeholder:'Nombre de la asesora' },
+      { key:'cliente', label:'Cliente', type:'text', placeholder:'Nombre del cliente' },
+      { key:'consignacion', label:'Consignación', type:'text', placeholder:'Detalle de consignación' }
+    ],
+    tarjeta: (r) => ({
+      titulo: r.cliente || 'Sin cliente',
+      chips: [
+        r.asesora ? { icon:'ti-user', text: r.asesora } : null,
+        r.consignacion ? { icon:'ti-package', text: r.consignacion } : null,
+      ].filter(Boolean)
+    })
+  }
+};
+
+async function renderPlanMes(modulo, anio, mes){
+  window[`_${modulo}Anio`] = anio;
+  window[`_${modulo}Mes`] = mes;
+  const cfg = PLAN_CONFIG[modulo];
+  const usuario = window.usuarioActual || {};
+  const puedeEditar = usuario.rol==='admin' || (usuario.modulos||'').includes('editar_planificacion');
+  const mesStr = String(mes).padStart(2,'0');
+  const mesKey = `${anio}-${mesStr}`;
+
+  document.getElementById('main').innerHTML = `<div style="display:flex;align-items:center;justify-content:center;padding:40px;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:24px"></i></div>`;
+
+  let rows = [];
+  try{ const r = await fetch(`/api/${modulo}?mes=${mesKey}`); rows = await r.json(); }catch(e){}
+
+  const prevMes = mes===1?12:mes-1, prevAnio = mes===1?anio-1:anio;
+  const nextMes = mes===12?1:mes+1, nextAnio = mes===12?anio+1:anio;
+
+  document.getElementById('main').innerHTML = `
+  <div style="max-width:900px;margin:0 auto">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
+      <button onclick="renderPlanMes('${modulo}',${prevAnio},${prevMes})"
+        style="width:38px;height:38px;border-radius:50%;border:1px solid var(--border);background:white;cursor:pointer;display:flex;align-items:center;justify-content:center">
+        <i class="ti ti-chevron-left" style="font-size:16px;color:var(--muted)"></i>
+      </button>
+      <div style="text-align:center">
+        <div style="font-size:22px;font-weight:600">${MESES_NOMBRES[mes-1]}</div>
+        <div style="font-size:13px;color:var(--muted)">${anio} · ${rows.length} registro${rows.length!==1?'s':''}</div>
+      </div>
+      <button onclick="renderPlanMes('${modulo}',${nextAnio},${nextMes})"
+        style="width:38px;height:38px;border-radius:50%;border:1px solid var(--border);background:white;cursor:pointer;display:flex;align-items:center;justify-content:center">
+        <i class="ti ti-chevron-right" style="font-size:16px;color:var(--muted)"></i>
+      </button>
+    </div>
+
+    ${puedeEditar ? `
+    <div style="text-align:right;margin-bottom:20px">
+      <button onclick="abrirModalPlan('${modulo}',null,'${mesKey}')"
+        style="padding:10px 20px;background:#1a1108;color:white;border:none;border-radius:10px;font-size:13px;font-weight:500;cursor:pointer;display:inline-flex;align-items:center;gap:8px">
+        <i class="ti ti-plus"></i> Nuevo registro
+      </button>
+    </div>` : ''}
+
+    ${rows.length === 0 ? `
+    <div style="text-align:center;padding:60px 20px;background:white;border-radius:16px;border:1px dashed var(--border)">
+      <i class="ti ti-calendar-off" style="font-size:48px;color:#d1d5db"></i>
+      <p style="margin-top:16px;font-size:15px;color:var(--muted)">Sin registros en ${MESES_NOMBRES[mes-1]}</p>
+      ${puedeEditar ? `<button onclick="abrirModalPlan('${modulo}',null,'${mesKey}')" style="margin-top:16px;padding:10px 24px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer">Agregar el primero</button>` : ''}
+    </div>` :
+    rows.map(r => {
+      const info = cfg.tarjeta(r);
+      const fecha = new Date(r.fecha+'T12:00:00');
+      const dia = fecha.getDate();
+      const diaSemana = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][fecha.getDay()];
+      return `
+      <div style="display:flex;gap:16px;margin-bottom:14px;background:white;border-radius:14px;border:1px solid var(--border);overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.04)">
+        <div style="background:#1a1108;width:72px;display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0;padding:16px 8px">
+          <div style="color:#A0684A;font-size:10px;font-weight:600;letter-spacing:1px;text-transform:uppercase">${diaSemana}</div>
+          <div style="color:white;font-size:28px;font-weight:700;line-height:1">${dia}</div>
+          <div style="color:#7a6a5a;font-size:10px">${MESES_NOMBRES[mes-1].substring(0,3)}</div>
+        </div>
+        <div style="flex:1;padding:14px 16px;min-width:0">
+          <div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:8px">${info.titulo}</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px 20px">
+            ${info.chips.map(c=>`<span style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px"><i class="ti ${c.icon}" style="font-size:13px;color:var(--brown)"></i>${c.text}</span>`).join('')}
+          </div>
+        </div>
+        ${puedeEditar ? `
+        <div style="display:flex;flex-direction:column;gap:4px;padding:12px 10px;flex-shrink:0">
+          <button onclick="abrirModalPlan('${modulo}',${JSON.stringify(r).replace(/"/g,'&quot;')},'${mesKey}')"
+            style="width:30px;height:30px;border:1px solid var(--border);background:white;border-radius:7px;cursor:pointer;display:flex;align-items:center;justify-content:center">
+            <i class="ti ti-pencil" style="font-size:13px;color:var(--brown)"></i>
+          </button>
+          <button onclick="borrarPlan('${modulo}',${r.id},'${mesKey}')"
+            style="width:30px;height:30px;border:1px solid #fca5a5;background:#fef2f2;border-radius:7px;cursor:pointer;display:flex;align-items:center;justify-content:center">
+            <i class="ti ti-trash" style="font-size:13px;color:#ef4444"></i>
+          </button>
+        </div>` : ''}
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
+function abrirModalPlan(modulo, row, mesKey){
+  const cfg = PLAN_CONFIG[modulo];
+  const esNuevo = !row;
+  const overlay = document.createElement('div');
+  overlay.id = 'plan-modal-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:500;display:flex;align-items:center;justify-content:center;padding:20px';
+
+  const camposHTML = cfg.campos.map(f => {
+    const val = row?.[f.key] ?? (f.type==='date' ? mesKey+'-01' : '');
+    if(f.type==='select'){
+      return `<div><label style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:5px">${f.label}</label>
+        <select id="plan-${f.key}" style="width:100%;padding:9px 12px;border:1px solid #e5e5e5;border-radius:8px;font-size:13px;outline:none;box-sizing:border-box">
+          ${f.options.map(o=>`<option value="${o}" ${val===o?'selected':''}>${o}</option>`).join('')}
+        </select></div>`;
+    }
+    return `<div><label style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:5px">${f.label}${f.required?' *':''}</label>
+      <input type="${f.type}" id="plan-${f.key}" value="${f.type==='date'?(val?String(val).substring(0,10):''):val}" ${f.placeholder?`placeholder="${f.placeholder}"`:''}
+        style="width:100%;padding:9px 12px;border:1px solid #e5e5e5;border-radius:8px;font-size:13px;outline:none;box-sizing:border-box" ${f.type==='number'?'step="0.01"':''}></div>`;
+  }).join('');
+
+  overlay.innerHTML = `
+    <div style="background:white;border-radius:16px;width:100%;max-width:440px;box-shadow:0 20px 60px rgba(0,0,0,0.2);overflow:hidden">
+      <div style="background:#1a1108;padding:16px 20px;display:flex;align-items:center;justify-content:space-between">
+        <div style="color:white;font-size:14px;font-weight:500"><i class="ti ti-calendar-plus" style="color:#A0684A;margin-right:8px"></i>${esNuevo?'Nuevo':'Editar'} — ${cfg.titulo}</div>
+        <button onclick="document.getElementById('plan-modal-overlay').remove()" style="background:none;border:none;color:#7a6a5a;cursor:pointer;font-size:18px"><i class="ti ti-x"></i></button>
+      </div>
+      <div style="padding:20px;display:flex;flex-direction:column;gap:14px">
+        ${camposHTML}
+        <div id="plan-error" style="display:none;color:#ef4444;font-size:12px"></div>
+        <div style="display:flex;gap:10px;margin-top:4px">
+          <button onclick="document.getElementById('plan-modal-overlay').remove()"
+            style="flex:1;padding:11px;border:1px solid #e5e5e5;border-radius:8px;background:white;color:#6b7280;font-size:13px;cursor:pointer">Cancelar</button>
+          <button onclick="guardarPlan('${modulo}',${row?.id||'null'},'${mesKey}')"
+            style="flex:1;padding:11px;border:none;border-radius:8px;background:#1a1108;color:white;font-size:13px;font-weight:500;cursor:pointer">${esNuevo?'Crear':'Guardar'}</button>
+        </div>
+      </div>
+    </div>`;
+  overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove(); });
+  document.body.appendChild(overlay);
+}
+
+async function guardarPlan(modulo, id, mesKey){
+  const cfg = PLAN_CONFIG[modulo];
+  const errEl = document.getElementById('plan-error');
+  const body = {};
+  for(const f of cfg.campos){
+    const el = document.getElementById('plan-'+f.key);
+    if(!el) continue;
+    if(f.required && !el.value.trim()){ errEl.textContent=`${f.label} es obligatorio`; errEl.style.display='block'; return; }
+    body[f.key] = f.type==='number' ? (parseFloat(el.value)||null) : (el.value.trim()||null);
+  }
+  try{
+    const url = id ? `/api/${modulo}/${id}` : `/api/${modulo}`;
+    const r = await fetch(url, { method: id?'PUT':'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+    const data = await r.json();
+    if(data.ok||data.row){
+      document.getElementById('plan-modal-overlay')?.remove();
+      const [ay,mm] = mesKey.split('-');
+      await renderPlanMes(modulo, parseInt(ay), parseInt(mm));
+    } else { errEl.textContent='Error: '+(data.error||'desconocido'); errEl.style.display='block'; }
+  }catch(e){ errEl.textContent='Error: '+e.message; errEl.style.display='block'; }
+}
+
+async function borrarPlan(modulo, id, mesKey){
+  if(!confirm('¿Eliminar este registro?')) return;
+  await fetch(`/api/${modulo}/${id}`, { method:'DELETE' });
+  const [ay,mm] = mesKey.split('-');
+  await renderPlanMes(modulo, parseInt(ay), parseInt(mm));
 }
 
 function renderModVisitas(){

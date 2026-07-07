@@ -1404,6 +1404,32 @@ async function initDB() {
         created_at TIMESTAMP DEFAULT NOW()
       );
       CREATE INDEX IF NOT EXISTS idx_cap_fecha ON capacitaciones(fecha);
+      CREATE TABLE IF NOT EXISTS institutos (
+        id SERIAL PRIMARY KEY,
+        fecha DATE NOT NULL,
+        nombre_instituto VARCHAR(500),
+        actividad VARCHAR(100),
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_inst_fecha ON institutos(fecha);
+      CREATE TABLE IF NOT EXISTS giras (
+        id SERIAL PRIMARY KEY,
+        asesora VARCHAR(255),
+        fecha DATE NOT NULL,
+        ciudad VARCHAR(255),
+        valor_viaticos NUMERIC(10,2),
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_giras_fecha ON giras(fecha);
+      CREATE TABLE IF NOT EXISTS casas_abiertas (
+        id SERIAL PRIMARY KEY,
+        asesora VARCHAR(255),
+        fecha DATE NOT NULL,
+        cliente VARCHAR(500),
+        consignacion TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_casas_fecha ON casas_abiertas(fecha);
       CREATE TABLE IF NOT EXISTS asesor_zonas (
         id SERIAL PRIMARY KEY, asesora VARCHAR(255) NOT NULL,
         zona VARCHAR(255) NOT NULL, sector VARCHAR(255) NOT NULL,
@@ -1676,6 +1702,53 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
     } catch(e){ res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
+  }
+
+  // ── INSTITUTOS / GIRAS / CASAS ABIERTAS — CRUD genérico por mes ─────────────
+  for(const tabla of ['institutos','giras','casas_abiertas']){
+    if(urlPath === `/api/${tabla}` && req.method === 'GET'){
+      try{
+        const mes = urlObj.searchParams.get('mes');
+        const r = mes
+          ? await pool.query(`SELECT * FROM ${tabla} WHERE TO_CHAR(fecha,'YYYY-MM')=$1 ORDER BY fecha ASC`,[mes])
+          : await pool.query(`SELECT * FROM ${tabla} ORDER BY fecha DESC LIMIT 100`);
+        res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.rows));
+      }catch(e){res.writeHead(500,{'Content-Type':'application/json'});res.end(JSON.stringify({error:e.message}));}
+      return;
+    }
+    if(urlPath === `/api/${tabla}` && req.method === 'POST'){
+      try{
+        const body = await bodyJSON(req);
+        const cols = Object.keys(body).filter(k=>body[k]!==undefined);
+        const vals = cols.map(k=>body[k]);
+        const placeholders = cols.map((_,i)=>`$${i+1}`).join(',');
+        const r = await pool.query(
+          `INSERT INTO ${tabla}(${cols.join(',')}) VALUES(${placeholders}) RETURNING *`,vals
+        );
+        res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true,row:r.rows[0]}));
+      }catch(e){res.writeHead(500,{'Content-Type':'application/json'});res.end(JSON.stringify({ok:false,error:e.message}));}
+      return;
+    }
+    const matchPut = urlPath.match(new RegExp(`^/api/${tabla}/(\\d+)$`));
+    if(matchPut && req.method === 'PUT'){
+      try{
+        const id = matchPut[1];
+        const body = await bodyJSON(req);
+        const cols = Object.keys(body).filter(k=>body[k]!==undefined);
+        const sets = cols.map((k,i)=>`${k}=$${i+1}`).join(',');
+        const vals = [...cols.map(k=>body[k]), id];
+        await pool.query(`UPDATE ${tabla} SET ${sets} WHERE id=$${cols.length+1}`,vals);
+        res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+      }catch(e){res.writeHead(500,{'Content-Type':'application/json'});res.end(JSON.stringify({ok:false,error:e.message}));}
+      return;
+    }
+    if(matchPut && req.method === 'DELETE'){
+      try{
+        await pool.query(`DELETE FROM ${tabla} WHERE id=$1`,[matchPut[1]]);
+        res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+      }catch(e){res.writeHead(500,{'Content-Type':'application/json'});res.end(JSON.stringify({ok:false,error:e.message}));}
+      return;
+    }
   }
 
   if (urlPath === '/api/visitas' && req.method === 'GET') {
