@@ -183,10 +183,9 @@
     </div>
 
     <!-- VENTAS -->
-    <div class="nav-item" id="nav-ventas-mod" onclick="navSetSubtab('ventas')"><i class="ti ti-chart-bar"></i>Ventas</div>
-
+    <div class="nav-item" id="nav-ventas-mod" onclick="document.getElementById('mobile-mod-title').textContent='Ventas';navSetSubtab('ventas')"><i class="ti ti-chart-bar"></i>Ventas</div>
     <!-- MARCAS -->
-    <div class="nav-item" id="nav-marcas-mod" onclick="navSetSubtab('marcas')"><i class="ti ti-tag"></i>Marcas</div>
+    <div class="nav-item" id="nav-marcas-mod" onclick="document.getElementById('mobile-mod-title').textContent='Marcas';navSetSubtab('marcas')"><i class="ti ti-tag"></i>Marcas</div>
 
     <!-- CLIENTES -->
     <div class="nav-item" id="nav-clientes" onclick="navToggleGroup('nav-clientes-subs','nav-clientes-chevron','clientes')">
@@ -253,7 +252,7 @@
   <!-- Header mobile -->
   <div class="mobile-header" id="mobile-header">
     <button class="ham-btn" onclick="openSidebar()"><i class="ti ti-menu-2" style="font-size:22px"></i></button>
-    <span class="mobile-header-title" id="mobile-mod-title">COSÉTIKA</span>
+    <span class="mobile-header-title" id="mobile-mod-title">Inicio</span>
     <div class="nav-avatar" id="mobile-avatar" style="cursor:pointer" onclick="if(confirm('¿Cerrar sesión?')){sessionStorage.clear();window.location.href='/login';}"></div>
   </div>
 
@@ -521,7 +520,10 @@ function navSetSubtab(tab){
 
 const MOD_LABELS = {
   ventas:'Inicio', visitas:'Visitas', kpis:'KPIs',
-  inventario:'Inventario', reportes:'Reportes', config:'Configuración'
+  inventario:'Inventario', reportes:'Reportes', config:'Configuración',
+  capacitaciones:'Capacitaciones', institutos:'Institutos',
+  giras:'Giras', casas_abiertas:'Casas Abiertas',
+  'visitas-plan':'Planificación Visitas'
 };
 const MOD_SUBTABS = {
   ventas: true
@@ -946,6 +948,7 @@ async function renderCapacitacionesMes(anio, mes){
   const html = `
   <div style="max-width:900px;margin:0 auto">
     <!-- Header navegación por mes -->
+    <div style="text-align:center;margin-bottom:6px"><span style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px">Capacitaciones</span></div>
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
       <button onclick="renderCapacitacionesMes(${mes===1?anio-1:anio},${mes===1?12:mes-1})"
         style="width:38px;height:38px;border-radius:50%;border:1px solid var(--border);background:white;cursor:pointer;display:flex;align-items:center;justify-content:center">
@@ -1201,6 +1204,7 @@ async function renderPlanMes(modulo, anio, mes){
   document.getElementById('main').innerHTML = `
   <div style="max-width:900px;margin:0 auto">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
+    <div style="text-align:center;margin-bottom:6px"><span style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px">${cfg.titulo}</span></div>
       <button onclick="renderPlanMes('${modulo}',${prevAnio},${prevMes})"
         style="width:38px;height:38px;border-radius:50%;border:1px solid var(--border);background:white;cursor:pointer;display:flex;align-items:center;justify-content:center">
         <i class="ti ti-chevron-left" style="font-size:16px;color:var(--muted)"></i>
