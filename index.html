@@ -902,6 +902,45 @@ async function descargarBackupDB(){
 }
 
 // ─── PUSH NOTIFICATIONS ──────────────────────────────────────────────────────
+async function activarNotificaciones() {
+  const btn = document.getElementById('btn-push');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i> Activando...'; }
+  try {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      alert('Tu navegador no soporta notificaciones push. Usa Chrome o Safari en iOS 16.4+');
+      return;
+    }
+    const reg = await navigator.serviceWorker.register('/sw.js');
+    await navigator.serviceWorker.ready;
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') {
+      alert('Permiso denegado. Ve a Ajustes → Safari/Chrome → Notificaciones para activarlas.');
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-bell"></i> Activar notificaciones'; }
+      return;
+    }
+    const r = await fetch('/api/push/vapid-key');
+    const { publicKey } = await r.json();
+    let sub = await reg.pushManager.getSubscription();
+    if (sub) await sub.unsubscribe();
+    sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(publicKey)
+    });
+    const usuario = window.usuarioActual || {};
+    await fetch('/api/push/subscribe', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ subscription: sub, usuarioNombre: usuario.nombre || '' })
+    });
+    if (btn) { btn.innerHTML = '<i class="ti ti-bell-check"></i> Notificaciones activas ✓'; btn.style.background = '#f0fdf4'; btn.style.color = '#16a34a'; btn.style.borderColor = '#86efac'; }
+    const status = document.getElementById('sync-status');
+    if (status) status.innerHTML = '<span style="color:#16a34a">✓ Notificaciones activadas para ' + (usuario.nombre||'este dispositivo') + '</span>';
+  } catch(e) {
+    alert('Error: ' + e.message);
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-bell"></i> Activar notificaciones'; }
+  }
+}
+
 async function registrarPushNotifications() {
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
   try {
@@ -1520,6 +1559,9 @@ async function renderConfig(){
           </button>
           <button id="btn-backup" onclick="descargarBackupDB()" style="padding:8px 18px;background:white;color:var(--brown);border:1px solid var(--brown);border-radius:8px;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:6px">
             <i class="ti ti-database-export"></i> Descargar backup BD
+          </button>
+          <button id="btn-push" onclick="activarNotificaciones()" style="padding:8px 18px;background:white;color:var(--brown);border:1px solid var(--brown);border-radius:8px;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:6px">
+            <i class="ti ti-bell"></i> Activar notificaciones
           </button>
         </div>
         <div id="sync-status" style="margin-top:12px;font-size:12px;color:var(--muted)"></div>
