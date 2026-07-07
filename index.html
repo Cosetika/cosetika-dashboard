@@ -526,14 +526,12 @@ function navSetSubtab(tab){
 
 function navSetMod(mod){
   closeSidebar();
-  // Colapsar todos los grupos
   ['nav-inicio-subs','nav-clientes-subs','nav-plan-subs','nav-visitas-subs','nav-config-subs'].forEach(id=>{
     const el = document.getElementById(id); if(el) el.style.maxHeight='0px';
   });
   ['nav-ventas-chevron','nav-clientes-chevron','nav-plan-chevron','nav-visitas-chevron','nav-config-chevron'].forEach(id=>{
     const el = document.getElementById(id); if(el) el.style.transform='';
   });
-  // Si es ventas, expandir inicio
   if(mod === 'ventas'){
     const subs = document.getElementById('nav-inicio-subs');
     const chev = document.getElementById('nav-ventas-chevron');
@@ -542,6 +540,15 @@ function navSetMod(mod){
   }
   setMod(mod);
 }
+
+const MOD_LABELS = {
+  ventas:'Inicio', visitas:'Visitas', kpis:'KPIs',
+  inventario:'Inventario', reportes:'Reportes', config:'Configuración',
+  capacitaciones:'Capacitaciones', institutos:'Institutos',
+  giras:'Giras', casas_abiertas:'Casas Abiertas',
+  'visitas-plan':'Planificación Visitas'
+};
+const MOD_SUBTABS = { ventas: true };
 
 function setMod(mod){
   // Actualizar sidebar items activos
