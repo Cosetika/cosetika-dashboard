@@ -1695,7 +1695,10 @@ async function cargarData(){
         console.warn('No se encontró el nombre de la asesora en DATA:', usuarioLogueado.nombre);
       }
     }
-    setSubtab('facturas');
+    window._docTab = 'pedidos';
+    document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
+    document.getElementById('navsub-pedidos')?.classList.add('active');
+    renderFacturasHoy();
   }catch(e){
     document.getElementById('main').innerHTML='<div class="loader"><p>Error: '+e.message+'</p></div>';
   }
@@ -3137,11 +3140,9 @@ async function renderPedidosWeb(fechaSel){
         <div onclick="togglePedidoDetalle('${prodId}')"
           style="display:flex;align-items:center;gap:12px;padding:13px 16px;cursor:pointer"
           onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='white'">
-          <div style="flex:1;min-width:0">
-            <div style="font-size:13px;font-weight:600">${p.cliente_nombre||'—'}</div>
-            <div style="font-size:11px;color:var(--muted);margin-top:1px">Pedido #${p.numero_pedido} · ${prods.length} producto${prods.length!==1?'s':''}</div>
-          </div>
-          <div style="font-size:15px;font-weight:700;color:var(--brown)">$${parseFloat(p.total||0).toFixed(2)}</div>
+          <div style="font-size:13px;font-weight:600;color:var(--muted);flex-shrink:0;min-width:80px">#${p.numero_pedido}</div>
+          <div style="flex:1;font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.cliente_nombre||'—'}</div>
+          <div style="font-size:15px;font-weight:700;color:var(--brown);flex-shrink:0">$${parseFloat(p.total||0).toFixed(2)}</div>
           <i class="ti ti-chevron-down" id="chev-${prodId}" style="font-size:14px;color:var(--muted);transition:transform 0.2s;flex-shrink:0"></i>
         </div>
         <div id="${prodId}" style="display:none;border-top:0.5px solid var(--border)">
