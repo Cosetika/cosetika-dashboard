@@ -1393,6 +1393,17 @@ async function initDB() {
         cliente VARCHAR(255), coordinado BOOLEAN DEFAULT false,
         created_at TIMESTAMP DEFAULT NOW()
       );
+      CREATE TABLE IF NOT EXISTS capacitaciones (
+        id SERIAL PRIMARY KEY,
+        fecha DATE NOT NULL,
+        ciudad VARCHAR(255),
+        tema VARCHAR(500),
+        direccion TEXT,
+        horario VARCHAR(100),
+        valor NUMERIC(10,2),
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_cap_fecha ON capacitaciones(fecha);
       CREATE TABLE IF NOT EXISTS asesor_zonas (
         id SERIAL PRIMARY KEY, asesora VARCHAR(255) NOT NULL,
         zona VARCHAR(255) NOT NULL, sector VARCHAR(255) NOT NULL,
@@ -1618,6 +1629,55 @@ const server = http.createServer(async (req, res) => {
   }
 
   // VISITAS
+  // CAPACITACIONES
+  if (urlPath === '/api/capacitaciones' && req.method === 'GET') {
+    try {
+      const mes = urlObj.searchParams.get('mes'); // YYYY-MM
+      let r;
+      if (mes) {
+        r = await pool.query(
+          `SELECT * FROM capacitaciones WHERE TO_CHAR(fecha,'YYYY-MM')=$1 ORDER BY fecha ASC`,
+          [mes]
+        );
+      } else {
+        r = await pool.query('SELECT * FROM capacitaciones ORDER BY fecha DESC LIMIT 100');
+      }
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.rows));
+    } catch(e){ res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+  if (urlPath === '/api/capacitaciones' && req.method === 'POST') {
+    try {
+      const { fecha, ciudad, tema, direccion, horario, valor } = await bodyJSON(req);
+      const r = await pool.query(
+        `INSERT INTO capacitaciones(fecha,ciudad,tema,direccion,horario,valor) VALUES($1,$2,$3,$4,$5,$6) RETURNING *`,
+        [fecha, ciudad||null, tema||null, direccion||null, horario||null, valor||null]
+      );
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, row:r.rows[0]}));
+    } catch(e){ res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+  if (urlPath.match(/^\/api\/capacitaciones\/\d+$/) && req.method === 'PUT') {
+    try {
+      const id = urlPath.split('/').pop();
+      const { fecha, ciudad, tema, direccion, horario, valor } = await bodyJSON(req);
+      await pool.query(
+        `UPDATE capacitaciones SET fecha=$1,ciudad=$2,tema=$3,direccion=$4,horario=$5,valor=$6 WHERE id=$7`,
+        [fecha, ciudad||null, tema||null, direccion||null, horario||null, valor||null, id]
+      );
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e){ res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+  if (urlPath.match(/^\/api\/capacitaciones\/\d+$/) && req.method === 'DELETE') {
+    try {
+      const id = urlPath.split('/').pop();
+      await pool.query('DELETE FROM capacitaciones WHERE id=$1', [id]);
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e){ res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
   if (urlPath === '/api/visitas' && req.method === 'GET') {
     try { const r = await pool.query('SELECT * FROM visitas ORDER BY fecha DESC LIMIT 300'); res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.rows)); }
     catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }

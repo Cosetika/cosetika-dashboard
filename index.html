@@ -204,7 +204,7 @@
       <i class="ti ti-chevron-right" id="nav-plan-chevron" style="margin-left:auto;font-size:12px;transition:transform 0.2s"></i>
     </div>
     <div id="nav-plan-subs" style="max-height:0;overflow:hidden;transition:max-height 0.25s ease">
-      <div class="nav-sub-item" id="navsub-capacitaciones" onclick="navSetMod('capacitaciones')"><i class="ti ti-school" style="font-size:13px"></i>Capacitaciones</div>
+      <div class="nav-sub-item" id="navsub-capacitaciones" onclick="navGoCapacitaciones()"><i class="ti ti-school" style="font-size:13px"></i>Capacitaciones</div>
       <div class="nav-sub-item" id="navsub-giras" onclick="navSetMod('giras')"><i class="ti ti-road" style="font-size:13px"></i>Giras</div>
       <div class="nav-sub-item" id="navsub-casas" onclick="navSetMod('casas')"><i class="ti ti-building-store" style="font-size:13px"></i>Casas Abiertas</div>
     </div>
@@ -905,6 +905,208 @@ async function descargarBackupDB(){
   }
 }
 
+// ─── CAPACITACIONES ──────────────────────────────────────────────────────────
+function navGoCapacitaciones(){
+  closeSidebar();
+  document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
+  document.getElementById('navsub-capacitaciones')?.classList.add('active');
+  // Expandir planificacion subs
+  const subs = document.getElementById('nav-plan-subs');
+  const chev = document.getElementById('nav-plan-chevron');
+  if(subs) subs.style.maxHeight = '200px';
+  if(chev) chev.style.transform = 'rotate(180deg)';
+  if(modActual !== 'capacitaciones') { modActual='capacitaciones'; document.getElementById('mobile-mod-title').textContent='Capacitaciones'; }
+  document.getElementById('sidebar')?.classList.add('hidden');
+  document.getElementById('body')?.classList.add('full-width');
+  renderCapacitaciones();
+}
+
+const MESES_NOMBRES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+
+async function renderCapacitaciones(){
+  const now = new Date();
+  if(!window._capMes) window._capMes = now.getMonth() + 1;
+  if(!window._capAnio) window._capAnio = now.getFullYear();
+  await renderCapacitacionesMes(window._capAnio, window._capMes);
+}
+
+async function renderCapacitacionesMes(anio, mes){
+  window._capAnio = anio; window._capMes = mes;
+  const usuario = window.usuarioActual || {};
+  const puedeEditar = usuario.rol === 'admin' || (usuario.modulos||'').includes('editar_planificacion');
+  const mesStr = String(mes).padStart(2,'0');
+  const mesKey = `${anio}-${mesStr}`;
+
+  document.getElementById('main').innerHTML = `<div style="display:flex;align-items:center;justify-content:center;padding:40px;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:24px"></i></div>`;
+
+  let caps = [];
+  try{ const r = await fetch(`/api/capacitaciones?mes=${mesKey}`); caps = await r.json(); }catch(e){}
+
+  const html = `
+  <div style="max-width:900px;margin:0 auto">
+    <!-- Header navegación por mes -->
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
+      <button onclick="renderCapacitacionesMes(${mes===1?anio-1:anio},${mes===1?12:mes-1})"
+        style="width:38px;height:38px;border-radius:50%;border:1px solid var(--border);background:white;cursor:pointer;display:flex;align-items:center;justify-content:center">
+        <i class="ti ti-chevron-left" style="font-size:16px;color:var(--muted)"></i>
+      </button>
+      <div style="text-align:center">
+        <div style="font-size:22px;font-weight:600;color:var(--text)">${MESES_NOMBRES[mes-1]}</div>
+        <div style="font-size:13px;color:var(--muted)">${anio} · ${caps.length} capacitación${caps.length!==1?'es':''}</div>
+      </div>
+      <button onclick="renderCapacitacionesMes(${mes===12?anio+1:anio},${mes===12?1:mes+1})"
+        style="width:38px;height:38px;border-radius:50%;border:1px solid var(--border);background:white;cursor:pointer;display:flex;align-items:center;justify-content:center">
+        <i class="ti ti-chevron-right" style="font-size:16px;color:var(--muted)"></i>
+      </button>
+    </div>
+
+    <!-- Botón agregar (solo si tiene permiso) -->
+    ${puedeEditar ? `
+    <div style="text-align:right;margin-bottom:20px">
+      <button onclick="abrirModalCapacitacion(null,'${mesKey}')"
+        style="padding:10px 20px;background:#1a1108;color:white;border:none;border-radius:10px;font-size:13px;font-weight:500;cursor:pointer;display:inline-flex;align-items:center;gap:8px">
+        <i class="ti ti-plus" style="font-size:15px"></i> Nueva capacitación
+      </button>
+    </div>` : ''}
+
+    <!-- Lista de capacitaciones -->
+    ${caps.length === 0 ? `
+    <div style="text-align:center;padding:60px 20px;background:white;border-radius:16px;border:1px dashed var(--border)">
+      <i class="ti ti-calendar-off" style="font-size:48px;color:#d1d5db"></i>
+      <p style="margin-top:16px;font-size:15px;color:var(--muted)">Sin capacitaciones en ${MESES_NOMBRES[mes-1]}</p>
+      ${puedeEditar ? `<button onclick="abrirModalCapacitacion(null,'${mesKey}')" style="margin-top:16px;padding:10px 24px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer">Agregar la primera</button>` : ''}
+    </div>` :
+    caps.map(c => {
+      const fecha = new Date(c.fecha+'T12:00:00');
+      const dia = fecha.getDate();
+      const diaSemana = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][fecha.getDay()];
+      return `
+      <div style="display:flex;gap:16px;margin-bottom:14px;background:white;border-radius:14px;border:1px solid var(--border);overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.04)">
+        <!-- Fecha lateral -->
+        <div style="background:#1a1108;width:72px;display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0;padding:16px 8px">
+          <div style="color:#A0684A;font-size:10px;font-weight:600;letter-spacing:1px;text-transform:uppercase">${diaSemana}</div>
+          <div style="color:white;font-size:28px;font-weight:700;line-height:1">${dia}</div>
+          <div style="color:#7a6a5a;font-size:10px">${MESES_NOMBRES[mes-1].substring(0,3)}</div>
+        </div>
+        <!-- Contenido -->
+        <div style="flex:1;padding:14px 16px;min-width:0">
+          <div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:8px">${c.tema||'Sin tema'}</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px 20px">
+            ${c.ciudad ? `<span style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px"><i class="ti ti-map-pin" style="font-size:13px;color:var(--brown)"></i>${c.ciudad}</span>` : ''}
+            ${c.horario ? `<span style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px"><i class="ti ti-clock" style="font-size:13px;color:var(--brown)"></i>${c.horario}</span>` : ''}
+            ${c.valor ? `<span style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px"><i class="ti ti-currency-dollar" style="font-size:13px;color:var(--brown)"></i>$${parseFloat(c.valor).toFixed(2)}</span>` : ''}
+          </div>
+          ${c.direccion ? `<div style="margin-top:8px;font-size:12px;color:var(--muted);display:flex;align-items:flex-start;gap:4px"><i class="ti ti-location" style="font-size:13px;color:var(--brown);margin-top:1px;flex-shrink:0"></i>${c.direccion}</div>` : ''}
+        </div>
+        <!-- Acciones -->
+        ${puedeEditar ? `
+        <div style="display:flex;flex-direction:column;gap:4px;padding:12px 10px;flex-shrink:0">
+          <button onclick="abrirModalCapacitacion(${JSON.stringify(c).replace(/"/g,'&quot;')}, '${mesKey}')"
+            style="width:30px;height:30px;border:1px solid var(--border);background:white;border-radius:7px;cursor:pointer;display:flex;align-items:center;justify-content:center">
+            <i class="ti ti-pencil" style="font-size:13px;color:var(--brown)"></i>
+          </button>
+          <button onclick="borrarCapacitacion(${c.id},'${mesKey}')"
+            style="width:30px;height:30px;border:1px solid #fca5a5;background:#fef2f2;border-radius:7px;cursor:pointer;display:flex;align-items:center;justify-content:center">
+            <i class="ti ti-trash" style="font-size:13px;color:#ef4444"></i>
+          </button>
+        </div>` : ''}
+      </div>`;
+    }).join('')}
+  </div>`;
+
+  document.getElementById('main').innerHTML = html;
+}
+
+function abrirModalCapacitacion(cap, mesKey){
+  const esNuevo = !cap;
+  const fechaDef = cap?.fecha ? cap.fecha.substring(0,10) : mesKey+'-01';
+  const overlay = document.createElement('div');
+  overlay.id = 'cap-modal-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:500;display:flex;align-items:center;justify-content:center;padding:20px';
+  overlay.innerHTML = `
+    <div style="background:white;border-radius:16px;width:100%;max-width:460px;box-shadow:0 20px 60px rgba(0,0,0,0.2);overflow:hidden">
+      <div style="background:#1a1108;padding:16px 20px;display:flex;align-items:center;justify-content:space-between">
+        <div style="color:white;font-size:14px;font-weight:500"><i class="ti ti-school" style="color:#A0684A;margin-right:8px"></i>${esNuevo?'Nueva capacitación':'Editar capacitación'}</div>
+        <button onclick="document.getElementById('cap-modal-overlay').remove()" style="background:none;border:none;color:#7a6a5a;cursor:pointer;font-size:18px"><i class="ti ti-x"></i></button>
+      </div>
+      <div style="padding:20px;display:flex;flex-direction:column;gap:14px">
+        <div>
+          <label style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:5px">Fecha *</label>
+          <input type="date" id="cap-fecha" value="${fechaDef}" style="width:100%;padding:9px 12px;border:1px solid #e5e5e5;border-radius:8px;font-size:13px;outline:none;box-sizing:border-box">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div>
+            <label style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:5px">Ciudad</label>
+            <input type="text" id="cap-ciudad" value="${cap?.ciudad||''}" placeholder="Ej: Quito" style="width:100%;padding:9px 12px;border:1px solid #e5e5e5;border-radius:8px;font-size:13px;outline:none;box-sizing:border-box">
+          </div>
+          <div>
+            <label style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:5px">Horario</label>
+            <input type="text" id="cap-horario" value="${cap?.horario||''}" placeholder="Ej: 10:00 - 13:00" style="width:100%;padding:9px 12px;border:1px solid #e5e5e5;border-radius:8px;font-size:13px;outline:none;box-sizing:border-box">
+          </div>
+        </div>
+        <div>
+          <label style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:5px">Tema *</label>
+          <input type="text" id="cap-tema" value="${cap?.tema||''}" placeholder="Ej: Capacitación ZIAJA Niacinamida" style="width:100%;padding:9px 12px;border:1px solid #e5e5e5;border-radius:8px;font-size:13px;outline:none;box-sizing:border-box">
+        </div>
+        <div>
+          <label style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:5px">Dirección</label>
+          <input type="text" id="cap-direccion" value="${cap?.direccion||''}" placeholder="Dirección del lugar" style="width:100%;padding:9px 12px;border:1px solid #e5e5e5;border-radius:8px;font-size:13px;outline:none;box-sizing:border-box">
+        </div>
+        <div>
+          <label style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:5px">Valor ($)</label>
+          <input type="number" id="cap-valor" value="${cap?.valor||''}" placeholder="0.00" step="0.01" style="width:100%;padding:9px 12px;border:1px solid #e5e5e5;border-radius:8px;font-size:13px;outline:none;box-sizing:border-box">
+        </div>
+        <div id="cap-error" style="display:none;color:#ef4444;font-size:12px"></div>
+        <div style="display:flex;gap:10px;margin-top:4px">
+          <button onclick="document.getElementById('cap-modal-overlay').remove()"
+            style="flex:1;padding:11px;border:1px solid #e5e5e5;border-radius:8px;background:white;color:#6b7280;font-size:13px;cursor:pointer">
+            Cancelar
+          </button>
+          <button onclick="guardarCapacitacion(${cap?.id||'null'},'${mesKey}')"
+            style="flex:1;padding:11px;border:none;border-radius:8px;background:#1a1108;color:white;font-size:13px;font-weight:500;cursor:pointer">
+            ${esNuevo?'Crear':'Guardar cambios'}
+          </button>
+        </div>
+      </div>
+    </div>`;
+  overlay.addEventListener('click', e => { if(e.target===overlay) overlay.remove(); });
+  document.body.appendChild(overlay);
+  setTimeout(()=>document.getElementById('cap-fecha')?.focus(), 100);
+}
+
+async function guardarCapacitacion(id, mesKey){
+  const fecha = document.getElementById('cap-fecha')?.value;
+  const tema = document.getElementById('cap-tema')?.value?.trim();
+  const errEl = document.getElementById('cap-error');
+  if(!fecha){ errEl.textContent='La fecha es obligatoria'; errEl.style.display='block'; return; }
+  if(!tema){ errEl.textContent='El tema es obligatorio'; errEl.style.display='block'; return; }
+  const body = {
+    fecha, tema,
+    ciudad: document.getElementById('cap-ciudad')?.value?.trim()||null,
+    horario: document.getElementById('cap-horario')?.value?.trim()||null,
+    direccion: document.getElementById('cap-direccion')?.value?.trim()||null,
+    valor: parseFloat(document.getElementById('cap-valor')?.value)||null
+  };
+  try{
+    const url = id ? `/api/capacitaciones/${id}` : '/api/capacitaciones';
+    const method = id ? 'PUT' : 'POST';
+    const r = await fetch(url, { method, headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+    const data = await r.json();
+    if(data.ok || data.row){
+      document.getElementById('cap-modal-overlay')?.remove();
+      const [ay, mm] = mesKey.split('-');
+      await renderCapacitacionesMes(parseInt(ay), parseInt(mm));
+    } else { errEl.textContent='Error: '+(data.error||'desconocido'); errEl.style.display='block'; }
+  } catch(e){ errEl.textContent='Error: '+e.message; errEl.style.display='block'; }
+}
+
+async function borrarCapacitacion(id, mesKey){
+  if(!confirm('¿Eliminar esta capacitación?')) return;
+  await fetch(`/api/capacitaciones/${id}`, { method:'DELETE' });
+  const [ay, mm] = mesKey.split('-');
+  await renderCapacitacionesMes(parseInt(ay), parseInt(mm));
+}
+
 function renderModVisitas(){
   const tab = window._visitaTab || 'realizadas';
   document.getElementById('main').innerHTML = '<div id="visitas-content"></div>';
@@ -982,7 +1184,7 @@ async function renderConfig(){
           <table style="width:100%;border-collapse:collapse;font-size:13px">
             <thead><tr style="border-bottom:0.5px solid var(--border)">
               <th style="text-align:left;padding:8px 10px;font-size:11px;color:var(--muted)">Usuario</th>
-              ${MODS_LISTA.map(m=>`<th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);text-transform:uppercase">${m}</th>`).join('')}
+              ${MODS_LISTA.map(m=>`<th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);text-transform:uppercase">${m}</th>`).join('')}<th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);text-transform:uppercase">Editar Visitas</th><th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);text-transform:uppercase">Editar Plan.</th>
               <th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);white-space:nowrap">Ver visitas<br>de todas</th>
               <th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);white-space:nowrap">Editar<br>sectores</th>
             </tr></thead>
@@ -995,7 +1197,7 @@ async function renderConfig(){
                 return "<tr style=\"border-bottom:0.5px solid var(--border)\"><td style=\"padding:10px\"><div style=\"font-size:13px;font-weight:500\">" + u.nombre.split(' ')[0] + "</div><div style=\"font-size:11px;color:var(--muted)\">" + u.rol + "</div></td>" +
                   MODS_LISTA.map(m=>"<td style=\"text-align:center;padding:10px\"><input type=\"checkbox\" " + (mods.includes(m)||esAdmin?'checked':'') + " " + (esAdmin?'disabled':'') + " id=\"perm-" + u.id + "-" + m + "\" style=\"accent-color:#A0684A;width:16px;height:16px;cursor:pointer\"/></td>").join('') +
                   "<td style=\"text-align:center;padding:10px\"><input type=\"checkbox\" id=\"perm-" + u.id + "-ver_visitas_todas\" " + (verTodas?'checked':'') + " " + (esAdmin||esJefa?'disabled':'') + " style=\"accent-color:#A0684A;width:16px;height:16px;cursor:pointer\"/></td>" +
-                  "<td style=\"text-align:center;padding:10px\"><input type=\"checkbox\" id=\"perm-" + u.id + "-editar_visitas\" " + (editarSectores?'checked':'') + " " + (esAdmin?'disabled':'') + " style=\"accent-color:#A0684A;width:16px;height:16px;cursor:pointer\"/></td></tr>";
+                  "<td style=\"text-align:center;padding:10px\"><input type=\"checkbox\" id=\"perm-" + u.id + "-editar_visitas\" " + (editarSectores?'checked':'') + " " + (esAdmin?'disabled':'') + " style=\"accent-color:#A0684A;width:16px;height:16px;cursor:pointer\"/></td>" + "<td style=\"text-align:center;padding:10px\"><input type=\"checkbox\" id=\"perm-" + u.id + "-editar_planificacion\" " + (mods.includes('editar_planificacion')||esAdmin?'checked':'') + " " + (esAdmin?'disabled':'') + " style=\"accent-color:#A0684A;width:16px;height:16px;cursor:pointer\"/></td></tr>";
               }).join('')}
             </tbody>
           </table>
@@ -1233,6 +1435,7 @@ async function guardarTodosPermisos(){
       const mods=MODS.filter(m=>document.getElementById('perm-'+id+'-'+m)?.checked);
       if(document.getElementById('perm-'+id+'-ver_visitas_todas')?.checked) mods.push('ver_visitas_todas');
       if(document.getElementById('perm-'+id+'-editar_visitas')?.checked) mods.push('editar_visitas');
+      if(document.getElementById('perm-'+id+'-editar_planificacion')?.checked) mods.push('editar_planificacion');
       await fetch('/api/usuarios/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({modulos:mods.join(',')})});
     }));
     if(statusEl) statusEl.innerHTML = '<span style="color:#166534">✓ Permisos guardados</span>';
