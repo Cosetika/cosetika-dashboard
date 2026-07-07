@@ -1352,6 +1352,25 @@ function showConfigTab(tab){
   });
 }
 
+function navGoConfig(tab){
+  closeSidebar();
+  window._configTabActiva = tab;
+  document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
+  document.getElementById('navsub-cfg-'+tab)?.classList.add('active');
+  // Expandir config subs en sidebar
+  const subs = document.getElementById('nav-config-subs');
+  const chev = document.getElementById('nav-config-chevron');
+  if(subs) subs.style.maxHeight = '200px';
+  if(chev) chev.style.transform = 'rotate(180deg)';
+  document.getElementById('mobile-mod-title').textContent = {credenciales:'Credenciales', permisos:'Permisos', sync:'Sincronización'}[tab] || 'Configuración';
+  if(modActual !== 'config'){
+    modActual = 'config';
+    renderConfig();
+  } else {
+    showConfigTab(tab);
+  }
+}
+
 
 
 async function renderConfig(){
