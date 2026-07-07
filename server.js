@@ -5,9 +5,16 @@ const { Pool } = require('pg');
 const XLSX = require('xlsx');
 const { ImapFlow } = require('imapflow');
 const { simpleParser } = require('mailparser');
+let webpush; try { webpush = require('web-push'); } catch(e) { console.log('web-push no instalado'); }
 
 const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.CONTIFICO_API_KEY || '';
+const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || '';
+const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || '';
+if (webpush && VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
+  webpush.setVapidDetails('mailto:info@cosetika.com', VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+  console.log('✓ Web Push VAPID configurado');
+}
 // Credenciales de la casilla pedidos@cosetika.com — configuradas como variables de
 // entorno en Railway, nunca hardcodeadas en el código.
 const PEDIDOS_EMAIL_HOST = process.env.PEDIDOS_EMAIL_HOST || '';
@@ -656,6 +663,13 @@ async function sincronizarPedidosWeb(opciones){
               ]
             );
             procesados++;
+            // Enviar push notification a todos los dispositivos suscritos
+            enviarPushATodos({
+              title: `🛒 Pedido #${pedido.numeroPedido}`,
+              body: `${pedido.cliente || '—'} · $${parseFloat(pedido.total||0).toFixed(2)}`,
+              tag: `pedido-${pedido.numeroPedido}`,
+              url: '/?tab=control'
+            }).catch(()=>{});
           } else {
             errores++;
             console.log('⚠️ No se pudo parsear pedido del correo:', asunto);
@@ -1488,6 +1502,15 @@ async function initDB() {
       CREATE INDEX IF NOT EXISTS idx_pedidos_cedula ON pedidos_web(cedula_ruc);
       CREATE INDEX IF NOT EXISTS idx_pedidos_cliente ON pedidos_web(LOWER(cliente_nombre));
       ALTER TABLE pedidos_web ADD COLUMN IF NOT EXISTS html_crudo TEXT;
+      CREATE TABLE IF NOT EXISTS push_subscriptions (
+        id SERIAL PRIMARY KEY,
+        usuario_id INTEGER,
+        usuario_nombre VARCHAR(255),
+        endpoint TEXT NOT NULL UNIQUE,
+        p256dh TEXT,
+        auth TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
       CREATE TABLE IF NOT EXISTS testers (
         id SERIAL PRIMARY KEY,
         cliente_id VARCHAR(100) NOT NULL,
@@ -1655,6 +1678,60 @@ const server = http.createServer(async (req, res) => {
   }
 
   // VISITAS
+// ─── PUSH NOTIFICATIONS ──────────────────────────────────────────────────────
+async function enviarPushATodos(payload) {
+  if (!webpush || !VAPID_PUBLIC_KEY) return;
+  try {
+    const r = await pool.query('SELECT * FROM push_subscriptions');
+    const subs = r.rows;
+    // Contar pedidos sin facturar para el badge
+    const badgeR = await pool.query("SELECT COUNT(*) FROM pedidos_web WHERE facturado=false OR facturado IS NULL");
+    const badge = parseInt(badgeR.rows[0].count) || 0;
+    const fullPayload = JSON.stringify({ ...payload, badge });
+    await Promise.allSettled(subs.map(async sub => {
+      const pushSub = { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } };
+      try {
+        await webpush.sendNotification(pushSub, fullPayload);
+      } catch(e) {
+        // Suscripción inválida — eliminar
+        if (e.statusCode === 410 || e.statusCode === 404) {
+          await pool.query('DELETE FROM push_subscriptions WHERE endpoint=$1', [sub.endpoint]);
+        }
+      }
+    }));
+  } catch(e) { console.error('Error enviando push:', e.message); }
+}
+
+  // GET /api/push/vapid-key → clave pública VAPID para el cliente
+  if (urlPath === '/api/push/vapid-key' && req.method === 'GET') {
+    res.writeHead(200,{'Content-Type':'application/json'});
+    res.end(JSON.stringify({ publicKey: VAPID_PUBLIC_KEY }));
+    return;
+  }
+  // POST /api/push/subscribe → registrar suscripción
+  if (urlPath === '/api/push/subscribe' && req.method === 'POST') {
+    try {
+      const { subscription, usuarioNombre } = await bodyJSON(req);
+      await pool.query(
+        `INSERT INTO push_subscriptions(endpoint, p256dh, auth, usuario_nombre)
+         VALUES($1,$2,$3,$4)
+         ON CONFLICT(endpoint) DO UPDATE SET p256dh=$2, auth=$3, usuario_nombre=$4`,
+        [subscription.endpoint, subscription.keys.p256dh, subscription.keys.auth, usuarioNombre||'']
+      );
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+  // DELETE /api/push/unsubscribe → eliminar suscripción
+  if (urlPath === '/api/push/unsubscribe' && req.method === 'POST') {
+    try {
+      const { endpoint } = await bodyJSON(req);
+      await pool.query('DELETE FROM push_subscriptions WHERE endpoint=$1', [endpoint]);
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
   // CAPACITACIONES
   if (urlPath === '/api/capacitaciones' && req.method === 'GET') {
     try {

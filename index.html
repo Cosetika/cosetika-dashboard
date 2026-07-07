@@ -901,7 +901,63 @@ async function descargarBackupDB(){
   }
 }
 
-// ─── CAPACITACIONES ──────────────────────────────────────────────────────────
+// ─── PUSH NOTIFICATIONS ──────────────────────────────────────────────────────
+async function registrarPushNotifications() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  try {
+    // Registrar service worker
+    const reg = await navigator.serviceWorker.register('/sw.js');
+    await navigator.serviceWorker.ready;
+
+    // Obtener clave pública VAPID
+    const r = await fetch('/api/push/vapid-key');
+    const { publicKey } = await r.json();
+    if (!publicKey) return;
+
+    // Verificar si ya está suscrito
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      // Solicitar permiso y suscribir
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') return;
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey)
+      });
+    }
+
+    // Registrar en el servidor
+    const usuario = window.usuarioActual || {};
+    await fetch('/api/push/subscribe', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ subscription: sub, usuarioNombre: usuario.nombre || '' })
+    });
+
+    console.log('✓ Push notifications activadas');
+
+    // Limpiar badge al abrir
+    if (navigator.clearAppBadge) navigator.clearAppBadge().catch(()=>{});
+    navigator.serviceWorker.controller?.postMessage({ type: 'CLEAR_BADGE' });
+
+  } catch(e) { console.log('Push no disponible:', e.message); }
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) {
+    if (navigator.clearAppBadge) navigator.clearAppBadge().catch(()=>{});
+    navigator.serviceWorker?.controller?.postMessage({ type: 'CLEAR_BADGE' });
+  }
+});
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  return new Uint8Array([...rawData].map(c => c.charCodeAt(0)));
+}
+
+
 function navGoCapacitaciones(){
   closeSidebar();
   document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
@@ -1876,6 +1932,8 @@ function initVendedoras(){
   document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
   document.getElementById('navsub-pedidos')?.classList.add('active');
   renderFacturasHoy();
+  // Activar notificaciones push
+  setTimeout(() => registrarPushNotifications(), 2000);
 }
 
 function selVendedorTodo(el){
