@@ -176,8 +176,8 @@
       <i class="ti ti-chevron-down" id="nav-ventas-chevron" style="margin-left:auto;font-size:12px;transition:transform 0.2s;transform:rotate(180deg)"></i>
     </div>
     <div id="nav-inicio-subs" style="max-height:300px;overflow:hidden;transition:max-height 0.25s ease">
-      <div class="nav-sub-item active" id="navsub-facturas" onclick="navSetSubtab('facturas')"><i class="ti ti-receipt" style="font-size:13px"></i>Facturas</div>
-      <div class="nav-sub-item" id="navsub-pedidos" onclick="navSetDocTab('pedidos')"><i class="ti ti-shopping-cart" style="font-size:13px"></i>Pedidos</div>
+      <div class="nav-sub-item active" id="navsub-pedidos" onclick="navSetDocTab('pedidos')"><i class="ti ti-shopping-cart" style="font-size:13px"></i>Pedidos</div>
+      <div class="nav-sub-item" id="navsub-facturas" onclick="navSetSubtab('facturas')"><i class="ti ti-receipt" style="font-size:13px"></i>Facturas</div>
       <div class="nav-sub-item" id="navsub-testers" onclick="navSetDocTab('testers')"><i class="ti ti-flask" style="font-size:13px"></i>Testers</div>
       <div class="nav-sub-item" id="navsub-envios" onclick="navSetDocTab('envios')"><i class="ti ti-truck-delivery" style="font-size:13px"></i>Envíos</div>
       <div class="nav-sub-item" id="navsub-control" onclick="navSetDocTab('control')"><i class="ti ti-clipboard-check" style="font-size:13px"></i>Control</div>
@@ -3073,99 +3073,105 @@ async function resincronizarPedidosWeb(btn){
   }
 }
 
-async function renderPedidosWeb(){
+async function renderPedidosWeb(fechaSel){
   const cont = document.getElementById('doc-tab-content');
   if(!cont) return;
-  cont.innerHTML = '<div style="padding:30px;text-align:center;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:22px"></i></div>';
 
-  // Cargar pedidos de los últimos 7 días
-  const hoy = new Date();
-  const hace7 = new Date(hoy); hace7.setDate(hoy.getDate()-6);
-  const fmt = d => d.toISOString().split('T')[0];
+  // Fecha seleccionada — por defecto hoy
+  if(!fechaSel) fechaSel = window._pedidosFecha || new Date().toISOString().split('T')[0];
+  window._pedidosFecha = fechaSel;
+
+  cont.innerHTML = '<div style="padding:30px;text-align:center;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:22px"></i></div>';
 
   let pedidos = [];
   try {
-    // Traer los últimos 7 días — pedidos-web devuelve por fecha, traemos uno por uno
-    const fechas = [];
-    for(let i=0;i<7;i++){ const d=new Date(hoy); d.setDate(hoy.getDate()-i); fechas.push(fmt(d)); }
-    const resultados = await Promise.all(fechas.map(f=>fetch('/api/pedidos-web?fecha='+f).then(r=>r.json()).catch(()=>[])));
-    resultados.forEach(arr=>{ if(Array.isArray(arr)) pedidos.push(...arr); });
-    // Deduplicar por numero_pedido
-    const seen = new Set();
-    pedidos = pedidos.filter(p=>{ if(seen.has(p.numero_pedido)) return false; seen.add(p.numero_pedido); return true; });
-    pedidos.sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
+    const r = await fetch('/api/pedidos-web?fecha=' + fechaSel);
+    pedidos = await r.json();
   } catch(e){ console.error(e); }
 
-  if(!pedidos.length){
-    cont.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted)"><i class="ti ti-inbox" style="font-size:36px;opacity:0.3"></i><p style="margin-top:10px">Sin pedidos en los últimos 7 días</p></div>';
-    return;
-  }
+  // Navegación por día
+  const fechaObj = new Date(fechaSel + 'T12:00:00');
+  const ayer = new Date(fechaObj); ayer.setDate(fechaObj.getDate()-1);
+  const manana = new Date(fechaObj); manana.setDate(fechaObj.getDate()+1);
+  const hoy = new Date().toISOString().split('T')[0];
+  const fmtNav = d => d.toISOString().split('T')[0];
+  const meses = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const esHoy = fechaSel === hoy;
+  const labelFecha = esHoy
+    ? `Hoy · ${fechaObj.getDate()} ${meses[fechaObj.getMonth()]} ${fechaObj.getFullYear()}`
+    : `${fechaObj.getDate()} ${meses[fechaObj.getMonth()]} ${fechaObj.getFullYear()}`;
 
-  const meses = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-  function fmtFecha(f){
-    if(!f) return '—';
-    const d = new Date(f); 
-    return `${d.getDate()} ${meses[d.getMonth()+1]}`;
-  }
+  const totalDia = pedidos.reduce((s,p)=>s+parseFloat(p.total||0),0);
 
   cont.innerHTML = `
-    <div style="font-size:12px;color:var(--muted);margin-bottom:12px">${pedidos.length} pedidos · últimos 7 días</div>
-    <div id="pedidos-lista">
-      ${pedidos.map(p => {
-        // Parsear productos del pedido
-        let prods = [];
-        try { prods = typeof p.productos === 'string' ? JSON.parse(p.productos) : (p.productos||[]); } catch(e){}
-        const prodId = 'prod-'+p.numero_pedido;
-        return `
-        <div style="background:white;border-radius:12px;border:1px solid var(--border);margin-bottom:8px;overflow:hidden">
-          <!-- Fila principal clickeable -->
-          <div onclick="togglePedidoDetalle('${prodId}')"
-            style="display:flex;align-items:center;gap:12px;padding:13px 16px;cursor:pointer;transition:background 0.15s"
-            onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='white'">
-            <div style="flex-shrink:0;text-align:center;min-width:36px">
-              <div style="font-size:11px;color:var(--muted)">${fmtFecha(p.fecha)}</div>
-            </div>
-            <div style="flex:1;min-width:0">
-              <div style="font-size:13px;font-weight:600;color:var(--text)">${p.cliente_nombre||'—'}</div>
-              <div style="font-size:11px;color:var(--muted);margin-top:1px">Pedido #${p.numero_pedido}</div>
-            </div>
-            <div style="text-align:right;flex-shrink:0">
-              <div style="font-size:14px;font-weight:600;color:var(--brown)">$${parseFloat(p.total||0).toFixed(2)}</div>
-              <div style="font-size:10px;color:var(--muted)">${prods.length} producto${prods.length!==1?'s':''}</div>
-            </div>
-            <i class="ti ti-chevron-down" id="chev-${prodId}" style="font-size:14px;color:var(--muted);transition:transform 0.2s;flex-shrink:0"></i>
+    <!-- Navegación por día -->
+    <div style="display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:20px">
+      <button onclick="renderPedidosWeb('${fmtNav(ayer)}')"
+        style="width:34px;height:34px;border-radius:50%;border:1px solid var(--border);background:white;cursor:pointer;display:flex;align-items:center;justify-content:center">
+        <i class="ti ti-chevron-left" style="font-size:16px;color:var(--muted)"></i>
+      </button>
+      <div style="text-align:center">
+        <div style="font-size:16px;font-weight:600">${labelFecha}</div>
+        <div style="font-size:12px;color:var(--muted)">${pedidos.length} pedido${pedidos.length!==1?'s':''} · $${totalDia.toFixed(2)}</div>
+      </div>
+      <button onclick="renderPedidosWeb('${fmtNav(manana)}')" ${esHoy?'disabled style="opacity:0.3;cursor:default;"':'style="cursor:pointer;"'}
+        style="width:34px;height:34px;border-radius:50%;border:1px solid var(--border);background:white;display:flex;align-items:center;justify-content:center">
+        <i class="ti ti-chevron-right" style="font-size:16px;color:var(--muted)"></i>
+      </button>
+    </div>
+
+    ${pedidos.length === 0 ? `
+    <div style="text-align:center;padding:40px;color:var(--muted)">
+      <i class="ti ti-inbox" style="font-size:36px;opacity:0.3"></i>
+      <p style="margin-top:10px">Sin pedidos este día</p>
+    </div>` :
+    pedidos.map(p => {
+      let prods = [];
+      try { prods = Array.isArray(p.productos) ? p.productos : JSON.parse(p.productos||'[]'); } catch(e){}
+      const prodId = 'prod-'+p.numero_pedido;
+      return `
+      <div style="background:white;border-radius:12px;border:1px solid var(--border);margin-bottom:8px;overflow:hidden">
+        <div onclick="togglePedidoDetalle('${prodId}')"
+          style="display:flex;align-items:center;gap:12px;padding:13px 16px;cursor:pointer"
+          onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='white'">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;font-weight:600">${p.cliente_nombre||'—'}</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:1px">Pedido #${p.numero_pedido} · ${prods.length} producto${prods.length!==1?'s':''}</div>
           </div>
-          <!-- Detalle de productos (colapsado) -->
-          <div id="${prodId}" style="display:none;border-top:0.5px solid var(--border)">
-            <table style="width:100%;border-collapse:collapse;font-size:12px">
-              <thead>
-                <tr style="background:#faf9f8">
-                  <th style="padding:8px 16px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Producto</th>
-                  <th style="padding:8px 10px;text-align:center;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Cant.</th>
-                  <th style="padding:8px 16px;text-align:right;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${prods.length ? prods.map(pr=>`
-                  <tr style="border-top:0.5px solid var(--border)">
-                    <td style="padding:9px 16px;color:var(--text)">${pr.nombre||pr.name||'—'}</td>
-                    <td style="padding:9px 10px;text-align:center;color:var(--muted)">${pr.cantidad||pr.qty||1}</td>
-                    <td style="padding:9px 16px;text-align:right;font-weight:500;color:var(--brown)">$${parseFloat(pr.total||pr.subtotal||0).toFixed(2)}</td>
-                  </tr>`).join('') :
-                  `<tr><td colspan="3" style="padding:14px 16px;color:var(--muted);text-align:center;font-size:12px">Sin detalle de productos</td></tr>`
-                }
-              </tbody>
-              <tfoot>
-                <tr style="border-top:1px solid var(--border);background:#faf9f8">
-                  <td colspan="2" style="padding:9px 16px;font-weight:600;font-size:12px">Total pedido</td>
-                  <td style="padding:9px 16px;text-align:right;font-weight:700;color:var(--brown)">$${parseFloat(p.total||0).toFixed(2)}</td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        </div>`;
-      }).join('')}
-    </div>`;
+          <div style="font-size:15px;font-weight:700;color:var(--brown)">$${parseFloat(p.total||0).toFixed(2)}</div>
+          <i class="ti ti-chevron-down" id="chev-${prodId}" style="font-size:14px;color:var(--muted);transition:transform 0.2s;flex-shrink:0"></i>
+        </div>
+        <div id="${prodId}" style="display:none;border-top:0.5px solid var(--border)">
+          <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead>
+              <tr style="background:#faf9f8">
+                <th style="padding:8px 16px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:600">Producto</th>
+                <th style="padding:8px 10px;text-align:center;font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:600">Cant.</th>
+                <th style="padding:8px 16px;text-align:right;font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:600">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${prods.length ? prods.map(pr => {
+                const nombre = pr.nombre||pr.name||pr.producto||'—';
+                const cant = pr.cantidad||pr.qty||pr.quantity||1;
+                const total = parseFloat(pr.total||pr.subtotal||pr.precio||pr.price||0);
+                return `<tr style="border-top:0.5px solid var(--border)">
+                  <td style="padding:9px 16px">${nombre}</td>
+                  <td style="padding:9px 10px;text-align:center;color:var(--muted)">${cant}</td>
+                  <td style="padding:9px 16px;text-align:right;font-weight:500;color:var(--brown)">$${total.toFixed(2)}</td>
+                </tr>`;
+              }).join('') : `<tr><td colspan="3" style="padding:14px 16px;color:var(--muted);text-align:center">Sin detalle</td></tr>`}
+            </tbody>
+            <tfoot>
+              <tr style="border-top:1px solid var(--border);background:#faf9f8">
+                <td colspan="2" style="padding:9px 16px;font-weight:600">Total pedido</td>
+                <td style="padding:9px 16px;text-align:right;font-weight:700;color:var(--brown)">$${parseFloat(p.total||0).toFixed(2)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>`;
+    }).join('')}`;
 }
 
 function togglePedidoDetalle(id){
@@ -3192,13 +3198,14 @@ async function renderControl(){
 // ─── TAB FACTURAS: reporte diario en tiempo real ──────────────────────────────
 function renderFacturasHoy(){
   subtabActual='facturas';
-  const docTab = window._docTab || 'facturas';
+  const docTab = window._docTab || 'pedidos';
   document.getElementById('main').innerHTML = `<div id="doc-tab-content"></div>`;
   if(docTab==='envios') renderEnvios();
   else if(docTab==='control') renderControl();
   else if(docTab==='testers') renderTesters();
   else if(docTab==='pedidos') renderPedidosWeb();
-  else renderDocFacturas();
+  else if(docTab==='facturas') renderDocFacturas();
+  else renderPedidosWeb();
 }
 
 function setDocTab(tab){
