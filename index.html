@@ -5208,11 +5208,11 @@ function renderPlanRow(row, i, weekDayNames){
       </select>
     </td>
     <td style="padding:5px 8px">
-      <input type="text" value="${row.sector||''}" onchange="planRows[${i}].sector=this.value" placeholder="Ej: La Carolina"
+      <input type="text" value="${row.sector||''}" oninput="planRows[${i}].sector=this.value" placeholder="Ej: La Carolina"
         style="width:100%;padding:5px 8px;border:0.5px solid var(--border);border-radius:5px;font-size:12px;outline:none"/>
     </td>
     <td style="padding:5px 8px">
-      <input type="text" value="${row.cliente||''}" onchange="planRows[${i}].cliente=this.value" placeholder="Nombre del cliente"
+      <input type="text" value="${row.cliente||''}" oninput="planRows[${i}].cliente=this.value" placeholder="Nombre del cliente"
         style="width:100%;padding:5px 8px;border:0.5px solid var(--border);border-radius:5px;font-size:12px;outline:none"/>
     </td>
     <td style="padding:5px 8px;text-align:center">
@@ -5318,28 +5318,24 @@ async function planAsesoraChange(asesora){
 
 
 async function guardarPlanificacion(asesora, semanaKey){
-  // Leer valores actuales del DOM preservando visitado_at
-  const rows = planRows.map((row,i)=>{
+  // Sincronizar valores del DOM a planRows antes de guardar
+  planRows.forEach((row, i) => {
     const tr = document.getElementById('plan-row-'+i);
-    if(tr){
-      const sel = tr.querySelector('select');
-      const inputs = tr.querySelectorAll('input[type="text"]');
-      const chk = tr.querySelector('input[type="checkbox"]');
-      return {
-        dia: sel ? sel.value : row.dia,
-        sector: inputs[0] ? inputs[0].value : row.sector,
-        cliente: inputs[1] ? inputs[1].value : row.cliente,
-        coordinado: chk ? chk.checked : row.coordinado,
-        visitado_at: row.visitado_at || ''
-      };
-    }
-    return row;
-  }).filter(r=>r.dia||r.sector||r.cliente);
+    if(!tr) return;
+    const sel = tr.querySelector('select');
+    const inputs = tr.querySelectorAll('input[type="text"]');
+    const chk = tr.querySelector('input[type="checkbox"]');
+    if(sel) row.dia = sel.value;
+    if(inputs[0]) row.sector = inputs[0].value;
+    if(inputs[1]) row.cliente = inputs[1].value;
+    if(chk) row.coordinado = chk.checked;
+  });
 
+  const rows = planRows.filter(r=>r.dia||r.sector||r.cliente);
   if(rows.length===0){ alert('No hay datos para guardar'); return; }
 
-  const sel = document.getElementById('plan-asesora-sel');
-  const asesoraFinal = sel ? sel.value : asesora;
+  const selAsesora = document.getElementById('plan-asesora-sel');
+  const asesoraFinal = selAsesora ? selAsesora.value : asesora;
 
   try {
     const r = await fetch('/api/planificacion', {
@@ -5348,9 +5344,15 @@ async function guardarPlanificacion(asesora, semanaKey){
       body: JSON.stringify({ asesora: asesoraFinal, semana: semanaKey, filas: rows })
     });
     const data = await r.json();
-    if(data.ok) alert(`✓ Planificación guardada — ${rows.length} filas`);
-    else alert('Error: '+data.error);
-  } catch(e){ alert('Error de conexión'); }
+    if(data.ok){ 
+      // Mostrar confirmación sin alert - banner temporal
+      const banner = document.createElement('div');
+      banner.style.cssText = 'position:fixed;top:20px;right:20px;background:#1a1108;color:white;padding:12px 20px;border-radius:10px;font-size:13px;z-index:999;box-shadow:0 4px 12px rgba(0,0,0,0.3)';
+      banner.innerHTML = `<i class="ti ti-check" style="color:#A0684A;margin-right:8px"></i>Planificación guardada — ${rows.length} filas`;
+      document.body.appendChild(banner);
+      setTimeout(()=>banner.remove(), 3000);
+    } else { alert('Error: '+(data.error||'desconocido')); }
+  } catch(e){ alert('Error de conexión: '+e.message); }
 }
 
 
