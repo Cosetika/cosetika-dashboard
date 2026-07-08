@@ -1521,7 +1521,7 @@ async function renderConfig(){
           <div><div style="font-size:11px;color:var(--muted);margin-bottom:4px">Nombre completo</div><input id="new-nombre" type="text" placeholder="Ej: Ana Torres" style="width:100%;padding:7px 10px;border:0.5px solid var(--border);border-radius:6px;font-size:13px;outline:none"/></div>
           <div><div style="font-size:11px;color:var(--muted);margin-bottom:4px">Usuario</div><input id="new-usuario" type="text" placeholder="Ej: Ana" style="width:100%;padding:7px 10px;border:0.5px solid var(--border);border-radius:6px;font-size:13px;outline:none"/></div>
           <div><div style="font-size:11px;color:var(--muted);margin-bottom:4px">Contraseña</div><input id="new-pwd" type="password" placeholder="••••" style="width:100%;padding:7px 10px;border:0.5px solid var(--border);border-radius:6px;font-size:13px;outline:none"/></div>
-          <div><div style="font-size:11px;color:var(--muted);margin-bottom:4px">Rol</div><select id="new-rol" style="width:100%;padding:7px 10px;border:0.5px solid var(--border);border-radius:6px;font-size:13px;outline:none"><option value="asesora">Asesora</option><option value="jefa_ventas">Jefa de Ventas</option><option value="admin">Admin</option></select></div>
+          <div><div style="font-size:11px;color:var(--muted);margin-bottom:4px">Rol</div><select id="new-rol" style="width:100%;padding:7px 10px;border:0.5px solid var(--border);border-radius:6px;font-size:13px;outline:none"><option value="asesora">Asesora</option><option value="administrativo">Administrativo</option><option value="jefa_ventas">Jefa de Ventas</option><option value="admin">Admin</option></select></div>
         </div>
         <div style="margin-top:12px;display:flex;justify-content:flex-end">
           <button onclick="crearUsuario()" style="padding:8px 18px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-user-plus"></i> Crear usuario</button>
@@ -1536,7 +1536,7 @@ async function renderConfig(){
           <table style="width:100%;border-collapse:collapse;font-size:13px">
             <thead><tr style="border-bottom:0.5px solid var(--border)">
               <th style="text-align:left;padding:8px 10px;font-size:11px;color:var(--muted)">Usuario</th>
-              ${MODS_LISTA.map(m=>`<th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);text-transform:uppercase">${m}</th>`).join('')}<th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);text-transform:uppercase">Editar Visitas</th><th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);text-transform:uppercase">Editar Plan.</th>
+              ${MODS_LISTA.map(m=>`<th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);text-transform:uppercase">${m}</th>`).join('')}<th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);text-transform:uppercase">Editar Plan.</th>
               <th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);white-space:nowrap">Ver visitas<br>de todas</th>
               <th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);white-space:nowrap">Editar<br>sectores</th>
             </tr></thead>
@@ -1549,7 +1549,7 @@ async function renderConfig(){
                 return "<tr style=\"border-bottom:0.5px solid var(--border)\"><td style=\"padding:10px\"><div style=\"font-size:13px;font-weight:500\">" + u.nombre.split(' ')[0] + "</div><div style=\"font-size:11px;color:var(--muted)\">" + u.rol + "</div></td>" +
                   MODS_LISTA.map(m=>"<td style=\"text-align:center;padding:10px\"><input type=\"checkbox\" " + (mods.includes(m)||esAdmin?'checked':'') + " " + (esAdmin?'disabled':'') + " id=\"perm-" + u.id + "-" + m + "\" style=\"accent-color:#A0684A;width:16px;height:16px;cursor:pointer\"/></td>").join('') +
                   "<td style=\"text-align:center;padding:10px\"><input type=\"checkbox\" id=\"perm-" + u.id + "-ver_visitas_todas\" " + (verTodas?'checked':'') + " " + (esAdmin||esJefa?'disabled':'') + " style=\"accent-color:#A0684A;width:16px;height:16px;cursor:pointer\"/></td>" +
-                  "<td style=\"text-align:center;padding:10px\"><input type=\"checkbox\" id=\"perm-" + u.id + "-editar_visitas\" " + (editarSectores?'checked':'') + " " + (esAdmin?'disabled':'') + " style=\"accent-color:#A0684A;width:16px;height:16px;cursor:pointer\"/></td>" + "<td style=\"text-align:center;padding:10px\"><input type=\"checkbox\" id=\"perm-" + u.id + "-editar_planificacion\" " + (mods.includes('editar_planificacion')||esAdmin?'checked':'') + " " + (esAdmin?'disabled':'') + " style=\"accent-color:#A0684A;width:16px;height:16px;cursor:pointer\"/></td></tr>";
+                  "<td style=\"text-align:center;padding:10px\"><input type=\"checkbox\" id=\"perm-" + u.id + "-editar_planificacion\" " + (mods.includes('editar_planificacion')||esAdmin?'checked':'') + " " + (esAdmin?'disabled':'') + " style=\"accent-color:#A0684A;width:16px;height:16px;cursor:pointer\"/></td></tr>";
               }).join('')}
             </tbody>
           </table>
