@@ -5318,14 +5318,30 @@ async function planAsesoraChange(asesora){
 
 
 async function guardarPlanificacion(asesora, semanaKey){
-  const rows = planRows.filter(r => r.dia || r.sector || r.cliente);
+  // Leer SIEMPRE desde el DOM — es la fuente de verdad
+  const tbody = document.getElementById('plan-tbody');
+  if(!tbody){ alert('Error: tabla no encontrada'); return; }
+
+  const rows = [];
+  tbody.querySelectorAll('tr').forEach((tr, i) => {
+    const tds = tr.querySelectorAll('td');
+    if(tds.length < 4) return;
+    const dia = tds[0].querySelector('select')?.value || '';
+    const sector = tds[1].querySelector('input')?.value || '';
+    const cliente = tds[2].querySelector('input')?.value || '';
+    const coordinado = tds[3].querySelector('input[type="checkbox"]')?.checked || false;
+    const visitado_at = (planRows[i] && planRows[i].visitado_at) || '';
+    if(dia || sector || cliente){
+      rows.push({ dia, sector, cliente, coordinado, visitado_at });
+    }
+  });
 
   if(rows.length === 0){ alert('No hay datos para guardar'); return; }
 
   const selAsesora = document.getElementById('plan-asesora-sel');
   const asesoraFinal = selAsesora ? selAsesora.value : (window._planAsesoraActual || asesora);
 
-  console.log('Guardando planificación:', asesoraFinal, semanaKey, rows.length, 'filas');
+  console.log('Guardando:', asesoraFinal, semanaKey, rows.length, 'filas');
 
   try {
     const r = await fetch('/api/planificacion', {
@@ -5340,13 +5356,14 @@ async function guardarPlanificacion(asesora, semanaKey){
       banner.innerHTML = `<i class="ti ti-check" style="color:#A0684A;margin-right:8px"></i>Guardado — ${rows.length} filas`;
       document.body.appendChild(banner);
       setTimeout(()=>banner.remove(), 3000);
+      // Actualizar planRows con lo guardado
+      planRows = rows;
+      actualizarKpisPlan();
     } else {
-      alert('Error al guardar: '+(data.error||'desconocido'));
-      console.error('Error guardar:', data);
+      alert('Error: '+(data.error||'desconocido'));
     }
   } catch(e){
-    alert('Error de conexión: '+e.message);
-    console.error('Error conexión:', e);
+    alert('Error: '+e.message);
   }
 }
 
