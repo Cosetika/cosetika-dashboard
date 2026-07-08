@@ -671,28 +671,24 @@ async function sincronizarPedidosWeb(opciones){
           const pedido = parsearPedidoWooCommerce(html, asunto, parsed.date || new Date());
 
           if (pedido && pedido.numeroPedido) {
-            const result = await pool.query(
+            // Verificar si ya existe ANTES de insertar para evitar push duplicados
+            const yaExiste = await pool.query('SELECT id FROM pedidos_web WHERE numero_pedido=$1', [pedido.numeroPedido]);
+            const esNuevo = yaExiste.rows.length === 0;
+
+            await pool.query(
               `INSERT INTO pedidos_web(numero_pedido, fecha, cliente_nombre, cedula_ruc, telefono, subtotal, total, productos, email_uid, html_crudo)
                VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
                ON CONFLICT (numero_pedido) DO UPDATE SET
-                 fecha=$2, cliente_nombre=$3, cedula_ruc=$4, telefono=$5, subtotal=$6, total=$7, productos=$8, html_crudo=$10
-               RETURNING (xmax = 0) AS es_nuevo`,
+                 fecha=$2, cliente_nombre=$3, cedula_ruc=$4, telefono=$5, subtotal=$6, total=$7, productos=$8, html_crudo=$10`,
               [
-                pedido.numeroPedido,
-                pedido.fecha,
-                pedido.cliente || '—',
-                pedido.cedulaRuc || null,
-                pedido.telefono || null,
-                pedido.subtotal || 0,
-                pedido.total || 0,
-                JSON.stringify(pedido.productos || []),
-                String(seq),
-                html
+                pedido.numeroPedido, pedido.fecha, pedido.cliente || '—',
+                pedido.cedulaRuc || null, pedido.telefono || null,
+                pedido.subtotal || 0, pedido.total || 0,
+                JSON.stringify(pedido.productos || []), String(seq), html
               ]
             );
             procesados++;
-            // Solo enviar push si es un pedido NUEVO (no una actualización)
-            const esNuevo = result.rows[0]?.es_nuevo;
+            // Solo enviar push si es un pedido GENUINAMENTE NUEVO
             if (esNuevo) {
               console.log(`🛒 Nuevo pedido #${pedido.numeroPedido} — enviando push`);
               enviarPushATodos({
@@ -701,6 +697,8 @@ async function sincronizarPedidosWeb(opciones){
                 tag: `pedido-${pedido.numeroPedido}`,
                 url: '/'
               }).catch(()=>{});
+            } else {
+              console.log(`ℹ️ Pedido #${pedido.numeroPedido} ya existía — sin push`);
             }
           } else {
             errores++;
