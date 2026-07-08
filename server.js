@@ -700,7 +700,7 @@ setInterval(() => sincronizarHoy().catch(e => console.error('Error sync:', e.mes
 
 // Sync de pedidos web: revisa la casilla pedidos@cosetika.com cada 10 minutos
 setTimeout(() => sincronizarPedidosWeb().catch(e => console.error('Error sync pedidos inicial:', e.message)), 15000);
-setInterval(() => sincronizarPedidosWeb().catch(e => console.error('Error sync pedidos:', e.message)), 10 * 60 * 1000);
+setInterval(() => sincronizarPedidosWeb().catch(e => console.error('Error sync pedidos:', e.message)), 30 * 1000);
 
 // ─── FUSIÓN INCREMENTAL: ventas del MES EN CURSO dentro de DATA_CACHE (cada 15 min) ──
 // Recalcula desde cero el mes actual completo (rápido: solo ese mes, no 18 meses) y
