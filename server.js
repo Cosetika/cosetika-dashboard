@@ -1733,6 +1733,23 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
     return;
   }
+  // Patch: agregar editar_planificacion a Giovanna y Ana si no lo tienen
+  if (urlPath === '/api/fix-planificacion-perms' && req.method === 'POST') {
+    try {
+      const r = await pool.query(
+        `UPDATE usuarios SET modulos = CASE
+           WHEN modulos IS NULL OR modulos = '' THEN 'editar_planificacion'
+           WHEN modulos NOT LIKE '%editar_planificacion%' THEN modulos || ',editar_planificacion'
+           ELSE modulos
+         END
+         WHERE nombre ILIKE '%giovanna%' OR nombre ILIKE '%ana%'
+         RETURNING nombre, modulos`
+      );
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ok:true, updated: r.rows}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
   // POST /api/push/subscribe → registrar suscripción
   if (urlPath === '/api/push/subscribe' && req.method === 'POST') {
     try {
