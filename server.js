@@ -1541,6 +1541,12 @@ async function initDB() {
       CREATE INDEX IF NOT EXISTS idx_pedidos_cedula ON pedidos_web(cedula_ruc);
       CREATE INDEX IF NOT EXISTS idx_pedidos_cliente ON pedidos_web(LOWER(cliente_nombre));
       ALTER TABLE pedidos_web ADD COLUMN IF NOT EXISTS html_crudo TEXT;
+      CREATE TABLE IF NOT EXISTS metas_visitas (
+        id SERIAL PRIMARY KEY,
+        asesora VARCHAR(255) NOT NULL UNIQUE,
+        meta INTEGER NOT NULL DEFAULT 30,
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
       CREATE TABLE IF NOT EXISTS push_subscriptions (
         id SERIAL PRIMARY KEY,
         usuario_id INTEGER,
@@ -2153,6 +2159,27 @@ const server = http.createServer(async (req, res) => {
       await pool.query('DELETE FROM asesor_provincias WHERE asesora=$1 AND provincia=$2',[asesora,provincia]);
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+
+  // METAS VISITAS
+  if (urlPath === '/api/metas-visitas' && req.method === 'GET') {
+    try {
+      const r = await pool.query('SELECT asesora, meta FROM metas_visitas ORDER BY asesora');
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.rows));
+    } catch(e){ res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+  if (urlPath === '/api/metas-visitas' && req.method === 'POST') {
+    try {
+      const {asesora, meta} = await bodyJSON(req);
+      await pool.query(
+        `INSERT INTO metas_visitas(asesora,meta) VALUES($1,$2)
+         ON CONFLICT(asesora) DO UPDATE SET meta=$2, updated_at=NOW()`,
+        [asesora, parseInt(meta)||30]
+      );
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e){ res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
     return;
   }
 

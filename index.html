@@ -5087,6 +5087,7 @@ async function renderPlanificacion(){
 
   const weekDayNames = weekDates.map(d=>`${getDayName(d)} ${d.getDate()}`);
   window._planAsesoraActual = asesoraConsulta;
+  window._metaVisitasActual = metaVisitas;
   // Actualizar KPIs después de renderizar
   setTimeout(() => actualizarKpisPlan(), 50);
 
@@ -5095,16 +5096,33 @@ async function renderPlanificacion(){
   // resto del equipo. Una asesora normal siempre edita la suya (es la única que ve).
   const puedeEditarPlan = rol==='asesora' || (rol==='jefa_ventas' && asesoraConsulta===asesora);
 
-  // Calcular semana del año actual
+  // Cargar meta de visitas para esta asesora
+  let metaVisitas = 30;
+  try {
+    const mr = await fetch('/api/metas-visitas');
+    const metas = await mr.json();
+    const m = metas.find(x => x.asesora === asesoraConsulta);
+    if(m) metaVisitas = parseInt(m.meta)||30;
+  } catch(e){}
+
+  // Calcular semana del año
   const hoyPlan = new Date();
   const inicioAnio = new Date(hoyPlan.getFullYear(), 0, 1);
   const semanaNumero = Math.ceil(((hoyPlan - inicioAnio) / 86400000 + inicioAnio.getDay() + 1) / 7);
 
   document.getElementById('visitas-content').innerHTML = `
+    <!-- META HEADER -->
     <div style="background:linear-gradient(135deg,#1a1108,#3a2a18);border-radius:12px;padding:14px 18px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between">
       <div>
-        <div style="font-size:10px;font-weight:600;color:#A0684A;text-transform:uppercase;letter-spacing:1.5px">Meta de visitas</div>
-        <div style="font-size:18px;font-weight:700;color:white;margin-top:2px">${asesoraConsulta.split(' ')[0]}</div>
+        <div style="font-size:10px;font-weight:600;color:#A0684A;text-transform:uppercase;letter-spacing:1.5px">Número de visitas</div>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:4px">
+          <div style="font-size:32px;font-weight:700;color:white;line-height:1" id="meta-numero-display">${metaVisitas}</div>
+          ${rol==='admin'?`
+          <button onclick="editarMetaVisitas('${asesoraConsulta}',${metaVisitas})"
+            style="background:rgba(160,104,74,0.3);border:1px solid #A0684A;border-radius:6px;padding:4px 10px;color:#A0684A;font-size:11px;cursor:pointer;font-weight:500">
+            <i class="ti ti-pencil" style="font-size:11px"></i> Editar
+          </button>`:''}
+        </div>
       </div>
       <div style="text-align:right">
         <div style="font-size:10px;color:#7a6a5a;text-transform:uppercase;letter-spacing:1px">Semana</div>
@@ -5158,9 +5176,9 @@ async function renderPlanificacion(){
           <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Ingresadas</div>
           <div style="font-size:26px;font-weight:700;color:var(--text)" id="kpi-ingresadas">0</div>
         </div>
-        <div style="flex:1;background:#f0fdf4;border-radius:10px;padding:12px 16px;text-align:center">
-          <div style="font-size:10px;color:#16a34a;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Visitadas</div>
-          <div style="font-size:26px;font-weight:700;color:#16a34a" id="kpi-visitadas">0</div>
+        <div style="flex:1;border-radius:10px;padding:12px 16px;text-align:center" id="kpi-visitadas-card" style="background:#fef2f2">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px" id="kpi-visitadas-label">Visitadas</div>
+          <div style="font-size:26px;font-weight:700" id="kpi-visitadas">0</div>
         </div>
         <div style="flex:1;background:#fff7ed;border-radius:10px;padding:12px 16px;text-align:center">
           <div style="font-size:10px;color:#d97706;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Pendientes</div>
@@ -5204,16 +5222,41 @@ function renderPlanRow(row, i, weekDayNames){
 }
 
 
+async function editarMetaVisitas(asesora, metaActual){
+  const nueva = prompt(`Meta de visitas para ${asesora.split(' ')[0]}:`, metaActual);
+  if(nueva === null) return;
+  const n = parseInt(nueva);
+  if(isNaN(n) || n < 1){ alert('Número inválido'); return; }
+  try{
+    await fetch('/api/metas-visitas', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({asesora, meta: n})
+    });
+    window._metaVisitasActual = n;
+    const display = document.getElementById('meta-numero-display');
+    if(display) display.textContent = n;
+    actualizarKpisPlan();
+  } catch(e){ alert('Error: '+e.message); }
+}
+
 function actualizarKpisPlan(){
   const ingresadas = planRows.filter(r=>r.cliente && r.cliente.trim()).length;
   const visitadas = planRows.filter(r=>r.coordinado).length;
-  const pendientes = ingresadas - visitadas;
+  const pendientes = Math.max(0, ingresadas - visitadas);
+  const meta = window._metaVisitasActual || 30;
+  const cumpleMeta = visitadas >= meta;
+
   const el1 = document.getElementById('kpi-ingresadas');
   const el2 = document.getElementById('kpi-visitadas');
   const el3 = document.getElementById('kpi-pendientes');
+  const card = document.getElementById('kpi-visitadas-card');
+  const label = document.getElementById('kpi-visitadas-label');
+
   if(el1) el1.textContent = ingresadas;
-  if(el2) el2.textContent = visitadas;
-  if(el3) el3.textContent = Math.max(0, pendientes);
+  if(el2){ el2.textContent = visitadas; el2.style.color = cumpleMeta ? '#16a34a' : '#dc2626'; }
+  if(el3) el3.textContent = pendientes;
+  if(card) card.style.background = cumpleMeta ? '#f0fdf4' : '#fef2f2';
+  if(label){ label.textContent = 'Visitadas'; label.style.color = cumpleMeta ? '#16a34a' : '#dc2626'; }
 }
 
 function marcarVisitado(i, checked){
