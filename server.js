@@ -600,6 +600,33 @@ function parsearPedidoWooCommerce(html, asuntoCorreo, fechaCorreo){
 // Conecta a la casilla pedidos@cosetika.com vía IMAP, revisa correos no leídos de
 // "Nuevo pedido", los parsea y guarda en pedidos_web. Marca los correos como leídos
 // para no reprocesarlos en la siguiente corrida.
+async function enviarPushATodos(payload) {
+  if (!webpush) { console.log('⚠️ web-push no disponible'); return; }
+  if (!VAPID_PUBLIC_KEY) { console.log('⚠️ VAPID_PUBLIC_KEY no configurado'); return; }
+  try {
+    const r = await pool.query('SELECT * FROM push_subscriptions');
+    const subs = r.rows;
+    console.log(`📱 Enviando push a ${subs.length} dispositivos:`, payload.title);
+    if (subs.length === 0) { console.log('⚠️ No hay suscripciones registradas'); return; }
+    const badgeR = await pool.query("SELECT COUNT(*) FROM pedidos_web WHERE facturado=false OR facturado IS NULL");
+    const badge = parseInt(badgeR.rows[0].count) || 0;
+    const fullPayload = JSON.stringify({ ...payload, badge });
+    await Promise.allSettled(subs.map(async sub => {
+      const pushSub = { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } };
+      try {
+        await webpush.sendNotification(pushSub, fullPayload);
+        console.log(`✓ Push enviado a ${sub.usuario_nombre}`);
+      } catch(e) {
+        console.error(`✗ Error push a ${sub.usuario_nombre}:`, e.message, e.statusCode);
+        if (e.statusCode === 410 || e.statusCode === 404) {
+          await pool.query('DELETE FROM push_subscriptions WHERE endpoint=$1', [sub.endpoint]);
+          console.log(`🗑️ Suscripción eliminada (expirada): ${sub.usuario_nombre}`);
+        }
+      }
+    }));
+  } catch(e) { console.error('Error enviando push:', e.message); }
+}
+
 async function sincronizarPedidosWeb(opciones){
   opciones = opciones || {};
   if (!PEDIDOS_EMAIL_HOST || !PEDIDOS_EMAIL_USER || !PEDIDOS_EMAIL_PASS) {
@@ -1684,32 +1711,6 @@ const server = http.createServer(async (req, res) => {
 
   // VISITAS
 // ─── PUSH NOTIFICATIONS ──────────────────────────────────────────────────────
-async function enviarPushATodos(payload) {
-  if (!webpush) { console.log('⚠️ web-push no disponible'); return; }
-  if (!VAPID_PUBLIC_KEY) { console.log('⚠️ VAPID_PUBLIC_KEY no configurado'); return; }
-  try {
-    const r = await pool.query('SELECT * FROM push_subscriptions');
-    const subs = r.rows;
-    console.log(`📱 Enviando push a ${subs.length} dispositivos:`, payload.title);
-    if (subs.length === 0) { console.log('⚠️ No hay suscripciones registradas'); return; }
-    const badgeR = await pool.query("SELECT COUNT(*) FROM pedidos_web WHERE facturado=false OR facturado IS NULL");
-    const badge = parseInt(badgeR.rows[0].count) || 0;
-    const fullPayload = JSON.stringify({ ...payload, badge });
-    await Promise.allSettled(subs.map(async sub => {
-      const pushSub = { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } };
-      try {
-        await webpush.sendNotification(pushSub, fullPayload);
-        console.log(`✓ Push enviado a ${sub.usuario_nombre}`);
-      } catch(e) {
-        console.error(`✗ Error push a ${sub.usuario_nombre}:`, e.message, e.statusCode);
-        if (e.statusCode === 410 || e.statusCode === 404) {
-          await pool.query('DELETE FROM push_subscriptions WHERE endpoint=$1', [sub.endpoint]);
-          console.log(`🗑️ Suscripción eliminada (expirada): ${sub.usuario_nombre}`);
-        }
-      }
-    }));
-  } catch(e) { console.error('Error enviando push:', e.message); }
-}
 
   // GET /api/push/vapid-key → clave pública VAPID para el cliente
   if (urlPath === '/api/push/vapid-key' && req.method === 'GET') {
