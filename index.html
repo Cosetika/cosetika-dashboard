@@ -5062,14 +5062,23 @@ async function renderPlanificacion(){
   let saved = [];
   try {
     const r = await fetch(`/api/planificacion?asesora=${encodeURIComponent(asesoraConsulta)}&semana=${semanaKey}`);
-    saved = await r.json();
+    const data = await r.json();
+    if(Array.isArray(data)) saved = data;
   } catch(e) { saved = []; }
 
-  // Inicializar filas
+  // Inicializar filas — preservar visitado_at
   if(saved.length > 0){
-    planRows = saved.map(r=>({dia:r.dia,sector:r.sector,cliente:r.cliente,coordinado:r.coordinado,visitado_at:r.visitado_at||''}));
+    planRows = saved.map(r=>({
+      dia: r.dia||'',
+      sector: r.sector||'',
+      cliente: r.cliente||'',
+      coordinado: !!r.coordinado,
+      visitado_at: r.visitado_at||''
+    }));
+    // Rellenar hasta 20 filas
+    while(planRows.length < 20) planRows.push({dia:'',sector:'',cliente:'',coordinado:false,visitado_at:''});
   } else {
-    planRows = Array.from({length:20}, (_,i)=>({dia:'',sector:'',cliente:'',coordinado:false,visitado_at:''}));
+    planRows = Array.from({length:20}, ()=>({dia:'',sector:'',cliente:'',coordinado:false,visitado_at:''}));
   }
 
   // Si admin o jefa, mostrar selector de asesora
@@ -5309,7 +5318,7 @@ async function planAsesoraChange(asesora){
 
 
 async function guardarPlanificacion(asesora, semanaKey){
-  // Leer valores actuales del DOM
+  // Leer valores actuales del DOM preservando visitado_at
   const rows = planRows.map((row,i)=>{
     const tr = document.getElementById('plan-row-'+i);
     if(tr){
@@ -5320,7 +5329,8 @@ async function guardarPlanificacion(asesora, semanaKey){
         dia: sel ? sel.value : row.dia,
         sector: inputs[0] ? inputs[0].value : row.sector,
         cliente: inputs[1] ? inputs[1].value : row.cliente,
-        coordinado: chk ? chk.checked : row.coordinado
+        coordinado: chk ? chk.checked : row.coordinado,
+        visitado_at: row.visitado_at || ''
       };
     }
     return row;
@@ -5328,7 +5338,6 @@ async function guardarPlanificacion(asesora, semanaKey){
 
   if(rows.length===0){ alert('No hay datos para guardar'); return; }
 
-  // Si admin/jefa, usar asesora del selector
   const sel = document.getElementById('plan-asesora-sel');
   const asesoraFinal = sel ? sel.value : asesora;
 
