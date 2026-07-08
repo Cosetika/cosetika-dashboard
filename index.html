@@ -5262,7 +5262,7 @@ function actualizarKpisPlan(){
   if(el1) el1.textContent = ingresadas;
   if(el2){ el2.textContent = visitadas; el2.style.color = cumpleMeta ? '#16a34a' : '#dc2626'; }
   if(el3) el3.textContent = pendientes;
-  if(card) card.style.background = cumpleMeta ? '#f0fdf4' : '#fef2f2';
+  if(card) card.style.cssText = `flex:1;border-radius:10px;padding:12px 16px;text-align:center;background:${cumpleMeta?'#f0fdf4':'#fef2f2'}`;
   if(label){ label.textContent = 'Visitadas'; label.style.color = cumpleMeta ? '#16a34a' : '#dc2626'; }
 }
 
@@ -5318,24 +5318,14 @@ async function planAsesoraChange(asesora){
 
 
 async function guardarPlanificacion(asesora, semanaKey){
-  // Sincronizar valores del DOM a planRows antes de guardar
-  planRows.forEach((row, i) => {
-    const tr = document.getElementById('plan-row-'+i);
-    if(!tr) return;
-    const sel = tr.querySelector('select');
-    const inputs = tr.querySelectorAll('input[type="text"]');
-    const chk = tr.querySelector('input[type="checkbox"]');
-    if(sel) row.dia = sel.value;
-    if(inputs[0]) row.sector = inputs[0].value;
-    if(inputs[1]) row.cliente = inputs[1].value;
-    if(chk) row.coordinado = chk.checked;
-  });
+  const rows = planRows.filter(r => r.dia || r.sector || r.cliente);
 
-  const rows = planRows.filter(r=>r.dia||r.sector||r.cliente);
-  if(rows.length===0){ alert('No hay datos para guardar'); return; }
+  if(rows.length === 0){ alert('No hay datos para guardar'); return; }
 
   const selAsesora = document.getElementById('plan-asesora-sel');
-  const asesoraFinal = selAsesora ? selAsesora.value : asesora;
+  const asesoraFinal = selAsesora ? selAsesora.value : (window._planAsesoraActual || asesora);
+
+  console.log('Guardando planificación:', asesoraFinal, semanaKey, rows.length, 'filas');
 
   try {
     const r = await fetch('/api/planificacion', {
@@ -5344,15 +5334,20 @@ async function guardarPlanificacion(asesora, semanaKey){
       body: JSON.stringify({ asesora: asesoraFinal, semana: semanaKey, filas: rows })
     });
     const data = await r.json();
-    if(data.ok){ 
-      // Mostrar confirmación sin alert - banner temporal
+    if(data.ok){
       const banner = document.createElement('div');
       banner.style.cssText = 'position:fixed;top:20px;right:20px;background:#1a1108;color:white;padding:12px 20px;border-radius:10px;font-size:13px;z-index:999;box-shadow:0 4px 12px rgba(0,0,0,0.3)';
-      banner.innerHTML = `<i class="ti ti-check" style="color:#A0684A;margin-right:8px"></i>Planificación guardada — ${rows.length} filas`;
+      banner.innerHTML = `<i class="ti ti-check" style="color:#A0684A;margin-right:8px"></i>Guardado — ${rows.length} filas`;
       document.body.appendChild(banner);
       setTimeout(()=>banner.remove(), 3000);
-    } else { alert('Error: '+(data.error||'desconocido')); }
-  } catch(e){ alert('Error de conexión: '+e.message); }
+    } else {
+      alert('Error al guardar: '+(data.error||'desconocido'));
+      console.error('Error guardar:', data);
+    }
+  } catch(e){
+    alert('Error de conexión: '+e.message);
+    console.error('Error conexión:', e);
+  }
 }
 
 
