@@ -665,8 +665,8 @@ async function sincronizarPedidosWeb(opciones){
             procesados++;
             // Enviar push notification a todos los dispositivos suscritos
             enviarPushATodos({
-              title: `🛒 Pedido #${pedido.numeroPedido}`,
-              body: `${pedido.cliente || '—'} · $${parseFloat(pedido.total||0).toFixed(2)}`,
+              title: `Nuevo pedido · ${pedido.cliente || '—'}`,
+              body: `$${parseFloat(pedido.total||0).toFixed(2)} · Pedido #${pedido.numeroPedido}`,
               tag: `pedido-${pedido.numeroPedido}`,
               url: '/?tab=control'
             }).catch(()=>{});
