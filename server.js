@@ -644,11 +644,12 @@ async function sincronizarPedidosWeb(opciones){
           const pedido = parsearPedidoWooCommerce(html, asunto, parsed.date || new Date());
 
           if (pedido && pedido.numeroPedido) {
-            await pool.query(
+            const result = await pool.query(
               `INSERT INTO pedidos_web(numero_pedido, fecha, cliente_nombre, cedula_ruc, telefono, subtotal, total, productos, email_uid, html_crudo)
                VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
                ON CONFLICT (numero_pedido) DO UPDATE SET
-                 fecha=$2, cliente_nombre=$3, cedula_ruc=$4, telefono=$5, subtotal=$6, total=$7, productos=$8, html_crudo=$10`,
+                 fecha=$2, cliente_nombre=$3, cedula_ruc=$4, telefono=$5, subtotal=$6, total=$7, productos=$8, html_crudo=$10
+               RETURNING (xmax = 0) AS es_nuevo`,
               [
                 pedido.numeroPedido,
                 pedido.fecha,
@@ -663,13 +664,17 @@ async function sincronizarPedidosWeb(opciones){
               ]
             );
             procesados++;
-            // Enviar push notification a todos los dispositivos suscritos
-            enviarPushATodos({
-              title: `Nuevo pedido · ${pedido.cliente || '—'}`,
-              body: `$${parseFloat(pedido.total||0).toFixed(2)} · Pedido #${pedido.numeroPedido}`,
-              tag: `pedido-${pedido.numeroPedido}`,
-              url: '/?tab=control'
-            }).catch(()=>{});
+            // Solo enviar push si es un pedido NUEVO (no una actualización)
+            const esNuevo = result.rows[0]?.es_nuevo;
+            if (esNuevo) {
+              console.log(`🛒 Nuevo pedido #${pedido.numeroPedido} — enviando push`);
+              enviarPushATodos({
+                title: `Nuevo pedido · ${pedido.cliente || '—'}`,
+                body: `$${parseFloat(pedido.total||0).toFixed(2)} · Pedido #${pedido.numeroPedido}`,
+                tag: `pedido-${pedido.numeroPedido}`,
+                url: '/?tab=control'
+              }).catch(()=>{});
+            }
           } else {
             errores++;
             console.log('⚠️ No se pudo parsear pedido del correo:', asunto);
