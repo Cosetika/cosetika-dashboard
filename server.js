@@ -1279,7 +1279,15 @@ async function cargarDataDesdeDB() {
           }
         });
       });
-      console.log('✓ DATA cargada desde PostgreSQL: ' + Object.keys(DATA_CACHE).length + ' vendedoras');
+      console.log(`✓ DATA cargada desde PostgreSQL: ` + Object.keys(DATA_CACHE).length + ` vendedoras`);
+    // Auto-fix: asegurar que Giovanna y Ana tengan editar_planificacion
+    pool.query(
+      `UPDATE usuarios SET modulos = CASE
+         WHEN modulos IS NULL OR modulos = '' THEN 'editar_planificacion'
+         WHEN modulos NOT LIKE '%editar_planificacion%' THEN modulos || ',editar_planificacion'
+         ELSE modulos
+       END WHERE nombre ILIKE '%giovanna%' OR nombre ILIKE '%ana%'`
+    ).catch(()=>{});
       // Disparar regeneración del año actual en background para limpiar datos desde Contifico
       setTimeout(() => regenerarDataAutomatico(), 5000);
     } else {
@@ -1781,11 +1789,11 @@ const server = http.createServer(async (req, res) => {
       let r;
       if (mes) {
         r = await pool.query(
-          `SELECT * FROM capacitaciones WHERE TO_CHAR(fecha,'YYYY-MM')=$1 ORDER BY fecha ASC`,
+          `SELECT *, TO_CHAR(fecha,'YYYY-MM-DD') AS fecha FROM capacitaciones WHERE TO_CHAR(fecha,'YYYY-MM')=$1 ORDER BY fecha ASC`,
           [mes]
         );
       } else {
-        r = await pool.query('SELECT * FROM capacitaciones ORDER BY fecha DESC LIMIT 100');
+        r = await pool.query(`SELECT *, TO_CHAR(fecha,'YYYY-MM-DD') AS fecha FROM capacitaciones ORDER BY fecha DESC LIMIT 100`);
       }
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.rows));
     } catch(e){ res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }

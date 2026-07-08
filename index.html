@@ -1096,9 +1096,10 @@ async function renderCapacitacionesMes(anio, mes){
       ${puedeEditar ? `<button onclick="abrirModalCapacitacion(null,'${mesKey}')" style="margin-top:16px;padding:10px 24px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer">Agregar la primera</button>` : ''}
     </div>` :
     caps.map(c => {
-      const fecha = new Date(c.fecha+'T12:00:00');
-      const dia = fecha.getDate();
-      const diaSemana = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][fecha.getDay()];
+      const fechaStr = c.fecha ? String(c.fecha).substring(0,10) : '';
+      const fecha = fechaStr ? new Date(fechaStr+'T12:00:00') : null;
+      const dia = fecha ? fecha.getDate() : '—';
+      const diaSemana = fecha ? ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][fecha.getDay()] : '';
       return `
       <div style="display:flex;gap:16px;margin-bottom:14px;background:white;border-radius:14px;border:1px solid var(--border);overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.04)">
         <!-- Fecha lateral -->
@@ -1350,9 +1351,10 @@ async function renderPlanMes(modulo, anio, mes){
     </div>` :
     rows.map(r => {
       const info = cfg.tarjeta(r);
-      const fecha = new Date(r.fecha+'T12:00:00');
-      const dia = fecha.getDate();
-      const diaSemana = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][fecha.getDay()];
+      const fechaStr2 = r.fecha ? String(r.fecha).substring(0,10) : '';
+      const fecha = fechaStr2 ? new Date(fechaStr2+'T12:00:00') : null;
+      const dia = fecha ? fecha.getDate() : '—';
+      const diaSemana = fecha ? ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][fecha.getDay()] : '';
       return `
       <div style="display:flex;gap:16px;margin-bottom:14px;background:white;border-radius:14px;border:1px solid var(--border);overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.04)">
         <div style="background:#1a1108;width:72px;display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0;padding:16px 8px">
@@ -1561,7 +1563,7 @@ async function renderConfig(){
                 return "<tr style=\"border-bottom:0.5px solid var(--border)\"><td style=\"padding:10px\"><div style=\"font-size:13px;font-weight:500\">" + u.nombre.split(' ')[0] + "</div><div style=\"font-size:11px;color:var(--muted)\">" + u.rol + "</div></td>" +
                   MODS_LISTA.map(m=>"<td style=\"text-align:center;padding:10px\"><input type=\"checkbox\" " + (mods.includes(m)||esAdmin?'checked':'') + " " + (esAdmin?'disabled':'') + " id=\"perm-" + u.id + "-" + m + "\" style=\"accent-color:#A0684A;width:16px;height:16px;cursor:pointer\"/></td>").join('') +
                   "<td style=\"text-align:center;padding:10px\"><input type=\"checkbox\" id=\"perm-" + u.id + "-ver_visitas_todas\" " + (verTodas?'checked':'') + " " + (esAdmin||esJefa?'disabled':'') + " style=\"accent-color:#A0684A;width:16px;height:16px;cursor:pointer\"/></td>" +
-                  "<td style=\"text-align:center;padding:10px\"><input type=\"checkbox\" id=\"perm-" + u.id + "-editar_planificacion\" " + (mods.includes('editar_planificacion')||esAdmin?'checked':'') + " " + (esAdmin?'disabled':'') + " style=\"accent-color:#A0684A;width:16px;height:16px;cursor:pointer\"/></td></tr>";
+                  "<td style=\"text-align:center;padding:10px\"><input type=\"checkbox\" id=\"perm-" + u.id + "-editar_planificacion\" " + (mods.includes('editar_planificacion')||esAdmin||esJefa?'checked':'') + " " + (esAdmin?'disabled':'') + " style=\"accent-color:#A0684A;width:16px;height:16px;cursor:pointer\"/></td></tr>";
               }).join('')}
             </tbody>
           </table>
