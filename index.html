@@ -3231,7 +3231,7 @@ async function resincronizarPedidosWeb(btn){
 async function renderPedidosWeb(fechaSel){
   const cont = document.getElementById('doc-tab-content');
   if(!cont) return;
-  if(!fechaSel) fechaSel = window._pedidosFecha || new Date().toISOString().split('T')[0];
+  if(!fechaSel) fechaSel = window._pedidosFecha || new Date().toLocaleDateString('en-CA', {timeZone:'America/Guayaquil'});
   window._pedidosFecha = fechaSel;
   cont.innerHTML = '<div style="padding:30px;text-align:center;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:22px"></i></div>';
   let pedidos = [];
@@ -3239,7 +3239,7 @@ async function renderPedidosWeb(fechaSel){
   const fechaObj = new Date(fechaSel+'T12:00:00');
   const ayer = new Date(fechaObj); ayer.setDate(fechaObj.getDate()-1);
   const manana = new Date(fechaObj); manana.setDate(fechaObj.getDate()+1);
-  const hoy = new Date().toISOString().split('T')[0];
+  const hoy = new Date().toLocaleDateString('en-CA', {timeZone:'America/Guayaquil'});
   const fmtNav = d => d.toISOString().split('T')[0];
   const meses = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
   const esHoy = fechaSel === hoy;
