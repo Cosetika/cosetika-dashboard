@@ -1054,15 +1054,16 @@ async function renderCapacitacionesMes(anio, mes){
   const puedeEditar = usuario.rol === 'admin' || (usuario.modulos||'').includes('editar_planificacion');
   const mesStr = String(mes).padStart(2,'0');
   const mesKey = `${anio}-${mesStr}`;
+  const main = document.getElementById('main');
+  if(!main) return;
 
-  document.getElementById('main').innerHTML = `<div style="display:flex;align-items:center;justify-content:center;padding:40px;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:24px"></i></div>`;
+  main.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;padding:40px;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:24px"></i></div>`;
 
   let caps = [];
   try{
     const r = await fetch(`/api/capacitaciones?mes=${mesKey}`);
-    if(r.ok) caps = await r.json();
-    if(!Array.isArray(caps)) caps = [];
-  }catch(e){ caps = []; }
+    if(r.ok){ const d = await r.json(); if(Array.isArray(d)) caps = d; }
+  }catch(e){ console.error('Error cargando capacitaciones:', e); }
 
   const html = `
   <div style="max-width:900px;margin:0 auto">
@@ -1138,7 +1139,7 @@ async function renderCapacitacionesMes(anio, mes){
     }).join('')}
   </div>`;
 
-  document.getElementById('main').innerHTML = html;
+  if(document.getElementById('main')) document.getElementById('main').innerHTML = html;
 }
 
 function abrirModalCapacitacion(cap, mesKey){
@@ -5086,6 +5087,8 @@ async function renderPlanificacion(){
 
   const weekDayNames = weekDates.map(d=>`${getDayName(d)} ${d.getDate()}`);
   window._planAsesoraActual = asesoraConsulta;
+  // Actualizar KPIs después de renderizar
+  setTimeout(() => actualizarKpisPlan(), 50);
 
   // admin nunca edita (solo visualiza lo que las asesoras ya guardaron). jefa_ventas
   // solo puede editar cuando está viendo SU PROPIA planificación (Giovanna), no la del
@@ -5101,9 +5104,12 @@ async function renderPlanificacion(){
     <div style="background:linear-gradient(135deg,#1a1108,#3a2a18);border-radius:12px;padding:14px 18px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between">
       <div>
         <div style="font-size:10px;font-weight:600;color:#A0684A;text-transform:uppercase;letter-spacing:1.5px">Meta de visitas</div>
-        <div style="font-size:18px;font-weight:700;color:white;margin-top:2px">Semana ${semanaNumero}</div>
+        <div style="font-size:18px;font-weight:700;color:white;margin-top:2px">${asesoraConsulta.split(' ')[0]}</div>
       </div>
-      <i class="ti ti-map-pin" style="font-size:28px;color:#A0684A;opacity:0.7"></i>
+      <div style="text-align:right">
+        <div style="font-size:10px;color:#7a6a5a;text-transform:uppercase;letter-spacing:1px">Semana</div>
+        <div style="font-size:28px;font-weight:700;color:#A0684A;line-height:1">${semanaNumero}</div>
+      </div>
     </div>
     ${asesoraSelector}
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap">
@@ -5146,6 +5152,21 @@ async function renderPlanificacion(){
       <div style="margin-top:10px;font-size:11px;color:var(--muted);text-align:right">
         ${saved.length>0?`Última actualización: guardado`:'Sin guardar aún'}
       </div>
+      <!-- KPIs de totales -->
+      <div style="display:flex;gap:10px;margin-top:16px">
+        <div style="flex:1;background:#f7f5f1;border-radius:10px;padding:12px 16px;text-align:center">
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Ingresadas</div>
+          <div style="font-size:26px;font-weight:700;color:var(--text)" id="kpi-ingresadas">0</div>
+        </div>
+        <div style="flex:1;background:#f0fdf4;border-radius:10px;padding:12px 16px;text-align:center">
+          <div style="font-size:10px;color:#16a34a;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Visitadas</div>
+          <div style="font-size:26px;font-weight:700;color:#16a34a" id="kpi-visitadas">0</div>
+        </div>
+        <div style="flex:1;background:#fff7ed;border-radius:10px;padding:12px 16px;text-align:center">
+          <div style="font-size:10px;color:#d97706;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Pendientes</div>
+          <div style="font-size:26px;font-weight:700;color:#d97706" id="kpi-pendientes">0</div>
+        </div>
+      </div>
     </div>`;
 }
 
@@ -5183,6 +5204,18 @@ function renderPlanRow(row, i, weekDayNames){
 }
 
 
+function actualizarKpisPlan(){
+  const ingresadas = planRows.filter(r=>r.cliente && r.cliente.trim()).length;
+  const visitadas = planRows.filter(r=>r.coordinado).length;
+  const pendientes = ingresadas - visitadas;
+  const el1 = document.getElementById('kpi-ingresadas');
+  const el2 = document.getElementById('kpi-visitadas');
+  const el3 = document.getElementById('kpi-pendientes');
+  if(el1) el1.textContent = ingresadas;
+  if(el2) el2.textContent = visitadas;
+  if(el3) el3.textContent = Math.max(0, pendientes);
+}
+
 function marcarVisitado(i, checked){
   planRows[i].coordinado = checked;
   if(checked){
@@ -5193,7 +5226,8 @@ function marcarVisitado(i, checked){
   } else {
     planRows[i].visitado_at = '';
   }
-  // Actualizar celda de fecha sin re-renderizar toda la tabla
+  // Actualizar KPIs
+  actualizarKpisPlan();
   const row = document.getElementById('plan-row-'+i);
   if(row){
     const td = row.querySelectorAll('td')[4];
