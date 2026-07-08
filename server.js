@@ -696,10 +696,10 @@ async function sincronizarPedidosWeb(opciones){
             if (esNuevo) {
               console.log(`🛒 Nuevo pedido #${pedido.numeroPedido} — enviando push`);
               enviarPushATodos({
-                title: `Nuevo pedido · ${pedido.cliente || '—'}`,
-                body: `$${parseFloat(pedido.total||0).toFixed(2)} · Pedido #${pedido.numeroPedido}`,
+                title: `${pedido.cliente || '—'} · $${parseFloat(pedido.total||0).toFixed(2)}`,
+                body: `Pedido #${pedido.numeroPedido}`,
                 tag: `pedido-${pedido.numeroPedido}`,
-                url: '/?tab=control'
+                url: '/'
               }).catch(()=>{});
             }
           } else {

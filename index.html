@@ -1004,6 +1004,18 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
+// Ir a Pedidos cuando se toca una notificación
+if (navigator.serviceWorker) {
+  navigator.serviceWorker.addEventListener('message', e => {
+    if (e.data?.type === 'GO_PEDIDOS') {
+      window._docTab = 'pedidos';
+      document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
+      document.getElementById('navsub-pedidos')?.classList.add('active');
+      if(typeof renderFacturasHoy === 'function') renderFacturasHoy();
+    }
+  });
+}
+
 function urlBase64ToUint8Array(base64String) {
   const padding = '='.repeat((4 - base64String.length % 4) % 4);
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
