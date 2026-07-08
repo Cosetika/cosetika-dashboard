@@ -608,8 +608,7 @@ async function enviarPushATodos(payload) {
     const subs = r.rows;
     console.log(`📱 Enviando push a ${subs.length} dispositivos:`, payload.title);
     if (subs.length === 0) { console.log('⚠️ No hay suscripciones registradas'); return; }
-    const badgeR = await pool.query("SELECT COUNT(*) FROM pedidos_web WHERE facturado=false OR facturado IS NULL");
-    const badge = parseInt(badgeR.rows[0].count) || 0;
+    const badge = 0; // Badge se maneja desde el cliente
     const fullPayload = JSON.stringify({ ...payload, badge });
     await Promise.allSettled(subs.map(async sub => {
       const pushSub = { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } };
@@ -1443,8 +1442,10 @@ async function initDB() {
         id SERIAL PRIMARY KEY, asesora VARCHAR(255) NOT NULL,
         semana DATE NOT NULL, dia VARCHAR(20), sector VARCHAR(255),
         cliente VARCHAR(255), coordinado BOOLEAN DEFAULT false,
+        visitado_at VARCHAR(20),
         created_at TIMESTAMP DEFAULT NOW()
       );
+      ALTER TABLE planificacion ADD COLUMN IF NOT EXISTS visitado_at VARCHAR(20);
       CREATE TABLE IF NOT EXISTS capacitaciones (
         id SERIAL PRIMARY KEY,
         fecha DATE NOT NULL,
@@ -2178,8 +2179,8 @@ const server = http.createServer(async (req, res) => {
       if (!asesora||!semana||!filas) throw new Error('Faltan datos');
       await pool.query('DELETE FROM planificacion WHERE asesora=$1 AND semana=$2',[asesora,semana]);
       for (const fila of filas) {
-        await pool.query('INSERT INTO planificacion(asesora,semana,dia,sector,cliente,coordinado) VALUES($1,$2,$3,$4,$5,$6)',
-          [asesora,semana,fila.dia||'',fila.sector||'',fila.cliente||'',fila.coordinado||false]);
+        await pool.query('INSERT INTO planificacion(asesora,semana,dia,sector,cliente,coordinado,visitado_at) VALUES($1,$2,$3,$4,$5,$6,$7)',
+          [asesora,semana,fila.dia||'',fila.sector||'',fila.cliente||'',fila.coordinado||false,fila.visitado_at||null]);
       }
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true,filas:filas.length}));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
