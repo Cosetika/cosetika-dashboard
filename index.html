@@ -902,6 +902,21 @@ async function descargarBackupDB(){
 }
 
 // ─── PUSH NOTIFICATIONS ──────────────────────────────────────────────────────
+async function probarNotificacion(){
+  try {
+    // Ver estado primero
+    const r = await fetch('/api/push/status');
+    const data = await r.json();
+    console.log('Push status:', data);
+    if (!data.vapid) { alert('VAPID no configurado en el servidor'); return; }
+    if (!data.webpush) { alert('web-push no instalado en el servidor'); return; }
+    if (data.subs.length === 0) { alert('No hay suscripciones registradas. Primero presiona "Activar notificaciones"'); return; }
+    // Enviar push de prueba
+    await fetch('/api/push/test', { method:'POST' });
+    alert(`Push enviado a ${data.subs.length} dispositivo(s): ${data.subs.map(s=>s.usuario_nombre).join(', ')}`);
+  } catch(e) { alert('Error: '+e.message); }
+}
+
 async function activarNotificaciones() {
   const btn = document.getElementById('btn-push');
   if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i> Activando...'; }
@@ -1562,6 +1577,9 @@ async function renderConfig(){
           </button>
           <button id="btn-push" onclick="activarNotificaciones()" style="padding:8px 18px;background:white;color:var(--brown);border:1px solid var(--brown);border-radius:8px;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:6px">
             <i class="ti ti-bell"></i> Activar notificaciones
+          </button>
+          <button onclick="probarNotificacion()" style="padding:8px 18px;background:white;color:var(--brown);border:1px solid var(--brown);border-radius:8px;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:6px">
+            <i class="ti ti-send"></i> Probar notificación
           </button>
         </div>
         <div id="sync-status" style="margin-top:12px;font-size:12px;color:var(--muted)"></div>

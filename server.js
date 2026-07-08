@@ -1680,11 +1680,13 @@ const server = http.createServer(async (req, res) => {
   // VISITAS
 // ─── PUSH NOTIFICATIONS ──────────────────────────────────────────────────────
 async function enviarPushATodos(payload) {
-  if (!webpush || !VAPID_PUBLIC_KEY) return;
+  if (!webpush) { console.log('⚠️ web-push no disponible'); return; }
+  if (!VAPID_PUBLIC_KEY) { console.log('⚠️ VAPID_PUBLIC_KEY no configurado'); return; }
   try {
     const r = await pool.query('SELECT * FROM push_subscriptions');
     const subs = r.rows;
-    // Contar pedidos sin facturar para el badge
+    console.log(`📱 Enviando push a ${subs.length} dispositivos:`, payload.title);
+    if (subs.length === 0) { console.log('⚠️ No hay suscripciones registradas'); return; }
     const badgeR = await pool.query("SELECT COUNT(*) FROM pedidos_web WHERE facturado=false OR facturado IS NULL");
     const badge = parseInt(badgeR.rows[0].count) || 0;
     const fullPayload = JSON.stringify({ ...payload, badge });
@@ -1692,10 +1694,12 @@ async function enviarPushATodos(payload) {
       const pushSub = { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } };
       try {
         await webpush.sendNotification(pushSub, fullPayload);
+        console.log(`✓ Push enviado a ${sub.usuario_nombre}`);
       } catch(e) {
-        // Suscripción inválida — eliminar
+        console.error(`✗ Error push a ${sub.usuario_nombre}:`, e.message, e.statusCode);
         if (e.statusCode === 410 || e.statusCode === 404) {
           await pool.query('DELETE FROM push_subscriptions WHERE endpoint=$1', [sub.endpoint]);
+          console.log(`🗑️ Suscripción eliminada (expirada): ${sub.usuario_nombre}`);
         }
       }
     }));
@@ -1706,6 +1710,21 @@ async function enviarPushATodos(payload) {
   if (urlPath === '/api/push/vapid-key' && req.method === 'GET') {
     res.writeHead(200,{'Content-Type':'application/json'});
     res.end(JSON.stringify({ publicKey: VAPID_PUBLIC_KEY }));
+    return;
+  }
+  // GET /api/push/status → diagnóstico de suscripciones
+  if (urlPath === '/api/push/status' && req.method === 'GET') {
+    try {
+      const r = await pool.query('SELECT id, usuario_nombre, created_at FROM push_subscriptions');
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:true, subs: r.rows, vapid: !!VAPID_PUBLIC_KEY, webpush: !!webpush }));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+  // POST /api/push/test → enviar push de prueba
+  if (urlPath === '/api/push/test' && req.method === 'POST') {
+    await enviarPushATodos({ title: '🔔 Cosétika — Prueba', body: 'Las notificaciones funcionan correctamente', tag: 'test' });
+    res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
     return;
   }
   // POST /api/push/subscribe → registrar suscripción
