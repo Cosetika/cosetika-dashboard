@@ -1564,6 +1564,19 @@ async function initDB() {
         meta VARCHAR(100) NOT NULL,
         updated_at TIMESTAMP DEFAULT NOW()
       );
+      CREATE TABLE IF NOT EXISTS equipos (
+        id SERIAL PRIMARY KEY,
+        nombre VARCHAR(100) NOT NULL UNIQUE,
+        lider VARCHAR(255),
+        activo BOOLEAN DEFAULT true,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS equipo_miembros (
+        id SERIAL PRIMARY KEY,
+        equipo_id INTEGER NOT NULL REFERENCES equipos(id) ON DELETE CASCADE,
+        usuario_nombre VARCHAR(255) NOT NULL,
+        UNIQUE(equipo_id, usuario_nombre)
+      );
       CREATE TABLE IF NOT EXISTS push_subscriptions (
         id SERIAL PRIMARY KEY,
         usuario_id INTEGER,
@@ -2189,6 +2202,53 @@ const server = http.createServer(async (req, res) => {
       await pool.query('DELETE FROM asesor_provincias WHERE asesora=$1 AND provincia=$2',[asesora,provincia]);
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+
+  // EQUIPOS
+  if (urlPath === '/api/equipos' && req.method === 'GET') {
+    try {
+      const eR = await pool.query('SELECT * FROM equipos WHERE activo=true ORDER BY id');
+      const mR = await pool.query('SELECT equipo_id, usuario_nombre FROM equipo_miembros');
+      const equipos = eR.rows.map(e => ({
+        id: e.id, nombre: e.nombre, lider: e.lider,
+        miembros: mR.rows.filter(m=>m.equipo_id===e.id).map(m=>m.usuario_nombre)
+      }));
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(equipos));
+    } catch(e){ res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+  if (urlPath === '/api/equipos' && req.method === 'POST') {
+    try {
+      const { nombre, lider, miembros } = await bodyJSON(req);
+      if(!nombre){ res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'Nombre requerido'})); return; }
+      const r = await pool.query('INSERT INTO equipos(nombre,lider) VALUES($1,$2) RETURNING id', [nombre, lider||null]);
+      const eid = r.rows[0].id;
+      for(const m of (miembros||[])) await pool.query('INSERT INTO equipo_miembros(equipo_id,usuario_nombre) VALUES($1,$2) ON CONFLICT DO NOTHING', [eid, m]);
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, id:eid}));
+    } catch(e){ res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+  const equipoMatch = urlPath.match(/^\/api\/equipos\/(\d+)$/);
+  if (equipoMatch && req.method === 'PUT') {
+    try {
+      const eid = equipoMatch[1];
+      const { nombre, lider, miembros } = await bodyJSON(req);
+      if(nombre!==undefined) await pool.query('UPDATE equipos SET nombre=$1 WHERE id=$2',[nombre,eid]);
+      if(lider!==undefined) await pool.query('UPDATE equipos SET lider=$1 WHERE id=$2',[lider,eid]);
+      if(Array.isArray(miembros)){
+        await pool.query('DELETE FROM equipo_miembros WHERE equipo_id=$1',[eid]);
+        for(const m of miembros) await pool.query('INSERT INTO equipo_miembros(equipo_id,usuario_nombre) VALUES($1,$2) ON CONFLICT DO NOTHING',[eid,m]);
+      }
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e){ res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+  if (equipoMatch && req.method === 'DELETE') {
+    try {
+      await pool.query('UPDATE equipos SET activo=false WHERE id=$1',[equipoMatch[1]]);
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e){ res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
   }
 

@@ -232,6 +232,7 @@
     <div id="nav-config-subs" style="max-height:0;overflow:hidden;transition:max-height 0.25s ease">
       <div class="nav-sub-item" id="navsub-cfg-credenciales" onclick="navGoConfig('credenciales')"><i class="ti ti-key" style="font-size:13px"></i>Credenciales</div>
       <div class="nav-sub-item" id="navsub-cfg-permisos" onclick="navGoConfig('permisos')"><i class="ti ti-shield" style="font-size:13px"></i>Permisos</div>
+      <div class="nav-sub-item" id="navsub-cfg-equipos" onclick="navGoConfig('equipos')"><i class="ti ti-users-group" style="font-size:13px"></i>Equipos</div>
       <div class="nav-sub-item" id="navsub-cfg-sync" onclick="navGoConfig('sync')"><i class="ti ti-refresh" style="font-size:13px"></i>Sincronización</div>
     </div>
   </div>
@@ -1506,12 +1507,13 @@ function setVisitaTab(tab){
 
 
 function showConfigTab(tab){
-  ['credenciales','permisos','sync'].forEach(t=>{
+  ['credenciales','permisos','equipos','sync'].forEach(t=>{
     const el=document.getElementById('cfg-'+t);
     if(el) el.style.display=t===tab?'block':'none';
     const btn=document.getElementById('cfg-btn-'+t);
     if(btn) btn.style.cssText=`flex:1;padding:11px;font-size:13px;font-weight:500;border:none;cursor:pointer;transition:all 0.2s;background:${t===tab?'var(--brown)':'white'};color:${t===tab?'white':'var(--muted)'}`;
   });
+  if(tab==='equipos') renderEquiposConfig();
 }
 
 function navGoConfig(tab){
@@ -1524,7 +1526,7 @@ function navGoConfig(tab){
   const chev = document.getElementById('nav-config-chevron');
   if(subs) subs.style.maxHeight = '200px';
   if(chev) chev.style.transform = 'rotate(180deg)';
-  document.getElementById('mobile-mod-title').textContent = {credenciales:'Credenciales', permisos:'Permisos', sync:'Sincronización'}[tab] || 'Configuración';
+  document.getElementById('mobile-mod-title').textContent = {credenciales:'Credenciales', permisos:'Permisos', equipos:'Equipos', sync:'Sincronización'}[tab] || 'Configuración';
   if(modActual !== 'config'){
     modActual = 'config';
     renderConfig();
@@ -1559,6 +1561,7 @@ async function renderConfig(){
             ${u.id!==usuario.id?`
             <select id="rol-${u.id}" onchange="cambiarRol(${u.id},this.value)" style="padding:5px 8px;border:0.5px solid var(--border);border-radius:6px;font-size:12px;outline:none;background:white;cursor:pointer">
               <option value="asesora" ${u.rol==='asesora'?'selected':''}>asesora</option>
+              <option value="administrativo" ${u.rol==='administrativo'?'selected':''}>administrativo</option>
               <option value="jefa_ventas" ${u.rol==='jefa_ventas'?'selected':''}>jefa_ventas</option>
               <option value="admin" ${u.rol==='admin'?'selected':''}>admin</option>
             </select>` : `<span style="font-size:12px;color:var(--muted);padding:5px 8px">${u.rol}</span>`}
@@ -1613,6 +1616,12 @@ async function renderConfig(){
       </div>
     </div>
 
+    <div id="cfg-equipos" style="display:none">
+      <div class="card">
+        <div class="card-title"><i class="ti ti-users-group"></i> Equipos de venta</div>
+        <div id="equipos-content" style="padding:8px 0"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i></div>
+      </div>
+    </div>
     <div id="cfg-sync" style="display:none">
       <div class="card">
         <div class="card-title"><i class="ti ti-refresh"></i> Sincronización de datos</div>
@@ -6780,6 +6789,95 @@ function clientesEnMes(nombreVend, anio, mes){
   return clientes.filter(c=> c.frecuencia.some(f=>f.mes===mes && f.total>0)).length;
 }
 
+// ══════════ EQUIPOS ══════════
+async function renderEquiposConfig(){
+  const cont = document.getElementById('equipos-content');
+  if(!cont) return;
+  let equipos = [], usuarios = [];
+  try {
+    const [rE, rU] = await Promise.all([fetch('/api/equipos'), fetch('/api/usuarios')]);
+    if(rE.ok){ const d = await rE.json(); if(Array.isArray(d)) equipos = d; }
+    if(rU.ok){ const d = await rU.json(); if(Array.isArray(d)) usuarios = d; }
+  } catch(e){ cont.innerHTML = '<p style="color:#ef4444;font-size:12px">Error cargando equipos</p>'; return; }
+
+  const candidatos = usuarios.filter(u=>['asesora','jefa_ventas'].includes(u.rol) && u.activo).map(u=>u.nombre);
+
+  cont.innerHTML = `
+    ${equipos.map(e=>`
+      <div style="border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:12px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <i class="ti ti-users-group" style="color:var(--brown);font-size:16px"></i>
+            <span style="font-size:14px;font-weight:700">${e.nombre}</span>
+          </div>
+          <button onclick="eliminarEquipo(${e.id},'${e.nombre.replace(/'/g,"\\'")}')" style="background:none;border:none;color:#ef4444;cursor:pointer;font-size:14px"><i class="ti ti-trash"></i></button>
+        </div>
+        <div style="margin-bottom:10px">
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Líder del equipo</div>
+          <select onchange="actualizarEquipo(${e.id},{lider:this.value})" style="width:100%;max-width:300px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;outline:none;background:white">
+            <option value="">— Sin líder —</option>
+            ${candidatos.map(c=>`<option value="${c}" ${e.lider===c?'selected':''}>${c}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Asesoras del equipo</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px">
+            ${candidatos.map(c=>`
+              <label style="display:flex;align-items:center;gap:5px;padding:5px 10px;border:1px solid ${e.miembros.includes(c)?'var(--brown)':'var(--border)'};border-radius:20px;font-size:12px;cursor:pointer;background:${e.miembros.includes(c)?'#faf5f0':'white'}">
+                <input type="checkbox" ${e.miembros.includes(c)?'checked':''} onchange="toggleMiembroEquipo(${e.id},'${c.replace(/'/g,"\\'")}',this.checked)" style="accent-color:#A0684A;width:14px;height:14px"/>
+                ${c.split(' ')[0]}
+              </label>`).join('')}
+          </div>
+        </div>
+      </div>`).join('') || '<p style="color:var(--muted);font-size:13px;padding:8px 0">No hay equipos creados aún</p>'}
+
+    <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap">
+      <input type="text" id="nuevo-equipo-nombre" placeholder="Ej: ZIAJA/BIOSKIN" style="flex:1;min-width:200px;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;outline:none">
+      <button onclick="crearEquipo()" style="padding:9px 18px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500">
+        <i class="ti ti-plus"></i> Crear equipo
+      </button>
+    </div>`;
+}
+
+async function crearEquipo(){
+  const nombre = document.getElementById('nuevo-equipo-nombre')?.value?.trim();
+  if(!nombre){ alert('Escribe el nombre del equipo'); return; }
+  try {
+    const r = await fetch('/api/equipos', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({nombre})});
+    const data = await r.json();
+    if(data.ok) renderEquiposConfig();
+    else alert('Error: '+(data.error||'desconocido'));
+  } catch(e){ alert('Error: '+e.message); }
+}
+
+async function actualizarEquipo(id, cambios){
+  try {
+    await fetch(`/api/equipos/${id}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(cambios)});
+  } catch(e){ alert('Error: '+e.message); }
+}
+
+async function toggleMiembroEquipo(id, nombre, agregar){
+  try {
+    const r = await fetch('/api/equipos');
+    const equipos = await r.json();
+    const eq = equipos.find(e=>e.id===id);
+    if(!eq) return;
+    let miembros = eq.miembros || [];
+    if(agregar && !miembros.includes(nombre)) miembros.push(nombre);
+    if(!agregar) miembros = miembros.filter(m=>m!==nombre);
+    await fetch(`/api/equipos/${id}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({miembros})});
+    renderEquiposConfig();
+  } catch(e){ alert('Error: '+e.message); }
+}
+
+async function eliminarEquipo(id, nombre){
+  if(!confirm(`¿Eliminar el equipo "${nombre}"?`)) return;
+  try {
+    await fetch(`/api/equipos/${id}`, {method:'DELETE'});
+    renderEquiposConfig();
+  } catch(e){ alert('Error: '+e.message); }
+}
+
 // ══════════ KPIs GIOVANNA (jefa de ventas) ══════════
 async function renderKpisGiovanna(asesoraKpi, asesoras, puedeVerTodas, rol){
   const now = new Date();
@@ -6805,9 +6903,9 @@ async function renderKpisGiovanna(asesoraKpi, asesoras, puedeVerTodas, rol){
   document.getElementById('main').innerHTML = '<div style="display:flex;justify-content:center;padding:40px;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:24px"></i></div>';
 
   // Cargar todo en paralelo
-  let caps=[], inst=[], giras=[], casas=[], metas={}, cumplimiento={detalle:[],pct_semana:0}, revisiones=[], usuarios=[];
+  let caps=[], inst=[], giras=[], casas=[], metas={}, cumplimiento={detalle:[],pct_semana:0}, revisiones=[], usuarios=[], equipos=[];
   try {
-    const [rC, rI, rG, rCA, rM, rCu, rRev, rU] = await Promise.all([
+    const [rC, rI, rG, rCA, rM, rCu, rRev, rU, rEq] = await Promise.all([
       fetch(`/api/capacitaciones?mes=${mesKey}`),
       fetch(`/api/institutos?mes=${mesKey}`),
       fetch(`/api/giras?mes=${mesKey}`),
@@ -6815,7 +6913,8 @@ async function renderKpisGiovanna(asesoraKpi, asesoras, puedeVerTodas, rol){
       fetch('/api/kpi-metas'),
       fetch(`/api/kpi-cumplimiento-visitas?semana=${lunesKey}&mes=${mesKey}`),
       fetch(`/api/revisiones-lunes?mes=${mesKey}`),
-      fetch('/api/usuarios')
+      fetch('/api/usuarios'),
+      fetch('/api/equipos')
     ]);
     if(rC.ok){ const d=await rC.json(); if(Array.isArray(d)) caps=d; }
     if(rI.ok){ const d=await rI.json(); if(Array.isArray(d)) inst=d; }
@@ -6825,9 +6924,23 @@ async function renderKpisGiovanna(asesoraKpi, asesoras, puedeVerTodas, rol){
     if(rCu.ok) cumplimiento = await rCu.json();
     if(rRev.ok){ const d=await rRev.json(); if(Array.isArray(d)) revisiones=d; }
     if(rU.ok){ const d=await rU.json(); if(Array.isArray(d)) usuarios=d; }
+    if(rEq.ok){ const d=await rEq.json(); if(Array.isArray(d)) equipos=d; }
   } catch(e){ console.error('Error cargando KPIs Giovanna:', e); }
 
-  const asesorasEquipo = usuarios.filter(u=>u.rol==='asesora' && u.activo).map(u=>u.nombre);
+  // Equipo de la jefa seleccionada: solo sus asesoras a cargo
+  const equipoJefa = equipos.find(e => e.lider && asesoraKpi.toLowerCase().includes(e.lider.split(' ')[0].toLowerCase()) || e.lider === asesoraKpi);
+  const miembrosEquipo = equipoJefa ? equipoJefa.miembros : null;
+
+  let asesorasEquipo = usuarios.filter(u=>u.rol==='asesora' && u.activo).map(u=>u.nombre);
+  if(miembrosEquipo && miembrosEquipo.length > 0){
+    asesorasEquipo = asesorasEquipo.filter(a => miembrosEquipo.includes(a));
+    // Filtrar también el detalle de cumplimiento
+    if(cumplimiento.detalle){
+      cumplimiento.detalle = cumplimiento.detalle.filter(d => miembrosEquipo.includes(d.asesora));
+      const cumplen = cumplimiento.detalle.filter(d=>d.cumple_semana).length;
+      cumplimiento.pct_semana = cumplimiento.detalle.length ? Math.round(cumplen/cumplimiento.detalle.length*100) : 0;
+    }
+  }
 
   // Cálculos
   const capOficina = caps.filter(c=>c.tipo==='Oficina').length;
@@ -6868,7 +6981,7 @@ async function renderKpisGiovanna(asesoraKpi, asesoras, puedeVerTodas, rol){
     <div class="breadcrumb" style="margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
       <div style="display:flex;align-items:center;gap:8px">
         <i class="ti ti-chart-bar" style="color:var(--brown);font-size:12px"></i>
-        <span style="font-weight:500">KPIs — Giovanna · ${MESES_N[mes]} ${anio}</span>
+        <span style="font-weight:500">KPIs — ${asesoraKpi.split(' ')[0]}${equipoJefa?` · Equipo ${equipoJefa.nombre}`:''} · ${MESES_N[mes]} ${anio}</span>
       </div>
       <div style="display:flex;align-items:center;gap:8px">
         ${puedeVerTodas?`
