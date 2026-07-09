@@ -6529,8 +6529,16 @@ async function renderComisiones(){
   const mesActual = new Date().getMonth()+1;
   const mesFiltro = window._comisionesMes || mesActual;
 
+  // Resolver nombre de usuario → clave real en DATA (Contifico usa nombres completos)
+  function resolverVend(nombre){
+    if(!nombre) return nombre;
+    if(DATA[nombre]) return nombre;
+    const r = typeof resolverNombreReal === 'function' ? resolverNombreReal(nombre, DATA) : null;
+    return r || nombre;
+  }
+
   function ventasMes(nombreVend, mes){
-    const clientes = DATA[nombreVend] || [];
+    const clientes = DATA[resolverVend(nombreVend)] || [];
     let conIva=0, sinIva=0;
     clientes.forEach(c=>{
       const f=c.frecuencia.find(x=>x.mes===mes && x.anio===anioActual);
@@ -6566,7 +6574,10 @@ async function renderComisiones(){
 
   // Vendedores fuera de todos los equipos (ej. Fernando) — se muestran aparte
   const nombresEnEquipos = new Set();
-  equipos.forEach(e=>{ if(e.lider) nombresEnEquipos.add(e.lider); (e.miembros||[]).forEach(m=>nombresEnEquipos.add(m)); });
+  equipos.forEach(e=>{
+    if(e.lider){ nombresEnEquipos.add(e.lider); nombresEnEquipos.add(resolverVend(e.lider)); }
+    (e.miembros||[]).forEach(m=>{ nombresEnEquipos.add(m); nombresEnEquipos.add(resolverVend(m)); });
+  });
   const fueraEquipo = todasVends.filter(v => !nombresEnEquipos.has(v));
 
   const mesesOpts=[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>
@@ -6579,7 +6590,7 @@ async function renderComisiones(){
     const jefaCfg = getJefaCfg(cfg, jefaNombre);
     const vJefa = jefaNombre ? ventasMes(jefaNombre, mesFiltro) : {conIva:0,sinIva:0};
 
-    const miembros = (eq.miembros||[]).filter(m => m !== jefaNombre);
+    const miembros = (eq.miembros||[]).filter(m => m !== jefaNombre && resolverVend(m) !== resolverVend(jefaNombre));
     const filas = miembros.map(nombre=>{
       const c = getAsesoraCfg(cfg, nombre);
       const v = ventasMes(nombre, mesFiltro);
