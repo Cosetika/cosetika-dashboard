@@ -2423,8 +2423,11 @@ function renderProductosPorMarca(marcaSeleccionada, totalMarcaIn){
   // siempre refleja con precisión qué productos están realmente activos).
   const totalSkuMarca = getSkuPorMarca()[marcaSel] || 0;
 
-  const MESES_LABELS=['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-  const etiqueta = `Todo ${prodAnioFiltro}`;
+  // Total del mes actual para esta marca
+  const mesActual = new Date().getMonth() + 1;
+  const anioActual2 = new Date().getFullYear();
+  const MESES_NOMBRE = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  const totalMesMarca = calcTotalMarca(marcaSel, mesActual, false, anioActual2);
 
 
   const MARCA_COLORS={'BIOSKIN':'#a5b4fc','ERAYBA':'#fcd34d','ZIAJA':'#6ee7b7','ZIAJA PRO':'#f9a8d4','TODAS':'#c4a882'};
@@ -2471,9 +2474,9 @@ function renderProductosPorMarca(marcaSeleccionada, totalMarcaIn){
     <!-- KPIs -->
     <div class="kpi-row">
       <div class="kpi" style="border-left:3px solid ${MARCA_COLORS[marcaSel]||'var(--brown)'}">
-        <div class="kpi-label">Filtrando</div>
-        <div class="kpi-val" style="font-size:13px;color:${MARCA_COLORS[marcaSel]||'var(--brown)'}">${marcaSel}</div>
-        <div class="kpi-sub">${etiqueta}</div>
+        <div class="kpi-label">Total ${MESES_NOMBRE[mesActual]}</div>
+        <div class="kpi-val" style="color:${MARCA_COLORS[marcaSel]||'var(--brown)'}">${fmt(totalMesMarca/1.15)}</div>
+        <div class="kpi-sub">s/IVA · ${marcaSel}</div>
       </div>
       <div class="kpi"><div class="kpi-label">Ventas s/IVA</div><div class="kpi-val" style="color:var(--brown)">${fmt(totalMarca/1.15)}</div><div class="kpi-sub">subtotal</div></div>
       <div class="kpi"><div class="kpi-label">Ventas c/IVA</div><div class="kpi-val">${fmt(totalMarca)}</div><div class="kpi-sub">período</div></div>
