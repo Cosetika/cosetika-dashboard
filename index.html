@@ -3039,10 +3039,10 @@ async function renderEnvios(){
 let CONTROL_FECHA_SEL = null; // YYYY-MM-DD
 
 function controlFechasNavegables(){
-  // Mismo rango que Facturas: hoy y 7 días atrás
+  // Hoy, 7 días atrás y MAÑANA (para ver pedidos movidos al siguiente día)
   const hoy = enviosFechaActual();
   const fechas = [];
-  for(let i = 7; i >= 0; i--){
+  for(let i = 7; i >= -1; i--){
     const d = new Date(hoy + 'T12:00:00');
     d.setDate(d.getDate() - i);
     fechas.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`);
@@ -3136,7 +3136,8 @@ async function renderControlContenido(){
   if(!cont) return;
 
   const fechas = controlFechasNavegables();
-  const hoyStr = fechas[fechas.length-1];
+  const hoyStr = fechas[fechas.length-2]; // penúltima = hoy (la última es mañana)
+  const mananaStr = fechas[fechas.length-1];
   if(!CONTROL_FECHA_SEL || !fechas.includes(CONTROL_FECHA_SEL)){
     CONTROL_FECHA_SEL = hoyStr;
   }
@@ -3202,7 +3203,7 @@ async function renderControlContenido(){
         <i class="ti ti-chevron-left"></i>
       </button>
       <div style="text-align:center">
-        <div style="font-size:16px;font-weight:600;color:var(--text)">${CONTROL_FECHA_SEL===hoyStr?'Hoy · ':''}${controlFmtFecha(CONTROL_FECHA_SEL)}</div>
+        <div style="font-size:16px;font-weight:600;color:var(--text)">${CONTROL_FECHA_SEL===hoyStr?'Hoy · ':CONTROL_FECHA_SEL===mananaStr?'Mañana · ':''}${controlFmtFecha(CONTROL_FECHA_SEL)}</div>
         <div style="font-size:11px;color:var(--muted);margin-top:2px">${idx+1} de ${fechas.length} · últimos 7 días</div>
       </div>
       <button onclick="navControl(1)" ${!haySiguiente?'disabled':''}

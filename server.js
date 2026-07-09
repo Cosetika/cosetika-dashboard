@@ -678,7 +678,7 @@ async function sincronizarPedidosWeb(opciones){
               `INSERT INTO pedidos_web(numero_pedido, fecha, cliente_nombre, cedula_ruc, telefono, subtotal, total, productos, email_uid, html_crudo)
                VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
                ON CONFLICT (numero_pedido) DO UPDATE SET
-                 fecha=$2, cliente_nombre=$3, cedula_ruc=$4, telefono=$5, subtotal=$6, total=$7, productos=$8, html_crudo=$10`,
+                 cliente_nombre=$3, cedula_ruc=$4, telefono=$5, subtotal=$6, total=$7, productos=$8, html_crudo=$10`,
               [
                 pedido.numeroPedido, pedido.fecha, pedido.cliente || '—',
                 pedido.cedulaRuc || null, pedido.telefono || null,
