@@ -3918,10 +3918,14 @@ const server = http.createServer(async (req, res) => {
     : path.join(__dirname, urlPath);
 
   if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
-    res.writeHead(200,{'Content-Type':MIME[path.extname(filePath)]||'text/plain'});
+    const ext = path.extname(filePath);
+    const headers = {'Content-Type': MIME[ext]||'text/plain'};
+    // HTML siempre fresco — evita que el navegador sirva versiones viejas tras un deploy
+    if(ext === '.html' || ext === '.js') headers['Cache-Control'] = 'no-cache, must-revalidate';
+    res.writeHead(200, headers);
     fs.createReadStream(filePath).pipe(res);
   } else {
-    res.writeHead(200,{'Content-Type':'text/html'});
+    res.writeHead(200,{'Content-Type':'text/html','Cache-Control':'no-cache, must-revalidate'});
     fs.createReadStream(path.join(__dirname,'index.html')).pipe(res);
   }
 });
