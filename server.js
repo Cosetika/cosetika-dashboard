@@ -1547,6 +1547,23 @@ async function initDB() {
         meta INTEGER NOT NULL DEFAULT 30,
         updated_at TIMESTAMP DEFAULT NOW()
       );
+      ALTER TABLE capacitaciones ADD COLUMN IF NOT EXISTS tipo VARCHAR(20);
+      ALTER TABLE institutos ADD COLUMN IF NOT EXISTS tipo_actividad VARCHAR(20);
+      ALTER TABLE giras ADD COLUMN IF NOT EXISTS coordinada BOOLEAN DEFAULT false;
+      ALTER TABLE casas_abiertas ADD COLUMN IF NOT EXISTS coordinada BOOLEAN DEFAULT false;
+      CREATE TABLE IF NOT EXISTS revisiones_lunes (
+        id SERIAL PRIMARY KEY,
+        asesora VARCHAR(255) NOT NULL,
+        semana DATE NOT NULL,
+        revisado BOOLEAN DEFAULT false,
+        UNIQUE(asesora, semana)
+      );
+      CREATE TABLE IF NOT EXISTS kpi_metas (
+        id SERIAL PRIMARY KEY,
+        clave VARCHAR(50) NOT NULL UNIQUE,
+        meta VARCHAR(100) NOT NULL,
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
       CREATE TABLE IF NOT EXISTS push_subscriptions (
         id SERIAL PRIMARY KEY,
         usuario_id INTEGER,
@@ -1794,11 +1811,11 @@ const server = http.createServer(async (req, res) => {
       let r;
       if (mes) {
         r = await pool.query(
-          `SELECT id, TO_CHAR(fecha,'YYYY-MM-DD') AS fecha, ciudad, tema, direccion, horario, valor FROM capacitaciones WHERE TO_CHAR(fecha,'YYYY-MM')=$1 ORDER BY fecha ASC`,
+          `SELECT id, TO_CHAR(fecha,'YYYY-MM-DD') AS fecha, ciudad, tema, direccion, horario, valor, tipo FROM capacitaciones WHERE TO_CHAR(fecha,'YYYY-MM')=$1 ORDER BY fecha ASC`,
           [mes]
         );
       } else {
-        r = await pool.query(`SELECT id, TO_CHAR(fecha,'YYYY-MM-DD') AS fecha, ciudad, tema, direccion, horario, valor FROM capacitaciones ORDER BY fecha DESC LIMIT 100`);
+        r = await pool.query(`SELECT id, TO_CHAR(fecha,'YYYY-MM-DD') AS fecha, ciudad, tema, direccion, horario, valor, tipo FROM capacitaciones ORDER BY fecha DESC LIMIT 100`);
       }
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.rows));
     } catch(e){
@@ -1809,11 +1826,10 @@ const server = http.createServer(async (req, res) => {
   }
   if (urlPath === '/api/capacitaciones' && req.method === 'POST') {
     try {
-      const { fecha, ciudad, tema, direccion, horario, valor } = await bodyJSON(req);
-      console.log('INSERT capacitacion:', {fecha, ciudad, tema, direccion, horario, valor});
+      const { fecha, ciudad, tema, direccion, horario, valor, tipo } = await bodyJSON(req);
       const r = await pool.query(
-        `INSERT INTO capacitaciones(fecha,ciudad,tema,direccion,horario,valor) VALUES($1,$2,$3,$4,$5,$6) RETURNING *`,
-        [fecha, ciudad||null, tema||null, direccion||null, horario||null, valor||null]
+        `INSERT INTO capacitaciones(fecha,ciudad,tema,direccion,horario,valor,tipo) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+        [fecha, ciudad||null, tema||null, direccion||null, horario||null, valor||null, tipo||null]
       );
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, row:r.rows[0]}));
     } catch(e){
@@ -1825,10 +1841,10 @@ const server = http.createServer(async (req, res) => {
   if (urlPath.match(/^\/api\/capacitaciones\/\d+$/) && req.method === 'PUT') {
     try {
       const id = urlPath.split('/').pop();
-      const { fecha, ciudad, tema, direccion, horario, valor } = await bodyJSON(req);
+      const { fecha, ciudad, tema, direccion, horario, valor, tipo } = await bodyJSON(req);
       await pool.query(
-        `UPDATE capacitaciones SET fecha=$1,ciudad=$2,tema=$3,direccion=$4,horario=$5,valor=$6 WHERE id=$7`,
-        [fecha, ciudad||null, tema||null, direccion||null, horario||null, valor||null, id]
+        `UPDATE capacitaciones SET fecha=$1,ciudad=$2,tema=$3,direccion=$4,horario=$5,valor=$6,tipo=$7 WHERE id=$8`,
+        [fecha, ciudad||null, tema||null, direccion||null, horario||null, valor||null, tipo||null, id]
       );
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
     } catch(e){ res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
@@ -2173,6 +2189,93 @@ const server = http.createServer(async (req, res) => {
       await pool.query('DELETE FROM asesor_provincias WHERE asesora=$1 AND provincia=$2',[asesora,provincia]);
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+
+  // KPI CUMPLIMIENTO VISITAS (semana + mes por asesora vs meta)
+  if (urlPath === '/api/kpi-cumplimiento-visitas' && req.method === 'GET') {
+    try {
+      const semana = urlObj.searchParams.get('semana'); // YYYY-MM-DD (lunes)
+      const mes = urlObj.searchParams.get('mes'); // YYYY-MM
+      const uR = await pool.query(`SELECT nombre FROM usuarios WHERE rol IN ('asesora','jefa_ventas') AND activo=true`);
+      const asesoras = uR.rows.map(r=>r.nombre);
+      const mR = await pool.query('SELECT asesora, meta FROM metas_visitas');
+      const metas = {}; mR.rows.forEach(r=>{ metas[r.asesora]=parseInt(r.meta)||30; });
+      const sR = semana ? await pool.query(
+        `SELECT asesora, COUNT(*) FILTER (WHERE coordinado) AS visitadas FROM planificacion WHERE semana=$1 GROUP BY asesora`, [semana]
+      ) : {rows:[]};
+      const mesR = mes ? await pool.query(
+        `SELECT asesora, COUNT(*) FILTER (WHERE coordinado) AS visitadas FROM planificacion WHERE TO_CHAR(semana,'YYYY-MM')=$1 GROUP BY asesora`, [mes]
+      ) : {rows:[]};
+      const vSem = {}; sR.rows.forEach(r=>{ vSem[r.asesora]=parseInt(r.visitadas)||0; });
+      const vMes = {}; mesR.rows.forEach(r=>{ vMes[r.asesora]=parseInt(r.visitadas)||0; });
+      const detalle = asesoras.map(a=>({
+        asesora: a,
+        meta: metas[a]||30,
+        visitadas_semana: vSem[a]||0,
+        visitadas_mes: vMes[a]||0,
+        cumple_semana: (vSem[a]||0) >= (metas[a]||30)
+      }));
+      const cumplen = detalle.filter(d=>d.cumple_semana).length;
+      const pct = asesoras.length ? Math.round(cumplen/asesoras.length*100) : 0;
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ detalle, pct_semana: pct, total_asesoras: asesoras.length, cumplen_semana: cumplen }));
+    } catch(e){ res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+
+  // REVISIONES LUNES (Giovanna marca revisión semanal por asesora)
+  if (urlPath === '/api/revisiones-lunes' && req.method === 'GET') {
+    try {
+      const semana = urlObj.searchParams.get('semana');
+      const mes = urlObj.searchParams.get('mes'); // YYYY-MM para el consolidado
+      let r;
+      if (semana) r = await pool.query(`SELECT asesora, TO_CHAR(semana,'YYYY-MM-DD') AS semana, revisado FROM revisiones_lunes WHERE semana=$1`, [semana]);
+      else if (mes) r = await pool.query(`SELECT asesora, TO_CHAR(semana,'YYYY-MM-DD') AS semana, revisado FROM revisiones_lunes WHERE TO_CHAR(semana,'YYYY-MM')=$1`, [mes]);
+      else r = await pool.query(`SELECT asesora, TO_CHAR(semana,'YYYY-MM-DD') AS semana, revisado FROM revisiones_lunes ORDER BY semana DESC LIMIT 200`);
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.rows));
+    } catch(e){ res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+  if (urlPath === '/api/revisiones-lunes' && req.method === 'POST') {
+    try {
+      const { asesora, semana, revisado } = await bodyJSON(req);
+      await pool.query(
+        `INSERT INTO revisiones_lunes(asesora,semana,revisado) VALUES($1,$2,$3)
+         ON CONFLICT(asesora,semana) DO UPDATE SET revisado=$3`,
+        [asesora, semana, !!revisado]
+      );
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e){ res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
+  // KPI METAS (configurables por admin)
+  if (urlPath === '/api/kpi-metas' && req.method === 'GET') {
+    try {
+      const r = await pool.query('SELECT clave, meta FROM kpi_metas');
+      const defaults = {
+        cap_oficina: '1', cap_provincia: '1', inst_aperturas: '1', inst_visitas: '4',
+        revisiones: 'Todos los lunes', visitas_cumplimiento: '100', giras_pct: '100', casas_pct: '100'
+      };
+      const metas = {...defaults};
+      r.rows.forEach(row => { metas[row.clave] = row.meta; });
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(metas));
+    } catch(e){ res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+  if (urlPath === '/api/kpi-metas' && req.method === 'POST') {
+    try {
+      const body = await bodyJSON(req);
+      for (const [clave, meta] of Object.entries(body)) {
+        await pool.query(
+          `INSERT INTO kpi_metas(clave,meta) VALUES($1,$2)
+           ON CONFLICT(clave) DO UPDATE SET meta=$2, updated_at=NOW()`,
+          [clave, String(meta)]
+        );
+      }
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e){ res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
   }
 

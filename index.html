@@ -1159,6 +1159,13 @@ function abrirModalCapacitacion(cap, mesKey){
           <label style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:5px">Fecha *</label>
           <input type="date" id="cap-fecha" value="${fechaDef}" style="width:100%;padding:9px 12px;border:1px solid #e5e5e5;border-radius:8px;font-size:13px;outline:none;box-sizing:border-box">
         </div>
+        <div>
+          <label style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:5px">Tipo</label>
+          <select id="cap-tipo" style="width:100%;padding:9px 12px;border:1px solid #e5e5e5;border-radius:8px;font-size:13px;outline:none;box-sizing:border-box;background:white">
+            <option value="Oficina" ${cap?.tipo==='Oficina'?'selected':''}>Oficina</option>
+            <option value="Provincia" ${cap?.tipo==='Provincia'?'selected':''}>Provincia</option>
+          </select>
+        </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
           <div>
             <label style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:5px">Ciudad</label>
@@ -1207,6 +1214,7 @@ async function guardarCapacitacion(id, mesKey){
   if(!tema){ errEl.textContent='El tema es obligatorio'; errEl.style.display='block'; return; }
   const body = {
     fecha, tema,
+    tipo: document.getElementById('cap-tipo')?.value||'Oficina',
     ciudad: document.getElementById('cap-ciudad')?.value?.trim()||null,
     horario: document.getElementById('cap-horario')?.value?.trim()||null,
     direccion: document.getElementById('cap-direccion')?.value?.trim()||null,
@@ -1271,12 +1279,14 @@ const PLAN_CONFIG = {
     campos: [
       { key:'fecha', label:'Fecha', type:'date', required:true },
       { key:'nombre_instituto', label:'Nombre del Instituto', type:'text', placeholder:'Ej: Centro de Estética XYZ' },
-      { key:'actividad', label:'Actividad', type:'select', options:['Clase','Práctica'] }
+      { key:'actividad', label:'Actividad', type:'select', options:['Clase','Práctica'] },
+      { key:'tipo_actividad', label:'Tipo', type:'select', options:['Apertura','Visita'] }
     ],
     tarjeta: (r) => ({
       titulo: r.nombre_instituto || 'Sin nombre',
       chips: [
         r.actividad ? { icon:'ti-book', text: r.actividad } : null,
+        r.tipo_actividad ? { icon:'ti-flag', text: r.tipo_actividad } : null,
       ].filter(Boolean)
     })
   },
@@ -1287,13 +1297,15 @@ const PLAN_CONFIG = {
       { key:'fecha', label:'Fecha', type:'date', required:true },
       { key:'asesora', label:'Asesora', type:'text', placeholder:'Nombre de la asesora' },
       { key:'ciudad', label:'Ciudad', type:'text', placeholder:'Ej: Guayaquil' },
-      { key:'valor_viaticos', label:'Valor Viáticos ($)', type:'number', placeholder:'0.00' }
+      { key:'valor_viaticos', label:'Valor Viáticos ($)', type:'number', placeholder:'0.00' },
+      { key:'coordinada', label:'Coordinada', type:'checkbox' }
     ],
     tarjeta: (r) => ({
       titulo: r.ciudad || 'Sin ciudad',
       chips: [
         r.asesora ? { icon:'ti-user', text: r.asesora } : null,
         r.valor_viaticos ? { icon:'ti-currency-dollar', text: `$${parseFloat(r.valor_viaticos).toFixed(2)}` } : null,
+        r.coordinada ? { icon:'ti-check', text: 'Coordinada' } : null,
       ].filter(Boolean)
     })
   },
@@ -1304,13 +1316,15 @@ const PLAN_CONFIG = {
       { key:'fecha', label:'Fecha', type:'date', required:true },
       { key:'asesora', label:'Asesora', type:'text', placeholder:'Nombre de la asesora' },
       { key:'cliente', label:'Cliente', type:'text', placeholder:'Nombre del cliente' },
-      { key:'consignacion', label:'Consignación', type:'text', placeholder:'Detalle de consignación' }
+      { key:'consignacion', label:'Consignación', type:'text', placeholder:'Detalle de consignación' },
+      { key:'coordinada', label:'Coordinada', type:'checkbox' }
     ],
     tarjeta: (r) => ({
       titulo: r.cliente || 'Sin cliente',
       chips: [
         r.asesora ? { icon:'ti-user', text: r.asesora } : null,
         r.consignacion ? { icon:'ti-package', text: r.consignacion } : null,
+        r.coordinada ? { icon:'ti-check', text: 'Coordinada' } : null,
       ].filter(Boolean)
     })
   }
@@ -1409,6 +1423,11 @@ function abrirModalPlan(modulo, row, mesKey){
 
   const camposHTML = cfg.campos.map(f => {
     const val = row?.[f.key] ?? (f.type==='date' ? mesKey+'-01' : '');
+    if(f.type==='checkbox'){
+      return `<div style="display:flex;align-items:center;gap:10px">
+        <input type="checkbox" id="plan-${f.key}" ${val?'checked':''} style="accent-color:#A0684A;width:18px;height:18px;cursor:pointer"/>
+        <label for="plan-${f.key}" style="font-size:13px;color:#374151;cursor:pointer">${f.label}</label></div>`;
+    }
     if(f.type==='select'){
       return `<div><label style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:5px">${f.label}</label>
         <select id="plan-${f.key}" style="width:100%;padding:9px 12px;border:1px solid #e5e5e5;border-radius:8px;font-size:13px;outline:none;box-sizing:border-box">
@@ -1449,7 +1468,8 @@ async function guardarPlan(modulo, id, mesKey){
     const el = document.getElementById('plan-'+f.key);
     if(!el) continue;
     if(f.required && !el.value.trim()){ errEl.textContent=`${f.label} es obligatorio`; errEl.style.display='block'; return; }
-    body[f.key] = f.type==='number' ? (parseFloat(el.value)||null) : (el.value.trim()||null);
+    if(f.type==='checkbox') body[f.key] = el.checked;
+    else body[f.key] = f.type==='number' ? (parseFloat(el.value)||null) : (el.value.trim()||null);
   }
   try{
     const url = id ? `/api/${modulo}/${id}` : `/api/${modulo}`;
@@ -6760,6 +6780,237 @@ function clientesEnMes(nombreVend, anio, mes){
   return clientes.filter(c=> c.frecuencia.some(f=>f.mes===mes && f.total>0)).length;
 }
 
+// ══════════ KPIs GIOVANNA (jefa de ventas) ══════════
+async function renderKpisGiovanna(asesoraKpi, asesoras, puedeVerTodas, rol){
+  const now = new Date();
+  const anio = now.getFullYear();
+  const mes = now.getMonth()+1;
+  const mesKey = `${anio}-${String(mes).padStart(2,'0')}`;
+  const MESES_N = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+
+  // Lunes de la semana actual (Ecuador)
+  const hoyEc = new Date(new Date().toLocaleString('en-US',{timeZone:'America/Guayaquil'}));
+  const lunes = new Date(hoyEc);
+  lunes.setDate(hoyEc.getDate() - ((hoyEc.getDay()+6)%7));
+  const lunesKey = lunes.toISOString().split('T')[0];
+
+  // Lunes del mes actual
+  const lunesDelMes = [];
+  const d = new Date(anio, mes-1, 1);
+  while(d.getMonth() === mes-1){
+    if(d.getDay() === 1) lunesDelMes.push(new Date(d));
+    d.setDate(d.getDate()+1);
+  }
+
+  document.getElementById('main').innerHTML = '<div style="display:flex;justify-content:center;padding:40px;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:24px"></i></div>';
+
+  // Cargar todo en paralelo
+  let caps=[], inst=[], giras=[], casas=[], metas={}, cumplimiento={detalle:[],pct_semana:0}, revisiones=[], usuarios=[];
+  try {
+    const [rC, rI, rG, rCA, rM, rCu, rRev, rU] = await Promise.all([
+      fetch(`/api/capacitaciones?mes=${mesKey}`),
+      fetch(`/api/institutos?mes=${mesKey}`),
+      fetch(`/api/giras?mes=${mesKey}`),
+      fetch(`/api/casas_abiertas?mes=${mesKey}`),
+      fetch('/api/kpi-metas'),
+      fetch(`/api/kpi-cumplimiento-visitas?semana=${lunesKey}&mes=${mesKey}`),
+      fetch(`/api/revisiones-lunes?mes=${mesKey}`),
+      fetch('/api/usuarios')
+    ]);
+    if(rC.ok){ const d=await rC.json(); if(Array.isArray(d)) caps=d; }
+    if(rI.ok){ const d=await rI.json(); if(Array.isArray(d)) inst=d; }
+    if(rG.ok){ const d=await rG.json(); if(Array.isArray(d)) giras=d; }
+    if(rCA.ok){ const d=await rCA.json(); if(Array.isArray(d)) casas=d; }
+    if(rM.ok) metas = await rM.json();
+    if(rCu.ok) cumplimiento = await rCu.json();
+    if(rRev.ok){ const d=await rRev.json(); if(Array.isArray(d)) revisiones=d; }
+    if(rU.ok){ const d=await rU.json(); if(Array.isArray(d)) usuarios=d; }
+  } catch(e){ console.error('Error cargando KPIs Giovanna:', e); }
+
+  const asesorasEquipo = usuarios.filter(u=>u.rol==='asesora' && u.activo).map(u=>u.nombre);
+
+  // Cálculos
+  const capOficina = caps.filter(c=>c.tipo==='Oficina').length;
+  const capProvincia = caps.filter(c=>c.tipo==='Provincia').length;
+  const instAperturas = inst.filter(i=>i.tipo_actividad==='Apertura').length;
+  const instVisitas = inst.filter(i=>i.tipo_actividad==='Visita').length;
+  const girasTotal = giras.length;
+  const girasCoord = giras.filter(g=>g.coordinada).length;
+  const girasPct = girasTotal ? Math.round(girasCoord/girasTotal*100) : 0;
+  const casasTotal = casas.length;
+  const casasCoord = casas.filter(c=>c.coordinada).length;
+  const casasPct = casasTotal ? Math.round(casasCoord/casasTotal*100) : 0;
+
+  // Revisiones: mapa asesora|semana → revisado
+  const revMap = {};
+  revisiones.forEach(r=>{ revMap[r.asesora+'|'+r.semana] = r.revisado; });
+  const lunesElapsed = lunesDelMes.filter(l=>l<=hoyEc);
+  const totalRevEsperadas = asesorasEquipo.length * lunesElapsed.length;
+  const totalRevHechas = asesorasEquipo.reduce((acc,a)=>
+    acc + lunesElapsed.filter(l=>revMap[a+'|'+l.toISOString().split('T')[0]]).length, 0);
+
+  const esAdmin = rol==='admin';
+  const puedeMarcarRev = rol==='admin' || rol==='jefa_ventas';
+
+  function kpiCard(label, valor, meta, unidad=''){
+    const num = parseFloat(valor);
+    const metaNum = parseFloat(meta);
+    const cumple = !isNaN(num) && !isNaN(metaNum) && num >= metaNum;
+    return `
+      <div class="kpi" style="border-left:3px solid ${cumple?'#16a34a':'#dc2626'}">
+        <div class="kpi-label">${label}</div>
+        <div class="kpi-val" style="color:${cumple?'#16a34a':'#dc2626'}">${valor}${unidad}</div>
+        <div class="kpi-sub">Meta: ${meta}${unidad}</div>
+      </div>`;
+  }
+
+  document.getElementById('main').innerHTML = `
+    <div class="breadcrumb" style="margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <i class="ti ti-chart-bar" style="color:var(--brown);font-size:12px"></i>
+        <span style="font-weight:500">KPIs — Giovanna · ${MESES_N[mes]} ${anio}</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        ${puedeVerTodas?`
+        <select onchange="window._kpiAsesora=this.value;renderKpis()" style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;outline:none;background:white;cursor:pointer">
+          ${asesoras.map(a=>`<option value="${a}" ${a===asesoraKpi?'selected':''}>${a.split(' ')[0]}</option>`).join('')}
+        </select>`:''}
+        ${esAdmin?`
+        <button onclick="configurarKpiMetas()" style="padding:6px 14px;background:#1a1108;color:white;border:none;border-radius:8px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:5px">
+          <i class="ti ti-settings"></i> Configurar
+        </button>`:''}
+      </div>
+    </div>
+
+    <!-- KPIs mensuales -->
+    <div class="kpi-row" style="margin-bottom:8px">
+      ${kpiCard('Capacitaciones en oficina', capOficina, metas.cap_oficina||'1')}
+      ${kpiCard('Capacitaciones en provincia', capProvincia, metas.cap_provincia||'1')}
+      ${kpiCard('Institutos aperturados', instAperturas, metas.inst_aperturas||'1')}
+      ${kpiCard('Visitas a institutos', instVisitas, metas.inst_visitas||'4')}
+    </div>
+    <div class="kpi-row" style="margin-bottom:12px">
+      ${kpiCard('Cumplimiento 30 visitas (semana)', cumplimiento.pct_semana||0, metas.visitas_cumplimiento||'100', '%')}
+      ${kpiCard('Giras coordinadas', girasPct, metas.giras_pct||'100', '%')}
+      ${kpiCard('Casas abiertas coordinadas', casasPct, metas.casas_pct||'100', '%')}
+      <div class="kpi" style="border-left:3px solid ${totalRevHechas>=totalRevEsperadas&&totalRevEsperadas>0?'#16a34a':'#dc2626'}">
+        <div class="kpi-label">Planificaciones revisadas</div>
+        <div class="kpi-val" style="color:${totalRevHechas>=totalRevEsperadas&&totalRevEsperadas>0?'#16a34a':'#dc2626'}">${totalRevHechas}/${totalRevEsperadas}</div>
+        <div class="kpi-sub">${metas.revisiones||'Todos los lunes'}</div>
+      </div>
+    </div>
+
+    <!-- Detalle cumplimiento visitas por asesora -->
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-title"><i class="ti ti-map-pin"></i> Cumplimiento de visitas por asesora</div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead><tr style="border-bottom:1px solid var(--border)">
+            <th style="text-align:left;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Asesora</th>
+            <th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Meta</th>
+            <th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Semana</th>
+            <th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Mes</th>
+            <th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Estado</th>
+          </tr></thead>
+          <tbody>
+            ${(cumplimiento.detalle||[]).map(d=>`
+              <tr style="border-bottom:0.5px solid #f0ede9">
+                <td style="padding:8px 10px;font-weight:500">${d.asesora.split(' ')[0]} ${(d.asesora.split(' ')[1]||'')}</td>
+                <td style="padding:8px 10px;text-align:center">${d.meta}</td>
+                <td style="padding:8px 10px;text-align:center;font-weight:700;color:${d.cumple_semana?'#16a34a':'#dc2626'}">${d.visitadas_semana}</td>
+                <td style="padding:8px 10px;text-align:center">${d.visitadas_mes}</td>
+                <td style="padding:8px 10px;text-align:center">${d.cumple_semana?'<i class="ti ti-circle-check" style="color:#16a34a;font-size:16px"></i>':'<i class="ti ti-alert-circle" style="color:#dc2626;font-size:16px"></i>'}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Revisiones de lunes -->
+    <div class="card">
+      <div class="card-title"><i class="ti ti-checklist"></i> Revisión de planificaciones — lunes de ${MESES_N[mes]}</div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead><tr style="border-bottom:1px solid var(--border)">
+            <th style="text-align:left;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Asesora</th>
+            ${lunesDelMes.map(l=>`<th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted)">Lun ${l.getDate()}</th>`).join('')}
+          </tr></thead>
+          <tbody>
+            ${asesorasEquipo.map(a=>`
+              <tr style="border-bottom:0.5px solid #f0ede9">
+                <td style="padding:8px 10px;font-weight:500">${a.split(' ')[0]}</td>
+                ${lunesDelMes.map(l=>{
+                  const lk = l.toISOString().split('T')[0];
+                  const marcado = revMap[a+'|'+lk];
+                  return `<td style="padding:8px 10px;text-align:center">
+                    <input type="checkbox" ${marcado?'checked':''} ${puedeMarcarRev?'':'disabled'}
+                      onchange="marcarRevisionLunes('${a.replace(/'/g,"\\'")}','${lk}',this.checked)"
+                      style="accent-color:#A0684A;width:16px;height:16px;cursor:${puedeMarcarRev?'pointer':'default'}"/>
+                  </td>`;
+                }).join('')}
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+async function marcarRevisionLunes(asesora, semana, revisado){
+  try {
+    await fetch('/api/revisiones-lunes', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({asesora, semana, revisado})
+    });
+  } catch(e){ console.error('Error guardando revisión:', e); }
+}
+
+async function configurarKpiMetas(){
+  let metas = {};
+  try { const r = await fetch('/api/kpi-metas'); metas = await r.json(); } catch(e){}
+  const overlay = document.createElement('div');
+  overlay.id = 'kpi-metas-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:500;display:flex;align-items:center;justify-content:center;padding:20px';
+  const campos = [
+    {key:'cap_oficina', label:'Capacitaciones en oficina', type:'number'},
+    {key:'cap_provincia', label:'Capacitaciones en provincia', type:'number'},
+    {key:'inst_aperturas', label:'Institutos nuevos aperturados', type:'number'},
+    {key:'inst_visitas', label:'Visitas a institutos', type:'number'},
+    {key:'revisiones', label:'Planificaciones revisadas (texto)', type:'text'},
+    {key:'visitas_cumplimiento', label:'Cumplimiento visitas (%)', type:'number'},
+    {key:'giras_pct', label:'Giras coordinadas (%)', type:'number'},
+    {key:'casas_pct', label:'Casas abiertas coordinadas (%)', type:'number'}
+  ];
+  overlay.innerHTML = `
+    <div style="background:white;border-radius:16px;width:100%;max-width:440px;box-shadow:0 20px 60px rgba(0,0,0,0.2);overflow:hidden;max-height:90vh;display:flex;flex-direction:column">
+      <div style="background:#1a1108;padding:16px 20px;display:flex;align-items:center;justify-content:space-between">
+        <div style="color:white;font-size:14px;font-weight:500"><i class="ti ti-settings" style="color:#A0684A;margin-right:8px"></i>Configurar metas KPI</div>
+        <button onclick="document.getElementById('kpi-metas-overlay').remove()" style="background:none;border:none;color:#7a6a5a;cursor:pointer;font-size:18px"><i class="ti ti-x"></i></button>
+      </div>
+      <div style="padding:20px;display:flex;flex-direction:column;gap:12px;overflow-y:auto">
+        ${campos.map(c=>`
+          <div>
+            <label style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px">${c.label}</label>
+            <input type="${c.type}" id="kpim-${c.key}" value="${metas[c.key]||''}"
+              style="width:100%;padding:9px 12px;border:1px solid #e5e5e5;border-radius:8px;font-size:13px;outline:none;box-sizing:border-box">
+          </div>`).join('')}
+        <button onclick="guardarKpiMetas()" style="padding:11px;border:none;border-radius:8px;background:#1a1108;color:white;font-size:13px;font-weight:500;cursor:pointer;margin-top:4px">Guardar metas</button>
+      </div>
+    </div>`;
+  overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove(); });
+  document.body.appendChild(overlay);
+}
+
+async function guardarKpiMetas(){
+  const claves = ['cap_oficina','cap_provincia','inst_aperturas','inst_visitas','revisiones','visitas_cumplimiento','giras_pct','casas_pct'];
+  const body = {};
+  claves.forEach(k=>{ const el=document.getElementById('kpim-'+k); if(el && el.value!=='') body[k]=el.value; });
+  try {
+    await fetch('/api/kpi-metas', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    document.getElementById('kpi-metas-overlay')?.remove();
+    renderKpis();
+  } catch(e){ alert('Error: '+e.message); }
+}
+
 async function renderKpis(){
   await cargarVisitas(); // asegura visitasDB cargado
   const usuario = window.usuarioActual || {};
@@ -6780,6 +7031,11 @@ async function renderKpis(){
   const nombreResuelto = resolverNombreReal(nombre, DATA) || nombre;
   let asesoraKpi = window._kpiAsesora || (puedeVerTodas ? asesoras[0] : nombreResuelto);
   window._kpiAsesora = asesoraKpi;
+
+  // Panel especial de KPIs para Giovanna (jefa de ventas)
+  if(/giovanna/i.test(asesoraKpi)){
+    return renderKpisGiovanna(asesoraKpi, asesoras, puedeVerTodas, rol);
+  }
 
   // Ya no hay selector de mes (se quitó: el histórico de abajo cubre esa necesidad),
   // así que KPIs siempre muestra el mes/año actuales del calendario real.
