@@ -7341,6 +7341,22 @@ async function renderKpis(){
   let kpiData = getKpiData(asesoraKpi, anioFiltro, mesFiltro);
 
   // Ingreso de clientes a Mercately (KPI manual, configurado en Configuración → Sincronización)
+  // Visitas semanales de la asesora (desde Visitas → Planificación)
+  let visitasSemana = null, visitasMeta = 30, visitasMesTotal = 0;
+  try{
+    const hoyEcK = new Date(new Date().toLocaleString('en-US',{timeZone:'America/Guayaquil'}));
+    const lunesK = new Date(hoyEcK); lunesK.setDate(hoyEcK.getDate() - ((hoyEcK.getDay()+6)%7));
+    const lunesKeyK = lunesK.toISOString().split('T')[0];
+    const mesKeyK = `${anioFiltro}-${String(mesFiltro).padStart(2,'0')}`;
+    const rV = await fetch(`/api/kpi-cumplimiento-visitas?semana=${lunesKeyK}&mes=${mesKeyK}`);
+    if(rV.ok){
+      const dV = await rV.json();
+      const p1 = (asesoraKpi||'').split(' ')[0].toLowerCase();
+      const fila = (dV.detalle||[]).find(d => d.asesora.toLowerCase().startsWith(p1) || asesoraKpi.toLowerCase().startsWith(d.asesora.split(' ')[0].toLowerCase()));
+      if(fila){ visitasSemana = fila.visitadas_semana; visitasMeta = fila.meta; visitasMesTotal = fila.visitadas_mes; }
+    }
+  }catch(e){}
+
   let mercatelyMeta = 0, mercatelyNuevos = null, mercatelyDif = null, mercatelyHistorico = [];
   try{
     const [rMetas, rReg] = await Promise.all([
@@ -7546,6 +7562,32 @@ async function renderKpis(){
           }).join('')}
         </div>
       </div>`:''}
+    </div>
+
+    <!-- Visitas semanales (desde Visitas → Planificación) -->
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-title" style="margin-bottom:12px"><i class="ti ti-map-pin"></i> Visitas semanales</div>
+      ${visitasSemana===null ? `
+        <p style="font-size:12px;color:var(--muted)">Sin registros de visitas esta semana. Los conteos salen de los checks "Visitado" en Visitas → Planificación.</p>
+      ` : `
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+          <div style="background:${visitasSemana>=visitasMeta?'#f0fdf4':'#fef2f2'};border-radius:10px;padding:12px;text-align:center;border:1px solid ${visitasSemana>=visitasMeta?'#86efac':'#fca5a5'}">
+            <div style="font-size:10px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">Visitadas</div>
+            <div style="font-size:26px;font-weight:800;color:${visitasSemana>=visitasMeta?'#166534':'#991b1b'}">${visitasSemana}</div>
+            <div style="font-size:10px;color:var(--muted)">esta semana</div>
+          </div>
+          <div style="background:#fefce8;border-radius:10px;padding:12px;text-align:center;border:1px solid #fde047">
+            <div style="font-size:10px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">Meta</div>
+            <div style="font-size:20px;font-weight:700;color:var(--text)">${visitasMeta}</div>
+            <div style="font-size:10px;color:var(--muted)">semanal</div>
+          </div>
+          <div style="background:#faf9f8;border-radius:10px;padding:12px;text-align:center;border:1px solid var(--border)">
+            <div style="font-size:10px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">Acumulado</div>
+            <div style="font-size:20px;font-weight:700;color:var(--text)">${visitasMesTotal}</div>
+            <div style="font-size:10px;color:var(--muted)">este mes</div>
+          </div>
+        </div>
+      `}
     </div>
 
     <!-- Ingreso de clientes a Mercately -->
