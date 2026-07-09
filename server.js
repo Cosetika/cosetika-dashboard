@@ -2267,6 +2267,11 @@ const server = http.createServer(async (req, res) => {
       const mesR = mes ? await pool.query(
         `SELECT asesora, COUNT(*) FILTER (WHERE coordinado) AS visitadas FROM planificacion WHERE TO_CHAR(semana,'YYYY-MM')=$1 GROUP BY asesora`, [mes]
       ) : {rows:[]};
+      // Desglose por semana del mes
+      const semR = mes ? await pool.query(
+        `SELECT asesora, TO_CHAR(semana,'YYYY-MM-DD') AS semana, COUNT(*) FILTER (WHERE coordinado) AS visitadas
+         FROM planificacion WHERE TO_CHAR(semana,'YYYY-MM')=$1 GROUP BY asesora, semana ORDER BY semana`, [mes]
+      ) : {rows:[]};
       const vSem = {}; sR.rows.forEach(r=>{ vSem[r.asesora]=parseInt(r.visitadas)||0; });
       const vMes = {}; mesR.rows.forEach(r=>{ vMes[r.asesora]=parseInt(r.visitadas)||0; });
       const detalle = asesoras.map(a=>({
@@ -2278,8 +2283,10 @@ const server = http.createServer(async (req, res) => {
       }));
       const cumplen = detalle.filter(d=>d.cumple_semana).length;
       const pct = asesoras.length ? Math.round(cumplen/asesoras.length*100) : 0;
+      // semanas: [{asesora, semana, visitadas}]
+      const semanas = semR.rows.map(r=>({ asesora: r.asesora, semana: r.semana, visitadas: parseInt(r.visitadas)||0 }));
       res.writeHead(200,{'Content-Type':'application/json'});
-      res.end(JSON.stringify({ detalle, pct_semana: pct, total_asesoras: asesoras.length, cumplen_semana: cumplen }));
+      res.end(JSON.stringify({ detalle, semanas, pct_semana: pct, total_asesoras: asesoras.length, cumplen_semana: cumplen }));
     } catch(e){ res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
     return;
   }
