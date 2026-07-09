@@ -1215,14 +1215,24 @@ async function guardarCapacitacion(id, mesKey){
   try{
     const url = id ? `/api/capacitaciones/${id}` : '/api/capacitaciones';
     const method = id ? 'PUT' : 'POST';
+    console.log('Guardando capacitacion:', method, url, body);
     const r = await fetch(url, { method, headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
     const data = await r.json();
+    console.log('Respuesta servidor:', data);
     if(data.ok || data.row){
       document.getElementById('cap-modal-overlay')?.remove();
       const [ay, mm] = mesKey.split('-');
       await renderCapacitacionesMes(parseInt(ay), parseInt(mm));
-    } else { errEl.textContent='Error: '+(data.error||'desconocido'); errEl.style.display='block'; }
-  } catch(e){ errEl.textContent='Error: '+e.message; errEl.style.display='block'; }
+    } else { 
+      errEl.textContent='Error: '+(data.error||'desconocido'); 
+      errEl.style.display='block'; 
+      console.error('Error servidor:', data);
+    }
+  } catch(e){ 
+    errEl.textContent='Error: '+e.message; 
+    errEl.style.display='block'; 
+    console.error('Error fetch:', e);
+  }
 }
 
 async function borrarCapacitacion(id, mesKey){
@@ -1442,14 +1452,16 @@ async function guardarPlan(modulo, id, mesKey){
   }
   try{
     const url = id ? `/api/${modulo}/${id}` : `/api/${modulo}`;
+    console.log('Guardando plan:', id?'PUT':'POST', url, body);
     const r = await fetch(url, { method: id?'PUT':'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
     const data = await r.json();
+    console.log('Respuesta plan:', data);
     if(data.ok||data.row){
       document.getElementById('plan-modal-overlay')?.remove();
       const [ay,mm] = mesKey.split('-');
       await renderPlanMes(modulo, parseInt(ay), parseInt(mm));
     } else { errEl.textContent='Error: '+(data.error||'desconocido'); errEl.style.display='block'; }
-  }catch(e){ errEl.textContent='Error: '+e.message; errEl.style.display='block'; }
+  }catch(e){ errEl.textContent='Error: '+e.message; errEl.style.display='block'; console.error('Error guardarPlan:', e); }
 }
 
 async function borrarPlan(modulo, id, mesKey){
@@ -5302,7 +5314,7 @@ async function autoGuardarPlanificacion(){
     const cliente = tds[2].querySelector('input[type="text"]')?.value || '';
     const coordinado = tds[3].querySelector('input[type="checkbox"]')?.checked || false;
     const visitado_at = (planRows[idx]?.visitado_at) || '';
-    if(dia || sector || cliente) rows.push({ dia, sector, cliente, coordinado, visitado_at });
+    if(dia || sector || cliente || coordinado) rows.push({ dia, sector, cliente, coordinado, visitado_at });
   });
   console.log('AutoGuardar:', window._planAsesoraActual, window._planSemanaActual, rows.length, 'filas');
   if(rows.length === 0){ console.warn('Sin filas para guardar'); return; }
@@ -5364,7 +5376,7 @@ async function guardarPlanificacion(asesora, semanaKey){
     const cliente = tds[2].querySelector('input[type="text"]')?.value || '';
     const coordinado = tds[3].querySelector('input[type="checkbox"]')?.checked || false;
     const visitado_at = (planRows[i] && planRows[i].visitado_at) || '';
-    if(dia || sector || cliente){
+    if(dia || sector || cliente || coordinado){
       rows.push({ dia, sector, cliente, coordinado, visitado_at });
     }
   });
