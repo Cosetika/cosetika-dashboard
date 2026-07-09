@@ -1836,22 +1836,24 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // ── INSTITUTOS / GIRAS / CASAS ABIERTAS — CRUD genérico por mes ─────────────
+  // ── INSTITUTOS / GIRAS / CASAS ABIERTAS — CRUD explícito ─────────────
   for(const tabla of ['institutos','giras','casas_abiertas']){
-    if(urlPath === `/api/${tabla}` && req.method === 'GET'){
+    if(urlPath !== `/api/${tabla}` && !urlPath.match(new RegExp(`^/api/${tabla}/\\d+$`))) continue;
+
+    if(req.method === 'GET'){
       try{
         const mes = urlObj.searchParams.get('mes');
         const r = mes
-          ? await pool.query(`SELECT * FROM ${tabla} WHERE TO_CHAR(fecha,'YYYY-MM')=$1 ORDER BY fecha ASC`,[mes])
-          : await pool.query(`SELECT * FROM ${tabla} ORDER BY fecha DESC LIMIT 100`);
+          ? await pool.query(`SELECT *, TO_CHAR(fecha,'YYYY-MM-DD') AS fecha FROM ${tabla} WHERE TO_CHAR(fecha,'YYYY-MM')=$1 ORDER BY fecha ASC`,[mes])
+          : await pool.query(`SELECT *, TO_CHAR(fecha,'YYYY-MM-DD') AS fecha FROM ${tabla} ORDER BY fecha DESC LIMIT 100`);
         res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.rows));
       }catch(e){res.writeHead(500,{'Content-Type':'application/json'});res.end(JSON.stringify({error:e.message}));}
       return;
     }
-    if(urlPath === `/api/${tabla}` && req.method === 'POST'){
+    if(req.method === 'POST' && urlPath === `/api/${tabla}`){
       try{
         const body = await bodyJSON(req);
-        const cols = Object.keys(body).filter(k=>body[k]!==undefined);
+        const cols = Object.keys(body).filter(k=>body[k]!==undefined && body[k]!==null);
         const vals = cols.map(k=>body[k]);
         const placeholders = cols.map((_,i)=>`$${i+1}`).join(',');
         const r = await pool.query(
@@ -1861,10 +1863,10 @@ const server = http.createServer(async (req, res) => {
       }catch(e){res.writeHead(500,{'Content-Type':'application/json'});res.end(JSON.stringify({ok:false,error:e.message}));}
       return;
     }
-    const matchPut = urlPath.match(new RegExp(`^/api/${tabla}/(\\d+)$`));
-    if(matchPut && req.method === 'PUT'){
+    const matchId = urlPath.match(new RegExp(`^/api/${tabla}/(\\d+)$`));
+    if(matchId && req.method === 'PUT'){
       try{
-        const id = matchPut[1];
+        const id = matchId[1];
         const body = await bodyJSON(req);
         const cols = Object.keys(body).filter(k=>body[k]!==undefined);
         const sets = cols.map((k,i)=>`${k}=$${i+1}`).join(',');
@@ -1874,9 +1876,9 @@ const server = http.createServer(async (req, res) => {
       }catch(e){res.writeHead(500,{'Content-Type':'application/json'});res.end(JSON.stringify({ok:false,error:e.message}));}
       return;
     }
-    if(matchPut && req.method === 'DELETE'){
+    if(matchId && req.method === 'DELETE'){
       try{
-        await pool.query(`DELETE FROM ${tabla} WHERE id=$1`,[matchPut[1]]);
+        await pool.query(`DELETE FROM ${tabla} WHERE id=$1`,[matchId[1]]);
         res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
       }catch(e){res.writeHead(500,{'Content-Type':'application/json'});res.end(JSON.stringify({ok:false,error:e.message}));}
       return;
