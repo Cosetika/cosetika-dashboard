@@ -6881,24 +6881,34 @@ async function eliminarEquipo(id, nombre){
 // ══════════ KPIs GIOVANNA (jefa de ventas) ══════════
 async function renderKpisGiovanna(asesoraKpi, asesoras, puedeVerTodas, rol){
   const now = new Date();
-  const anio = now.getFullYear();
-  const mes = now.getMonth()+1;
+  // Mes navegable (por defecto el actual)
+  if(window._kpiGioAnio === undefined){ window._kpiGioAnio = now.getFullYear(); window._kpiGioMes = now.getMonth()+1; }
+  const anio = window._kpiGioAnio;
+  const mes = window._kpiGioMes;
+  const esMesActual = (anio === now.getFullYear() && mes === now.getMonth()+1);
   const mesKey = `${anio}-${String(mes).padStart(2,'0')}`;
   const MESES_N = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 
   // Lunes de la semana actual (Ecuador)
   const hoyEc = new Date(new Date().toLocaleString('en-US',{timeZone:'America/Guayaquil'}));
-  const lunes = new Date(hoyEc);
-  lunes.setDate(hoyEc.getDate() - ((hoyEc.getDay()+6)%7));
-  const lunesKey = lunes.toISOString().split('T')[0];
 
-  // Lunes del mes actual
+  // Lunes del mes visualizado
   const lunesDelMes = [];
   const d = new Date(anio, mes-1, 1);
   while(d.getMonth() === mes-1){
     if(d.getDay() === 1) lunesDelMes.push(new Date(d));
     d.setDate(d.getDate()+1);
   }
+
+  // Semana de referencia para el KPI semanal: la actual si es el mes en curso, o el último lunes del mes pasado
+  let lunesRef;
+  if(esMesActual){
+    lunesRef = new Date(hoyEc);
+    lunesRef.setDate(hoyEc.getDate() - ((hoyEc.getDay()+6)%7));
+  } else {
+    lunesRef = lunesDelMes[lunesDelMes.length-1] || new Date(anio, mes-1, 1);
+  }
+  const lunesKey = lunesRef.toISOString().split('T')[0];
 
   document.getElementById('main').innerHTML = '<div style="display:flex;justify-content:center;padding:40px;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:24px"></i></div>';
 
@@ -6932,14 +6942,18 @@ async function renderKpisGiovanna(asesoraKpi, asesoras, puedeVerTodas, rol){
   const miembrosEquipo = equipoJefa ? equipoJefa.miembros : null;
 
   let asesorasEquipo = usuarios.filter(u=>u.rol==='asesora' && u.activo).map(u=>u.nombre);
+  // La jefa no cumple meta de visitas: solo asesoras en el detalle
+  if(cumplimiento.detalle){
+    cumplimiento.detalle = cumplimiento.detalle.filter(d => asesorasEquipo.includes(d.asesora));
+  }
   if(miembrosEquipo && miembrosEquipo.length > 0){
     asesorasEquipo = asesorasEquipo.filter(a => miembrosEquipo.includes(a));
-    // Filtrar también el detalle de cumplimiento
-    if(cumplimiento.detalle){
-      cumplimiento.detalle = cumplimiento.detalle.filter(d => miembrosEquipo.includes(d.asesora));
-      const cumplen = cumplimiento.detalle.filter(d=>d.cumple_semana).length;
-      cumplimiento.pct_semana = cumplimiento.detalle.length ? Math.round(cumplen/cumplimiento.detalle.length*100) : 0;
-    }
+  }
+  // El cumplimiento solo aplica a asesoras (la jefa no tiene meta de visitas)
+  if(cumplimiento.detalle){
+    cumplimiento.detalle = cumplimiento.detalle.filter(d => asesorasEquipo.includes(d.asesora));
+    const cumplen = cumplimiento.detalle.filter(d=>d.cumple_semana).length;
+    cumplimiento.pct_semana = cumplimiento.detalle.length ? Math.round(cumplen/cumplimiento.detalle.length*100) : 0;
   }
 
   // Cálculos
@@ -6981,7 +6995,7 @@ async function renderKpisGiovanna(asesoraKpi, asesoras, puedeVerTodas, rol){
     <div class="breadcrumb" style="margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
       <div style="display:flex;align-items:center;gap:8px">
         <i class="ti ti-chart-bar" style="color:var(--brown);font-size:12px"></i>
-        <span style="font-weight:500">KPIs — ${asesoraKpi.split(' ')[0]}${equipoJefa?` · Equipo ${equipoJefa.nombre}`:''} · ${MESES_N[mes]} ${anio}</span>
+        <span style="font-weight:500">KPIs — ${asesoraKpi.split(' ')[0]}${equipoJefa?` · Equipo ${equipoJefa.nombre}`:''}</span>
       </div>
       <div style="display:flex;align-items:center;gap:8px">
         ${puedeVerTodas?`
@@ -6995,6 +7009,16 @@ async function renderKpisGiovanna(asesoraKpi, asesoras, puedeVerTodas, rol){
       </div>
     </div>
 
+    <!-- Navegación de mes -->
+    <div style="display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:14px">
+      <button onclick="kpiGioMesNav(-1)" style="width:34px;height:34px;border:1px solid var(--border);border-radius:50%;background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;color:var(--brown)"><i class="ti ti-chevron-left"></i></button>
+      <div style="text-align:center;min-width:160px">
+        <div style="font-size:18px;font-weight:700">${MESES_N[mes]} ${anio}</div>
+        <div style="font-size:10px;color:var(--muted)">${esMesActual?'Mes actual':'Mes anterior'}</div>
+      </div>
+      <button onclick="kpiGioMesNav(1)" ${esMesActual?'disabled':''} style="width:34px;height:34px;border:1px solid var(--border);border-radius:50%;background:${esMesActual?'#f5f3f0':'white'};cursor:${esMesActual?'default':'pointer'};display:flex;align-items:center;justify-content:center;font-size:14px;color:${esMesActual?'#ccc':'var(--brown)'}"><i class="ti ti-chevron-right"></i></button>
+    </div>
+
     <!-- KPIs mensuales -->
     <div class="kpi-row" style="margin-bottom:8px">
       ${kpiCard('Capacitaciones en oficina', capOficina, metas.cap_oficina||'1')}
@@ -7003,7 +7027,7 @@ async function renderKpisGiovanna(asesoraKpi, asesoras, puedeVerTodas, rol){
       ${kpiCard('Visitas a institutos', instVisitas, metas.inst_visitas||'4')}
     </div>
     <div class="kpi-row" style="margin-bottom:12px">
-      ${kpiCard('Cumplimiento 30 visitas (semana)', cumplimiento.pct_semana||0, metas.visitas_cumplimiento||'100', '%')}
+      ${kpiCard(esMesActual?'Cumplimiento 30 visitas (semana)':'Cumplimiento visitas (última sem.)', cumplimiento.pct_semana||0, metas.visitas_cumplimiento||'100', '%')}
       ${kpiCard('Giras coordinadas', girasPct, metas.giras_pct||'100', '%')}
       ${kpiCard('Casas abiertas coordinadas', casasPct, metas.casas_pct||'100', '%')}
       <div class="kpi" style="border-left:3px solid ${totalRevHechas>=totalRevEsperadas&&totalRevEsperadas>0?'#16a34a':'#dc2626'}">
@@ -7066,6 +7090,19 @@ async function renderKpisGiovanna(asesoraKpi, asesoras, puedeVerTodas, rol){
         </table>
       </div>
     </div>`;
+}
+
+function kpiGioMesNav(delta){
+  let m = (window._kpiGioMes||new Date().getMonth()+1) + delta;
+  let a = window._kpiGioAnio||new Date().getFullYear();
+  if(m < 1){ m = 12; a--; }
+  if(m > 12){ m = 1; a++; }
+  const now = new Date();
+  // No permitir ir más allá del mes actual
+  if(a > now.getFullYear() || (a === now.getFullYear() && m > now.getMonth()+1)) return;
+  window._kpiGioMes = m;
+  window._kpiGioAnio = a;
+  renderKpis();
 }
 
 async function marcarRevisionLunes(asesora, semana, revisado){
