@@ -1446,6 +1446,7 @@ async function initDB() {
         created_at TIMESTAMP DEFAULT NOW()
       );
       ALTER TABLE planificacion ADD COLUMN IF NOT EXISTS visitado_at VARCHAR(20);
+      ALTER TABLE pedidos_web ADD COLUMN IF NOT EXISTS facturado_ayer BOOLEAN DEFAULT false;
       CREATE TABLE IF NOT EXISTS capacitaciones (
         id SERIAL PRIMARY KEY,
         fecha DATE NOT NULL,
@@ -2108,6 +2109,21 @@ const server = http.createServer(async (req, res) => {
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
     return;
   }
+  // POST /api/pedidos-web/mover-siguiente-dia  body: { numeroPedido }
+  // Mueve el pedido al día siguiente y lo marca como "facturado ayer" — para
+  // pedidos facturados después de que el courier ya pasó (despachan al día siguiente)
+  if (urlPath === '/api/pedidos-web/mover-siguiente-dia' && req.method === 'POST') {
+    try {
+      const { numeroPedido } = await bodyJSON(req);
+      await pool.query(
+        `UPDATE pedidos_web SET fecha = fecha + INTERVAL '1 day', facturado_ayer = true WHERE numero_pedido=$1`,
+        [numeroPedido]
+      );
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e){ res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
   // POST /api/pedidos-web/marcar-facturado  body: { numeroPedido, documentoFactura }
   // Permite marcar manualmente un pedido como facturado (por si el cruce automático no
   // lo detecta, ej. el nombre en Contifico es muy distinto al de la web)

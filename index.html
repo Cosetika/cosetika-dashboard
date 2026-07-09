@@ -3230,6 +3230,7 @@ async function renderControlContenido(){
             <th style="padding:7px 12px;text-align:right;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Total</th>
             <th style="padding:7px 12px;text-align:center;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Facturado</th>
             <th style="padding:7px 12px;text-align:center;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Envío</th>
+            <th style="padding:7px 12px;text-align:center;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px" title="Pasar al día siguiente">Mover</th>
           </tr></thead>
           <tbody>
             ${pedidos.map(p=>{
@@ -3240,19 +3241,41 @@ async function renderControlContenido(){
                 <td style="padding:7px 12px;color:var(--muted);font-size:11px;white-space:nowrap">#${p.numero_pedido}</td>
                 <td style="padding:7px 12px;font-weight:500;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p.cliente_nombre||''}">${p.cliente_nombre||'—'}</td>
                 <td style="padding:7px 12px;text-align:right;color:var(--brown);font-weight:600">${fmt(parseFloat(p.total||0))}</td>
-                <td style="padding:7px 12px;text-align:center" title="${fac.documento?('Factura '+fac.documento):'Click para marcar como facturado manualmente'}">
+                <td style="padding:7px 12px;text-align:center;white-space:nowrap" title="${fac.documento?('Factura '+fac.documento):'Click para marcar como facturado manualmente'}">
                   ${fac.match
                     ? '<i class="ti ti-check" style="color:#10b981;font-size:18px;font-weight:700"></i>'
                     : `<i class="ti ti-x" style="color:#ef4444;font-size:18px;font-weight:700;cursor:pointer" onclick="marcarFacturadoManual('${p.numero_pedido}')"></i>`}
+                  ${p.facturado_ayer ? '<span style="display:inline-block;margin-left:6px;font-size:9px;font-weight:600;color:#b45309;background:#fef3c7;border:1px solid #fde68a;border-radius:10px;padding:2px 8px;vertical-align:middle">facturado ayer</span>' : ''}
                 </td>
                 <td style="padding:7px 12px;text-align:center" title="${env.guia?('Guía '+env.guia):''}">
                   ${env.match ? '<i class="ti ti-check" style="color:#10b981;font-size:18px;font-weight:700"></i>' : '<i class="ti ti-x" style="color:#ef4444;font-size:18px;font-weight:700"></i>'}
+                </td>
+                <td style="padding:7px 12px;text-align:center">
+                  <button onclick="moverPedidoSiguienteDia('${p.numero_pedido}','${(p.cliente_nombre||'').replace(/'/g,"\\'")}')"
+                    title="Pasar este pedido al día siguiente (se facturó después de que pasó el courier)"
+                    style="width:26px;height:26px;border:1px solid var(--border);border-radius:6px;background:white;cursor:pointer;color:var(--brown);font-size:13px;display:inline-flex;align-items:center;justify-content:center">
+                    <i class="ti ti-arrow-right"></i>
+                  </button>
                 </td>
               </tr>`;}).join('')}
           </tbody>
         </table>
       </div>`}
     </div>`;
+}
+
+async function moverPedidoSiguienteDia(numeroPedido, cliente){
+  if(!confirm(`¿Pasar el pedido #${numeroPedido} (${cliente}) al día siguiente?\n\nSe marcará como "facturado ayer" — para pedidos facturados después de que pasó el courier.`)) return;
+  try{
+    const r = await fetch('/api/pedidos-web/mover-siguiente-dia', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ numeroPedido })
+    });
+    const data = await r.json();
+    if(data.ok) await renderControlContenido();
+    else alert('Error: '+(data.error||'desconocido'));
+  } catch(e){ alert('Error: '+e.message); }
 }
 
 async function marcarFacturadoManual(numeroPedido){
