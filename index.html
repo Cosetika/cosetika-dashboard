@@ -5292,28 +5292,31 @@ async function marcarVisitado(i, checked){
 
 async function autoGuardarPlanificacion(){
   const tbody = document.getElementById('plan-tbody');
-  if(!tbody) return;
+  if(!tbody){ console.error('plan-tbody no encontrado'); return; }
   const rows = [];
   tbody.querySelectorAll('tr').forEach((tr, idx) => {
     const tds = tr.querySelectorAll('td');
     if(tds.length < 4) return;
     const dia = tds[0].querySelector('select')?.value || '';
-    const sector = tds[1].querySelector('input')?.value || '';
-    const cliente = tds[2].querySelector('input')?.value || '';
+    const sector = tds[1].querySelector('input[type="text"]')?.value || '';
+    const cliente = tds[2].querySelector('input[type="text"]')?.value || '';
     const coordinado = tds[3].querySelector('input[type="checkbox"]')?.checked || false;
     const visitado_at = (planRows[idx]?.visitado_at) || '';
     if(dia || sector || cliente) rows.push({ dia, sector, cliente, coordinado, visitado_at });
   });
-  if(rows.length === 0) return;
+  console.log('AutoGuardar:', window._planAsesoraActual, window._planSemanaActual, rows.length, 'filas');
+  if(rows.length === 0){ console.warn('Sin filas para guardar'); return; }
   const asesora = window._planAsesoraActual || '';
   const semana = window._planSemanaActual || '';
-  if(!asesora || !semana) return;
+  if(!asesora || !semana){ console.error('Falta asesora o semana:', asesora, semana); return; }
   try {
-    await fetch('/api/planificacion', {
+    const r = await fetch('/api/planificacion', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ asesora, semana, filas: rows })
     });
+    const data = await r.json();
+    console.log('Resultado autoguardar:', data);
   } catch(e){ console.error('Error autoguardando:', e); }
 }
 
@@ -5357,8 +5360,8 @@ async function guardarPlanificacion(asesora, semanaKey){
     const tds = tr.querySelectorAll('td');
     if(tds.length < 4) return;
     const dia = tds[0].querySelector('select')?.value || '';
-    const sector = tds[1].querySelector('input')?.value || '';
-    const cliente = tds[2].querySelector('input')?.value || '';
+    const sector = tds[1].querySelector('input[type="text"]')?.value || '';
+    const cliente = tds[2].querySelector('input[type="text"]')?.value || '';
     const coordinado = tds[3].querySelector('input[type="checkbox"]')?.checked || false;
     const visitado_at = (planRows[i] && planRows[i].visitado_at) || '';
     if(dia || sector || cliente){
