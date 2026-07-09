@@ -6567,7 +6567,7 @@ async function renderComisiones(){
   // Vendedores fuera de todos los equipos (ej. Fernando) — se muestran aparte
   const nombresEnEquipos = new Set();
   equipos.forEach(e=>{ if(e.lider) nombresEnEquipos.add(e.lider); (e.miembros||[]).forEach(m=>nombresEnEquipos.add(m)); });
-  const fueraEquipo = todasVends.filter(v => !nombresEnEquipos.has(v) && ventasPorVend[v] > 0);
+  const fueraEquipo = todasVends.filter(v => !nombresEnEquipos.has(v));
 
   const mesesOpts=[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>
     `<option value="${m}" ${m===mesFiltro?'selected':''}>${['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'][m-1]} ${anioActual}</option>`
@@ -6621,7 +6621,7 @@ async function renderComisiones(){
               <td style="padding:10px 12px;text-align:right;color:var(--brown);font-weight:600">${fmt(vJefa.sinIva)}</td>
               <td style="padding:10px 12px;text-align:right;color:var(--muted)">${fmt(vJefa.conIva)}</td>
               <td style="padding:10px 12px;text-align:right;color:var(--muted)">—</td>
-              <td style="padding:10px 12px;text-align:right;color:var(--muted)">${jefaCfg.pct_equipo}% <span style="font-size:9px">(propias + equipo ✓)</span></td>
+              <td style="padding:10px 12px;text-align:right;color:var(--muted)">${jefaCfg.pct_equipo}% <span style="font-size:9px">(sus ventas + equipo, sin mínimo)</span></td>
               <td style="padding:10px 12px;text-align:right;color:var(--muted)">${fmt(baseJefa)}</td>
               <td style="padding:10px 12px;text-align:right;font-weight:600;color:${comisionJefa>0?'#166534':'var(--muted)'}">${fmt(comisionJefa)}</td>
               <td style="padding:10px 12px;text-align:right;color:var(--muted)">${fmt(jefaCfg.transporte||0)}</td>
