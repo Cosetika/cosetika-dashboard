@@ -1790,18 +1790,21 @@ const server = http.createServer(async (req, res) => {
   // CAPACITACIONES
   if (urlPath === '/api/capacitaciones' && req.method === 'GET') {
     try {
-      const mes = urlObj.searchParams.get('mes'); // YYYY-MM
+      const mes = urlObj.searchParams.get('mes');
       let r;
       if (mes) {
         r = await pool.query(
-          `SELECT *, TO_CHAR(fecha,'YYYY-MM-DD') AS fecha FROM capacitaciones WHERE TO_CHAR(fecha,'YYYY-MM')=$1 ORDER BY fecha ASC`,
+          `SELECT id, TO_CHAR(fecha,'YYYY-MM-DD') AS fecha, ciudad, tema, direccion, horario, valor FROM capacitaciones WHERE TO_CHAR(fecha,'YYYY-MM')=$1 ORDER BY fecha ASC`,
           [mes]
         );
       } else {
-        r = await pool.query(`SELECT *, TO_CHAR(fecha,'YYYY-MM-DD') AS fecha FROM capacitaciones ORDER BY fecha DESC LIMIT 100`);
+        r = await pool.query(`SELECT id, TO_CHAR(fecha,'YYYY-MM-DD') AS fecha, ciudad, tema, direccion, horario, valor FROM capacitaciones ORDER BY fecha DESC LIMIT 100`);
       }
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.rows));
-    } catch(e){ res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    } catch(e){
+      console.error('Error GET capacitaciones:', e.message);
+      res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message}));
+    }
     return;
   }
   if (urlPath === '/api/capacitaciones' && req.method === 'POST') {
@@ -1848,10 +1851,15 @@ const server = http.createServer(async (req, res) => {
       try{
         const mes = urlObj.searchParams.get('mes');
         const r = mes
-          ? await pool.query(`SELECT *, TO_CHAR(fecha,'YYYY-MM-DD') AS fecha FROM ${tabla} WHERE TO_CHAR(fecha,'YYYY-MM')=$1 ORDER BY fecha ASC`,[mes])
-          : await pool.query(`SELECT *, TO_CHAR(fecha,'YYYY-MM-DD') AS fecha FROM ${tabla} ORDER BY fecha DESC LIMIT 100`);
-        res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.rows));
-      }catch(e){res.writeHead(500,{'Content-Type':'application/json'});res.end(JSON.stringify({error:e.message}));}
+          ? await pool.query(`SELECT *, TO_CHAR(fecha,'YYYY-MM-DD') AS fecha_str FROM ${tabla} WHERE TO_CHAR(fecha,'YYYY-MM')=$1 ORDER BY fecha ASC`,[mes])
+          : await pool.query(`SELECT *, TO_CHAR(fecha,'YYYY-MM-DD') AS fecha_str FROM ${tabla} ORDER BY fecha DESC LIMIT 100`);
+        // Normalizar: usar fecha_str como fecha
+        const rows = r.rows.map(row => ({...row, fecha: row.fecha_str||row.fecha}));
+        res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(rows));
+      }catch(e){
+        console.error(`Error GET ${tabla}:`, e.message);
+        res.writeHead(500,{'Content-Type':'application/json'});res.end(JSON.stringify({error:e.message}));
+      }
       return;
     }
     if(req.method === 'POST' && urlPath === `/api/${tabla}`){
