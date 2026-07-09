@@ -1807,12 +1807,16 @@ const server = http.createServer(async (req, res) => {
   if (urlPath === '/api/capacitaciones' && req.method === 'POST') {
     try {
       const { fecha, ciudad, tema, direccion, horario, valor } = await bodyJSON(req);
+      console.log('INSERT capacitacion:', {fecha, ciudad, tema, direccion, horario, valor});
       const r = await pool.query(
         `INSERT INTO capacitaciones(fecha,ciudad,tema,direccion,horario,valor) VALUES($1,$2,$3,$4,$5,$6) RETURNING *`,
         [fecha, ciudad||null, tema||null, direccion||null, horario||null, valor||null]
       );
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, row:r.rows[0]}));
-    } catch(e){ res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    } catch(e){
+      console.error('Error INSERT capacitacion:', e.message);
+      res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message}));
+    }
     return;
   }
   if (urlPath.match(/^\/api\/capacitaciones\/\d+$/) && req.method === 'PUT') {

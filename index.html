@@ -1224,7 +1224,8 @@ async function guardarCapacitacion(id, mesKey){
       const [ay, mm] = mesKey.split('-');
       await renderCapacitacionesMes(parseInt(ay), parseInt(mm));
     } else { 
-      errEl.textContent='Error: '+(data.error||'desconocido'); 
+      const msg = data.error || 'desconocido';
+      errEl.textContent = 'Error servidor: ' + msg; 
       errEl.style.display='block'; 
       console.error('Error servidor:', data);
     }
