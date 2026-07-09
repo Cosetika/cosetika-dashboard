@@ -5888,14 +5888,8 @@ function getComisionCfg(){
     if(!guardado) return defaults;
     // Merge: completar asesoras que falten en lo guardado (ej: María Caridad agregada después)
     guardado.asesoras = { ...defaults.asesoras, ...(guardado.asesoras||{}) };
-    // Limpieza: eliminar claves de asesoras que NO sean exactamente uno de los nombres
-    // completos oficiales (ej. "Karen Mora" o "Nicole León" en vez del nombre completo
-    // real) — esas claves duplicadas quedaban de versiones anteriores de la config y
-    // aparecían como filas extra vacías en la tabla de comisiones.
-    const nombresOficiales = Object.keys(defaults.asesoras);
-    Object.keys(guardado.asesoras).forEach(nombre=>{
-      if(!nombresOficiales.includes(nombre)) delete guardado.asesoras[nombre];
-    });
+    // Nota: ya no se eliminan claves fuera de la lista oficial — los equipos pueden
+    // tener asesoras nuevas cuya config debe conservarse.
     // Corrección puntual: Karen y Nicole pasaron de 3% a 4% — si siguen en el valor viejo, actualizar
     ['Karen Rebeca Mora Cedeño','Nicole Yanira Leon Marquez'].forEach(n=>{
       if(guardado.asesoras[n] && guardado.asesoras[n].pct === 3.0){
@@ -6529,7 +6523,7 @@ async function renderInversiones(){
 }
 
 
-function renderComisiones(){
+async function renderComisiones(){
   const cfg = getComisionCfg();
   const anioActual = new Date().getFullYear();
   const mesActual = new Date().getMonth()+1;
@@ -6539,66 +6533,150 @@ function renderComisiones(){
     const clientes = DATA[nombreVend] || [];
     let conIva=0, sinIva=0;
     clientes.forEach(c=>{
-      // FIX: filtrar también por AÑO — sin esto se mezclaban meses de años anteriores
       const f=c.frecuencia.find(x=>x.mes===mes && x.anio===anioActual);
       if(f){ conIva+=f.total||0; sinIva+=f.subtotal||(f.total/1.15)||0; }
     });
     return {conIva, sinIva};
   }
 
-  const equipoNombres = Object.keys(cfg.asesoras);
-  const filasAsesoras = equipoNombres.map(nombre=>{
-    const v=ventasMes(nombre, mesFiltro);
-    const c=cfg.asesoras[nombre]||{pct:3.0,minimo:4000};
-    const base=Math.max(0, v.sinIva-c.minimo);
-    const comision=base*(c.pct/100);
-    const transporte=c.transporte||0;
-    return {nombre, conIva:v.conIva, sinIva:v.sinIva, pct:c.pct, minimo:c.minimo, base, comision, transporte, totalPagar:comision+transporte};
-  });
+  // Equipos desde la BD
+  let equipos = [];
+  try { const r = await fetch('/api/equipos'); if(r.ok){ const d = await r.json(); if(Array.isArray(d)) equipos = d; } } catch(e){}
+  // Fallback si no hay equipos creados: pseudo-equipo con la estructura clásica
+  if(equipos.length === 0){
+    equipos = [{ id: 0, nombre: 'Equipo de ventas', lider: 'Giovanna Portilla',
+      miembros: Object.keys(cfg.asesoras) }];
+  }
 
-  // Ventas propias de Giovanna (informativo en la tabla; ya no es parte de la fórmula
-  // de su comisión, que ahora usa el total general de la empresa — ver más abajo).
-  const vGiovanna = ventasMes('Giovanna Portilla', mesFiltro);
-
-  // Total general: mismo cálculo que usa Inicio → Ventas (consistente en toda la app).
-  // Se calcula por vendedora para poder mostrar separado lo que no corresponde a
-  // ninguna de las personas de la tabla (ej. ventas sin vendedor asignado, o de
-  // alguien que ya no está en el equipo) en vez de que quede "escondido" en el total.
+  // Total global (para administrativas): TODAS las ventas, incluidas las de
+  // Fernando y las no atribuidas
   const todasVends = Object.keys(DATA);
-  const nombresConocidos = equipoNombres.concat(['Giovanna Portilla']);
-  let totalConIvaGlobal = 0, otrasVentasConIva = 0;
+  let totalConIvaGlobal = 0;
+  const ventasPorVend = {};
   todasVends.forEach(v => {
-    let subtotalVend = 0;
+    let t = 0;
     (DATA[v]||[]).forEach(c => {
       const f = c.frecuencia.find(x=>x.mes===mesFiltro && x.anio===anioActual);
-      if(f) subtotalVend += f.total||0;
+      if(f) t += f.total||0;
     });
-    totalConIvaGlobal += subtotalVend;
-    if(!nombresConocidos.includes(v)) otrasVentasConIva += subtotalVend;
+    ventasPorVend[v] = t;
+    totalConIvaGlobal += t;
   });
   const totalSinIvaGlobal = totalConIvaGlobal/1.15;
-  const otrasVentasSinIva = otrasVentasConIva/1.15;
 
-  // Comisión de Giovanna: base = TOTAL GENERAL de la empresa menos las ventas de
-  // María Caridad (única exclusión explícita pedida) — no la suma manual de cada
-  // asesora, así se incluyen automáticamente "otras ventas" no atribuidas a nadie.
-  const NOMBRE_MARIA_CARIDAD = 'María Caridad Zea Larrea';
-  const vMariaCaridad = filasAsesoras.find(r=>r.nombre===NOMBRE_MARIA_CARIDAD);
-  const baseGiovannaSinIva = Math.max(0, totalSinIvaGlobal - (vMariaCaridad?vMariaCaridad.sinIva:0));
-  const comisionGiovanna = baseGiovannaSinIva*(cfg.giovanna.pct_equipo/100);
-
-  const filasAdmin = cfg.admin.map(a=>{
-    const base=Math.max(0, totalSinIvaGlobal-a.minimo);
-    const comision=base*(a.pct/100);
-    const transporte=a.transporte||0;
-    return {...a, base, comision, transporte, totalPagar:comision+transporte};
-  });
-  const transporteGiovanna = cfg.giovanna.transporte||0;
-  const totalPagarGiovanna = comisionGiovanna + transporteGiovanna;
+  // Vendedores fuera de todos los equipos (ej. Fernando) — se muestran aparte
+  const nombresEnEquipos = new Set();
+  equipos.forEach(e=>{ if(e.lider) nombresEnEquipos.add(e.lider); (e.miembros||[]).forEach(m=>nombresEnEquipos.add(m)); });
+  const fueraEquipo = todasVends.filter(v => !nombresEnEquipos.has(v) && ventasPorVend[v] > 0);
 
   const mesesOpts=[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>
     `<option value="${m}" ${m===mesFiltro?'selected':''}>${['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'][m-1]} ${anioActual}</option>`
   ).join('');
+
+  // ── Panel por equipo ──
+  const panelesEquipos = equipos.map(eq => {
+    const jefaNombre = eq.lider || '';
+    const jefaCfg = getJefaCfg(cfg, jefaNombre);
+    const vJefa = jefaNombre ? ventasMes(jefaNombre, mesFiltro) : {conIva:0,sinIva:0};
+
+    const miembros = (eq.miembros||[]).filter(m => m !== jefaNombre);
+    const filas = miembros.map(nombre=>{
+      const c = getAsesoraCfg(cfg, nombre);
+      const v = ventasMes(nombre, mesFiltro);
+      const base = Math.max(0, v.sinIva - c.minimo);
+      const comision = base*(c.pct/100);
+      return {nombre, conIva:v.conIva, sinIva:v.sinIva, pct:c.pct, minimo:c.minimo,
+              base, comision, transporte:c.transporte||0, totalPagar:comision+(c.transporte||0),
+              contribuye: c.contribuye !== false};
+    });
+
+    // Base de la jefa: sus propias ventas + asesoras marcadas como "contribuye"
+    const baseJefa = vJefa.sinIva + filas.filter(f=>f.contribuye).reduce((a,f)=>a+f.sinIva,0);
+    const comisionJefa = baseJefa*(jefaCfg.pct_equipo/100);
+    const totalJefa = comisionJefa + (jefaCfg.transporte||0);
+
+    return `
+    <div class="card" style="margin-bottom:12px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+        <div class="card-title" style="margin-bottom:0"><i class="ti ti-users-group"></i> Equipo ${eq.nombre}</div>
+        <button onclick="editarConfigEquipo(${eq.id})" style="padding:5px 12px;font-size:11px;border:1px solid var(--brown);background:rgba(160,104,74,0.1);color:var(--brown);border-radius:6px;cursor:pointer"><i class="ti ti-settings"></i> Editar parámetros</button>
+      </div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead><tr style="background:#faf9f8;border-bottom:1px solid var(--border)">
+            <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--muted)">Persona</th>
+            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Subtotal s/IVA</th>
+            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Vtas c/IVA</th>
+            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Mínimo</th>
+            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">%</th>
+            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Base</th>
+            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Comisión</th>
+            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Transporte</th>
+            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Total</th>
+          </tr></thead>
+          <tbody>
+            ${jefaNombre?`
+            <tr style="border-bottom:1px solid var(--border);background:rgba(160,104,74,0.06)">
+              <td style="padding:10px 12px;font-weight:700">${nombreCorto(jefaNombre)} <span style="font-size:10px;color:var(--brown);font-weight:600">JEFA</span></td>
+              <td style="padding:10px 12px;text-align:right;color:var(--brown);font-weight:600">${fmt(vJefa.sinIva)}</td>
+              <td style="padding:10px 12px;text-align:right;color:var(--muted)">${fmt(vJefa.conIva)}</td>
+              <td style="padding:10px 12px;text-align:right;color:var(--muted)">—</td>
+              <td style="padding:10px 12px;text-align:right;color:var(--muted)">${jefaCfg.pct_equipo}% <span style="font-size:9px">(propias + equipo ✓)</span></td>
+              <td style="padding:10px 12px;text-align:right;color:var(--muted)">${fmt(baseJefa)}</td>
+              <td style="padding:10px 12px;text-align:right;font-weight:600;color:${comisionJefa>0?'#166534':'var(--muted)'}">${fmt(comisionJefa)}</td>
+              <td style="padding:10px 12px;text-align:right;color:var(--muted)">${fmt(jefaCfg.transporte||0)}</td>
+              <td style="padding:10px 12px;text-align:right;font-weight:700;font-size:14px;color:${totalJefa>0?'#166534':'var(--muted)'}">${fmt(totalJefa)}</td>
+            </tr>`:''}
+            ${filas.map(r=>`
+              <tr style="border-bottom:0.5px solid var(--border)">
+                <td style="padding:9px 12px;font-weight:500">${nombreCorto(r.nombre)}${r.contribuye?'':' <span style="font-size:9px;color:var(--muted)">(no suma a jefa)</span>'}</td>
+                <td style="padding:9px 12px;text-align:right;color:var(--brown);font-weight:600">${fmt(r.sinIva)}</td>
+                <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(r.conIva)}</td>
+                <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(r.minimo)}</td>
+                <td style="padding:9px 12px;text-align:right;color:var(--muted)">${r.pct}%</td>
+                <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(r.base)}</td>
+                <td style="padding:9px 12px;text-align:right;font-weight:600;color:${r.comision>0?'#166534':'var(--muted)'}">${fmt(r.comision)}</td>
+                <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(r.transporte)}</td>
+                <td style="padding:9px 12px;text-align:right;font-weight:700;font-size:14px;color:${r.totalPagar>0?'#166534':'var(--muted)'}">${fmt(r.totalPagar)}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+  }).join('');
+
+  // ── Panel ventas fuera de equipos (ej. Fernando) ──
+  const panelFuera = fueraEquipo.length ? `
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-title"><i class="ti ti-user"></i> Otras ventas (sin equipo)</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:10px;background:#faf9f8;padding:8px 12px;border-radius:6px">
+        No generan comisión de equipo, pero <strong>sí suman al total general</strong> que se usa para las comisiones administrativas.
+      </div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead><tr style="background:#faf9f8;border-bottom:1px solid var(--border)">
+            <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--muted)">Vendedor</th>
+            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Subtotal s/IVA</th>
+            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Ventas c/IVA</th>
+          </tr></thead>
+          <tbody>
+            ${fueraEquipo.map(v=>`
+              <tr style="border-bottom:0.5px solid var(--border)">
+                <td style="padding:9px 12px;font-weight:500">${nombreCorto(v)}</td>
+                <td style="padding:9px 12px;text-align:right;color:var(--brown);font-weight:600">${fmt(ventasPorVend[v]/1.15)}</td>
+                <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(ventasPorVend[v])}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>` : '';
+
+  // ── Panel administrativas ──
+  const filasAdmin = cfg.admin.map(a=>{
+    const base=Math.max(0, totalSinIvaGlobal-a.minimo);
+    const comision=base*(a.pct/100);
+    return {...a, base, comision, transporte:a.transporte||0, totalPagar:comision+(a.transporte||0)};
+  });
 
   document.getElementById('reportes-content').innerHTML=`
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap;padding:12px 14px;background:white;border-radius:10px;border:1px solid var(--border)">
@@ -6613,64 +6691,16 @@ function renderComisiones(){
       <span style="font-size:12px;font-weight:600">c/IVA ${fmt(totalConIvaGlobal)}</span>
     </div>
 
-    <div class="card" style="margin-bottom:12px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
-        <div class="card-title" style="margin-bottom:0"><i class="ti ti-users"></i> Comisiones — Equipo de ventas</div>
-        <button onclick="editarConfigComisiones()" style="padding:5px 12px;font-size:11px;border:1px solid var(--brown);background:rgba(160,104,74,0.1);color:var(--brown);border-radius:6px;cursor:pointer"><i class="ti ti-settings"></i> Editar parámetros</button>
-      </div>
-      <div style="overflow-x:auto">
-        <table style="width:100%;border-collapse:collapse;font-size:12px">
-          <thead><tr style="background:#faf9f8;border-bottom:1px solid var(--border)">
-            <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--muted)">Asesora</th>
-            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Subtotal s/IVA</th>
-            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Vtas c/IVA</th>
-            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Mínimo</th>
-            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">%</th>
-            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Base</th>
-            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Comisión</th>
-            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Transporte</th>
-            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Total</th>
-          </tr></thead>
-          <tbody>
-            ${filasAsesoras.map(r=>`
-              <tr style="border-bottom:0.5px solid var(--border)">
-                <td style="padding:9px 12px;font-weight:500">${nombreCorto(r.nombre)}</td>
-                <td style="padding:9px 12px;text-align:right;color:var(--brown);font-weight:600">${fmt(r.sinIva)}</td>
-                <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(r.conIva)}</td>
-                <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(r.minimo)}</td>
-                <td style="padding:9px 12px;text-align:right;color:var(--muted)">${r.pct}%</td>
-                <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(r.base)}</td>
-                <td style="padding:9px 12px;text-align:right;font-weight:600;color:${r.comision>0?'#166534':'var(--muted)'}">${fmt(r.comision)}</td>
-                <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(r.transporte)}</td>
-                <td style="padding:9px 12px;text-align:right;font-weight:700;font-size:14px;color:${r.totalPagar>0?'#166534':'var(--muted)'}">${fmt(r.totalPagar)}</td>
-              </tr>`).join('')}
-            <tr style="border-bottom:0.5px solid var(--border);background:rgba(160,104,74,0.04)">
-              <td style="padding:9px 12px;font-weight:500">Giovanna Portilla <span style="font-size:10px;color:var(--muted)">(Jefa)</span></td>
-              <td style="padding:9px 12px;text-align:right;color:var(--brown);font-weight:600">${fmt(vGiovanna.sinIva)}</td>
-              <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(vGiovanna.conIva)}</td>
-              <td style="padding:9px 12px;text-align:right;color:var(--muted)">—</td>
-              <td style="padding:9px 12px;text-align:right;color:var(--muted)">${cfg.giovanna.pct_equipo}% <span style="font-size:10px">(total empresa − Mª Caridad)</span></td>
-              <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(baseGiovannaSinIva)}</td>
-              <td style="padding:9px 12px;text-align:right;font-weight:600;color:${comisionGiovanna>0?'#166534':'var(--muted)'}">${fmt(comisionGiovanna)}</td>
-              <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(transporteGiovanna)}</td>
-              <td style="padding:9px 12px;text-align:right;font-weight:700;font-size:14px;color:${totalPagarGiovanna>0?'#166534':'var(--muted)'}">${fmt(totalPagarGiovanna)}</td>
-            </tr>
-            ${otrasVentasSinIva>0?`
-            <tr>
-              <td colspan="9" style="padding:8px 12px;font-size:11px;color:var(--muted);background:#faf9f8">
-                <i class="ti ti-info-circle" style="font-size:12px;vertical-align:-1px;margin-right:3px"></i>
-                Incluye ${fmt(otrasVentasSinIva)} (s/IVA) en ventas no atribuidas a ninguna de las personas de esta tabla (ej. sin vendedor asignado en Contifico) — sí forman parte del total general y de la base de Giovanna.
-              </td>
-            </tr>`:''}
-          </tbody>
-        </table>
-      </div>
-    </div>
+    ${panelesEquipos}
+    ${panelFuera}
 
     <div class="card">
-      <div class="card-title" style="margin-bottom:12px"><i class="ti ti-briefcase"></i> Comisiones — Administrativas</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+        <div class="card-title" style="margin-bottom:0"><i class="ti ti-briefcase"></i> Comisiones — Administrativas</div>
+        <button onclick="editarConfigAdmin()" style="padding:5px 12px;font-size:11px;border:1px solid var(--brown);background:rgba(160,104,74,0.1);color:var(--brown);border-radius:6px;cursor:pointer"><i class="ti ti-settings"></i> Editar parámetros</button>
+      </div>
       <div style="font-size:11px;color:var(--muted);margin-bottom:10px;background:#faf9f8;padding:8px 12px;border-radius:6px">
-        Calculado sobre <strong>subtotal sin IVA</strong> de ventas totales de todo el equipo
+        Calculado sobre <strong>subtotal sin IVA</strong> de ventas totales de toda la empresa (incluye equipos y otras ventas)
       </div>
       <div style="overflow-x:auto">
         <table style="width:100%;border-collapse:collapse;font-size:12px">
@@ -6702,24 +6732,67 @@ function renderComisiones(){
     </div>`;
 }
 
-function editarConfigComisiones(){
-  const cfg=getComisionCfg();
-  const equipoNombres=Object.keys(cfg.asesoras);
+// Config helpers: valores por persona con defaults seguros
+function getAsesoraCfg(cfg, nombre){
+  const c = cfg.asesoras[nombre] || {};
+  return {
+    pct: c.pct !== undefined ? c.pct : 3.0,
+    minimo: c.minimo !== undefined ? c.minimo : 4000,
+    transporte: c.transporte !== undefined ? c.transporte : 0,
+    contribuye: c.contribuye !== undefined ? c.contribuye : (nombre !== 'María Caridad Zea Larrea')
+  };
+}
+function getJefaCfg(cfg, nombre){
+  if(!cfg.jefas) cfg.jefas = {};
+  if(!cfg.jefas[nombre]){
+    // Migración: Giovanna hereda su config anterior
+    if(/giovanna/i.test(nombre) && cfg.giovanna){
+      cfg.jefas[nombre] = { pct_equipo: cfg.giovanna.pct_equipo||1.70, transporte: cfg.giovanna.transporte||0 };
+    } else {
+      cfg.jefas[nombre] = { pct_equipo: 1.70, transporte: 0 };
+    }
+  }
+  return cfg.jefas[nombre];
+}
+
+async function editarConfigEquipo(equipoId){
+  const cfg = getComisionCfg();
+  let equipos = [];
+  try { const r = await fetch('/api/equipos'); if(r.ok){ const d = await r.json(); if(Array.isArray(d)) equipos = d; } } catch(e){}
+  let eq = equipos.find(e=>e.id===equipoId);
+  if(!eq && equipoId===0) eq = { id:0, nombre:'Equipo de ventas', lider:'Giovanna Portilla', miembros:Object.keys(cfg.asesoras) };
+  if(!eq){ alert('Equipo no encontrado'); return; }
+
+  const jefaNombre = eq.lider || '';
+  const jefaCfg = getJefaCfg(cfg, jefaNombre);
+  const miembros = (eq.miembros||[]).filter(m => m !== jefaNombre);
+
   const modal=document.createElement('div');
   modal.id='modal-com-cfg';
   modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px';
   modal.innerHTML=`
-    <div style="background:white;border-radius:14px;width:100%;max-width:520px;max-height:90vh;overflow-y:auto">
+    <div style="background:white;border-radius:14px;width:100%;max-width:560px;max-height:90vh;overflow-y:auto">
       <div style="padding:16px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
-        <span style="font-size:15px;font-weight:600">Parámetros de comisión</span>
+        <span style="font-size:15px;font-weight:600">Parámetros — Equipo ${eq.nombre}</span>
         <button onclick="document.getElementById('modal-com-cfg').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--muted)">×</button>
       </div>
       <div style="padding:18px">
-        <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">Asesoras (3% sobre ventas &gt; mínimo)</div>
-        ${equipoNombres.map(n=>{
-          const a=cfg.asesoras[n]; const id=n.replace(/\s+/g,'_');
+        ${jefaNombre?`
+        <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">Jefa — ${nombreCorto(jefaNombre)}</div>
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:0.5px solid var(--border);flex-wrap:wrap">
+          <span style="font-size:13px;flex:1;min-width:110px">% sobre (propias + equipo ✓)</span>
+          <input type="number" id="cfg-jefa-pct" value="${jefaCfg.pct_equipo}" step="0.01" style="width:55px;padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;text-align:right"/>
+          <label style="font-size:11px;color:var(--muted)">%</label>
+          <label style="font-size:11px;color:var(--muted)">Transp. $</label>
+          <input type="number" id="cfg-jefa-tra" value="${jefaCfg.transporte||0}" style="width:55px;padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;text-align:right"/>
+        </div>`:''}
+        <div style="margin-top:14px;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Asesoras</div>
+        <div style="font-size:10px;color:var(--muted);margin-bottom:8px">El check ✓ indica que sus ventas suman a la base de comisión de la jefa</div>
+        ${miembros.map(n=>{
+          const a=getAsesoraCfg(cfg, n); const id=n.replace(/\s+/g,'_');
           return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:0.5px solid var(--border);flex-wrap:wrap">
-            <span style="font-size:13px;flex:1;min-width:110px">${nombreCorto(n)}</span>
+            <input type="checkbox" id="cfg-con-${id}" ${a.contribuye?'checked':''} title="Contribuye a comisión de la jefa" style="accent-color:#A0684A;width:16px;height:16px;cursor:pointer"/>
+            <span style="font-size:13px;flex:1;min-width:100px">${nombreCorto(n)}</span>
             <label style="font-size:11px;color:var(--muted)">Mín. $</label>
             <input type="number" id="cfg-min-${id}" value="${a.minimo}" style="width:65px;padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;text-align:right"/>
             <input type="number" id="cfg-pct-${id}" value="${a.pct}" step="0.1" style="width:48px;padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;text-align:right"/>
@@ -6728,15 +6801,54 @@ function editarConfigComisiones(){
             <input type="number" id="cfg-tra-${id}" value="${a.transporte||0}" style="width:55px;padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;text-align:right"/>
           </div>`;
         }).join('')}
-        <div style="margin-top:14px;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">Giovanna (Jefa de Ventas)</div>
-        <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:0.5px solid var(--border);flex-wrap:wrap">
-          <span style="font-size:13px;flex:1;min-width:110px">% sobre (ventas propias + equipo)</span>
-          <input type="number" id="cfg-gio-pct" value="${cfg.giovanna.pct_equipo}" step="0.01" style="width:55px;padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;text-align:right"/>
-          <label style="font-size:11px;color:var(--muted)">%</label>
-          <label style="font-size:11px;color:var(--muted)">Transp. $</label>
-          <input type="number" id="cfg-gio-tra" value="${cfg.giovanna.transporte||0}" style="width:55px;padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;text-align:right"/>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px">
+          <button onclick="document.getElementById('modal-com-cfg').remove()" style="padding:8px 16px;border:1px solid var(--border);border-radius:8px;background:white;font-size:13px;cursor:pointer">Cancelar</button>
+          <button onclick="guardarConfigEquipo('${jefaNombre.replace(/'/g,"\\'")}', ${JSON.stringify(miembros).replace(/"/g,'&quot;')})" style="padding:8px 18px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500">Guardar</button>
         </div>
-        <div style="margin-top:14px;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">Administrativas (sobre ventas totales s/IVA)</div>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+}
+
+function guardarConfigEquipo(jefaNombre, miembros){
+  const cfg=getComisionCfg();
+  if(jefaNombre){
+    const j = getJefaCfg(cfg, jefaNombre);
+    const p=document.getElementById('cfg-jefa-pct'); if(p) j.pct_equipo=parseFloat(p.value)||1.70;
+    const t=document.getElementById('cfg-jefa-tra'); if(t) j.transporte=parseFloat(t.value)||0;
+    // Retro-compatibilidad con la config vieja de Giovanna
+    if(/giovanna/i.test(jefaNombre)) cfg.giovanna = { pct_equipo: j.pct_equipo, transporte: j.transporte };
+  }
+  miembros.forEach(n=>{
+    const id=n.replace(/\s+/g,'_');
+    if(!cfg.asesoras[n]) cfg.asesoras[n] = {};
+    const minEl=document.getElementById('cfg-min-'+id);
+    const pctEl=document.getElementById('cfg-pct-'+id);
+    const traEl=document.getElementById('cfg-tra-'+id);
+    const conEl=document.getElementById('cfg-con-'+id);
+    if(minEl) cfg.asesoras[n].minimo=parseFloat(minEl.value)||4000;
+    if(pctEl) cfg.asesoras[n].pct=parseFloat(pctEl.value)||3.0;
+    if(traEl) cfg.asesoras[n].transporte=parseFloat(traEl.value)||0;
+    if(conEl) cfg.asesoras[n].contribuye=conEl.checked;
+  });
+  saveComisionCfg(cfg);
+  document.getElementById('modal-com-cfg')?.remove();
+  renderComisiones();
+}
+
+function editarConfigAdmin(){
+  const cfg=getComisionCfg();
+  const modal=document.createElement('div');
+  modal.id='modal-com-cfg';
+  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px';
+  modal.innerHTML=`
+    <div style="background:white;border-radius:14px;width:100%;max-width:520px;max-height:90vh;overflow-y:auto">
+      <div style="padding:16px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+        <span style="font-size:15px;font-weight:600">Parámetros — Administrativas</span>
+        <button onclick="document.getElementById('modal-com-cfg').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--muted)">×</button>
+      </div>
+      <div style="padding:18px">
+        <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">Sobre ventas totales s/IVA de la empresa</div>
         ${cfg.admin.map((a,i)=>`
           <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:0.5px solid var(--border);flex-wrap:wrap">
             <span style="font-size:13px;flex:1;min-width:110px">${a.nombre}</span>
@@ -6749,42 +6861,27 @@ function editarConfigComisiones(){
           </div>`).join('')}
         <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px">
           <button onclick="document.getElementById('modal-com-cfg').remove()" style="padding:8px 16px;border:1px solid var(--border);border-radius:8px;background:white;font-size:13px;cursor:pointer">Cancelar</button>
-          <button onclick="guardarConfigComisiones()" style="padding:8px 18px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500">Guardar</button>
+          <button onclick="guardarConfigAdmin()" style="padding:8px 18px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500">Guardar</button>
         </div>
       </div>
     </div>`;
   document.body.appendChild(modal);
 }
 
-function guardarConfigComisiones(){
+function guardarConfigAdmin(){
   const cfg=getComisionCfg();
-  Object.keys(cfg.asesoras).forEach(n=>{
-    const id=n.replace(/\s+/g,'_');
-    const minEl=document.getElementById('cfg-min-'+id);
-    const pctEl=document.getElementById('cfg-pct-'+id);
-    if(minEl) cfg.asesoras[n].minimo=parseFloat(minEl.value)||4000;
-    if(pctEl) cfg.asesoras[n].pct=parseFloat(pctEl.value)||3.0;
-    const traEl=document.getElementById('cfg-tra-'+id);
-    if(traEl) cfg.asesoras[n].transporte=parseFloat(traEl.value)||0;
-  });
-  const gioPct=document.getElementById('cfg-gio-pct');
-  if(gioPct) cfg.giovanna.pct_equipo=parseFloat(gioPct.value)||1.70;
-  const gioTra=document.getElementById('cfg-gio-tra');
-  if(gioTra) cfg.giovanna.transporte=parseFloat(gioTra.value)||0;
   cfg.admin.forEach((a,i)=>{
     const minEl=document.getElementById('cfg-adm-min-'+i);
     const pctEl=document.getElementById('cfg-adm-pct-'+i);
+    const traEl=document.getElementById('cfg-adm-tra-'+i);
     if(minEl) a.minimo=parseFloat(minEl.value)||18000;
     if(pctEl) a.pct=parseFloat(pctEl.value)||0.8;
-    const traEl=document.getElementById('cfg-adm-tra-'+i);
     if(traEl) a.transporte=parseFloat(traEl.value)||0;
   });
   saveComisionCfg(cfg);
   document.getElementById('modal-com-cfg')?.remove();
   renderComisiones();
-  alert('✓ Parámetros guardados');
 }
-
 
 // ══════════════════════════════════════════════════════════════════
 // MÓDULO KPIs
