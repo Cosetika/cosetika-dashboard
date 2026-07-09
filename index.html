@@ -5902,8 +5902,14 @@ function getComisionCfg(){
         guardado.asesoras[n] = {...guardado.asesoras[n], pct: 4.0};
       }
     });
-    guardado.giovanna = guardado.giovanna || defaults.giovanna;
+    guardado.giovanna = { ...defaults.giovanna, ...(guardado.giovanna||{}) };
     guardado.admin = guardado.admin && guardado.admin.length ? guardado.admin : defaults.admin;
+    // Completar transporte si falta (configs guardadas antes de esta función)
+    Object.keys(guardado.asesoras).forEach(n=>{
+      if(guardado.asesoras[n].transporte === undefined) guardado.asesoras[n].transporte = defaults.asesoras[n]?.transporte ?? 0;
+    });
+    if(guardado.giovanna.transporte === undefined) guardado.giovanna.transporte = defaults.giovanna.transporte;
+    guardado.admin.forEach(a=>{ if(a.transporte === undefined) a.transporte = 0; });
     saveComisionCfg(guardado); // persistir la limpieza, para no repetirla cada carga
     return guardado;
   }
@@ -5914,17 +5920,17 @@ function saveComisionCfg(cfg){ localStorage.setItem(COMISIONES_KEY, JSON.stringi
 function defaultComisionCfg(){
   return {
     asesoras:{
-      'Liseth Gavilanes':          {pct:3.0, minimo:4000},
-      'Daniela Villegas Chamorro': {pct:3.0, minimo:4000},
-      'Karen Rebeca Mora Cedeño':  {pct:4.0, minimo:4000},
-      'Nicole Yanira Leon Marquez':{pct:4.0, minimo:4000},
-      'María Caridad Zea Larrea':  {pct:4.0, minimo:4000}
+      'Liseth Gavilanes':          {pct:3.0, minimo:4000, transporte:75},
+      'Daniela Villegas Chamorro': {pct:3.0, minimo:4000, transporte:75},
+      'Karen Rebeca Mora Cedeño':  {pct:4.0, minimo:4000, transporte:75},
+      'Nicole Yanira Leon Marquez':{pct:4.0, minimo:4000, transporte:75},
+      'María Caridad Zea Larrea':  {pct:4.0, minimo:4000, transporte:75}
     },
-    giovanna:{pct_equipo:1.70},
+    giovanna:{pct_equipo:1.70, transporte:75},
     admin:[
-      {nombre:'María José Añazco', pct:0.8, minimo:18000},
-      {nombre:'Fernanda Carrillo',  pct:0.8, minimo:18000},
-      {nombre:'Ana Andrango',       pct:0.8, minimo:18000}
+      {nombre:'María José Añazco', pct:0.8, minimo:18000, transporte:0},
+      {nombre:'Fernanda Carrillo',  pct:0.8, minimo:18000, transporte:0},
+      {nombre:'Ana Andrango',       pct:0.8, minimo:18000, transporte:0}
     ]
   };
 }
@@ -6533,7 +6539,8 @@ function renderComisiones(){
     const clientes = DATA[nombreVend] || [];
     let conIva=0, sinIva=0;
     clientes.forEach(c=>{
-      const f=c.frecuencia.find(x=>x.mes===mes);
+      // FIX: filtrar también por AÑO — sin esto se mezclaban meses de años anteriores
+      const f=c.frecuencia.find(x=>x.mes===mes && x.anio===anioActual);
       if(f){ conIva+=f.total||0; sinIva+=f.subtotal||(f.total/1.15)||0; }
     });
     return {conIva, sinIva};
@@ -6544,7 +6551,9 @@ function renderComisiones(){
     const v=ventasMes(nombre, mesFiltro);
     const c=cfg.asesoras[nombre]||{pct:3.0,minimo:4000};
     const base=Math.max(0, v.sinIva-c.minimo);
-    return {nombre, conIva:v.conIva, sinIva:v.sinIva, pct:c.pct, minimo:c.minimo, base, comision:base*(c.pct/100)};
+    const comision=base*(c.pct/100);
+    const transporte=c.transporte||0;
+    return {nombre, conIva:v.conIva, sinIva:v.sinIva, pct:c.pct, minimo:c.minimo, base, comision, transporte, totalPagar:comision+transporte};
   });
 
   // Ventas propias de Giovanna (informativo en la tabla; ya no es parte de la fórmula
@@ -6580,8 +6589,12 @@ function renderComisiones(){
 
   const filasAdmin = cfg.admin.map(a=>{
     const base=Math.max(0, totalSinIvaGlobal-a.minimo);
-    return {...a, base, comision:base*(a.pct/100)};
+    const comision=base*(a.pct/100);
+    const transporte=a.transporte||0;
+    return {...a, base, comision, transporte, totalPagar:comision+transporte};
   });
+  const transporteGiovanna = cfg.giovanna.transporte||0;
+  const totalPagarGiovanna = comisionGiovanna + transporteGiovanna;
 
   const mesesOpts=[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>
     `<option value="${m}" ${m===mesFiltro?'selected':''}>${['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'][m-1]} ${anioActual}</option>`
@@ -6615,6 +6628,8 @@ function renderComisiones(){
             <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">%</th>
             <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Base</th>
             <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Comisión</th>
+            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Transporte</th>
+            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Total</th>
           </tr></thead>
           <tbody>
             ${filasAsesoras.map(r=>`
@@ -6625,7 +6640,9 @@ function renderComisiones(){
                 <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(r.minimo)}</td>
                 <td style="padding:9px 12px;text-align:right;color:var(--muted)">${r.pct}%</td>
                 <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(r.base)}</td>
-                <td style="padding:9px 12px;text-align:right;font-weight:700;font-size:14px;color:${r.comision>0?'#166534':'var(--muted)'}">${fmt(r.comision)}</td>
+                <td style="padding:9px 12px;text-align:right;font-weight:600;color:${r.comision>0?'#166534':'var(--muted)'}">${fmt(r.comision)}</td>
+                <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(r.transporte)}</td>
+                <td style="padding:9px 12px;text-align:right;font-weight:700;font-size:14px;color:${r.totalPagar>0?'#166534':'var(--muted)'}">${fmt(r.totalPagar)}</td>
               </tr>`).join('')}
             <tr style="border-bottom:0.5px solid var(--border);background:rgba(160,104,74,0.04)">
               <td style="padding:9px 12px;font-weight:500">Giovanna Portilla <span style="font-size:10px;color:var(--muted)">(Jefa)</span></td>
@@ -6634,11 +6651,13 @@ function renderComisiones(){
               <td style="padding:9px 12px;text-align:right;color:var(--muted)">—</td>
               <td style="padding:9px 12px;text-align:right;color:var(--muted)">${cfg.giovanna.pct_equipo}% <span style="font-size:10px">(total empresa − Mª Caridad)</span></td>
               <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(baseGiovannaSinIva)}</td>
-              <td style="padding:9px 12px;text-align:right;font-weight:700;font-size:14px;color:${comisionGiovanna>0?'#166534':'var(--muted)'}">${fmt(comisionGiovanna)}</td>
+              <td style="padding:9px 12px;text-align:right;font-weight:600;color:${comisionGiovanna>0?'#166534':'var(--muted)'}">${fmt(comisionGiovanna)}</td>
+              <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(transporteGiovanna)}</td>
+              <td style="padding:9px 12px;text-align:right;font-weight:700;font-size:14px;color:${totalPagarGiovanna>0?'#166534':'var(--muted)'}">${fmt(totalPagarGiovanna)}</td>
             </tr>
             ${otrasVentasSinIva>0?`
             <tr>
-              <td colspan="7" style="padding:8px 12px;font-size:11px;color:var(--muted);background:#faf9f8">
+              <td colspan="9" style="padding:8px 12px;font-size:11px;color:var(--muted);background:#faf9f8">
                 <i class="ti ti-info-circle" style="font-size:12px;vertical-align:-1px;margin-right:3px"></i>
                 Incluye ${fmt(otrasVentasSinIva)} (s/IVA) en ventas no atribuidas a ninguna de las personas de esta tabla (ej. sin vendedor asignado en Contifico) — sí forman parte del total general y de la base de Giovanna.
               </td>
@@ -6662,6 +6681,8 @@ function renderComisiones(){
             <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">%</th>
             <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Base</th>
             <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Comisión</th>
+            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Transporte</th>
+            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Total</th>
           </tr></thead>
           <tbody>
             ${filasAdmin.map(a=>`
@@ -6671,7 +6692,9 @@ function renderComisiones(){
                 <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(a.minimo)}</td>
                 <td style="padding:9px 12px;text-align:right;color:var(--muted)">${a.pct}%</td>
                 <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(a.base)}</td>
-                <td style="padding:9px 12px;text-align:right;font-weight:700;font-size:14px;color:${a.comision>0?'#166534':'var(--muted)'}">${fmt(a.comision)}</td>
+                <td style="padding:9px 12px;text-align:right;font-weight:600;color:${a.comision>0?'#166534':'var(--muted)'}">${fmt(a.comision)}</td>
+                <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(a.transporte)}</td>
+                <td style="padding:9px 12px;text-align:right;font-weight:700;font-size:14px;color:${a.totalPagar>0?'#166534':'var(--muted)'}">${fmt(a.totalPagar)}</td>
               </tr>`).join('')}
           </tbody>
         </table>
@@ -6695,28 +6718,34 @@ function editarConfigComisiones(){
         <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">Asesoras (3% sobre ventas &gt; mínimo)</div>
         ${equipoNombres.map(n=>{
           const a=cfg.asesoras[n]; const id=n.replace(/\s+/g,'_');
-          return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:0.5px solid var(--border)">
-            <span style="font-size:13px;flex:1">${nombreCorto(n)}</span>
+          return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:0.5px solid var(--border);flex-wrap:wrap">
+            <span style="font-size:13px;flex:1;min-width:110px">${nombreCorto(n)}</span>
             <label style="font-size:11px;color:var(--muted)">Mín. $</label>
-            <input type="number" id="cfg-min-${id}" value="${a.minimo}" style="width:70px;padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;text-align:right"/>
-            <input type="number" id="cfg-pct-${id}" value="${a.pct}" step="0.1" style="width:50px;padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;text-align:right"/>
+            <input type="number" id="cfg-min-${id}" value="${a.minimo}" style="width:65px;padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;text-align:right"/>
+            <input type="number" id="cfg-pct-${id}" value="${a.pct}" step="0.1" style="width:48px;padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;text-align:right"/>
             <label style="font-size:11px;color:var(--muted)">%</label>
+            <label style="font-size:11px;color:var(--muted)">Transp. $</label>
+            <input type="number" id="cfg-tra-${id}" value="${a.transporte||0}" style="width:55px;padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;text-align:right"/>
           </div>`;
         }).join('')}
         <div style="margin-top:14px;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">Giovanna (Jefa de Ventas)</div>
-        <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:0.5px solid var(--border)">
-          <span style="font-size:13px;flex:1">% sobre (ventas propias + equipo)</span>
-          <input type="number" id="cfg-gio-pct" value="${cfg.giovanna.pct_equipo}" step="0.01" style="width:60px;padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;text-align:right"/>
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:0.5px solid var(--border);flex-wrap:wrap">
+          <span style="font-size:13px;flex:1;min-width:110px">% sobre (ventas propias + equipo)</span>
+          <input type="number" id="cfg-gio-pct" value="${cfg.giovanna.pct_equipo}" step="0.01" style="width:55px;padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;text-align:right"/>
           <label style="font-size:11px;color:var(--muted)">%</label>
+          <label style="font-size:11px;color:var(--muted)">Transp. $</label>
+          <input type="number" id="cfg-gio-tra" value="${cfg.giovanna.transporte||0}" style="width:55px;padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;text-align:right"/>
         </div>
         <div style="margin-top:14px;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">Administrativas (sobre ventas totales s/IVA)</div>
         ${cfg.admin.map((a,i)=>`
-          <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:0.5px solid var(--border)">
-            <span style="font-size:13px;flex:1">${a.nombre}</span>
+          <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:0.5px solid var(--border);flex-wrap:wrap">
+            <span style="font-size:13px;flex:1;min-width:110px">${a.nombre}</span>
             <label style="font-size:11px;color:var(--muted)">Mín. $</label>
-            <input type="number" id="cfg-adm-min-${i}" value="${a.minimo}" style="width:75px;padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;text-align:right"/>
-            <input type="number" id="cfg-adm-pct-${i}" value="${a.pct}" step="0.01" style="width:50px;padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;text-align:right"/>
+            <input type="number" id="cfg-adm-min-${i}" value="${a.minimo}" style="width:70px;padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;text-align:right"/>
+            <input type="number" id="cfg-adm-pct-${i}" value="${a.pct}" step="0.01" style="width:48px;padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;text-align:right"/>
             <label style="font-size:11px;color:var(--muted)">%</label>
+            <label style="font-size:11px;color:var(--muted)">Transp. $</label>
+            <input type="number" id="cfg-adm-tra-${i}" value="${a.transporte||0}" style="width:55px;padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;text-align:right"/>
           </div>`).join('')}
         <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px">
           <button onclick="document.getElementById('modal-com-cfg').remove()" style="padding:8px 16px;border:1px solid var(--border);border-radius:8px;background:white;font-size:13px;cursor:pointer">Cancelar</button>
@@ -6735,14 +6764,20 @@ function guardarConfigComisiones(){
     const pctEl=document.getElementById('cfg-pct-'+id);
     if(minEl) cfg.asesoras[n].minimo=parseFloat(minEl.value)||4000;
     if(pctEl) cfg.asesoras[n].pct=parseFloat(pctEl.value)||3.0;
+    const traEl=document.getElementById('cfg-tra-'+id);
+    if(traEl) cfg.asesoras[n].transporte=parseFloat(traEl.value)||0;
   });
   const gioPct=document.getElementById('cfg-gio-pct');
   if(gioPct) cfg.giovanna.pct_equipo=parseFloat(gioPct.value)||1.70;
+  const gioTra=document.getElementById('cfg-gio-tra');
+  if(gioTra) cfg.giovanna.transporte=parseFloat(gioTra.value)||0;
   cfg.admin.forEach((a,i)=>{
     const minEl=document.getElementById('cfg-adm-min-'+i);
     const pctEl=document.getElementById('cfg-adm-pct-'+i);
     if(minEl) a.minimo=parseFloat(minEl.value)||18000;
     if(pctEl) a.pct=parseFloat(pctEl.value)||0.8;
+    const traEl=document.getElementById('cfg-adm-tra-'+i);
+    if(traEl) a.transporte=parseFloat(traEl.value)||0;
   });
   saveComisionCfg(cfg);
   document.getElementById('modal-com-cfg')?.remove();
