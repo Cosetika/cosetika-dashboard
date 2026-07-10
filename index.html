@@ -5222,9 +5222,9 @@ async function renderPlanificacion(){
       visitado_at: r.visitado_at||''
     }));
     // Rellenar hasta 20 filas
-    while(planRows.length < 20) planRows.push({dia:'',sector:'',cliente:'',coordinado:false,visitado_at:''});
+    while(planRows.length < 30) planRows.push({dia:'',sector:'',cliente:'',coordinado:false,visitado_at:''});
   } else {
-    planRows = Array.from({length:20}, ()=>({dia:'',sector:'',cliente:'',coordinado:false,visitado_at:''}));
+    planRows = Array.from({length:30}, ()=>({dia:'',sector:'',cliente:'',coordinado:false,visitado_at:''}));
   }
 
   // Si admin o jefa, mostrar selector de asesora
@@ -5308,6 +5308,7 @@ async function renderPlanificacion(){
         <table style="width:100%;border-collapse:collapse;font-size:12px" id="plan-table">
           <thead>
             <tr style="background:#faf9f8;border-bottom:1px solid var(--border)">
+              <th style="padding:8px 6px;text-align:center;font-size:10px;color:var(--muted);width:34px">#</th>
               <th style="padding:8px 10px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;width:130px">Día</th>
               <th style="padding:8px 10px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Sector</th>
               <th style="padding:8px 10px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Cliente</th>
@@ -5349,6 +5350,7 @@ function renderPlanRow(row, i, weekDayNames){
   ].map(d=>`<option value="${d}" ${row.dia===d?'selected':''}>${d||'-- Día --'}</option>`).join('');
   
   return `<tr style="border-bottom:0.5px solid var(--border)" id="plan-row-${i}">
+    <td style="padding:5px 6px;text-align:center;font-size:11px;color:var(--muted);font-weight:600" data-numero="1">${i+1}</td>
     <td style="padding:5px 8px">
       <select onchange="planRows[${i}].dia=this.value" style="width:100%;padding:5px 6px;border:0.5px solid var(--border);border-radius:5px;font-size:12px;outline:none;background:white">
         ${dayOpts}
@@ -5426,7 +5428,7 @@ async function marcarVisitado(i, checked){
   // Actualizar celda de fecha
   const row = document.getElementById('plan-row-'+i);
   if(row){
-    const td = row.querySelectorAll('td')[4];
+    const td = row.querySelectorAll('td')[5];
     if(td) td.innerHTML = planRows[i].visitado_at
       ? `<span style='color:#085041;font-weight:500;font-size:10px'>${planRows[i].visitado_at}</span>`
       : '';
@@ -5442,11 +5444,11 @@ async function autoGuardarPlanificacion(){
   const rows = [];
   tbody.querySelectorAll('tr').forEach((tr, idx) => {
     const tds = tr.querySelectorAll('td');
-    if(tds.length < 4) return;
-    const dia = tds[0].querySelector('select')?.value || '';
-    const sector = tds[1].querySelector('input[type="text"]')?.value || '';
-    const cliente = tds[2].querySelector('input[type="text"]')?.value || '';
-    const coordinado = tds[3].querySelector('input[type="checkbox"]')?.checked || false;
+    if(tds.length < 5) return;
+    const dia = tds[1].querySelector('select')?.value || '';
+    const sector = tds[2].querySelector('input[type="text"]')?.value || '';
+    const cliente = tds[3].querySelector('input[type="text"]')?.value || '';
+    const coordinado = tds[4].querySelector('input[type="checkbox"]')?.checked || false;
     const visitado_at = (planRows[idx]?.visitado_at) || '';
     if(dia || sector || cliente || coordinado) rows.push({ dia, sector, cliente, coordinado, visitado_at });
   });
@@ -5504,11 +5506,11 @@ async function guardarPlanificacion(asesora, semanaKey){
   const rows = [];
   tbody.querySelectorAll('tr').forEach((tr, i) => {
     const tds = tr.querySelectorAll('td');
-    if(tds.length < 4) return;
-    const dia = tds[0].querySelector('select')?.value || '';
-    const sector = tds[1].querySelector('input[type="text"]')?.value || '';
-    const cliente = tds[2].querySelector('input[type="text"]')?.value || '';
-    const coordinado = tds[3].querySelector('input[type="checkbox"]')?.checked || false;
+    if(tds.length < 5) return;
+    const dia = tds[1].querySelector('select')?.value || '';
+    const sector = tds[2].querySelector('input[type="text"]')?.value || '';
+    const cliente = tds[3].querySelector('input[type="text"]')?.value || '';
+    const coordinado = tds[4].querySelector('input[type="checkbox"]')?.checked || false;
     const visitado_at = (planRows[i] && planRows[i].visitado_at) || '';
     if(dia || sector || cliente || coordinado){
       rows.push({ dia, sector, cliente, coordinado, visitado_at });
