@@ -217,13 +217,20 @@
     </div>
     <div id="nav-visitas-subs" style="max-height:0;overflow:hidden;transition:max-height 0.25s ease">
       <div class="nav-sub-item" id="navsub-visitas-plan" onclick="navGoVisitas('planificacion')"><i class="ti ti-calendar" style="font-size:13px"></i>Planificación</div>
-      <div class="nav-sub-item" id="navsub-visitas-real" onclick="navGoVisitas('realizadas')"><i class="ti ti-check" style="font-size:13px"></i>Realizadas</div>
+      <div class="nav-sub-item" id="navsub-visitas-real" onclick="navGoVisitas('realizadas')"><i class="ti ti-map-2" style="font-size:13px"></i>Provincias y Sectores</div>
     </div>
 
     <div class="nav-divider"></div>
     <div class="nav-item" id="nav-kpis" onclick="navSetMod('kpis')"><i class="ti ti-trending-up"></i>KPIs</div>
     <div class="nav-item" id="nav-inventario" onclick="navSetMod('inventario')"><i class="ti ti-package"></i>Inventario</div>
-    <div class="nav-item" id="nav-reportes" style="display:none" onclick="navSetMod('reportes')"><i class="ti ti-file-analytics"></i>Reportes</div>
+    <div class="nav-item" id="nav-reportes" style="display:none" onclick="navToggleGroup('nav-reportes-subs','nav-reportes-chevron','reportes')">
+      <i class="ti ti-file-analytics"></i>Reportes
+      <i class="ti ti-chevron-right" id="nav-reportes-chevron" style="margin-left:auto;font-size:12px;transition:transform 0.2s"></i>
+    </div>
+    <div id="nav-reportes-subs" style="max-height:0;overflow:hidden;transition:max-height 0.25s ease">
+      <div class="nav-sub-item" id="navsub-rep-comisiones" onclick="navGoReportes('comisiones')"><i class="ti ti-coin" style="font-size:13px"></i>Comisiones</div>
+      <div class="nav-sub-item" id="navsub-rep-inversiones" onclick="navGoReportes('inversiones')"><i class="ti ti-receipt" style="font-size:13px"></i>Inversiones / Viáticos</div>
+    </div>
     <div class="nav-divider"></div>
     <div class="nav-item" id="nav-config" style="display:none" onclick="navToggleGroup('nav-config-subs','nav-config-chevron','config')">
       <i class="ti ti-settings"></i>Configuración
@@ -491,7 +498,7 @@ function navSetDocTab(tab){
 function navGoVisitas(tab){
   closeSidebar();
   window._visitaTab = tab;
-  document.getElementById('mobile-mod-title').textContent = tab==='planificacion'?'Plan. Visitas':'Realizadas';
+  document.getElementById('mobile-mod-title').textContent = tab==='planificacion'?'Plan. Visitas':'Provincias y Sectores';
   document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
   document.getElementById(tab==='planificacion'?'navsub-visitas-plan':'navsub-visitas-real')?.classList.add('active');
   if(modActual !== 'visitas') setMod('visitas');
@@ -1297,7 +1304,7 @@ const PLAN_CONFIG = {
     campos: [
       { key:'fecha', label:'Fecha', type:'date', required:true },
       { key:'asesora', label:'Asesora', type:'text', placeholder:'Nombre de la asesora' },
-      { key:'ciudad', label:'Ciudad', type:'text', placeholder:'Ej: Guayaquil' },
+      { key:'ciudad', label:'Provincia', type:'select', options:['Azuay', 'Bolívar', 'Cañar', 'Carchi', 'Chimborazo', 'Cotopaxi', 'El Oro', 'Esmeraldas', 'Galápagos', 'Guayas', 'Imbabura', 'Loja', 'Los Ríos', 'Manabí', 'Morona Santiago', 'Napo', 'Orellana', 'Pastaza', 'Pichincha', 'Santa Elena', 'Santo Domingo', 'Sucumbíos', 'Tungurahua', 'Zamora Chinchipe'] },
       { key:'valor_viaticos', label:'Valor Viáticos ($)', type:'number', placeholder:'0.00' },
       { key:'coordinada', label:'Coordinada', type:'checkbox' }
     ],
@@ -5963,23 +5970,20 @@ function renderReportes(){
   document.getElementById('body').classList.add('full-width');
   window._reportesTab = window._reportesTab || 'comisiones';
   const tab = window._reportesTab;
+  // Marcar sub-ítem activo en el sidebar
+  document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
+  document.getElementById('navsub-rep-'+tab)?.classList.add('active');
   document.getElementById('main').innerHTML=`
-    <div class="breadcrumb" style="margin-bottom:12px"><i class="ti ti-file-analytics" style="color:var(--brown);font-size:12px"></i><span style="font-weight:500">Reportes</span></div>
-    <div style="display:flex;gap:0;background:white;border-radius:12px;border:1px solid var(--border);overflow:hidden;margin-bottom:16px">
-      <button onclick="setReportesTab('comisiones')" id="rep-btn-comisiones"
-        style="flex:1;padding:11px;font-size:13px;font-weight:500;border:none;cursor:pointer;background:${tab==='comisiones'?'var(--brown)':'white'};color:${tab==='comisiones'?'white':'var(--muted)'}">
-        <i class="ti ti-coin" style="margin-right:5px"></i>Comisiones
-      </button>
-      <button onclick="setReportesTab('inversiones')" id="rep-btn-inversiones"
-        style="flex:1;padding:11px;font-size:13px;font-weight:500;border:none;cursor:pointer;background:${tab==='inversiones'?'var(--brown)':'white'};color:${tab==='inversiones'?'white':'var(--muted)'}">
-        <i class="ti ti-receipt" style="margin-right:5px"></i>Inversiones / Viáticos
-      </button>
-    </div>
+    <div class="breadcrumb" style="margin-bottom:12px"><i class="ti ti-file-analytics" style="color:var(--brown);font-size:12px"></i><span style="font-weight:500">Reportes — ${tab==='inversiones'?'Inversiones / Viáticos':'Comisiones'}</span></div>
     <div id="reportes-content"></div>`;
   if(tab==='inversiones') renderInversiones();
   else renderComisiones();
 }
 
+function navGoReportes(tab){
+  window._reportesTab = tab;
+  navSetMod('reportes');
+}
 function setReportesTab(tab){ window._reportesTab=tab; renderReportes(); }
 
 
@@ -6440,112 +6444,101 @@ async function renderInversiones(){
 
   const hoy = new Date();
   const anioSel = window._inversionesAnio || hoy.getFullYear();
-  const mesSel  = window._inversiones_mes || (hoy.getMonth()+1);
-  const meses   = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-  const mesesFull = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 
-  let rows = [];
+  // Fuente: Planificación → Giras (viáticos entregados a las asesoras)
+  let giras = [];
   try{
-    const r = await fetch(`/api/inversiones?anio=${anioSel}&mes=${mesSel}`);
-    rows = await r.json();
+    const r = await fetch(`/api/giras?anio=${anioSel}`);
+    if(r.ok){ const d = await r.json(); if(Array.isArray(d)) giras = d; }
   } catch(e){ console.error(e); }
 
-  const total = rows.reduce((a,r)=>a+parseFloat(r.inversion||0),0);
+  const total = giras.reduce((a,g)=>a+parseFloat(g.valor_viaticos||0),0);
 
-  // Agrupar por asesora
-  const porAsesora = {};
-  rows.forEach(r=>{
-    const nom = r.asesora.split(' ')[0];
-    if(!porAsesora[nom]) porAsesora[nom] = {nombre:r.asesora, total:0, visitas:[]};
-    porAsesora[nom].total += parseFloat(r.inversion||0);
-    porAsesora[nom].visitas.push(r);
+  // Acumulado por provincia (campo ciudad = provincia en el formulario de Giras)
+  const porProvincia = {};
+  giras.forEach(g=>{
+    const prov = (g.ciudad||'Sin provincia').trim() || 'Sin provincia';
+    if(!porProvincia[prov]) porProvincia[prov] = {total:0, giras:0};
+    porProvincia[prov].total += parseFloat(g.valor_viaticos||0);
+    porProvincia[prov].giras += 1;
   });
+  const provinciasOrdenadas = Object.entries(porProvincia).sort((a,b)=>b[1].total-a[1].total);
+  const maxProv = provinciasOrdenadas.length ? provinciasOrdenadas[0][1].total : 0;
 
   cont.innerHTML = `
-    <!-- Selector de mes -->
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+    <!-- Filtro por año -->
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap;padding:12px 14px;background:white;border-radius:10px;border:1px solid var(--border)">
+      <span style="font-size:12px;color:var(--muted);font-weight:500">Año:</span>
       <select onchange="window._inversionesAnio=parseInt(this.value);renderInversiones()"
-        style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;cursor:pointer">
-        ${[anioSel-1, anioSel].map(y=>`<option value="${y}" ${y===anioSel?'selected':''}>${y}</option>`).join('')}
+        style="padding:7px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;cursor:pointer;background:white;outline:none">
+        ${[anioSel-2, anioSel-1, anioSel, anioSel+1].filter(y=>y<=hoy.getFullYear()).map(y=>`<option value="${y}" ${y===anioSel?'selected':''}>${y}</option>`).join('')}
       </select>
-      <div style="display:flex;gap:6px;flex-wrap:wrap">
-        ${meses.map((m,i)=>`
-          <button onclick="window._inversiones_mes=${i+1};renderInversiones()"
-            style="padding:5px 10px;font-size:11px;border-radius:20px;border:1px solid ${i+1===mesSel?'var(--brown)':'var(--border)'};background:${i+1===mesSel?'var(--brown)':'white'};color:${i+1===mesSel?'white':'var(--muted)'};cursor:pointer">
-            ${m}
-          </button>`).join('')}
-      </div>
+      <span style="font-size:11px;color:var(--muted)">Fuente: Planificación → Giras</span>
     </div>
 
-    <!-- KPI total -->
+    <!-- KPIs -->
     <div class="kpi-row" style="margin-bottom:16px">
-      <div class="kpi"><div class="kpi-label">Total viáticos</div><div class="kpi-val" style="color:var(--brown)">${fmt(total)}</div><div class="kpi-sub">${mesesFull[mesSel-1]} ${anioSel}</div></div>
-      <div class="kpi"><div class="kpi-label">Visitas a provincia</div><div class="kpi-val">${rows.length}</div><div class="kpi-sub">con inversión registrada</div></div>
-      <div class="kpi"><div class="kpi-label">Promedio por visita</div><div class="kpi-val">${rows.length?fmt(total/rows.length):'—'}</div><div class="kpi-sub">por salida</div></div>
+      <div class="kpi"><div class="kpi-label">Total invertido</div><div class="kpi-val" style="color:var(--brown)">${fmt(total)}</div><div class="kpi-sub">viáticos ${anioSel}</div></div>
+      <div class="kpi"><div class="kpi-label">Giras</div><div class="kpi-val">${giras.length}</div><div class="kpi-sub">registradas</div></div>
+      <div class="kpi"><div class="kpi-label">Provincias</div><div class="kpi-val">${provinciasOrdenadas.length}</div><div class="kpi-sub">con inversión</div></div>
     </div>
 
-    ${rows.length === 0 ? `
+    ${giras.length === 0 ? `
       <div class="card" style="text-align:center;padding:40px 20px;color:var(--muted)">
         <i class="ti ti-receipt-off" style="font-size:36px;opacity:0.35"></i>
-        <p style="margin-top:10px;font-size:14px">No hay viáticos registrados para ${mesesFull[mesSel-1]} ${anioSel}</p>
-        <p style="font-size:12px;margin-top:4px">Los viáticos se registran al marcar una visita a provincia en el módulo de Visitas</p>
+        <p style="margin-top:10px;font-size:14px">No hay giras registradas en ${anioSel}</p>
+        <p style="font-size:12px;margin-top:4px">Los viáticos se registran en Planificación → Giras al entregarlos a las asesoras</p>
       </div>` : `
 
-    <!-- Resumen por asesora -->
+    <!-- Acumulado por provincia -->
     <div class="card" style="margin-bottom:12px">
-      <div class="card-title"><i class="ti ti-users"></i> Resumen por asesora</div>
-      <div style="overflow-x:auto">
-        <table style="width:100%;border-collapse:collapse;font-size:12px">
-          <thead><tr style="background:#faf9f8;border-bottom:1px solid var(--border)">
-            <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase">Asesora</th>
-            <th style="padding:8px 12px;text-align:center;font-size:10px;color:var(--muted);text-transform:uppercase">Visitas</th>
-            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted);text-transform:uppercase">Total viáticos</th>
-            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted);text-transform:uppercase">Promedio</th>
-          </tr></thead>
-          <tbody>
-            ${Object.values(porAsesora).sort((a,b)=>b.total-a.total).map(a=>`
-              <tr style="border-bottom:0.5px solid var(--border)">
-                <td style="padding:8px 12px;font-weight:500">${a.nombre.split(' ').slice(0,2).join(' ')}</td>
-                <td style="padding:8px 12px;text-align:center;color:var(--muted)">${a.visitas.length}</td>
-                <td style="padding:8px 12px;text-align:right;color:var(--brown);font-weight:600">${fmt(a.total)}</td>
-                <td style="padding:8px 12px;text-align:right;color:var(--muted)">${fmt(a.total/a.visitas.length)}</td>
-              </tr>`).join('')}
-            <tr style="background:#faf9f8;font-weight:600;border-top:1px solid var(--border)">
-              <td style="padding:8px 12px">Total</td>
-              <td style="padding:8px 12px;text-align:center">${rows.length}</td>
-              <td style="padding:8px 12px;text-align:right;color:var(--brown)">${fmt(total)}</td>
-              <td style="padding:8px 12px;text-align:right;color:var(--muted)">${rows.length?fmt(total/rows.length):'—'}</td>
-            </tr>
-          </tbody>
-        </table>
+      <div class="card-title"><i class="ti ti-map-pin"></i> Inversión acumulada por provincia · ${anioSel}</div>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:6px">
+        ${provinciasOrdenadas.map(([prov, d])=>`
+          <div style="display:flex;align-items:center;gap:10px">
+            <div style="width:130px;font-size:12px;font-weight:600;flex-shrink:0">${prov}</div>
+            <div style="flex:1;background:#f5f3f0;border-radius:6px;height:22px;overflow:hidden">
+              <div style="width:${maxProv?Math.max(Math.round(d.total/maxProv*100),3):0}%;height:100%;background:var(--brown);border-radius:6px;display:flex;align-items:center;justify-content:flex-end;padding-right:8px">
+                <span style="font-size:10px;color:white;font-weight:700;white-space:nowrap">${fmt(d.total)}</span>
+              </div>
+            </div>
+            <div style="width:60px;font-size:10px;color:var(--muted);text-align:right;flex-shrink:0">${d.giras} gira${d.giras!==1?'s':''}</div>
+          </div>`).join('')}
       </div>
     </div>
 
-    <!-- Detalle por visita -->
+    <!-- Detalle de giras -->
     <div class="card">
-      <div class="card-title"><i class="ti ti-list"></i> Detalle por visita</div>
+      <div class="card-title"><i class="ti ti-list"></i> Detalle de giras · ${anioSel}</div>
       <div style="overflow-x:auto">
         <table style="width:100%;border-collapse:collapse;font-size:12px">
           <thead><tr style="background:#faf9f8;border-bottom:1px solid var(--border)">
             <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase">Fecha</th>
             <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase">Asesora</th>
             <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase">Provincia</th>
-            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted);text-transform:uppercase">Inversión</th>
+            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted);text-transform:uppercase">Viáticos</th>
           </tr></thead>
           <tbody>
-            ${rows.map(r=>`
-              <tr style="border-bottom:0.5px solid var(--border);transition:background 0.1s" onmouseover="this.style.background='#faf9f8'" onmouseout="this.style.background='transparent'">
-                <td style="padding:8px 12px;color:var(--muted);font-size:11px;white-space:nowrap">${new Date(r.fecha+'T12:00:00').toLocaleDateString('es-EC',{day:'numeric',month:'short'})}</td>
-                <td style="padding:8px 12px;font-weight:500">${r.asesora.split(' ').slice(0,2).join(' ')}</td>
-                <td style="padding:8px 12px;color:var(--muted);display:flex;align-items:center;gap:5px"><i class="ti ti-map-pin" style="color:var(--brown);font-size:11px"></i>${r.lugar}</td>
-                <td style="padding:8px 12px;text-align:right;color:var(--brown);font-weight:600">${fmt(parseFloat(r.inversion||0))}</td>
-              </tr>`).join('')}
+            ${giras.slice().sort((a,b)=>String(b.fecha).localeCompare(String(a.fecha))).map(g=>{
+              const f = String(g.fecha||'').substring(0,10);
+              const fd = f ? new Date(f+'T12:00:00') : null;
+              const fLabel = fd ? `${fd.getDate()}/${fd.getMonth()+1}/${fd.getFullYear()}` : '—';
+              return `<tr style="border-bottom:0.5px solid var(--border)">
+                <td style="padding:8px 12px;color:var(--muted);white-space:nowrap">${fLabel}</td>
+                <td style="padding:8px 12px;font-weight:500">${(g.asesora||'—').split(' ').slice(0,2).join(' ')}</td>
+                <td style="padding:8px 12px">${g.ciudad||'—'}</td>
+                <td style="padding:8px 12px;text-align:right;color:var(--brown);font-weight:600">${fmt(parseFloat(g.valor_viaticos||0))}</td>
+              </tr>`;
+            }).join('')}
+            <tr style="background:#faf9f8;font-weight:600;border-top:1px solid var(--border)">
+              <td style="padding:8px 12px" colspan="3">Total ${anioSel}</td>
+              <td style="padding:8px 12px;text-align:right;color:var(--brown)">${fmt(total)}</td>
+            </tr>
           </tbody>
         </table>
       </div>
     </div>`}`;
 }
-
 
 async function renderComisiones(){
   const cfg = getComisionCfg();

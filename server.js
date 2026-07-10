@@ -1880,9 +1880,11 @@ const server = http.createServer(async (req, res) => {
     if(req.method === 'GET'){
       try{
         const mes = urlObj.searchParams.get('mes');
-        const r = mes
-          ? await pool.query(`SELECT *, TO_CHAR(fecha,'YYYY-MM-DD') AS fecha_str FROM ${tabla} WHERE TO_CHAR(fecha,'YYYY-MM')=$1 ORDER BY fecha ASC`,[mes])
-          : await pool.query(`SELECT *, TO_CHAR(fecha,'YYYY-MM-DD') AS fecha_str FROM ${tabla} ORDER BY fecha DESC LIMIT 100`);
+        const anio = urlObj.searchParams.get('anio');
+        let r;
+        if(mes) r = await pool.query(`SELECT *, TO_CHAR(fecha,'YYYY-MM-DD') AS fecha_str FROM ${tabla} WHERE TO_CHAR(fecha,'YYYY-MM')=$1 ORDER BY fecha ASC`,[mes]);
+        else if(anio) r = await pool.query(`SELECT *, TO_CHAR(fecha,'YYYY-MM-DD') AS fecha_str FROM ${tabla} WHERE TO_CHAR(fecha,'YYYY')=$1 ORDER BY fecha ASC`,[anio]);
+        else r = await pool.query(`SELECT *, TO_CHAR(fecha,'YYYY-MM-DD') AS fecha_str FROM ${tabla} ORDER BY fecha DESC LIMIT 100`);
         // Normalizar: usar fecha_str como fecha
         const rows = r.rows.map(row => ({...row, fecha: row.fecha_str||row.fecha}));
         res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(rows));
