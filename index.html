@@ -1308,6 +1308,8 @@ const PLAN_CONFIG = {
     titulo: 'Institutos',
     tabla: 'institutos',
     checkRealizada: true,
+    checkAperturado: true,
+    labelRealizada: 'Visita realizada',
     campos: [
       { key:'fecha', label:'Fecha', type:'date', required:true },
       { key:'nombre_instituto', label:'Nombre del Instituto', type:'text', placeholder:'Ej: Centro de Estética XYZ' },
@@ -1321,8 +1323,9 @@ const PLAN_CONFIG = {
     })
   },
   giras: {
-    titulo: 'Giras',
+    titulo: 'Visitas a Provincias',
     tabla: 'giras',
+    checkRealizada: true,
     campos: [
       { key:'fecha', label:'Fecha', type:'date', required:true },
       { key:'asesora', label:'Asesora', type:'text', placeholder:'Nombre de la asesora' },
@@ -1342,6 +1345,7 @@ const PLAN_CONFIG = {
   casas_abiertas: {
     titulo: 'Casas Abiertas',
     tabla: 'casas_abiertas',
+    checkRealizada: true,
     campos: [
       { key:'fecha', label:'Fecha', type:'date', required:true },
       { key:'asesora', label:'Asesora', type:'text', placeholder:'Nombre de la asesora' },
@@ -1433,14 +1437,15 @@ async function renderPlanMes(modulo, anio, mes){
               <input type="checkbox" ${r.realizada?'checked':''} ${puedeEditar?'':'disabled'}
                 onchange="marcarPlanCampo('${modulo}', ${r.id}, 'realizada', this.checked, '${mesKey}')"
                 style="accent-color:#16a34a;width:15px;height:15px;cursor:${puedeEditar?'pointer':'default'}"/>
-              ${r.realizada?'Visita realizada ✓':'Visita realizada'}
+              ${r.realizada?(cfg.labelRealizada||'Realizada')+' ✓':(cfg.labelRealizada||'Marcar como realizada')}
             </label>
+            ${cfg.checkAperturado ? `
             <label style="display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:${r.aperturado?'#1d4ed8':'var(--muted)'};cursor:${puedeEditar?'pointer':'default'};background:${r.aperturado?'#eff6ff':'#faf9f8'};border:1px solid ${r.aperturado?'#93c5fd':'var(--border)'};border-radius:20px;padding:4px 12px">
               <input type="checkbox" ${r.aperturado?'checked':''} ${puedeEditar?'':'disabled'}
                 onchange="marcarPlanCampo('${modulo}', ${r.id}, 'aperturado', this.checked, '${mesKey}')"
                 style="accent-color:#2563eb;width:15px;height:15px;cursor:${puedeEditar?'pointer':'default'}"/>
               ${r.aperturado?'Aperturado ✓':'Aperturado'}
-            </label>
+            </label>` : ''}
           </div>` : ''}
         </div>
         ${puedeEditar ? `
@@ -7443,6 +7448,17 @@ async function renderKpis(){
     }
   }catch(e){}
 
+  // Giras (Visitas a Provincias) y Casas Abiertas realizadas de esta asesora (desde Planificación)
+  let giraKpi = null, casaKpi = null;
+  try{
+    const mesKeyG = `${anioFiltro}-${String(mesFiltro).padStart(2,'0')}`;
+    const p1g = (asesoraKpi||'').split(' ')[0].toLowerCase();
+    const matchG = (n) => n && (n.toLowerCase().startsWith(p1g) || asesoraKpi.toLowerCase().startsWith(String(n).split(' ')[0].toLowerCase()));
+    const [rGk, rCk] = await Promise.all([fetch(`/api/giras?mes=${mesKeyG}`), fetch(`/api/casas_abiertas?mes=${mesKeyG}`)]);
+    if(rGk.ok){ const d = await rGk.json(); if(Array.isArray(d)) giraKpi = d.find(g=>matchG(g.asesora) && g.realizada) || null; }
+    if(rCk.ok){ const d = await rCk.json(); if(Array.isArray(d)) casaKpi = d.find(c=>matchG(c.asesora) && c.realizada) || null; }
+  }catch(e){}
+
   let mercatelyMeta = 0, mercatelyNuevos = null, mercatelyDif = null, mercatelyHistorico = [];
   try{
     const [rMetas, rReg] = await Promise.all([
@@ -7703,13 +7719,13 @@ async function renderKpis(){
     <!-- Visita a Provincia -->
     <div class="card" style="margin-bottom:12px">
       <div class="card-title" style="margin-bottom:12px"><i class="ti ti-map-pin"></i> Visita a Provincia</div>
-      <div style="border-radius:10px;padding:14px;border:2px solid ${visitaProv?'#86efac':'#fca5a5'};background:${visitaProv?'#f0fdf4':'#fef2f2'}">
+      <div style="border-radius:10px;padding:14px;border:2px solid ${(visitaProv||giraKpi)?'#86efac':'#fca5a5'};background:${(visitaProv||giraKpi)?'#f0fdf4':'#fef2f2'}">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
           <div style="display:flex;align-items:center;gap:8px">
-            <div style="width:28px;height:28px;border-radius:50%;background:${visitaProv?'#22c55e':'#ef4444'};display:flex;align-items:center;justify-content:center;flex-shrink:0">
-              <i class="ti ti-${visitaProv?'check':'x'}" style="color:white;font-size:14px"></i>
+            <div style="width:28px;height:28px;border-radius:50%;background:${(visitaProv||giraKpi)?'#22c55e':'#ef4444'};display:flex;align-items:center;justify-content:center;flex-shrink:0">
+              <i class="ti ti-${(visitaProv||giraKpi)?'check':'x'}" style="color:white;font-size:14px"></i>
             </div>
-            <span style="font-size:13px;font-weight:600;color:${visitaProv?'#166534':'#991b1b'}">${MESES_N[mesFiltro]}</span>
+            <span style="font-size:13px;font-weight:600;color:${(visitaProv||giraKpi)?'#166534':'#991b1b'}">${MESES_N[mesFiltro]}</span>
           </div>
           ${visitaProv && esMesActual ? `
             <button onclick="editarVisitaProvinciaKpi(${visitaProv.id},'${visitaProv.lugar.replace(/'/g,"\\'")}','${visitaProv.fecha}',${visitaProv.inversion||0})"
@@ -7717,7 +7733,14 @@ async function renderKpis(){
               <i class="ti ti-edit" style="font-size:11px"></i> Editar
             </button>` : ''}
         </div>
-        ${visitaProv
+        ${giraKpi && !visitaProv
+          ? `<div style="font-size:12px;color:#166534;font-weight:500">✅ ${giraKpi.ciudad||'Provincia'} — realizada</div>
+             <div style="font-size:11px;color:var(--muted);margin-top:2px">${new Date(String(giraKpi.fecha).substring(0,10)+'T12:00:00').toLocaleDateString('es-EC',{day:'2-digit',month:'long'})} · desde Planificación → Visitas a Provincias</div>
+             ${parseFloat(giraKpi.valor_viaticos||0)>0?`<div style="margin-top:6px;display:inline-flex;align-items:center;gap:5px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:3px 8px">
+               <i class="ti ti-receipt" style="font-size:11px;color:#92400e"></i>
+               <span style="font-size:11px;color:#92400e;font-weight:600">Viáticos: ${fmt(parseFloat(giraKpi.valor_viaticos))}</span>
+             </div>`:''}`
+        : visitaProv
           ? `<div style="font-size:12px;color:#166534;font-weight:500">✅ ${visitaProv.lugar}</div>
              <div style="font-size:11px;color:var(--muted);margin-top:2px">${new Date(visitaProv.fecha).toLocaleDateString('es-EC',{day:'2-digit',month:'long'})}</div>
              ${parseFloat(visitaProv.inversion||0)>0?`<div style="margin-top:6px;display:inline-flex;align-items:center;gap:5px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:3px 8px">
@@ -7737,14 +7760,17 @@ async function renderKpis(){
     <!-- Casa Abierta -->
     <div class="card" style="margin-bottom:12px">
       <div class="card-title" style="margin-bottom:12px"><i class="ti ti-building-store"></i> Casa Abierta</div>
-      <div style="border-radius:10px;padding:14px;border:2px solid ${casaAbiertaMes?'#86efac':'#fca5a5'};background:${casaAbiertaMes?'#f0fdf4':'#fef2f2'}">
+      <div style="border-radius:10px;padding:14px;border:2px solid ${(casaAbiertaMes||casaKpi)?'#86efac':'#fca5a5'};background:${(casaAbiertaMes||casaKpi)?'#f0fdf4':'#fef2f2'}">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-          <div style="width:28px;height:28px;border-radius:50%;background:${casaAbiertaMes?'#22c55e':'#ef4444'};display:flex;align-items:center;justify-content:center;flex-shrink:0">
-            <i class="ti ti-${casaAbiertaMes?'check':'x'}" style="color:white;font-size:14px"></i>
+          <div style="width:28px;height:28px;border-radius:50%;background:${(casaAbiertaMes||casaKpi)?'#22c55e':'#ef4444'};display:flex;align-items:center;justify-content:center;flex-shrink:0">
+            <i class="ti ti-${(casaAbiertaMes||casaKpi)?'check':'x'}" style="color:white;font-size:14px"></i>
           </div>
-          <span style="font-size:13px;font-weight:600;color:${casaAbiertaMes?'#166534':'#991b1b'}">${MESES_N[mesFiltro]}</span>
+          <span style="font-size:13px;font-weight:600;color:${(casaAbiertaMes||casaKpi)?'#166534':'#991b1b'}">${MESES_N[mesFiltro]}</span>
         </div>
-        ${casaAbiertaMes
+        ${casaKpi && !casaAbiertaMes
+          ? `<div style="font-size:12px;color:#166534;font-weight:500">✅ ${casaKpi.cliente||'Casa abierta'} — realizada</div>
+             <div style="font-size:11px;color:var(--muted);margin-top:2px">${new Date(String(casaKpi.fecha).substring(0,10)+'T12:00:00').toLocaleDateString('es-EC',{day:'2-digit',month:'long'})} · desde Planificación → Casas Abiertas</div>`
+        : casaAbiertaMes
           ? `<div style="font-size:12px;color:#166534;font-weight:500">✅ ${casaAbiertaMes}</div>
              ${esMesActual?`<button onclick="editarCasaAbierta('${asesoraKpi}',${anioFiltro},${mesFiltro})" style="margin-top:6px;padding:3px 8px;font-size:10px;border:1px solid #86efac;border-radius:5px;background:white;color:#166534;cursor:pointer">Editar</button>`:''}`
           : `<div style="font-size:12px;color:#991b1b">Sin registrar</div>
@@ -7765,8 +7791,8 @@ async function renderKpis(){
     <div class="card">
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <div style="font-size:11px;color:var(--muted)">Resumen del mes:</div>
-        <span style="font-size:11px;padding:2px 10px;border-radius:20px;background:${visitaProv?'#dcfce7':'#fee2e2'};color:${visitaProv?'#166534':'#991b1b'};font-weight:500">${visitaProv?'✓':'✗'} Visita provincia</span>
-        <span style="font-size:11px;padding:2px 10px;border-radius:20px;background:${casaAbiertaMes?'#dcfce7':'#fee2e2'};color:${casaAbiertaMes?'#166534':'#991b1b'};font-weight:500">${casaAbiertaMes?'✓':'✗'} Casa abierta</span>
+        <span style="font-size:11px;padding:2px 10px;border-radius:20px;background:${(visitaProv||giraKpi)?'#dcfce7':'#fee2e2'};color:${(visitaProv||giraKpi)?'#166534':'#991b1b'};font-weight:500">${(visitaProv||giraKpi)?'✓':'✗'} Visita provincia</span>
+        <span style="font-size:11px;padding:2px 10px;border-radius:20px;background:${(casaAbiertaMes||casaKpi)?'#dcfce7':'#fee2e2'};color:${(casaAbiertaMes||casaKpi)?'#166534':'#991b1b'};font-weight:500">${(casaAbiertaMes||casaKpi)?'✓':'✗'} Casa abierta</span>
         <span style="font-size:11px;padding:2px 10px;border-radius:20px;background:${clientesDif!==null&&clientesDif>=0?'#dcfce7':'#fee2e2'};color:${clientesDif!==null&&clientesDif>=0?'#166534':'#991b1b'};font-weight:500">${clientesDif!==null&&clientesDif>=0?'✓':'✗'} Clientes nuevos</span>
       </div>
     </div>
