@@ -1622,6 +1622,13 @@ async function initDB() {
         archivo BYTEA NOT NULL,
         created_at TIMESTAMP DEFAULT NOW()
       );
+      CREATE TABLE IF NOT EXISTS nsos (
+        id SERIAL PRIMARY KEY,
+        marca VARCHAR(100),
+        nombre VARCHAR(500) NOT NULL,
+        nso VARCHAR(100),
+        created_at TIMESTAMP DEFAULT NOW()
+      );
       CREATE TABLE IF NOT EXISTS personas (
         id SERIAL PRIMARY KEY,
         cedula VARCHAR(50),
@@ -3651,6 +3658,113 @@ const server = http.createServer(async (req, res) => {
       await pool.query('DELETE FROM documentos WHERE id=$1', [id]);
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
+  // ─── NSOs (Notificaciones Sanitarias Obligatorias) ─────────────────────────
+  // GET /api/nsos → lista completa
+  if (urlPath === '/api/nsos' && req.method === 'GET') {
+    try {
+      const r = await pool.query('SELECT id, marca, nombre, nso FROM nsos ORDER BY marca, nombre');
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.rows));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+  // POST /api/nsos/bulk → carga masiva {registros:[{marca,nombre,nso}], limpiar}
+  if (urlPath === '/api/nsos/bulk' && req.method === 'POST') {
+    try {
+      const { registros, limpiar } = await bodyJSON(req);
+      if (!Array.isArray(registros)) {
+        res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'registros debe ser array'})); return;
+      }
+      if (limpiar) await pool.query('TRUNCATE TABLE nsos RESTART IDENTITY');
+      let insertados = 0;
+      const LOTE = 200;
+      for (let i = 0; i < registros.length; i += LOTE) {
+        const lote = registros.slice(i, i + LOTE);
+        const valores = []; const params = [];
+        lote.forEach((r, j) => {
+          const b = j * 3;
+          valores.push(`($${b+1},$${b+2},$${b+3})`);
+          params.push(r.marca||'', r.nombre||'', r.nso||'');
+        });
+        await pool.query(`INSERT INTO nsos(marca,nombre,nso) VALUES ${valores.join(',')}`, params);
+        insertados += lote.length;
+      }
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, insertados}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+  // POST /api/nsos/subir → reemplaza todo con un Excel (multipart campo 'file')
+  if (urlPath === '/api/nsos/subir' && req.method === 'POST') {
+    try {
+      const buf = await bodyBuffer(req);
+      const archivo = parseMultipartFile(buf, req.headers['content-type']);
+      if (!archivo) {
+        res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'No se encontró archivo'})); return;
+      }
+      const wb = XLSX.read(archivo.buffer, { type: 'buffer' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const filas = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+      // Detectar fila de encabezado y columnas por nombre (tolera plantillas con o sin
+      // encabezado en la columna de marca)
+      let headerIdx = -1, nombreIdx = -1, nsoIdx = -1;
+      for (let i = 0; i < Math.min(filas.length, 10); i++) {
+        const f = filas[i] || [];
+        const nI = f.findIndex(c => typeof c === 'string' && /nombre/i.test(c));
+        const sI = f.findIndex(c => typeof c === 'string' && /nso/i.test(c));
+        if (nI !== -1 && sI !== -1) { headerIdx = i; nombreIdx = nI; nsoIdx = sI; break; }
+      }
+      if (headerIdx === -1) { headerIdx = 0; nombreIdx = 2; nsoIdx = 3; }
+      const marcaIdx = Math.max(0, nombreIdx - 1);
+      const registros = [];
+      for (let i = headerIdx + 1; i < filas.length; i++) {
+        const f = filas[i] || [];
+        const nombre = f[nombreIdx] != null ? String(f[nombreIdx]).trim() : '';
+        if (!nombre) continue;
+        registros.push({
+          marca: f[marcaIdx] != null ? String(f[marcaIdx]).trim() : '',
+          nombre,
+          nso: f[nsoIdx] != null ? String(f[nsoIdx]).trim() : ''
+        });
+      }
+      if (registros.length === 0) {
+        res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'No se encontraron registros en el Excel'})); return;
+      }
+      await pool.query('TRUNCATE TABLE nsos RESTART IDENTITY');
+      const LOTE = 200;
+      for (let i = 0; i < registros.length; i += LOTE) {
+        const lote = registros.slice(i, i + LOTE);
+        const valores = []; const params = [];
+        lote.forEach((r, j) => {
+          const b = j * 3;
+          valores.push(`($${b+1},$${b+2},$${b+3})`);
+          params.push(r.marca, r.nombre, r.nso);
+        });
+        await pool.query(`INSERT INTO nsos(marca,nombre,nso) VALUES ${valores.join(',')}`, params);
+      }
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, insertados: registros.length}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+  // GET /api/nsos/descargar → genera el Excel consolidado
+  if (urlPath === '/api/nsos/descargar' && req.method === 'GET') {
+    try {
+      const r = await pool.query('SELECT marca, nombre, nso FROM nsos ORDER BY marca, nombre');
+      const filas = [['#','MARCA','Nombre (*)','NSO']];
+      r.rows.forEach((row, i) => filas.push([i+1, row.marca, row.nombre, row.nso]));
+      const ws = XLSX.utils.aoa_to_sheet(filas);
+      ws['!cols'] = [{wch:5},{wch:14},{wch:50},{wch:18}];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Plantilla');
+      const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+      res.writeHead(200,{
+        'Content-Type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition':'attachment; filename="ETIQUETAS_NSOS_CONSOLIDADO.xlsx"',
+        'Cache-Control':'no-cache'
+      });
+      res.end(buf);
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
     return;
   }
 
