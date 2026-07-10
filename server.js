@@ -809,9 +809,19 @@ async function sincronizarReferidos(opciones){
     console.log(`✓ Referidos sync: ${procesados} procesados, ${nuevos} nuevos, ${errores} errores`);
     return { ok: true, procesados, nuevos, errores };
   } catch (e) {
-    console.error('Error conectando a casilla de referidos:', e.message);
+    // Armar un mensaje descriptivo: ImapFlow lanza "Command failed" genérico,
+    // pero trae el detalle en authenticationFailed/responseText/serverResponseCode
+    let detalle = e.message || 'Error desconocido';
+    if (e.authenticationFailed) {
+      detalle = 'Usuario o contraseña incorrectos para la casilla de referidos (verifica REFERIDOS_EMAIL_USER y REFERIDOS_EMAIL_PASS en Railway)';
+    } else if (e.responseText) {
+      detalle = detalle + ' — respuesta del servidor: ' + e.responseText;
+    } else if (e.code) {
+      detalle = detalle + ' (código: ' + e.code + ', host: ' + REFERIDOS_EMAIL_HOST + ':' + REFERIDOS_EMAIL_PORT + ')';
+    }
+    console.error('Error conectando a casilla de referidos:', detalle);
     try { if (client) await client.logout(); } catch(e2){}
-    return { ok: false, error: e.message };
+    return { ok: false, error: detalle };
   }
 }
 
