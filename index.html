@@ -6437,7 +6437,21 @@ async function renderTestersDetalle(clienteId, clienteNombre, clienteCedula){
   function extraerMarca(producto, categoria){
     const p = (producto||'').toUpperCase().trim();
     const c = (categoria||'').toUpperCase().trim();
-    // BIOSKIN: código BSK o categoría BioSkin/BSK
+    // 1) Marca directa en la categoría (testers guardados desde el catálogo de Contifico)
+    if(c === 'ZIAJA PRO' || c === 'ZIAJAPRO') return 'ZIAJA PRO';
+    if(c === 'BIOSKIN') return 'BIOSKIN';
+    if(c === 'ERAYBA') return 'ERAYBA';
+    if(c === 'ZIAJA') return 'ZIAJA';
+    // 2) Cat\u00e1logo oficial de Contifico (PRODUCTO_MARCA) — fuente autoritativa
+    try{
+      const mCat = detectarMarcaProducto(producto);
+      if(mCat){
+        const mu = String(mCat).toUpperCase().trim();
+        return mu === 'ZIAJAPRO' ? 'ZIAJA PRO' : mu;
+      }
+    }catch(e){}
+    // 3) Heur\u00edsticas por c\u00f3digo/nombre (fallback si el cat\u00e1logo no carg\u00f3)
+    // BIOSKIN: c\u00f3digo BSK o categor\u00eda BioSkin/BSK
     if(p.startsWith('BSK') || /^BSK\d+/.test(p) || c === 'BIOSKIN' || /BSK\d*/.test(c)) return 'BIOSKIN';
     // ERAYBA: líneas BS (smooting), K (keratin), N (collastin), ABH (ayurvedic)
     if(p.startsWith('ABH') || p.startsWith('BS1') || p.startsWith('BS S') ||
