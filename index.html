@@ -221,7 +221,14 @@
     </div>
 
     <div class="nav-divider"></div>
-    <div class="nav-item" id="nav-kpis" onclick="navSetMod('kpis')"><i class="ti ti-trending-up"></i>KPIs</div>
+    <div class="nav-item" id="nav-kpis" onclick="navToggleGroup('nav-kpis-subs','nav-kpis-chevron','kpis')">
+      <i class="ti ti-trending-up"></i>KPIs
+      <i class="ti ti-chevron-right" id="nav-kpis-chevron" style="margin-left:auto;font-size:12px;transition:transform 0.2s"></i>
+    </div>
+    <div id="nav-kpis-subs" style="max-height:0;overflow:hidden;transition:max-height 0.25s ease">
+      <div class="nav-sub-item" id="navsub-kpis-asesoras" onclick="navGoKpis('asesoras')"><i class="ti ti-users" style="font-size:13px"></i>KPIs Asesoras</div>
+      <div class="nav-sub-item" id="navsub-kpis-provincias" onclick="navGoKpis('provincias')"><i class="ti ti-map-search" style="font-size:13px"></i>KPIs Provincias</div>
+    </div>
     <div class="nav-item" id="nav-inventario" onclick="navSetMod('inventario')"><i class="ti ti-package"></i>Inventario</div>
     <div class="nav-item" id="nav-reportes" style="display:none" onclick="navToggleGroup('nav-reportes-subs','nav-reportes-chevron','reportes')">
       <i class="ti ti-file-analytics"></i>Reportes
@@ -230,7 +237,6 @@
     <div id="nav-reportes-subs" style="max-height:0;overflow:hidden;transition:max-height 0.25s ease">
       <div class="nav-sub-item" id="navsub-rep-comisiones" onclick="navGoReportes('comisiones')"><i class="ti ti-coin" style="font-size:13px"></i>Comisiones</div>
       <div class="nav-sub-item" id="navsub-rep-inversiones" onclick="navGoReportes('inversiones')"><i class="ti ti-receipt" style="font-size:13px"></i>Inversiones / Viáticos</div>
-      <div class="nav-sub-item" id="navsub-rep-kpisprov" onclick="navGoReportes('kpisprov')"><i class="ti ti-map-search" style="font-size:13px"></i>KPIs Provincias</div>
     </div>
     <div class="nav-divider"></div>
     <div class="nav-item" id="nav-config" style="display:none" onclick="navToggleGroup('nav-config-subs','nav-config-chevron','config')">
@@ -455,11 +461,11 @@ function navToggleGroup(subsId, chevId, mod){
   if(!subs) return;
   const isOpen = subs.style.maxHeight !== '0px' && subs.style.maxHeight !== '';
   // Cerrar todos los grupos primero
-  ['nav-inicio-subs','nav-clientes-subs','nav-plan-subs','nav-visitas-subs','nav-config-subs'].forEach(id => {
+  ['nav-inicio-subs','nav-clientes-subs','nav-plan-subs','nav-visitas-subs','nav-kpis-subs','nav-reportes-subs','nav-config-subs'].forEach(id => {
     const el = document.getElementById(id);
     if(el) el.style.maxHeight = '0px';
   });
-  ['nav-ventas-chevron','nav-clientes-chevron','nav-plan-chevron','nav-visitas-chevron','nav-config-chevron'].forEach(id => {
+  ['nav-ventas-chevron','nav-clientes-chevron','nav-plan-chevron','nav-visitas-chevron','nav-kpis-chevron','nav-reportes-chevron','nav-config-chevron'].forEach(id => {
     const el = document.getElementById(id);
     if(el) el.style.transform = '';
   });
@@ -517,10 +523,10 @@ function navSetSubtab(tab){
   document.getElementById('navsub-'+tab)?.classList.add('active');
   const enInicio = ['facturas','testers','envios','control'].includes(tab);
   const enClientes = ['cpf','prov'].includes(tab);
-  ['nav-inicio-subs','nav-clientes-subs','nav-plan-subs','nav-visitas-subs','nav-config-subs'].forEach(id=>{
+  ['nav-inicio-subs','nav-clientes-subs','nav-plan-subs','nav-visitas-subs','nav-kpis-subs','nav-reportes-subs','nav-config-subs'].forEach(id=>{
     const el = document.getElementById(id); if(el) el.style.maxHeight='0px';
   });
-  ['nav-ventas-chevron','nav-clientes-chevron','nav-plan-chevron','nav-visitas-chevron','nav-config-chevron'].forEach(id=>{
+  ['nav-ventas-chevron','nav-clientes-chevron','nav-plan-chevron','nav-visitas-chevron','nav-kpis-chevron','nav-reportes-chevron','nav-config-chevron'].forEach(id=>{
     const el = document.getElementById(id); if(el) el.style.transform='';
   });
   if(enInicio){
@@ -546,10 +552,10 @@ function navSetSubtab(tab){
 
 function navSetMod(mod){
   closeSidebar();
-  ['nav-inicio-subs','nav-clientes-subs','nav-plan-subs','nav-visitas-subs','nav-config-subs'].forEach(id=>{
+  ['nav-inicio-subs','nav-clientes-subs','nav-plan-subs','nav-visitas-subs','nav-kpis-subs','nav-reportes-subs','nav-config-subs'].forEach(id=>{
     const el = document.getElementById(id); if(el) el.style.maxHeight='0px';
   });
-  ['nav-ventas-chevron','nav-clientes-chevron','nav-plan-chevron','nav-visitas-chevron','nav-config-chevron'].forEach(id=>{
+  ['nav-ventas-chevron','nav-clientes-chevron','nav-plan-chevron','nav-visitas-chevron','nav-kpis-chevron','nav-reportes-chevron','nav-config-chevron'].forEach(id=>{
     const el = document.getElementById(id); if(el) el.style.transform='';
   });
   if(mod === 'ventas'){
@@ -6049,13 +6055,20 @@ function renderReportes(){
   document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
   document.getElementById('navsub-rep-'+tab)?.classList.add('active');
   document.getElementById('main').innerHTML=`
-    <div class="breadcrumb" style="margin-bottom:12px"><i class="ti ti-file-analytics" style="color:var(--brown);font-size:12px"></i><span style="font-weight:500">Reportes — ${tab==='inversiones'?'Inversiones / Viáticos':tab==='kpisprov'?'KPIs Provincias':'Comisiones'}</span></div>
+    <div class="breadcrumb" style="margin-bottom:12px"><i class="ti ti-file-analytics" style="color:var(--brown);font-size:12px"></i><span style="font-weight:500">Reportes — ${tab==='inversiones'?'Inversiones / Viáticos':'Comisiones'}</span></div>
     <div id="reportes-content"></div>`;
   if(tab==='inversiones') renderInversiones();
-  else if(tab==='kpisprov') renderKpisProvincias();
   else renderComisiones();
 }
 
+function navGoKpis(tab){
+  window._kpisTab = tab;
+  navSetMod('kpis');
+  setTimeout(()=>{
+    document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
+    document.getElementById('navsub-kpis-'+tab)?.classList.add('active');
+  }, 30);
+}
 function navGoReportes(tab){
   window._reportesTab = tab;
   navSetMod('reportes');
@@ -7585,6 +7598,14 @@ async function guardarKpiMetas(){
 }
 
 async function renderKpis(){
+  // Sub-módulo: KPIs Provincias
+  if(window._kpisTab === 'provincias'){
+    document.getElementById('main').innerHTML = `
+      <div class="breadcrumb" style="margin-bottom:12px"><i class="ti ti-map-search" style="color:var(--brown);font-size:12px"></i><span style="font-weight:500">KPIs — Provincias</span></div>
+      <div id="reportes-content"></div>`;
+    return renderKpisProvincias();
+  }
+  document.getElementById('navsub-kpis-asesoras')?.classList.add('active');
   await cargarVisitas(); // asegura visitasDB cargado
   const usuario = window.usuarioActual || {};
   const rol = usuario.rol || '';
