@@ -206,7 +206,7 @@
     <div id="nav-plan-subs" style="max-height:0;overflow:hidden;transition:max-height 0.25s ease">
       <div class="nav-sub-item" id="navsub-capacitaciones" onclick="navGoCapacitaciones()"><i class="ti ti-school" style="font-size:13px"></i>Capacitaciones</div>
       <div class="nav-sub-item" id="navsub-institutos" onclick="navGoPlan('institutos')"><i class="ti ti-building" style="font-size:13px"></i>Institutos</div>
-      <div class="nav-sub-item" id="navsub-giras" onclick="navGoPlan('giras')"><i class="ti ti-road" style="font-size:13px"></i>Giras</div>
+      <div class="nav-sub-item" id="navsub-giras" onclick="navGoPlan('giras')"><i class="ti ti-road" style="font-size:13px"></i>Visitas a Provincias</div>
       <div class="nav-sub-item" id="navsub-casas" onclick="navGoPlan('casas_abiertas')"><i class="ti ti-building-store" style="font-size:13px"></i>Casas Abiertas</div>
     </div>
 
@@ -564,7 +564,7 @@ const MOD_LABELS = {
   ventas:'Inicio', visitas:'Visitas', kpis:'KPIs',
   inventario:'Inventario', reportes:'Reportes', config:'Configuración',
   capacitaciones:'Capacitaciones', institutos:'Institutos',
-  giras:'Giras', casas_abiertas:'Casas Abiertas',
+  giras:'Visitas a Provincias', casas_abiertas:'Casas Abiertas',
   'visitas-plan':'Planificación Visitas'
 };
 const MOD_SUBTABS = { ventas: true };
@@ -1294,7 +1294,7 @@ function navGoPlan(modulo){
   if(subs) subs.style.maxHeight = '200px';
   if(chev) chev.style.transform = 'rotate(180deg)';
   modActual = modulo;
-  document.getElementById('mobile-mod-title').textContent = {giras:'Giras',casas_abiertas:'Casas Abiertas',institutos:'Institutos'}[modulo]||modulo;
+  document.getElementById('mobile-mod-title').textContent = {giras:'Visitas a Provincias',casas_abiertas:'Casas Abiertas',institutos:'Institutos'}[modulo]||modulo;
   document.getElementById('sidebar')?.classList.add('hidden');
   document.getElementById('body')?.classList.add('full-width');
   if(!window[`_${modulo}Mes`]) window[`_${modulo}Mes`] = new Date().getMonth()+1;
@@ -6517,7 +6517,7 @@ async function renderInversiones(){
   const hoy = new Date();
   const anioSel = window._inversionesAnio || hoy.getFullYear();
 
-  // Fuente: Planificación → Giras (viáticos entregados a las asesoras)
+  // Fuente: Planificación → Visitas a Provincias (viáticos entregados a las asesoras)
   let giras = [];
   try{
     const r = await fetch(`/api/giras?anio=${anioSel}`);
@@ -6545,13 +6545,13 @@ async function renderInversiones(){
         style="padding:7px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;cursor:pointer;background:white;outline:none">
         ${[anioSel-2, anioSel-1, anioSel, anioSel+1].filter(y=>y<=hoy.getFullYear()).map(y=>`<option value="${y}" ${y===anioSel?'selected':''}>${y}</option>`).join('')}
       </select>
-      <span style="font-size:11px;color:var(--muted)">Fuente: Planificación → Giras</span>
+      <span style="font-size:11px;color:var(--muted)">Fuente: Planificación → Visitas a Provincias</span>
     </div>
 
     <!-- KPIs -->
     <div class="kpi-row" style="margin-bottom:16px">
       <div class="kpi"><div class="kpi-label">Total invertido</div><div class="kpi-val" style="color:var(--brown)">${fmt(total)}</div><div class="kpi-sub">viáticos ${anioSel}</div></div>
-      <div class="kpi"><div class="kpi-label">Giras</div><div class="kpi-val">${giras.length}</div><div class="kpi-sub">registradas</div></div>
+      <div class="kpi"><div class="kpi-label">Visitas a provincia</div><div class="kpi-val">${giras.length}</div><div class="kpi-sub">registradas</div></div>
       <div class="kpi"><div class="kpi-label">Provincias</div><div class="kpi-val">${provinciasOrdenadas.length}</div><div class="kpi-sub">con inversión</div></div>
     </div>
 
@@ -6559,7 +6559,7 @@ async function renderInversiones(){
       <div class="card" style="text-align:center;padding:40px 20px;color:var(--muted)">
         <i class="ti ti-receipt-off" style="font-size:36px;opacity:0.35"></i>
         <p style="margin-top:10px;font-size:14px">No hay giras registradas en ${anioSel}</p>
-        <p style="font-size:12px;margin-top:4px">Los viáticos se registran en Planificación → Giras al entregarlos a las asesoras</p>
+        <p style="font-size:12px;margin-top:4px">Los viáticos se registran en Planificación → Visitas a Provincias al entregarlos a las asesoras</p>
       </div>` : `
 
     <!-- Acumulado por provincia -->
@@ -6581,7 +6581,7 @@ async function renderInversiones(){
 
     <!-- Detalle de giras -->
     <div class="card">
-      <div class="card-title"><i class="ti ti-list"></i> Detalle de giras · ${anioSel}</div>
+      <div class="card-title"><i class="ti ti-list"></i> Detalle de visitas a provincias · ${anioSel}</div>
       <div style="overflow-x:auto">
         <table style="width:100%;border-collapse:collapse;font-size:12px">
           <thead><tr style="background:#faf9f8;border-bottom:1px solid var(--border)">
