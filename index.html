@@ -4826,6 +4826,11 @@ async function renderProvincias(provSeleccionada){
             <button class="sort-btn" id="sort-p-az" onclick="sortProv('az','${provSeleccionada}')">A → Z</button>
           </div>
         </div>
+        <div style="position:relative;margin-bottom:12px">
+          <i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:14px"></i>
+          <input type="text" id="buscar-cliente-prov" placeholder="Buscar cliente por nombre..." oninput="filtrarClientesProvincia(this.value)"
+            style="width:100%;padding:9px 12px 9px 32px;border:1px solid var(--border);border-radius:10px;font-size:13px;outline:none;box-sizing:border-box;background:#faf9f8"/>
+        </div>
         <div id="cli-list-prov">
           ${provData.map(c=>`
             <div class="hbar" onclick="selClienteProvincia('${c.nombre.replace(/'/g,"\\'").replace(/"/g,'\\"')}','${provSeleccionada.replace(/'/g,"\\'")}')">
@@ -4836,6 +4841,16 @@ async function renderProvincias(provSeleccionada){
         </div>
       </div>`;
   }
+}
+
+function filtrarClientesProvincia(q){
+  const lista = document.getElementById('cli-list-prov');
+  if(!lista) return;
+  const query = (q||'').toLowerCase().trim();
+  lista.querySelectorAll('.hbar').forEach(el=>{
+    const nombre = (el.querySelector('.hbar-lbl')?.textContent||'').toLowerCase();
+    el.style.display = !query || nombre.includes(query) ? '' : 'none';
+  });
 }
 
 function selClienteProvincia(nombre, provincia){
