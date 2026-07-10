@@ -1328,7 +1328,7 @@ const PLAN_CONFIG = {
     checkRealizada: true,
     campos: [
       { key:'fecha', label:'Fecha', type:'date', required:true },
-      { key:'asesora', label:'Asesora', type:'text', placeholder:'Nombre de la asesora' },
+      { key:'asesora', label:'Asesora', type:'asesora' },
       { key:'ciudad', label:'Provincia', type:'select', options:['Azuay', 'Bolívar', 'Cañar', 'Carchi', 'Chimborazo', 'Cotopaxi', 'El Oro', 'Esmeraldas', 'Galápagos', 'Guayas', 'Imbabura', 'Loja', 'Los Ríos', 'Manabí', 'Morona Santiago', 'Napo', 'Orellana', 'Pastaza', 'Pichincha', 'Santa Elena', 'Santo Domingo', 'Sucumbíos', 'Tungurahua', 'Zamora Chinchipe'] },
       { key:'valor_viaticos', label:'Valor Viáticos ($)', type:'number', placeholder:'0.00' },
       { key:'coordinada', label:'Coordinada', type:'checkbox' }
@@ -1348,7 +1348,7 @@ const PLAN_CONFIG = {
     checkRealizada: true,
     campos: [
       { key:'fecha', label:'Fecha', type:'date', required:true },
-      { key:'asesora', label:'Asesora', type:'text', placeholder:'Nombre de la asesora' },
+      { key:'asesora', label:'Asesora', type:'asesora' },
       { key:'cliente', label:'Cliente', type:'text', placeholder:'Nombre del cliente' },
       { key:'consignacion', label:'Consignación', type:'text', placeholder:'Detalle de consignación' },
       { key:'coordinada', label:'Coordinada', type:'checkbox' }
@@ -1464,7 +1464,15 @@ async function renderPlanMes(modulo, anio, mes){
   </div>`;
 }
 
-function abrirModalPlan(modulo, row, mesKey){
+async function abrirModalPlan(modulo, row, mesKey){
+  // Cargar lista de asesoras (cache) para los campos type:'asesora'
+  if(!window._asesorasCache){
+    try{
+      const r = await fetch('/api/usuarios');
+      const us = await r.json();
+      window._asesorasCache = us.filter(u=>['asesora','jefa_ventas'].includes(u.rol) && u.activo).map(u=>u.nombre);
+    }catch(e){ window._asesorasCache = []; }
+  }
   const cfg = PLAN_CONFIG[modulo];
   const esNuevo = !row;
   const overlay = document.createElement('div');
@@ -1473,6 +1481,15 @@ function abrirModalPlan(modulo, row, mesKey){
 
   const camposHTML = cfg.campos.map(f => {
     const val = row?.[f.key] ?? (f.type==='date' ? mesKey+'-01' : '');
+    if(f.type==='asesora'){
+      const asesorasList = window._asesorasCache || [];
+      return `<div>
+        <label style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:5px">${f.label}</label>
+        <select id="plan-${f.key}" style="width:100%;padding:9px 12px;border:1px solid #e5e5e5;border-radius:8px;font-size:13px;outline:none;box-sizing:border-box;background:white">
+          <option value="">— Selecciona asesora —</option>
+          ${asesorasList.map(a=>`<option value="${a}" ${val===a||(val&&a.toLowerCase().startsWith(String(val).split(' ')[0].toLowerCase()))?'selected':''}>${a}</option>`).join('')}
+        </select></div>`;
+    }
     if(f.type==='checkbox'){
       return `<div style="display:flex;align-items:center;gap:10px">
         <input type="checkbox" id="plan-${f.key}" ${val?'checked':''} style="accent-color:#A0684A;width:18px;height:18px;cursor:pointer"/>
