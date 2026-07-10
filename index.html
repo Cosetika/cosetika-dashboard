@@ -3238,7 +3238,7 @@ async function renderControlContenido(){
   let pedidos = [], facturas = [], envios = [];
   try{
     const [rPed, rFac, rEnv] = await Promise.all([
-      fetch('/api/pedidos-web?fecha=' + CONTROL_FECHA_SEL),
+      fetch('/api/pedidos-web?fecha_control=' + CONTROL_FECHA_SEL),
       fetch('/api/ventas-fecha?fecha=' + CONTROL_FECHA_SEL),
       fetch('/api/envios?fecha=' + CONTROL_FECHA_SEL)
     ]);
@@ -3417,8 +3417,14 @@ async function renderPedidosWeb(fechaSel){
   const fmtNav = d => d.toISOString().split('T')[0];
   const meses = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
   const esHoy = fechaSel === hoy;
+  const hoyObj = new Date(hoy+'T12:00:00');
+  const mananaHoy = new Date(hoyObj); mananaHoy.setDate(hoyObj.getDate()+1);
+  const mananaStr = fmtNav ? null : null; // placeholder
+  const esManana = fechaSel === (function(){const d=new Date(hoy+'T12:00:00');d.setDate(d.getDate()+1);return d.toISOString().split('T')[0];})();
   const labelFecha = esHoy
     ? ('Hoy · '+fechaObj.getDate()+' '+meses[fechaObj.getMonth()]+' '+fechaObj.getFullYear())
+    : esManana
+    ? ('Mañana · '+fechaObj.getDate()+' '+meses[fechaObj.getMonth()]+' '+fechaObj.getFullYear())
     : (fechaObj.getDate()+' '+meses[fechaObj.getMonth()]+' '+fechaObj.getFullYear());
   const totalDia = pedidos.reduce((s,p)=>s+parseFloat(p.total||0),0);
 
@@ -3426,7 +3432,7 @@ async function renderPedidosWeb(fechaSel){
     + '<button onclick="renderPedidosWeb(\'' + fmtNav(ayer) + '\')" style="width:34px;height:34px;border-radius:50%;border:1px solid var(--border);background:white;cursor:pointer;display:flex;align-items:center;justify-content:center"><i class="ti ti-chevron-left" style="font-size:16px;color:var(--muted)"></i></button>'
     + '<div style="text-align:center"><div style="font-size:16px;font-weight:600">'+labelFecha+'</div>'
     + '<div style="font-size:12px;color:var(--muted)">'+pedidos.length+' pedido'+(pedidos.length!==1?'s':'')+' · $'+totalDia.toFixed(2)+'</div></div>'
-    + '<button onclick="renderPedidosWeb(\'' + fmtNav(manana) + '\')" '+(esHoy?'disabled style="opacity:0.3;cursor:default;"':'')+' style="width:34px;height:34px;border-radius:50%;border:1px solid var(--border);background:white;display:flex;align-items:center;justify-content:center"><i class="ti ti-chevron-right" style="font-size:16px;color:var(--muted)"></i></button>'
+    + '<button onclick="renderPedidosWeb(\'' + fmtNav(manana) + '\')" '+(esManana?'disabled style="opacity:0.3;cursor:default;"':'')+' style="width:34px;height:34px;border-radius:50%;border:1px solid var(--border);background:white;display:flex;align-items:center;justify-content:center"><i class="ti ti-chevron-right" style="font-size:16px;color:var(--muted)"></i></button>'
     + '</div>';
 
   if(pedidos.length === 0){

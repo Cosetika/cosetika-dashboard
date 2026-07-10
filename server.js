@@ -1447,6 +1447,10 @@ async function initDB() {
       );
       ALTER TABLE planificacion ADD COLUMN IF NOT EXISTS visitado_at VARCHAR(20);
       ALTER TABLE pedidos_web ADD COLUMN IF NOT EXISTS facturado_ayer BOOLEAN DEFAULT false;
+      ALTER TABLE pedidos_web ADD COLUMN IF NOT EXISTS fecha_control DATE;
+      -- Migración única: pedidos movidos antes (cambiaban fecha) → restaurar fecha original
+      UPDATE pedidos_web SET fecha_control = fecha, fecha = fecha - INTERVAL '1 day'
+        WHERE facturado_ayer = true AND fecha_control IS NULL;
       CREATE TABLE IF NOT EXISTS capacitaciones (
         id SERIAL PRIMARY KEY,
         fecha DATE NOT NULL,
@@ -2078,9 +2082,13 @@ const server = http.createServer(async (req, res) => {
   if (urlPath === '/api/pedidos-web' && req.method === 'GET') {
     try {
       const fecha = urlObj.searchParams.get('fecha');
+      const fechaControl = urlObj.searchParams.get('fecha_control');
       const dias = parseInt(urlObj.searchParams.get('dias')) || null;
       let r;
-      if (fecha) {
+      if (fechaControl) {
+        // Vista Control: usa fecha de despacho (fecha_control si el pedido fue movido)
+        r = await pool.query('SELECT * FROM pedidos_web WHERE COALESCE(fecha_control, fecha)=$1 ORDER BY id DESC', [fechaControl]);
+      } else if (fecha) {
         r = await pool.query('SELECT * FROM pedidos_web WHERE fecha=$1 ORDER BY id DESC', [fecha]);
       } else if (dias) {
         r = await pool.query(`SELECT * FROM pedidos_web WHERE fecha >= (CURRENT_DATE - $1::int) ORDER BY fecha DESC, id DESC`, [dias]);
@@ -2130,8 +2138,9 @@ const server = http.createServer(async (req, res) => {
   if (urlPath === '/api/pedidos-web/mover-siguiente-dia' && req.method === 'POST') {
     try {
       const { numeroPedido } = await bodyJSON(req);
+      // Solo se mueve la fecha de CONTROL (despacho) — la fecha original del pedido no cambia
       await pool.query(
-        `UPDATE pedidos_web SET fecha = fecha + INTERVAL '1 day', facturado_ayer = true WHERE numero_pedido=$1`,
+        `UPDATE pedidos_web SET fecha_control = COALESCE(fecha_control, fecha) + INTERVAL '1 day', facturado_ayer = true WHERE numero_pedido=$1`,
         [numeroPedido]
       );
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
