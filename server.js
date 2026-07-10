@@ -22,9 +22,10 @@ const PEDIDOS_EMAIL_USER = process.env.PEDIDOS_EMAIL_USER || '';
 const PEDIDOS_EMAIL_PASS = process.env.PEDIDOS_EMAIL_PASS || '';
 const PEDIDOS_EMAIL_PORT = parseInt(process.env.PEDIDOS_EMAIL_PORT) || 993;
 // Casilla de referidos (formulario web). Host/puerto heredan de la de pedidos si no se definen.
-const REFERIDOS_EMAIL_HOST = process.env.REFERIDOS_EMAIL_HOST || process.env.PEDIDOS_EMAIL_HOST || '';
-const REFERIDOS_EMAIL_USER = process.env.REFERIDOS_EMAIL_USER || '';
-const REFERIDOS_EMAIL_PASS = process.env.REFERIDOS_EMAIL_PASS || '';
+// .trim() elimina espacios/saltos de línea invisibles que se cuelan al copiar y pegar en Railway
+const REFERIDOS_EMAIL_HOST = (process.env.REFERIDOS_EMAIL_HOST || process.env.PEDIDOS_EMAIL_HOST || '').trim();
+const REFERIDOS_EMAIL_USER = (process.env.REFERIDOS_EMAIL_USER || '').trim();
+const REFERIDOS_EMAIL_PASS = (process.env.REFERIDOS_EMAIL_PASS || '').trim();
 const REFERIDOS_EMAIL_PORT = parseInt(process.env.REFERIDOS_EMAIL_PORT) || parseInt(process.env.PEDIDOS_EMAIL_PORT) || 993;
 
 
@@ -813,7 +814,9 @@ async function sincronizarReferidos(opciones){
     // pero trae el detalle en authenticationFailed/responseText/serverResponseCode
     let detalle = e.message || 'Error desconocido';
     if (e.authenticationFailed) {
-      detalle = 'Usuario o contraseña incorrectos para la casilla de referidos (verifica REFERIDOS_EMAIL_USER y REFERIDOS_EMAIL_PASS en Railway)';
+      detalle = 'Login rechazado intentando como "' + REFERIDOS_EMAIL_USER + '" en ' + REFERIDOS_EMAIL_HOST + ':' + REFERIDOS_EMAIL_PORT
+        + (e.responseText ? ' — el servidor dijo: ' + e.responseText : '')
+        + '. Verifica la contraseña en Railway (sin espacios ni comillas) y prueba entrar en webmail.dreamhost.com con esas mismas credenciales.';
     } else if (e.responseText) {
       detalle = detalle + ' — respuesta del servidor: ' + e.responseText;
     } else if (e.code) {
