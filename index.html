@@ -1320,14 +1320,12 @@ const PLAN_CONFIG = {
     campos: [
       { key:'fecha', label:'Fecha', type:'date', required:true },
       { key:'nombre_instituto', label:'Nombre del Instituto', type:'text', placeholder:'Ej: Centro de Estética XYZ' },
-      { key:'actividad', label:'Actividad', type:'select', options:['Clase','Práctica'] },
-      { key:'tipo_actividad', label:'Tipo', type:'select', options:['Apertura','Visita'] }
+      { key:'actividad', label:'Actividad', type:'select', options:['Clase','Práctica'] }
     ],
     tarjeta: (r) => ({
       titulo: r.nombre_instituto || 'Sin nombre',
       chips: [
         r.actividad ? { icon:'ti-book', text: r.actividad } : null,
-        r.tipo_actividad ? { icon:'ti-flag', text: r.tipo_actividad } : null,
       ].filter(Boolean)
     })
   },
@@ -1439,12 +1437,20 @@ async function renderPlanMes(modulo, anio, mes){
             ${info.chips.map(c=>`<span style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px"><i class="ti ${c.icon}" style="font-size:13px;color:var(--brown)"></i>${c.text}</span>`).join('')}
           </div>
           ${cfg.checkRealizada ? `
-          <label style="margin-top:10px;display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:${r.realizada?'#166534':'var(--muted)'};cursor:${puedeEditar?'pointer':'default'};background:${r.realizada?'#f0fdf4':'#faf9f8'};border:1px solid ${r.realizada?'#86efac':'var(--border)'};border-radius:20px;padding:4px 12px">
-            <input type="checkbox" ${r.realizada?'checked':''} ${puedeEditar?'':'disabled'}
-              onchange="marcarPlanRealizado('${modulo}', ${r.id}, this.checked, '${mesKey}')"
-              style="accent-color:#16a34a;width:15px;height:15px;cursor:${puedeEditar?'pointer':'default'}"/>
-            ${r.realizada?'Realizada ✓':'Marcar como realizada'}
-          </label>` : ''}
+          <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+            <label style="display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:${r.realizada?'#166534':'var(--muted)'};cursor:${puedeEditar?'pointer':'default'};background:${r.realizada?'#f0fdf4':'#faf9f8'};border:1px solid ${r.realizada?'#86efac':'var(--border)'};border-radius:20px;padding:4px 12px">
+              <input type="checkbox" ${r.realizada?'checked':''} ${puedeEditar?'':'disabled'}
+                onchange="marcarPlanCampo('${modulo}', ${r.id}, 'realizada', this.checked, '${mesKey}')"
+                style="accent-color:#16a34a;width:15px;height:15px;cursor:${puedeEditar?'pointer':'default'}"/>
+              ${r.realizada?'Visita realizada ✓':'Visita realizada'}
+            </label>
+            <label style="display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:${r.aperturado?'#1d4ed8':'var(--muted)'};cursor:${puedeEditar?'pointer':'default'};background:${r.aperturado?'#eff6ff':'#faf9f8'};border:1px solid ${r.aperturado?'#93c5fd':'var(--border)'};border-radius:20px;padding:4px 12px">
+              <input type="checkbox" ${r.aperturado?'checked':''} ${puedeEditar?'':'disabled'}
+                onchange="marcarPlanCampo('${modulo}', ${r.id}, 'aperturado', this.checked, '${mesKey}')"
+                style="accent-color:#2563eb;width:15px;height:15px;cursor:${puedeEditar?'pointer':'default'}"/>
+              ${r.aperturado?'Aperturado ✓':'Aperturado'}
+            </label>
+          </div>` : ''}
         </div>
         ${puedeEditar ? `
         <div style="display:flex;flex-direction:column;gap:4px;padding:12px 10px;flex-shrink:0">
@@ -1508,11 +1514,11 @@ function abrirModalPlan(modulo, row, mesKey){
   document.body.appendChild(overlay);
 }
 
-async function marcarPlanRealizado(modulo, id, realizada, mesKey){
+async function marcarPlanCampo(modulo, id, campo, valor, mesKey){
   try{
     await fetch(`/api/${modulo}/${id}`, {
       method:'PUT', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ realizada })
+      body: JSON.stringify({ [campo]: valor })
     });
     const [ay, mm] = mesKey.split('-');
     await renderPlanMes(modulo, parseInt(ay), parseInt(mm));
@@ -7172,9 +7178,9 @@ async function renderKpisGiovanna(asesoraKpi, asesoras, puedeVerTodas, rol){
   const capOficina = caps.filter(c=>c.tipo==='Oficina' && c.realizada).length;
   const capProvincia = caps.filter(c=>c.tipo==='Provincia' && c.realizada).length;
   const capVirtuales = caps.filter(c=>c.modalidad==='Virtual' && c.realizada).length;
-  // Institutos: solo cuentan los marcados como realizados (checkbox)
-  const instAperturas = inst.filter(i=>i.tipo_actividad==='Apertura' && i.realizada).length;
-  const instVisitas = inst.filter(i=>i.tipo_actividad==='Visita' && i.realizada).length;
+  // Institutos: checkbox "Visita realizada" → visitas; checkbox "Aperturado" → aperturas
+  const instAperturas = inst.filter(i=>i.aperturado).length;
+  const instVisitas = inst.filter(i=>i.realizada).length;
   const girasTotal = giras.length;
   const girasCoord = giras.filter(g=>g.coordinada).length;
   const girasPct = girasTotal ? Math.round(girasCoord/girasTotal*100) : 0;
