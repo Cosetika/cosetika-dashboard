@@ -5192,7 +5192,7 @@ async function renderPlanificacion(){
     const ru = await fetch('/api/usuarios');
     const usuarios = await ru.json();
     ASESORAS_PLAN = usuarios
-      .filter(u => ['asesora','jefa_ventas'].includes(u.rol) && u.activo)
+      .filter(u => u.rol === 'asesora' && u.activo)
       .map(u => u.nombre);
   } catch(e) { ASESORAS_PLAN = []; }
 
