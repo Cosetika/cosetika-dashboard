@@ -1331,13 +1331,15 @@ const PLAN_CONFIG = {
       { key:'fecha', label:'Fecha', type:'date', required:true },
       { key:'asesora', label:'Asesora', type:'asesora' },
       { key:'ciudad', label:'Provincia', type:'select', options:['Azuay', 'Bolívar', 'Cañar', 'Carchi', 'Chimborazo', 'Cotopaxi', 'El Oro', 'Esmeraldas', 'Galápagos', 'Guayas', 'Imbabura', 'Loja', 'Los Ríos', 'Manabí', 'Morona Santiago', 'Napo', 'Orellana', 'Pastaza', 'Pichincha', 'Santa Elena', 'Santo Domingo', 'Sucumbíos', 'Tungurahua', 'Zamora Chinchipe'] },
+      { key:'ciudad_visita', label:'Ciudad', type:'text', placeholder:'Ej: Portoviejo' },
       { key:'valor_viaticos', label:'Valor Viáticos ($)', type:'number', placeholder:'0.00' },
       { key:'coordinada', label:'Coordinada', type:'checkbox' }
     ],
     tarjeta: (r) => ({
-      titulo: r.ciudad || 'Sin ciudad',
+      titulo: r.ciudad || 'Sin provincia',
       chips: [
         r.asesora ? { icon:'ti-user', text: r.asesora } : null,
+        r.ciudad_visita ? { icon:'ti-map-pin', text: r.ciudad_visita } : null,
         r.valor_viaticos ? { icon:'ti-currency-dollar', text: `$${parseFloat(r.valor_viaticos).toFixed(2)}` } : null,
         r.coordinada ? { icon:'ti-check', text: 'Coordinada' } : null,
       ].filter(Boolean)

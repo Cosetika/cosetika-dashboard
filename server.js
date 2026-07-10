@@ -1557,6 +1557,7 @@ async function initDB() {
       ALTER TABLE institutos ADD COLUMN IF NOT EXISTS aperturado BOOLEAN DEFAULT false;
       ALTER TABLE giras ADD COLUMN IF NOT EXISTS coordinada BOOLEAN DEFAULT false;
       ALTER TABLE giras ADD COLUMN IF NOT EXISTS realizada BOOLEAN DEFAULT false;
+      ALTER TABLE giras ADD COLUMN IF NOT EXISTS ciudad_visita VARCHAR(100);
       ALTER TABLE casas_abiertas ADD COLUMN IF NOT EXISTS coordinada BOOLEAN DEFAULT false;
       ALTER TABLE casas_abiertas ADD COLUMN IF NOT EXISTS realizada BOOLEAN DEFAULT false;
       CREATE TABLE IF NOT EXISTS revisiones_lunes (
