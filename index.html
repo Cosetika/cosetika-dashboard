@@ -900,23 +900,36 @@ function pintarReferidos(filtro){
   const fmtF = f => { if(!f) return '—'; const p=String(f).substring(0,10).split('-'); const M=['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']; return parseInt(p[2])+' '+M[parseInt(p[1])]+' '+p[0].substring(2); };
   const telWa = t => { let d=String(t||'').replace(/\D/g,''); if(d.startsWith('0')&&d.length===10) d='593'+d.substring(1); return d; };
   cont.style.textAlign='left'; cont.style.padding='0';
-  cont.innerHTML = datos.map(x=>{
-    const esc = v => String(v||'').replace(/</g,'&lt;');
-    return `
-    <div style="display:flex;align-items:center;gap:12px;padding:11px 14px;background:${x.contactado?'#f7fdf9':'white'};border-radius:10px;border:1px solid ${x.contactado?'#bbf7d0':'var(--border)'};margin-bottom:8px;flex-wrap:wrap">
-      <div style="width:80px;font-size:11px;color:var(--brown);flex-shrink:0">${fmtF(x.fecha_dia)}</div>
-      <div style="flex:1;min-width:140px">
-        <div style="font-size:13px;font-weight:600">${esc(x.referido)||'—'}</div>
-        <div style="font-size:11px;color:var(--muted);margin-top:1px">Referido por: ${esc(x.cliente)||'—'}</div>
-      </div>
-      <a href="https://wa.me/${telWa(x.telefono)}" target="_blank" onclick="event.stopPropagation()" style="display:flex;align-items:center;gap:5px;font-size:12px;color:#16a34a;text-decoration:none;font-weight:500;flex-shrink:0"><i class="ti ti-brand-whatsapp" style="font-size:15px"></i>${esc(x.telefono)||'—'}</a>
-      <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);cursor:pointer;flex-shrink:0">
-        <input type="checkbox" ${x.contactado?'checked':''} onchange="marcarContactado(${x.id}, this.checked)" style="accent-color:#16a34a;width:16px;height:16px;cursor:pointer">
-        Contactado${x.contactado&&x.contactado_at?' <span style="color:#16a34a">'+esc(x.contactado_at)+'</span>':''}
-      </label>
-      ${esAdmin?`<button onclick="borrarReferido(${x.id})" title="Eliminar" style="width:26px;height:26px;border:1px solid #fca5a5;background:#fef2f2;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-trash" style="font-size:11px;color:#ef4444"></i></button>`:''}
-    </div>`;
-  }).join('');
+  const esc = v => String(v||'').replace(/</g,'&lt;');
+  cont.innerHTML = `
+  <div class="card" style="padding:0;overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:640px">
+      <thead>
+        <tr style="border-bottom:1px solid var(--border)">
+          <th style="text-align:left;padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;white-space:nowrap">Fecha</th>
+          <th style="text-align:left;padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Refiere</th>
+          <th style="text-align:left;padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Referido</th>
+          <th style="text-align:left;padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;white-space:nowrap">Teléfono referido</th>
+          <th style="text-align:center;padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Contactado</th>
+          ${esAdmin?'<th style="padding:10px 6px"></th>':''}
+        </tr>
+      </thead>
+      <tbody>
+        ${datos.map(x=>`
+        <tr style="border-bottom:0.5px solid var(--border);background:${x.contactado?'#f7fdf9':'white'}">
+          <td style="padding:10px 14px;font-size:11px;color:var(--brown);white-space:nowrap">${fmtF(x.fecha_dia)}</td>
+          <td style="padding:10px 14px">${esc(x.cliente)||'—'}</td>
+          <td style="padding:10px 14px;font-weight:600">${esc(x.referido)||'—'}</td>
+          <td style="padding:10px 14px;white-space:nowrap"><a href="https://wa.me/${telWa(x.telefono)}" target="_blank" style="display:inline-flex;align-items:center;gap:5px;font-size:12px;color:#16a34a;text-decoration:none;font-weight:500"><i class="ti ti-brand-whatsapp" style="font-size:15px"></i>${esc(x.telefono)||'—'}</a></td>
+          <td style="padding:10px 14px;text-align:center;white-space:nowrap">
+            <input type="checkbox" ${x.contactado?'checked':''} onchange="marcarContactado(${x.id}, this.checked)" style="accent-color:#16a34a;width:16px;height:16px;cursor:pointer;vertical-align:middle">
+            ${x.contactado&&x.contactado_at?'<div style="font-size:10px;color:#16a34a;margin-top:2px">'+esc(x.contactado_at)+'</div>':''}
+          </td>
+          ${esAdmin?`<td style="padding:10px 6px;text-align:center"><button onclick="borrarReferido(${x.id})" title="Eliminar" style="width:26px;height:26px;border:1px solid #fca5a5;background:#fef2f2;border-radius:6px;cursor:pointer"><i class="ti ti-trash" style="font-size:11px;color:#ef4444"></i></button></td>`:''}
+        </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>`;
 }
 
 async function marcarContactado(id, valor){
