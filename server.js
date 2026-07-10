@@ -1614,6 +1614,14 @@ async function initDB() {
       CREATE INDEX IF NOT EXISTS idx_testers_nombre ON testers(LOWER(cliente_nombre));
       CREATE INDEX IF NOT EXISTS idx_testers_cedula ON testers(cliente_cedula);
       ALTER TABLE testers ADD COLUMN IF NOT EXISTS cliente_cedula VARCHAR(50);
+      CREATE TABLE IF NOT EXISTS documentos (
+        id SERIAL PRIMARY KEY,
+        nombre VARCHAR(500) NOT NULL,
+        tamano INTEGER,
+        subido_por VARCHAR(255),
+        archivo BYTEA NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
       CREATE TABLE IF NOT EXISTS personas (
         id SERIAL PRIMARY KEY,
         cedula VARCHAR(50),
@@ -3582,6 +3590,69 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+
+  // ─── DOCUMENTOS (PDFs guardados en PostgreSQL) ─────────────────────────────
+  // GET /api/documentos → lista de documentos (sin el binario)
+  if (urlPath === '/api/documentos' && req.method === 'GET') {
+    try {
+      const r = await pool.query(
+        `SELECT id, nombre, tamano, subido_por, TO_CHAR(created_at,'DD/MM/YYYY HH24:MI') AS subido_el
+         FROM documentos ORDER BY created_at DESC`
+      );
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.rows));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+  // POST /api/documentos?usuario=X → subir un PDF (multipart, campo 'file')
+  if (urlPath === '/api/documentos' && req.method === 'POST') {
+    try {
+      const buf = await bodyBuffer(req);
+      const archivo = parseMultipartFile(buf, req.headers['content-type']);
+      if (!archivo || !archivo.buffer || archivo.buffer.length === 0) {
+        res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'No se encontró archivo'})); return;
+      }
+      const esPdf = archivo.buffer.slice(0,5).toString('latin1').startsWith('%PDF') || /\.pdf$/i.test(archivo.filename||'');
+      if (!esPdf) {
+        res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'Solo se permiten archivos PDF'})); return;
+      }
+      if (archivo.buffer.length > 20*1024*1024) {
+        res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'El archivo supera el máximo de 20 MB'})); return;
+      }
+      const usuario = urlObj.searchParams.get('usuario') || '';
+      const nombre = (archivo.filename || 'documento.pdf').substring(0, 490);
+      const r = await pool.query(
+        'INSERT INTO documentos(nombre,tamano,subido_por,archivo) VALUES($1,$2,$3,$4) RETURNING id',
+        [nombre, archivo.buffer.length, usuario, archivo.buffer]
+      );
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, id:r.rows[0].id}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+  // GET /api/documentos/:id/archivo → ver/descargar el PDF
+  if (/^\/api\/documentos\/\d+\/archivo$/.test(urlPath) && req.method === 'GET') {
+    try {
+      const id = parseInt(urlPath.split('/')[3]);
+      const r = await pool.query('SELECT nombre, archivo FROM documentos WHERE id=$1', [id]);
+      if (!r.rows.length) { res.writeHead(404,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:'No existe'})); return; }
+      const nombreAscii = String(r.rows[0].nombre||'documento.pdf').replace(/[^\x20-\x7E]/g,'_').replace(/["\\]/g,'');
+      res.writeHead(200,{
+        'Content-Type':'application/pdf',
+        'Content-Disposition':'inline; filename="'+nombreAscii+'"',
+        'Cache-Control':'no-cache'
+      });
+      res.end(r.rows[0].archivo);
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+  // DELETE /api/documentos/:id → eliminar documento
+  if (/^\/api\/documentos\/\d+$/.test(urlPath) && req.method === 'DELETE') {
+    try {
+      const id = parseInt(urlPath.split('/').pop());
+      await pool.query('DELETE FROM documentos WHERE id=$1', [id]);
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
 
   if (urlPath === '/api/provincias/diagnostico-cliente' && req.method === 'GET') {
     try {

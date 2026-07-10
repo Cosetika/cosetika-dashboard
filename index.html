@@ -238,6 +238,7 @@
       <div class="nav-sub-item" id="navsub-rep-comisiones" onclick="navGoReportes('comisiones')"><i class="ti ti-coin" style="font-size:13px"></i>Comisiones</div>
       <div class="nav-sub-item" id="navsub-rep-inversiones" onclick="navGoReportes('inversiones')"><i class="ti ti-receipt" style="font-size:13px"></i>Inversiones / Viáticos</div>
     </div>
+    <div class="nav-item" id="nav-documentos" onclick="navSetMod('documentos')"><i class="ti ti-files"></i>Documentos</div>
     <div class="nav-divider"></div>
     <div class="nav-item" id="nav-config" style="display:none" onclick="navToggleGroup('nav-config-subs','nav-config-chevron','config')">
       <i class="ti ti-settings"></i>Configuración
@@ -569,7 +570,7 @@ function navSetMod(mod){
 
 const MOD_LABELS = {
   ventas:'Inicio', visitas:'Visitas', kpis:'KPIs',
-  inventario:'Inventario', reportes:'Reportes', config:'Configuración',
+  inventario:'Inventario', reportes:'Reportes', config:'Configuración', documentos:'Documentos',
   capacitaciones:'Capacitaciones', institutos:'Institutos',
   giras:'Visitas a Provincias', casas_abiertas:'Casas Abiertas',
   'visitas-plan':'Planificación Visitas'
@@ -619,6 +620,8 @@ function setMod(mod){
     renderKpis();
   } else if(mod==='inventario'){
     renderInventario();
+  } else if(mod==='documentos'){
+    renderDocumentos();
   } else {
     document.getElementById('main').innerHTML=`
       <div class="coming">
@@ -629,6 +632,93 @@ function setMod(mod){
   }
 }
 
+
+// ─── MÓDULO DOCUMENTOS (PDFs) ───────────────────────────────────────────────
+async function renderDocumentos(){
+  const main = document.getElementById('main');
+  main.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+      <div style="font-size:16px;font-weight:600"><i class="ti ti-files" style="margin-right:8px;color:var(--brown)"></i>Documentos</div>
+      <div>
+        <input type="file" id="doc-file-input" accept="application/pdf,.pdf" multiple style="display:none" onchange="subirDocumentos(event)">
+        <button id="doc-subir-btn" onclick="document.getElementById('doc-file-input').click()" style="padding:9px 16px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-upload" style="margin-right:6px"></i>Subir PDF</button>
+      </div>
+    </div>
+    <div id="doc-subir-status" style="font-size:12px;color:var(--muted);margin-bottom:10px"></div>
+    <div id="doc-lista" style="font-size:13px;color:var(--muted);text-align:center;padding:20px 0">Cargando...</div>`;
+  cargarListaDocumentos();
+}
+
+async function cargarListaDocumentos(){
+  const cont = document.getElementById('doc-lista');
+  if(!cont) return;
+  try{
+    const r = await fetch('/api/documentos');
+    const docs = await r.json();
+    if(!Array.isArray(docs) || docs.length === 0){
+      cont.style.textAlign='center';
+      cont.innerHTML = `<div style="padding:40px 20px;color:var(--muted)"><i class="ti ti-file-off" style="font-size:36px;opacity:0.35"></i><p style="margin-top:10px;font-size:14px">No hay documentos todavía</p><p style="font-size:12px;margin-top:4px">Sube el primer PDF con el botón de arriba</p></div>`;
+      return;
+    }
+    const esAdmin = (window.usuarioActual||{}).rol === 'admin';
+    const fmtTam = n => { n=parseInt(n)||0; return n>=1048576 ? (n/1048576).toFixed(1)+' MB' : Math.max(1,Math.round(n/1024))+' KB'; };
+    cont.style.textAlign='left'; cont.style.padding='0';
+    cont.innerHTML = `<div style="font-size:12px;color:var(--muted);margin-bottom:10px">${docs.length} documento${docs.length!==1?'s':''}</div>` + docs.map(d=>{
+      const nomSeguro = String(d.nombre||'').replace(/['"\\<>]/g,'');
+      return `
+      <div style="display:flex;align-items:center;gap:12px;padding:11px 14px;background:white;border-radius:10px;border:1px solid var(--border);margin-bottom:8px">
+        <div style="width:36px;height:36px;border-radius:8px;background:#fef2f2;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-file-type-pdf" style="font-size:18px;color:#dc2626"></i></div>
+        <div style="flex:1;min-width:0;cursor:pointer" onclick="window.open('/api/documentos/${d.id}/archivo','_blank')">
+          <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${nomSeguro}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:1px">${d.subido_el||''}${d.subido_por?' · '+d.subido_por:''} · ${fmtTam(d.tamano)}</div>
+        </div>
+        <button onclick="window.open('/api/documentos/${d.id}/archivo','_blank')" title="Ver" style="width:28px;height:28px;border:1px solid var(--border);background:white;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-eye" style="font-size:13px;color:var(--muted)"></i></button>
+        ${esAdmin?`<button onclick="borrarDocumento(${d.id},'${nomSeguro}')" title="Eliminar" style="width:28px;height:28px;border:1px solid #fca5a5;background:#fef2f2;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-trash" style="font-size:13px;color:#ef4444"></i></button>`:''}
+      </div>`;
+    }).join('');
+  }catch(e){
+    cont.innerHTML = `<div style="color:#ef4444;font-size:13px;padding:20px 0;text-align:center">Error cargando documentos: ${e.message}</div>`;
+  }
+}
+
+async function subirDocumentos(ev){
+  const files = Array.from(ev.target.files||[]);
+  ev.target.value = '';
+  if(files.length === 0) return;
+  const status = document.getElementById('doc-subir-status');
+  const btn = document.getElementById('doc-subir-btn');
+  if(btn) btn.disabled = true;
+  let subidos = 0; const errores = [];
+  for(const f of files){
+    if(!/\.pdf$/i.test(f.name)){ errores.push(f.name+' (no es PDF)'); continue; }
+    if(f.size > 20*1024*1024){ errores.push(f.name+' (supera 20 MB)'); continue; }
+    if(status) status.innerHTML = '<i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i> Subiendo '+f.name+'...';
+    try{
+      const fd = new FormData();
+      fd.append('file', f, f.name);
+      const usuario = (window.usuarioActual||{}).nombre || '';
+      const r = await fetch('/api/documentos?usuario='+encodeURIComponent(usuario), { method:'POST', body: fd });
+      const j = await r.json();
+      if(!j.ok) throw new Error(j.error||'error al subir');
+      subidos++;
+    }catch(e){ errores.push(f.name+' ('+e.message+')'); }
+  }
+  if(btn) btn.disabled = false;
+  if(status) status.innerHTML =
+    (subidos>0 ? '<span style="color:#16a34a">✓ '+subidos+' documento'+(subidos!==1?'s':'')+' subido'+(subidos!==1?'s':'')+'</span>' : '')
+    + (errores.length ? ' <span style="color:#dc2626">Errores: '+errores.join(', ')+'</span>' : '');
+  cargarListaDocumentos();
+}
+
+async function borrarDocumento(id, nombre){
+  if(!confirm('¿Eliminar el documento "'+nombre+'"?')) return;
+  try{
+    const r = await fetch('/api/documentos/'+id, { method:'DELETE' });
+    const j = await r.json();
+    if(!j.ok) throw new Error(j.error||'error');
+    cargarListaDocumentos();
+  }catch(e){ alert('Error: '+e.message); }
+}
 
 // ─── MÓDULO INVENTARIO ──────────────────────────────────────────────────────
 const SEMAFORO_COLORS = {
