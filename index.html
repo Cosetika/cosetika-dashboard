@@ -848,7 +848,8 @@ async function renderReferidos(){
       <div style="font-size:16px;font-weight:600"><i class="ti ti-user-heart" style="margin-right:8px;color:var(--brown)"></i>Referidos</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button id="ref-sync-btn" onclick="sincronizarReferidosManual(false)" style="padding:9px 14px;background:white;color:var(--text);border:1px solid var(--border);border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-refresh" style="margin-right:5px"></i>Revisar correo</button>
-        ${(window.usuarioActual||{}).rol==='admin'?`<button onclick="if(confirm('Esto revisa TODO el historial de correos de referidos (incluidos los ya leídos). Los ya registrados no se duplican. ¿Continuar?'))sincronizarReferidosManual(true)" style="padding:9px 14px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-history" style="margin-right:5px"></i>Importar historial</button>`:''}
+        ${(window.usuarioActual||{}).rol==='admin'?`<button onclick="if(confirm('Esto revisa TODO el historial de correos de referidos (incluidos los ya leídos). Los ya registrados no se duplican. ¿Continuar?'))sincronizarReferidosManual(true)" style="padding:9px 14px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-history" style="margin-right:5px"></i>Importar historial</button>
+        <button onclick="marcarTodosContactados()" style="padding:9px 14px;background:white;color:#16a34a;border:1px solid #86efac;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-checks" style="margin-right:5px"></i>Marcar pendientes contactados</button>`:''}
       </div>
     </div>
     <div id="ref-status" style="font-size:12px;color:var(--muted);margin-bottom:10px"></div>
@@ -958,6 +959,20 @@ async function sincronizarReferidosManual(historial){
     await cargarReferidos();
   }catch(e){ if(status) status.innerHTML = '<span style="color:#dc2626">Error: '+e.message+'</span>'; }
   if(btn) btn.disabled = false;
+}
+
+async function marcarTodosContactados(){
+  const pendientes = (window._referidosData||[]).filter(x=>!x.contactado).length;
+  if(pendientes===0){ alert('No hay referidos pendientes'); return; }
+  if(!confirm('¿Marcar los '+pendientes+' referidos pendientes como contactados? (quedarán etiquetados como "histórico")')) return;
+  try{
+    const r = await fetch('/api/referidos/marcar-todos', { method:'POST' });
+    const j = await r.json();
+    if(!j.ok) throw new Error(j.error||'error');
+    await cargarReferidos();
+    const status = document.getElementById('ref-status');
+    if(status) status.innerHTML = '<span style="color:#16a34a">✓ '+j.actualizados+' referidos marcados como contactados</span>';
+  }catch(e){ alert('Error: '+e.message); }
 }
 
 async function borrarReferido(id){

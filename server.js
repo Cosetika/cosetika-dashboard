@@ -784,7 +784,19 @@ async function sincronizarReferidos(opciones){
                  VALUES($1,$2,$3,$4,$5) ON CONFLICT (message_id) DO NOTHING RETURNING id`,
                 [ref.cliente, ref.referido, ref.telefono, fecha, msgId]
               );
-              if (r.rows.length > 0) nuevos++;
+              if (r.rows.length > 0) {
+                nuevos++;
+                // Push solo en el sync automático — no al importar historial (evita avalancha)
+                if (!opciones.incluirLeidos) {
+                  console.log(`💜 Nuevo referido: ${ref.referido} — enviando push`);
+                  enviarPushATodos({
+                    title: `Nuevo referido: ${ref.referido || '—'}`,
+                    body: `Tel: ${ref.telefono || '—'} · Refiere: ${ref.cliente || '—'}`,
+                    tag: `referido-${r.rows[0].id}`,
+                    url: '/'
+                  }).catch(()=>{});
+                }
+              }
             } else {
               // Sin message-id: dedup manual por contenido+fecha
               const ya = await pool.query(
@@ -795,6 +807,14 @@ async function sincronizarReferidos(opciones){
                 await pool.query('INSERT INTO referidos(cliente,referido,telefono,fecha) VALUES($1,$2,$3,$4)',
                   [ref.cliente, ref.referido, ref.telefono, fecha]);
                 nuevos++;
+                if (!opciones.incluirLeidos) {
+                  enviarPushATodos({
+                    title: `Nuevo referido: ${ref.referido || '—'}`,
+                    body: `Tel: ${ref.telefono || '—'} · Refiere: ${ref.cliente || '—'}`,
+                    tag: `referido-nuevo-${Date.now()}`,
+                    url: '/'
+                  }).catch(()=>{});
+                }
               }
             }
             procesados++;
@@ -3917,6 +3937,16 @@ const server = http.createServer(async (req, res) => {
       await pool.query('UPDATE referidos SET contactado=$1, contactado_at=$2 WHERE id=$3',
         [!!contactado, contactado_at||null, id]);
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+  // POST /api/referidos/marcar-todos → marca todos los pendientes como contactados (histórico)
+  if (urlPath === '/api/referidos/marcar-todos' && req.method === 'POST') {
+    try {
+      const r = await pool.query(
+        "UPDATE referidos SET contactado=true, contactado_at='histórico' WHERE contactado=false OR contactado IS NULL"
+      );
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, actualizados: r.rowCount}));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
   }
