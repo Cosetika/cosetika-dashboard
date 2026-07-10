@@ -6269,7 +6269,7 @@ async function renderTesters(){
             <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.cliente_nombre||'—'}</div>
             <div style="font-size:11px;color:var(--muted);margin-top:1px">Última entrega: ${fechaUlt}</div>
           </div>
-          <span style="background:#fffbeb;color:#92400e;border:1px solid #fde68a;border-radius:12px;padding:2px 8px;font-size:11px;font-weight:600;flex-shrink:0">${c.total}</span>
+          ${c.cliente_cedula ? '' : '<span style="background:#fef2f2;color:#dc2626;border:1px solid #fca5a5;border-radius:12px;padding:2px 8px;font-size:10px;font-weight:600;flex-shrink:0">Sin enlazar</span>'}<span style="background:#fffbeb;color:#92400e;border:1px solid #fde68a;border-radius:12px;padding:2px 8px;font-size:11px;font-weight:600;flex-shrink:0">${c.total}</span>
           <i class="ti ti-chevron-right" style="color:var(--muted);font-size:14px;flex-shrink:0"></i>
         </div>`;
       }).join('');
@@ -6460,6 +6460,16 @@ async function renderTestersDetalle(clienteId, clienteNombre, clienteCedula){
   const idSafe = clienteId.replace(/'/g,"\\'");
   const nomSafe = (clienteNombre||'').replace(/'/g,"\\'");
 
+  // Caja de enlace por cedula/RUC para clientes no enlazados con la app
+  const enlaceHTML = '<div class="card" style="margin-bottom:14px;background:#fffbeb;border:1px solid #fde68a;overflow:visible">'
+    + '<div style="font-size:12px;font-weight:600;color:#92400e;margin-bottom:6px"><i class="ti ti-link" style="margin-right:5px"></i>Cliente no enlazada con la app</div>'
+    + '<p style="font-size:12px;color:#92400e;margin:0 0 10px">Ingresa la c\u00e9dula o RUC de la clienta para enlazar estos testers con el cliente que consta en la app.</p>'
+    + '<div style="display:flex;gap:8px;align-items:center">'
+    + '<input type="text" id="tester-enlace-cedula" placeholder="C\u00e9dula (10 d\u00edgitos) o RUC (13)" inputmode="numeric" oninput="buscarClienteEnlace(this.value)" style="flex:1;padding:9px 12px;font-size:13px;border:1px solid #fde68a;border-radius:8px;outline:none;box-sizing:border-box">'
+    + '<button id="tester-enlace-btn" disabled onclick="enlazarClienteTester(\''+idSafe+'\',\''+nomSafe+'\')" style="padding:9px 16px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500;white-space:nowrap"><i class="ti ti-link" style="margin-right:4px"></i>Enlazar</button>'
+    + '</div>'
+    + '<div id="tester-enlace-match" style="margin-top:8px;font-size:12px"></div></div>';
+
   let marcasHTML = '';
   Object.entries(porMarca).sort((a,b)=>b[1].length-a[1].length).forEach(([marca, items]) => {
     let itemsHTML = '';
@@ -6481,11 +6491,12 @@ async function renderTestersDetalle(clienteId, clienteNombre, clienteCedula){
     + '<button onclick="renderTesters()" style="width:34px;height:34px;border-radius:50%;border:1px solid var(--border);background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-arrow-left" style="font-size:15px;color:var(--muted)"></i></button>'
     + '<div><div style="font-size:15px;font-weight:600">'+clienteNombre+'</div>'
     + '<div style="font-size:11px;color:var(--muted)">'+(cedula?'Cédula: '+cedula+' · ':'')+testers.length+' tester'+(testers.length!==1?'s':'')+'</div></div></div>'
-    + '<div class="card" style="margin-bottom:14px;border:2px dashed var(--border)">'
+    + (cedula ? '' : enlaceHTML)
+    + '<div class="card" style="margin-bottom:14px;border:2px dashed var(--border);overflow:visible">'
     + '<div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px"><i class="ti ti-plus" style="margin-right:5px"></i>Agregar tester</div>'
     + '<div style="position:relative;margin-bottom:10px">'
     + '<input type="text" id="tester-buscar-prod" placeholder="Buscar por código BSK o nombre..." oninput="mostrarSugerenciasProducto(this.value)" onblur="setTimeout(()=>{const s=document.getElementById(\'tester-sugerencias\');if(s)s.style.display=\'none\'},200)" style="width:100%;padding:9px 12px;font-size:13px;border:1px solid var(--border);border-radius:8px;outline:none;box-sizing:border-box">'
-    + '<div id="tester-sugerencias" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid var(--border);border-radius:8px;z-index:100;box-shadow:0 8px 24px rgba(0,0,0,0.15);max-height:480px;overflow-y:auto"></div></div>'
+    + '<div id="tester-sugerencias" style="display:none;margin-top:8px;background:white;border:1px solid var(--border);border-radius:8px;max-height:480px;overflow-y:auto"></div></div>'
     + '<div id="tester-producto-sel" style="display:none;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:#166534;align-items:center;gap:8px"><i class="ti ti-check"></i> <span id="tester-producto-sel-text"></span></div>'
     + '<div style="display:flex;gap:8px;align-items:center">'
     + '<input type="date" id="tester-fecha" value="'+new Date().toISOString().split('T')[0]+'" style="padding:8px 10px;font-size:13px;border:1px solid var(--border);border-radius:8px;outline:none;flex:1">'
@@ -6522,6 +6533,59 @@ function mostrarSugerenciasProducto(q){
       <span style="font-size:12px;font-weight:500;color:var(--text)">${p.nombre}</span>
       <span style="font-size:10px;color:var(--muted);margin-left:8px">${p.codigo?'<span style="color:var(--brown);font-weight:600">'+p.codigo+'</span> · ':''} ${p.categoria}</span>
     </div>`).join('');
+}
+
+let _enlaceMatchData = null;
+async function buscarClienteEnlace(q){
+  const div = document.getElementById('tester-enlace-match');
+  const btn = document.getElementById('tester-enlace-btn');
+  _enlaceMatchData = null;
+  if(btn) btn.disabled = true;
+  if(!div) return;
+  const digits = String(q||'').replace(/\D/g,'');
+  if(digits.length !== 10 && digits.length !== 13){
+    div.innerHTML = digits.length >= 6 ? '<span style="color:var(--muted)">Deben ser 10 d\u00edgitos (c\u00e9dula) o 13 (RUC)</span>' : '';
+    return;
+  }
+  div.innerHTML = '<span style="color:var(--muted)">Buscando...</span>';
+  // Candidatos: tal cual, base del RUC (10 primeros) o RUC derivado (cedula+001)
+  const candidatos = [digits];
+  if(digits.length === 13) candidatos.push(digits.substring(0,10));
+  if(digits.length === 10) candidatos.push(digits + '001');
+  let persona = null;
+  for(const c of candidatos){
+    try{
+      const r = await fetch('/api/personas/buscar?q=' + encodeURIComponent(c));
+      const rows = await r.json();
+      if(Array.isArray(rows) && rows.length > 0){ persona = rows[0]; break; }
+    }catch(e){}
+  }
+  const inputActual = String(document.getElementById('tester-enlace-cedula')?.value||'').replace(/\D/g,'');
+  if(inputActual !== digits) return; // el usuario sigui\u00f3 escribiendo
+  if(persona){
+    _enlaceMatchData = { cedula: digits, persona };
+    div.innerHTML = '<span style="color:#16a34a"><i class="ti ti-check"></i> Encontrada: <b>' + (persona.razon_social||'') + '</b></span>';
+    if(btn) btn.disabled = false;
+  } else {
+    div.innerHTML = '<span style="color:#dc2626">No se encontr\u00f3 ning\u00fan cliente con esa c\u00e9dula/RUC en la app</span>';
+  }
+}
+
+async function enlazarClienteTester(clienteId, clienteNombre){
+  if(!_enlaceMatchData){ alert('Primero ingresa una c\u00e9dula o RUC que exista en la app'); return; }
+  const { cedula, persona } = _enlaceMatchData;
+  if(!confirm('\u00bfEnlazar los testers de "' + clienteNombre + '" con "' + (persona.razon_social||'') + '"?')) return;
+  try{
+    const r = await fetch('/api/testers/enlazar', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ clienteId, clienteNombre, cedula })
+    });
+    const j = await r.json();
+    if(!j.ok) throw new Error(j.error || 'Error al enlazar');
+    _enlaceMatchData = null;
+    await renderTestersDetalle(cedula, persona.razon_social || clienteNombre, cedula);
+  }catch(e){ alert('Error: ' + e.message); }
 }
 
 function seleccionarProductoTester(nombre, categoria, codigo){

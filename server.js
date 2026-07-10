@@ -3544,6 +3544,34 @@ const server = http.createServer(async (req, res) => {
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
   }
+  // POST /api/testers/enlazar -> enlaza testers huerfanos con un cliente real por cedula/RUC
+  if (urlPath === '/api/testers/enlazar' && req.method === 'POST') {
+    try {
+      const { clienteId, clienteNombre, cedula } = await bodyJSON(req);
+      const digits = String(cedula||'').replace(/\D/g,'');
+      if ((digits.length !== 10 && digits.length !== 13) || (!clienteId && !clienteNombre)) {
+        res.writeHead(400,{'Content-Type':'application/json'});
+        res.end(JSON.stringify({ok:false,error:'Se requiere cliente y cedula (10 digitos) o RUC (13)'}));
+        return;
+      }
+      // Candidatos: tal cual, base del RUC (10 primeros) o RUC derivado (cedula+001)
+      const candidatos = [digits];
+      if (digits.length === 13) candidatos.push(digits.substring(0,10));
+      if (digits.length === 10) candidatos.push(digits + '001');
+      const rp = await pool.query(
+        'SELECT razon_social, cedula, ruc FROM personas WHERE cedula = ANY($1) OR ruc = ANY($1) LIMIT 1',
+        [candidatos]
+      );
+      const persona = rp.rows[0] || null;
+      const ru = await pool.query(
+        'UPDATE testers SET cliente_cedula=$1 WHERE cliente_id=$2 OR LOWER(cliente_nombre)=LOWER($3)',
+        [digits, clienteId||'', clienteNombre||clienteId||'']
+      );
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ok:true, actualizados: ru.rowCount, persona}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
   // DELETE /api/testers/:id → eliminar un tester específico
   if (urlPath.startsWith('/api/testers/') && req.method === 'DELETE') {
     try {
