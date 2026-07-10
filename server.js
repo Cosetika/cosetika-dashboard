@@ -21,6 +21,11 @@ const PEDIDOS_EMAIL_HOST = process.env.PEDIDOS_EMAIL_HOST || '';
 const PEDIDOS_EMAIL_USER = process.env.PEDIDOS_EMAIL_USER || '';
 const PEDIDOS_EMAIL_PASS = process.env.PEDIDOS_EMAIL_PASS || '';
 const PEDIDOS_EMAIL_PORT = parseInt(process.env.PEDIDOS_EMAIL_PORT) || 993;
+// Casilla de referidos (formulario web). Host/puerto heredan de la de pedidos si no se definen.
+const REFERIDOS_EMAIL_HOST = process.env.REFERIDOS_EMAIL_HOST || process.env.PEDIDOS_EMAIL_HOST || '';
+const REFERIDOS_EMAIL_USER = process.env.REFERIDOS_EMAIL_USER || '';
+const REFERIDOS_EMAIL_PASS = process.env.REFERIDOS_EMAIL_PASS || '';
+const REFERIDOS_EMAIL_PORT = parseInt(process.env.REFERIDOS_EMAIL_PORT) || parseInt(process.env.PEDIDOS_EMAIL_PORT) || 993;
 
 
 // Inferir provincia desde dirección — mapa basado en datos reales de clientes Cosétika
@@ -723,6 +728,96 @@ async function sincronizarPedidosWeb(opciones){
     return { ok: false, error: e.message };
   }
 }
+
+// ─── REFERIDOS: lectura de correos "Nuevo Formulario de referidos" vía IMAP ─────
+// La casilla puede ser compartida (ej. info@cosetika.com), por eso la búsqueda se hace
+// SOLO por asunto — nunca se tocan ni se marcan como leídos otros correos de la casilla.
+function parsearReferido(texto){
+  const t = String(texto||'').replace(/\s+/g,' ').trim();
+  const m = /Recu[eé]rdanos tu nombre y apellido\s*:?\s*(.*?)\s*Nombre y apellido de tu referido\s*:?\s*(.*?)\s*N[uú]mero de tel[eé]fono de tu referido\s*:?\s*([+\d][\d\s()+.-]*)/i.exec(t);
+  if(!m) return null;
+  const limpiar = x => String(x||'').replace(/[*_#|]/g,'').trim().substring(0,490);
+  return {
+    cliente: limpiar(m[1]),
+    referido: limpiar(m[2]),
+    telefono: String(m[3]||'').replace(/[^\d+]/g,'').substring(0,90)
+  };
+}
+
+async function sincronizarReferidos(opciones){
+  opciones = opciones || {};
+  if (!REFERIDOS_EMAIL_HOST || !REFERIDOS_EMAIL_USER || !REFERIDOS_EMAIL_PASS) {
+    console.log('⚠️ Referidos: variables de entorno de correo no configuradas, omitiendo sync');
+    return { ok: false, error: 'Credenciales de correo de referidos no configuradas (REFERIDOS_EMAIL_USER/PASS)' };
+  }
+  let client;
+  let procesados = 0, nuevos = 0, errores = 0;
+  try {
+    client = new ImapFlow({
+      host: REFERIDOS_EMAIL_HOST,
+      port: REFERIDOS_EMAIL_PORT,
+      secure: true,
+      auth: { user: REFERIDOS_EMAIL_USER, pass: REFERIDOS_EMAIL_PASS },
+      logger: false
+    });
+    await client.connect();
+    const lock = await client.getMailboxLock('INBOX');
+    try {
+      // Búsqueda SOLO por asunto. Normal: solo no leídos; incluirLeidos: todo el historial.
+      const criterio = opciones.incluirLeidos
+        ? { subject: 'Formulario de referidos' }
+        : { subject: 'Formulario de referidos', seen: false };
+      const mensajes = await client.search(criterio);
+      for (const seq of (mensajes || [])) {
+        try {
+          const { content } = await client.download(seq, undefined, { uid: false });
+          const parsed = await simpleParser(content);
+          const texto = parsed.text || String(parsed.html||'').replace(/<[^>]+>/g,' ');
+          const ref = parsearReferido(texto);
+          if (ref && (ref.referido || ref.telefono)) {
+            const msgId = (parsed.messageId || '').substring(0,290) || null;
+            const fecha = parsed.date ? new Date(parsed.date).toISOString().substring(0,10) : new Date().toISOString().substring(0,10);
+            if (msgId) {
+              const r = await pool.query(
+                `INSERT INTO referidos(cliente,referido,telefono,fecha,message_id)
+                 VALUES($1,$2,$3,$4,$5) ON CONFLICT (message_id) DO NOTHING RETURNING id`,
+                [ref.cliente, ref.referido, ref.telefono, fecha, msgId]
+              );
+              if (r.rows.length > 0) nuevos++;
+            } else {
+              // Sin message-id: dedup manual por contenido+fecha
+              const ya = await pool.query(
+                'SELECT id FROM referidos WHERE cliente=$1 AND referido=$2 AND telefono=$3 AND fecha=$4',
+                [ref.cliente, ref.referido, ref.telefono, fecha]
+              );
+              if (ya.rows.length === 0) {
+                await pool.query('INSERT INTO referidos(cliente,referido,telefono,fecha) VALUES($1,$2,$3,$4)',
+                  [ref.cliente, ref.referido, ref.telefono, fecha]);
+                nuevos++;
+              }
+            }
+            procesados++;
+          } else {
+            errores++;
+            console.log('⚠️ No se pudo parsear referido del correo:', parsed.subject);
+          }
+          await client.messageFlagsAdd(seq, ['\\Seen']);
+        } catch (eMsg) { errores++; console.error('Error procesando correo de referido:', eMsg.message); }
+      }
+    } finally { lock.release(); }
+    await client.logout();
+    console.log(`✓ Referidos sync: ${procesados} procesados, ${nuevos} nuevos, ${errores} errores`);
+    return { ok: true, procesados, nuevos, errores };
+  } catch (e) {
+    console.error('Error conectando a casilla de referidos:', e.message);
+    try { if (client) await client.logout(); } catch(e2){}
+    return { ok: false, error: e.message };
+  }
+}
+
+// Sync de referidos cada 5 minutos
+setTimeout(() => sincronizarReferidos().catch(e => console.error('Error sync referidos inicial:', e.message)), 25000);
+setInterval(() => sincronizarReferidos().catch(e => console.error('Error sync referidos:', e.message)), 5 * 60 * 1000);
 
 sincronizarHoy().catch(e => console.error('Error sync inicial:', e.message));
 setInterval(() => sincronizarHoy().catch(e => console.error('Error sync:', e.message)), 60 * 60 * 1000);
@@ -1629,6 +1724,18 @@ async function initDB() {
         nso VARCHAR(100),
         created_at TIMESTAMP DEFAULT NOW()
       );
+      CREATE TABLE IF NOT EXISTS referidos (
+        id SERIAL PRIMARY KEY,
+        cliente VARCHAR(500),
+        referido VARCHAR(500),
+        telefono VARCHAR(100),
+        fecha DATE,
+        message_id VARCHAR(300),
+        contactado BOOLEAN DEFAULT false,
+        contactado_at VARCHAR(30),
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_referidos_msgid ON referidos(message_id);
       CREATE TABLE IF NOT EXISTS personas (
         id SERIAL PRIMARY KEY,
         cedula VARCHAR(50),
@@ -3765,6 +3872,48 @@ const server = http.createServer(async (req, res) => {
       });
       res.end(buf);
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+
+  // ─── REFERIDOS ──────────────────────────────────────────────────────────────
+  // GET /api/referidos → lista completa
+  if (urlPath === '/api/referidos' && req.method === 'GET') {
+    try {
+      const r = await pool.query(
+        `SELECT id, cliente, referido, telefono, TO_CHAR(fecha,'YYYY-MM-DD') AS fecha_dia, contactado, contactado_at
+         FROM referidos ORDER BY fecha DESC NULLS LAST, id DESC`
+      );
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.rows));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+  // POST /api/referidos/sync → resincronización manual (?historial=1 incluye ya leídos)
+  if (urlPath === '/api/referidos/sync' && req.method === 'POST') {
+    try {
+      const incluirLeidos = urlObj.searchParams.get('historial') === '1';
+      const resultado = await sincronizarReferidos({ incluirLeidos });
+      res.writeHead(resultado.ok ? 200 : 500,{'Content-Type':'application/json'}); res.end(JSON.stringify(resultado));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+  // PUT /api/referidos/:id → actualizar contactado
+  if (/^\/api\/referidos\/\d+$/.test(urlPath) && req.method === 'PUT') {
+    try {
+      const id = parseInt(urlPath.split('/').pop());
+      const { contactado, contactado_at } = await bodyJSON(req);
+      await pool.query('UPDATE referidos SET contactado=$1, contactado_at=$2 WHERE id=$3',
+        [!!contactado, contactado_at||null, id]);
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+  // DELETE /api/referidos/:id
+  if (/^\/api\/referidos\/\d+$/.test(urlPath) && req.method === 'DELETE') {
+    try {
+      const id = parseInt(urlPath.split('/').pop());
+      await pool.query('DELETE FROM referidos WHERE id=$1', [id]);
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
   }
 

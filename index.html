@@ -240,6 +240,7 @@
     </div>
     <div class="nav-item" id="nav-documentos" onclick="navSetMod('documentos')"><i class="ti ti-files"></i>Documentos</div>
     <div class="nav-item" id="nav-nsos" onclick="navSetMod('nsos')"><i class="ti ti-certificate"></i>NSOs</div>
+    <div class="nav-item" id="nav-referidos" onclick="navSetMod('referidos')"><i class="ti ti-user-heart"></i>Referidos</div>
     <div class="nav-divider"></div>
     <div class="nav-item" id="nav-config" style="display:none" onclick="navToggleGroup('nav-config-subs','nav-config-chevron','config')">
       <i class="ti ti-settings"></i>Configuración
@@ -571,7 +572,7 @@ function navSetMod(mod){
 
 const MOD_LABELS = {
   ventas:'Inicio', visitas:'Visitas', kpis:'KPIs',
-  inventario:'Inventario', reportes:'Reportes', config:'Configuración', documentos:'Documentos', nsos:'NSOs',
+  inventario:'Inventario', reportes:'Reportes', config:'Configuración', documentos:'Documentos', nsos:'NSOs', referidos:'Referidos',
   capacitaciones:'Capacitaciones', institutos:'Institutos',
   giras:'Visitas a Provincias', casas_abiertas:'Casas Abiertas',
   'visitas-plan':'Planificación Visitas'
@@ -625,6 +626,8 @@ function setMod(mod){
     renderDocumentos();
   } else if(mod==='nsos'){
     renderNsos();
+  } else if(mod==='referidos'){
+    renderReferidos();
   } else {
     document.getElementById('main').innerHTML=`
       <div class="coming">
@@ -835,6 +838,122 @@ async function subirExcelNsos(ev){
     window._nsosData = await rr.json();
     pintarListaNsos(document.getElementById('nsos-buscar')?.value||'');
   }catch(e){ if(status) status.innerHTML = '<span style="color:#dc2626">Error: '+e.message+'</span>'; }
+}
+
+// ─── MÓDULO REFERIDOS ────────────────────────────────────────────────────────
+async function renderReferidos(){
+  const main = document.getElementById('main');
+  main.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+      <div style="font-size:16px;font-weight:600"><i class="ti ti-user-heart" style="margin-right:8px;color:var(--brown)"></i>Referidos</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button id="ref-sync-btn" onclick="sincronizarReferidosManual(false)" style="padding:9px 14px;background:white;color:var(--text);border:1px solid var(--border);border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-refresh" style="margin-right:5px"></i>Revisar correo</button>
+        ${(window.usuarioActual||{}).rol==='admin'?`<button onclick="if(confirm('Esto revisa TODO el historial de correos de referidos (incluidos los ya leídos). Los ya registrados no se duplican. ¿Continuar?'))sincronizarReferidosManual(true)" style="padding:9px 14px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-history" style="margin-right:5px"></i>Importar historial</button>`:''}
+      </div>
+    </div>
+    <div id="ref-status" style="font-size:12px;color:var(--muted);margin-bottom:10px"></div>
+    <div id="ref-kpis" style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap"></div>
+    <div style="position:relative;margin-bottom:14px">
+      <i class="ti ti-search" style="position:absolute;left:11px;top:50%;transform:translateY(-50%);font-size:14px;color:var(--muted)"></i>
+      <input type="text" id="ref-buscar" placeholder="Buscar por cliente, referido o teléfono..."
+        oninput="pintarReferidos(this.value)"
+        style="width:100%;padding:9px 12px 9px 34px;font-size:13px;border:1px solid var(--border);border-radius:10px;outline:none;box-sizing:border-box"
+        onfocus="this.style.borderColor='var(--brown)'" onblur="this.style.borderColor='var(--border)'">
+    </div>
+    <div id="ref-lista" style="font-size:13px;color:var(--muted);text-align:center;padding:20px 0">Cargando...</div>`;
+  await cargarReferidos();
+}
+
+async function cargarReferidos(){
+  try{
+    const r = await fetch('/api/referidos');
+    window._referidosData = await r.json();
+    if(!Array.isArray(window._referidosData)) window._referidosData = [];
+  }catch(e){ window._referidosData = []; }
+  pintarReferidos(document.getElementById('ref-buscar')?.value||'');
+}
+
+function pintarReferidos(filtro){
+  const cont = document.getElementById('ref-lista');
+  const kpis = document.getElementById('ref-kpis');
+  if(!cont) return;
+  const todos = window._referidosData||[];
+  if(kpis){
+    const contactados = todos.filter(x=>x.contactado).length;
+    const kpi = (lbl,val,color) => `<div style="flex:1;min-width:110px;background:white;border:1px solid var(--border);border-radius:10px;padding:10px 14px;text-align:center"><div style="font-size:20px;font-weight:700;color:${color}">${val}</div><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-top:2px">${lbl}</div></div>`;
+    kpis.innerHTML = kpi('Recibidos', todos.length, 'var(--text)') + kpi('Contactados', contactados, '#16a34a') + kpi('Pendientes', todos.length-contactados, todos.length-contactados>0?'#dc2626':'#16a34a');
+  }
+  const q = (filtro||'').toUpperCase().trim();
+  const datos = todos.filter(x =>
+    !q || String(x.cliente||'').toUpperCase().includes(q)
+      || String(x.referido||'').toUpperCase().includes(q)
+      || String(x.telefono||'').includes(q)
+  );
+  if(datos.length === 0){
+    cont.style.textAlign='center';
+    cont.innerHTML = todos.length===0
+      ? `<div style="padding:40px 20px;color:var(--muted)"><i class="ti ti-user-off" style="font-size:36px;opacity:0.35"></i><p style="margin-top:10px;font-size:14px">No hay referidos registrados aún</p><p style="font-size:12px;margin-top:4px">Los correos del formulario se revisan automáticamente cada 5 minutos</p></div>`
+      : '<div style="padding:30px;color:var(--muted);font-size:13px">Sin resultados para la búsqueda</div>';
+    return;
+  }
+  const esAdmin = (window.usuarioActual||{}).rol === 'admin';
+  const fmtF = f => { if(!f) return '—'; const p=String(f).substring(0,10).split('-'); const M=['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']; return parseInt(p[2])+' '+M[parseInt(p[1])]+' '+p[0].substring(2); };
+  const telWa = t => { let d=String(t||'').replace(/\D/g,''); if(d.startsWith('0')&&d.length===10) d='593'+d.substring(1); return d; };
+  cont.style.textAlign='left'; cont.style.padding='0';
+  cont.innerHTML = datos.map(x=>{
+    const esc = v => String(v||'').replace(/</g,'&lt;');
+    return `
+    <div style="display:flex;align-items:center;gap:12px;padding:11px 14px;background:${x.contactado?'#f7fdf9':'white'};border-radius:10px;border:1px solid ${x.contactado?'#bbf7d0':'var(--border)'};margin-bottom:8px;flex-wrap:wrap">
+      <div style="width:80px;font-size:11px;color:var(--brown);flex-shrink:0">${fmtF(x.fecha_dia)}</div>
+      <div style="flex:1;min-width:140px">
+        <div style="font-size:13px;font-weight:600">${esc(x.referido)||'—'}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:1px">Referido por: ${esc(x.cliente)||'—'}</div>
+      </div>
+      <a href="https://wa.me/${telWa(x.telefono)}" target="_blank" onclick="event.stopPropagation()" style="display:flex;align-items:center;gap:5px;font-size:12px;color:#16a34a;text-decoration:none;font-weight:500;flex-shrink:0"><i class="ti ti-brand-whatsapp" style="font-size:15px"></i>${esc(x.telefono)||'—'}</a>
+      <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);cursor:pointer;flex-shrink:0">
+        <input type="checkbox" ${x.contactado?'checked':''} onchange="marcarContactado(${x.id}, this.checked)" style="accent-color:#16a34a;width:16px;height:16px;cursor:pointer">
+        Contactado${x.contactado&&x.contactado_at?' <span style="color:#16a34a">'+esc(x.contactado_at)+'</span>':''}
+      </label>
+      ${esAdmin?`<button onclick="borrarReferido(${x.id})" title="Eliminar" style="width:26px;height:26px;border:1px solid #fca5a5;background:#fef2f2;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-trash" style="font-size:11px;color:#ef4444"></i></button>`:''}
+    </div>`;
+  }).join('');
+}
+
+async function marcarContactado(id, valor){
+  const ahora = valor ? new Date().toLocaleString('es-EC',{timeZone:'America/Guayaquil',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : null;
+  try{
+    await fetch('/api/referidos/'+id, {
+      method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ contactado: valor, contactado_at: ahora })
+    });
+    const item = (window._referidosData||[]).find(x=>x.id===id);
+    if(item){ item.contactado = valor; item.contactado_at = ahora; }
+    pintarReferidos(document.getElementById('ref-buscar')?.value||'');
+  }catch(e){ alert('Error al guardar: '+e.message); }
+}
+
+async function sincronizarReferidosManual(historial){
+  const status = document.getElementById('ref-status');
+  const btn = document.getElementById('ref-sync-btn');
+  if(btn) btn.disabled = true;
+  if(status) status.innerHTML = '<i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i> Revisando la casilla de correo...';
+  try{
+    const r = await fetch('/api/referidos/sync'+(historial?'?historial=1':''), { method:'POST' });
+    const j = await r.json();
+    if(!j.ok) throw new Error(j.error||'error');
+    if(status) status.innerHTML = '<span style="color:#16a34a">✓ '+j.procesados+' correos revisados, '+j.nuevos+' referidos nuevos</span>';
+    await cargarReferidos();
+  }catch(e){ if(status) status.innerHTML = '<span style="color:#dc2626">Error: '+e.message+'</span>'; }
+  if(btn) btn.disabled = false;
+}
+
+async function borrarReferido(id){
+  if(!confirm('¿Eliminar este referido?')) return;
+  try{
+    await fetch('/api/referidos/'+id, { method:'DELETE' });
+    window._referidosData = (window._referidosData||[]).filter(x=>x.id!==id);
+    pintarReferidos(document.getElementById('ref-buscar')?.value||'');
+  }catch(e){ alert('Error: '+e.message); }
 }
 
 // ─── MÓDULO INVENTARIO ──────────────────────────────────────────────────────
@@ -1839,7 +1958,7 @@ async function renderConfig(){
   let usuarios=[];
   try{ const r=await fetch('/api/usuarios'); usuarios=await r.json(); }catch(e){}
   await cargarSkuPorMarcaDesdeServidor();
-  const MODS_LISTA=['ventas','visitas','kpis','inventario','documentos','nsos'];
+  const MODS_LISTA=['ventas','visitas','kpis','inventario','documentos','nsos','referidos'];
   document.getElementById('main').innerHTML=`
     <div id="cfg-credenciales" style="display:none">
       <div class="card">
@@ -2121,11 +2240,11 @@ async function crearUsuario(){
   const pwd=document.getElementById('new-pwd')?.value;
   const rol=document.getElementById('new-rol')?.value;
   if(!nombre||!usuario){alert('Completa nombre y usuario');return;}
-  try{await fetch('/api/usuarios',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nombre,usuario,password:pwd||'1234',rol,modulos:'ventas,visitas,kpis,inventario,documentos,nsos'})});alert('Usuario creado ✓');renderConfig();}catch(e){alert('Error al crear usuario');}
+  try{await fetch('/api/usuarios',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nombre,usuario,password:pwd||'1234',rol,modulos:'ventas,visitas,kpis,inventario,documentos,nsos,referidos'})});alert('Usuario creado ✓');renderConfig();}catch(e){alert('Error al crear usuario');}
 }
 
 async function guardarTodosPermisos(){
-  const MODS=['ventas','visitas','kpis','inventario','documentos','nsos'];
+  const MODS=['ventas','visitas','kpis','inventario','documentos','nsos','referidos'];
   const statusEl = document.getElementById('permisos-status');
   // Detectar todos los usuarios presentes en la tabla a partir de los ids de checkbox
   // (id con formato "perm-{userId}-{modulo}"), evitando depender de una lista aparte.
