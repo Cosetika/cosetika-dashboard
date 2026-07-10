@@ -1316,6 +1316,7 @@ const PLAN_CONFIG = {
   institutos: {
     titulo: 'Institutos',
     tabla: 'institutos',
+    checkRealizada: true,
     campos: [
       { key:'fecha', label:'Fecha', type:'date', required:true },
       { key:'nombre_instituto', label:'Nombre del Instituto', type:'text', placeholder:'Ej: Centro de Estética XYZ' },
@@ -1437,6 +1438,13 @@ async function renderPlanMes(modulo, anio, mes){
           <div style="display:flex;flex-wrap:wrap;gap:8px 20px">
             ${info.chips.map(c=>`<span style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px"><i class="ti ${c.icon}" style="font-size:13px;color:var(--brown)"></i>${c.text}</span>`).join('')}
           </div>
+          ${cfg.checkRealizada ? `
+          <label style="margin-top:10px;display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:${r.realizada?'#166534':'var(--muted)'};cursor:${puedeEditar?'pointer':'default'};background:${r.realizada?'#f0fdf4':'#faf9f8'};border:1px solid ${r.realizada?'#86efac':'var(--border)'};border-radius:20px;padding:4px 12px">
+            <input type="checkbox" ${r.realizada?'checked':''} ${puedeEditar?'':'disabled'}
+              onchange="marcarPlanRealizado('${modulo}', ${r.id}, this.checked, '${mesKey}')"
+              style="accent-color:#16a34a;width:15px;height:15px;cursor:${puedeEditar?'pointer':'default'}"/>
+            ${r.realizada?'Realizada ✓':'Marcar como realizada'}
+          </label>` : ''}
         </div>
         ${puedeEditar ? `
         <div style="display:flex;flex-direction:column;gap:4px;padding:12px 10px;flex-shrink:0">
@@ -1498,6 +1506,17 @@ function abrirModalPlan(modulo, row, mesKey){
     </div>`;
   overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove(); });
   document.body.appendChild(overlay);
+}
+
+async function marcarPlanRealizado(modulo, id, realizada, mesKey){
+  try{
+    await fetch(`/api/${modulo}/${id}`, {
+      method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ realizada })
+    });
+    const [ay, mm] = mesKey.split('-');
+    await renderPlanMes(modulo, parseInt(ay), parseInt(mm));
+  }catch(e){ alert('Error: '+e.message); }
 }
 
 async function guardarPlan(modulo, id, mesKey){
@@ -7153,8 +7172,9 @@ async function renderKpisGiovanna(asesoraKpi, asesoras, puedeVerTodas, rol){
   const capOficina = caps.filter(c=>c.tipo==='Oficina' && c.realizada).length;
   const capProvincia = caps.filter(c=>c.tipo==='Provincia' && c.realizada).length;
   const capVirtuales = caps.filter(c=>c.modalidad==='Virtual' && c.realizada).length;
-  const instAperturas = inst.filter(i=>i.tipo_actividad==='Apertura').length;
-  const instVisitas = inst.filter(i=>i.tipo_actividad==='Visita').length;
+  // Institutos: solo cuentan los marcados como realizados (checkbox)
+  const instAperturas = inst.filter(i=>i.tipo_actividad==='Apertura' && i.realizada).length;
+  const instVisitas = inst.filter(i=>i.tipo_actividad==='Visita' && i.realizada).length;
   const girasTotal = giras.length;
   const girasCoord = giras.filter(g=>g.coordinada).length;
   const girasPct = girasTotal ? Math.round(girasCoord/girasTotal*100) : 0;
@@ -7165,10 +7185,13 @@ async function renderKpisGiovanna(asesoraKpi, asesoras, puedeVerTodas, rol){
   // Revisiones: mapa asesora|semana → revisado
   const revMap = {};
   revisiones.forEach(r=>{ revMap[r.asesora+'|'+r.semana] = r.revisado; });
-  const lunesElapsed = lunesDelMes.filter(l=>l<=hoyEc);
-  const totalRevEsperadas = asesorasEquipo.length * lunesElapsed.length;
-  const totalRevHechas = asesorasEquipo.reduce((acc,a)=>
-    acc + lunesElapsed.filter(l=>revMap[a+'|'+l.toISOString().split('T')[0]]).length, 0);
+  // Un lunes cuenta como "revisado" solo cuando TODAS las asesoras del equipo están marcadas
+  const lunesCompletos = lunesDelMes.filter(l=>{
+    const lk = l.toISOString().split('T')[0];
+    return asesorasEquipo.length > 0 && asesorasEquipo.every(a=>revMap[a+'|'+lk]);
+  }).length;
+  const totalRevEsperadas = lunesDelMes.length;
+  const totalRevHechas = lunesCompletos;
 
   const esAdmin = rol==='admin';
   const puedeMarcarRev = rol==='admin' || rol==='jefa_ventas';
