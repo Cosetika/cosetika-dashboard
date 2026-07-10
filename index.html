@@ -1722,7 +1722,7 @@ async function renderConfig(){
   let usuarios=[];
   try{ const r=await fetch('/api/usuarios'); usuarios=await r.json(); }catch(e){}
   await cargarSkuPorMarcaDesdeServidor();
-  const MODS_LISTA=['ventas','visitas','kpis','inventario'];
+  const MODS_LISTA=['ventas','visitas','kpis','inventario','documentos'];
   document.getElementById('main').innerHTML=`
     <div id="cfg-credenciales" style="display:none">
       <div class="card">
@@ -2004,11 +2004,11 @@ async function crearUsuario(){
   const pwd=document.getElementById('new-pwd')?.value;
   const rol=document.getElementById('new-rol')?.value;
   if(!nombre||!usuario){alert('Completa nombre y usuario');return;}
-  try{await fetch('/api/usuarios',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nombre,usuario,password:pwd||'1234',rol,modulos:'ventas,visitas,kpis,inventario'})});alert('Usuario creado ✓');renderConfig();}catch(e){alert('Error al crear usuario');}
+  try{await fetch('/api/usuarios',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nombre,usuario,password:pwd||'1234',rol,modulos:'ventas,visitas,kpis,inventario,documentos'})});alert('Usuario creado ✓');renderConfig();}catch(e){alert('Error al crear usuario');}
 }
 
 async function guardarTodosPermisos(){
-  const MODS=['ventas','visitas','kpis','inventario'];
+  const MODS=['ventas','visitas','kpis','inventario','documentos'];
   const statusEl = document.getElementById('permisos-status');
   // Detectar todos los usuarios presentes en la tabla a partir de los ids de checkbox
   // (id con formato "perm-{userId}-{modulo}"), evitando depender de una lista aparte.
@@ -5885,9 +5885,10 @@ document.addEventListener('DOMContentLoaded', function() {
     if(btnBackup){ btnBackup.style.display = 'flex'; actualizarEstadoBotonBackup(); }
   }
 
-  // Módulos según permisos
+  // Módulos según permisos (admin ve todo — su acceso es total e implícito)
   const modulos = usuarioActual.modulos ? usuarioActual.modulos.split(',') : [];
   document.querySelectorAll('.nav-item').forEach(m => {
+    if(usuarioActual.rol === 'admin') return;
     const id = m.id.replace('nav-', '');
     if(['config','reportes','ventas-mod','marcas-mod','clientes','planificacion','visitas'].includes(id)) return;
     if(id && !modulos.includes(id) && id !== 'ventas') m.style.display = 'none';
