@@ -1178,8 +1178,9 @@ function abrirModalCapacitacion(cap, mesKey){
         <div>
           <label style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:5px">Tipo</label>
           <select id="cap-tipo" style="width:100%;padding:9px 12px;border:1px solid #e5e5e5;border-radius:8px;font-size:13px;outline:none;box-sizing:border-box;background:white">
-            <option value="Oficina" ${cap?.tipo==='Oficina'?'selected':''}>Oficina</option>
+            <option value="Presencial Oficina" ${(cap?.tipo==='Presencial Oficina'||cap?.tipo==='Oficina')?'selected':''}>Presencial Oficina</option>
             <option value="Provincia" ${cap?.tipo==='Provincia'?'selected':''}>Provincia</option>
+            <option value="Virtual" ${(cap?.tipo==='Virtual'||(!cap?.tipo&&cap?.modalidad==='Virtual'))?'selected':''}>Virtual</option>
           </select>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
@@ -1195,18 +1196,9 @@ function abrirModalCapacitacion(cap, mesKey){
             <input type="text" id="cap-ciudad" value="${cap?.ciudad||''}" placeholder="Ej: Quito" style="width:100%;padding:9px 12px;border:1px solid #e5e5e5;border-radius:8px;font-size:13px;outline:none;box-sizing:border-box">
           </div>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-          <div>
-            <label style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:5px">Horario</label>
-            <input type="text" id="cap-horario" value="${cap?.horario||''}" placeholder="Ej: 10:00 - 13:00" style="width:100%;padding:9px 12px;border:1px solid #e5e5e5;border-radius:8px;font-size:13px;outline:none;box-sizing:border-box">
-          </div>
-          <div>
-            <label style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:5px">Modalidad</label>
-            <select id="cap-modalidad" style="width:100%;padding:9px 12px;border:1px solid #e5e5e5;border-radius:8px;font-size:13px;outline:none;box-sizing:border-box;background:white">
-              <option value="Presencial" ${cap?.modalidad==='Presencial'?'selected':''}>Presencial</option>
-              <option value="Virtual" ${cap?.modalidad==='Virtual'?'selected':''}>Virtual</option>
-            </select>
-          </div>
+        <div>
+          <label style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:5px">Horario</label>
+          <input type="text" id="cap-horario" value="${cap?.horario||''}" placeholder="Ej: 10:00 - 13:00" style="width:100%;padding:9px 12px;border:1px solid #e5e5e5;border-radius:8px;font-size:13px;outline:none;box-sizing:border-box">
         </div>
         <div>
           <label style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:5px">Tema *</label>
@@ -1253,9 +1245,8 @@ async function guardarCapacitacion(id, mesKey){
   if(!tema){ errEl.textContent='El tema es obligatorio'; errEl.style.display='block'; return; }
   const body = {
     fecha, tema,
-    tipo: document.getElementById('cap-tipo')?.value||'Oficina',
+    tipo: document.getElementById('cap-tipo')?.value||'Presencial Oficina',
     provincia: document.getElementById('cap-provincia')?.value||null,
-    modalidad: document.getElementById('cap-modalidad')?.value||'Presencial',
     ciudad: document.getElementById('cap-ciudad')?.value?.trim()||null,
     horario: document.getElementById('cap-horario')?.value?.trim()||null,
     valor: parseFloat(document.getElementById('cap-valor')?.value)||null
@@ -7175,9 +7166,9 @@ async function renderKpisGiovanna(asesoraKpi, asesoras, puedeVerTodas, rol){
 
   // Cálculos
   // Solo cuentan las capacitaciones MARCADAS como realizadas (checkbox)
-  const capOficina = caps.filter(c=>c.tipo==='Oficina' && c.realizada).length;
+  const capOficina = caps.filter(c=>(c.tipo==='Presencial Oficina'||c.tipo==='Oficina') && c.realizada).length;
   const capProvincia = caps.filter(c=>c.tipo==='Provincia' && c.realizada).length;
-  const capVirtuales = caps.filter(c=>c.modalidad==='Virtual' && c.realizada).length;
+  const capVirtuales = caps.filter(c=>(c.tipo==='Virtual'||c.modalidad==='Virtual') && c.realizada).length;
   // Institutos: checkbox "Visita realizada" → visitas; checkbox "Aperturado" → aperturas
   const instAperturas = inst.filter(i=>i.aperturado).length;
   const instVisitas = inst.filter(i=>i.realizada).length;
