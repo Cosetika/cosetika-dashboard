@@ -1549,6 +1549,9 @@ async function initDB() {
         updated_at TIMESTAMP DEFAULT NOW()
       );
       ALTER TABLE capacitaciones ADD COLUMN IF NOT EXISTS tipo VARCHAR(20);
+      ALTER TABLE capacitaciones ADD COLUMN IF NOT EXISTS provincia VARCHAR(50);
+      ALTER TABLE capacitaciones ADD COLUMN IF NOT EXISTS modalidad VARCHAR(20);
+      ALTER TABLE capacitaciones ADD COLUMN IF NOT EXISTS realizada BOOLEAN DEFAULT false;
       ALTER TABLE institutos ADD COLUMN IF NOT EXISTS tipo_actividad VARCHAR(20);
       ALTER TABLE giras ADD COLUMN IF NOT EXISTS coordinada BOOLEAN DEFAULT false;
       ALTER TABLE casas_abiertas ADD COLUMN IF NOT EXISTS coordinada BOOLEAN DEFAULT false;
@@ -1825,11 +1828,11 @@ const server = http.createServer(async (req, res) => {
       let r;
       if (mes) {
         r = await pool.query(
-          `SELECT id, TO_CHAR(fecha,'YYYY-MM-DD') AS fecha, ciudad, tema, direccion, horario, valor, tipo FROM capacitaciones WHERE TO_CHAR(fecha,'YYYY-MM')=$1 ORDER BY fecha ASC`,
+          `SELECT id, TO_CHAR(fecha,'YYYY-MM-DD') AS fecha, ciudad, tema, direccion, horario, valor, tipo, provincia, modalidad, realizada FROM capacitaciones WHERE TO_CHAR(fecha,'YYYY-MM')=$1 ORDER BY fecha ASC`,
           [mes]
         );
       } else {
-        r = await pool.query(`SELECT id, TO_CHAR(fecha,'YYYY-MM-DD') AS fecha, ciudad, tema, direccion, horario, valor, tipo FROM capacitaciones ORDER BY fecha DESC LIMIT 100`);
+        r = await pool.query(`SELECT id, TO_CHAR(fecha,'YYYY-MM-DD') AS fecha, ciudad, tema, direccion, horario, valor, tipo, provincia, modalidad, realizada FROM capacitaciones ORDER BY fecha DESC LIMIT 100`);
       }
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.rows));
     } catch(e){
@@ -1840,10 +1843,10 @@ const server = http.createServer(async (req, res) => {
   }
   if (urlPath === '/api/capacitaciones' && req.method === 'POST') {
     try {
-      const { fecha, ciudad, tema, direccion, horario, valor, tipo } = await bodyJSON(req);
+      const { fecha, ciudad, tema, direccion, horario, valor, tipo, provincia, modalidad } = await bodyJSON(req);
       const r = await pool.query(
-        `INSERT INTO capacitaciones(fecha,ciudad,tema,direccion,horario,valor,tipo) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-        [fecha, ciudad||null, tema||null, direccion||null, horario||null, valor||null, tipo||null]
+        `INSERT INTO capacitaciones(fecha,ciudad,tema,direccion,horario,valor,tipo,provincia,modalidad) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+        [fecha, ciudad||null, tema||null, direccion||null, horario||null, valor||null, tipo||null, provincia||null, modalidad||null]
       );
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, row:r.rows[0]}));
     } catch(e){
@@ -1855,11 +1858,16 @@ const server = http.createServer(async (req, res) => {
   if (urlPath.match(/^\/api\/capacitaciones\/\d+$/) && req.method === 'PUT') {
     try {
       const id = urlPath.split('/').pop();
-      const { fecha, ciudad, tema, direccion, horario, valor, tipo } = await bodyJSON(req);
-      await pool.query(
-        `UPDATE capacitaciones SET fecha=$1,ciudad=$2,tema=$3,direccion=$4,horario=$5,valor=$6,tipo=$7 WHERE id=$8`,
-        [fecha, ciudad||null, tema||null, direccion||null, horario||null, valor||null, tipo||null, id]
-      );
+      const body = await bodyJSON(req);
+      // UPDATE dinámico: solo las columnas presentes en el body (permite marcar
+      // "realizada" sin borrar el resto de campos)
+      const permitidas = ['fecha','ciudad','tema','direccion','horario','valor','tipo','provincia','modalidad','realizada'];
+      const cols = Object.keys(body).filter(k => permitidas.includes(k));
+      if(cols.length > 0){
+        const sets = cols.map((k,i)=>`${k}=$${i+1}`).join(',');
+        const vals = [...cols.map(k=>body[k]), id];
+        await pool.query(`UPDATE capacitaciones SET ${sets} WHERE id=$${cols.length+1}`, vals);
+      }
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
     } catch(e){ res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
@@ -2340,7 +2348,7 @@ const server = http.createServer(async (req, res) => {
     try {
       const r = await pool.query('SELECT clave, meta FROM kpi_metas');
       const defaults = {
-        cap_oficina: '1', cap_provincia: '1', inst_aperturas: '1', inst_visitas: '4',
+        cap_oficina: '1', cap_provincia: '1', cap_virtuales: '1', inst_aperturas: '1', inst_visitas: '4',
         revisiones: 'Todos los lunes', visitas_cumplimiento: '100', giras_pct: '100', casas_pct: '100'
       };
       const metas = {...defaults};

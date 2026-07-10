@@ -1125,11 +1125,19 @@ async function renderCapacitacionesMes(anio, mes){
         <div style="flex:1;padding:14px 16px;min-width:0">
           <div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:8px">${c.tema||'Sin tema'}</div>
           <div style="display:flex;flex-wrap:wrap;gap:8px 20px">
+            ${c.tipo ? `<span style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px"><i class="ti ti-building" style="font-size:13px;color:var(--brown)"></i>${c.tipo}</span>` : ''}
+            ${c.modalidad ? `<span style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px"><i class="ti ti-${c.modalidad==='Virtual'?'video':'users'}" style="font-size:13px;color:var(--brown)"></i>${c.modalidad}</span>` : ''}
+            ${c.provincia ? `<span style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px"><i class="ti ti-map" style="font-size:13px;color:var(--brown)"></i>${c.provincia}</span>` : ''}
             ${c.ciudad ? `<span style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px"><i class="ti ti-map-pin" style="font-size:13px;color:var(--brown)"></i>${c.ciudad}</span>` : ''}
             ${c.horario ? `<span style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px"><i class="ti ti-clock" style="font-size:13px;color:var(--brown)"></i>${c.horario}</span>` : ''}
             ${c.valor ? `<span style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px"><i class="ti ti-currency-dollar" style="font-size:13px;color:var(--brown)"></i>$${parseFloat(c.valor).toFixed(2)}</span>` : ''}
           </div>
-          ${c.direccion ? `<div style="margin-top:8px;font-size:12px;color:var(--muted);display:flex;align-items:flex-start;gap:4px"><i class="ti ti-location" style="font-size:13px;color:var(--brown);margin-top:1px;flex-shrink:0"></i>${c.direccion}</div>` : ''}
+          <label style="margin-top:10px;display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:${c.realizada?'#166534':'var(--muted)'};cursor:${puedeEditar?'pointer':'default'};background:${c.realizada?'#f0fdf4':'#faf9f8'};border:1px solid ${c.realizada?'#86efac':'var(--border)'};border-radius:20px;padding:4px 12px">
+            <input type="checkbox" ${c.realizada?'checked':''} ${puedeEditar?'':'disabled'}
+              onchange="marcarCapacitacionRealizada(${c.id}, this.checked, '${mesKey}')"
+              style="accent-color:#16a34a;width:15px;height:15px;cursor:${puedeEditar?'pointer':'default'}"/>
+            ${c.realizada?'Realizada ✓':'Marcar como realizada'}
+          </label>
         </div>
         <!-- Acciones -->
         ${puedeEditar ? `
@@ -1176,21 +1184,33 @@ function abrirModalCapacitacion(cap, mesKey){
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
           <div>
+            <label style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:5px">Provincia</label>
+            <select id="cap-provincia" style="width:100%;padding:9px 12px;border:1px solid #e5e5e5;border-radius:8px;font-size:13px;outline:none;box-sizing:border-box;background:white">
+              <option value="">— Selecciona —</option>
+              ${['Azuay','Bolívar','Cañar','Carchi','Chimborazo','Cotopaxi','El Oro','Esmeraldas','Galápagos','Guayas','Imbabura','Loja','Los Ríos','Manabí','Morona Santiago','Napo','Orellana','Pastaza','Pichincha','Santa Elena','Santo Domingo','Sucumbíos','Tungurahua','Zamora Chinchipe'].map(pv=>`<option value="${pv}" ${cap?.provincia===pv?'selected':''}>${pv}</option>`).join('')}
+            </select>
+          </div>
+          <div>
             <label style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:5px">Ciudad</label>
             <input type="text" id="cap-ciudad" value="${cap?.ciudad||''}" placeholder="Ej: Quito" style="width:100%;padding:9px 12px;border:1px solid #e5e5e5;border-radius:8px;font-size:13px;outline:none;box-sizing:border-box">
           </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
           <div>
             <label style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:5px">Horario</label>
             <input type="text" id="cap-horario" value="${cap?.horario||''}" placeholder="Ej: 10:00 - 13:00" style="width:100%;padding:9px 12px;border:1px solid #e5e5e5;border-radius:8px;font-size:13px;outline:none;box-sizing:border-box">
+          </div>
+          <div>
+            <label style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:5px">Modalidad</label>
+            <select id="cap-modalidad" style="width:100%;padding:9px 12px;border:1px solid #e5e5e5;border-radius:8px;font-size:13px;outline:none;box-sizing:border-box;background:white">
+              <option value="Presencial" ${cap?.modalidad==='Presencial'?'selected':''}>Presencial</option>
+              <option value="Virtual" ${cap?.modalidad==='Virtual'?'selected':''}>Virtual</option>
+            </select>
           </div>
         </div>
         <div>
           <label style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:5px">Tema *</label>
           <input type="text" id="cap-tema" value="${cap?.tema||''}" placeholder="Ej: Capacitación ZIAJA Niacinamida" style="width:100%;padding:9px 12px;border:1px solid #e5e5e5;border-radius:8px;font-size:13px;outline:none;box-sizing:border-box">
-        </div>
-        <div>
-          <label style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:5px">Dirección</label>
-          <input type="text" id="cap-direccion" value="${cap?.direccion||''}" placeholder="Dirección del lugar" style="width:100%;padding:9px 12px;border:1px solid #e5e5e5;border-radius:8px;font-size:13px;outline:none;box-sizing:border-box">
         </div>
         <div>
           <label style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:5px">Valor ($)</label>
@@ -1214,6 +1234,17 @@ function abrirModalCapacitacion(cap, mesKey){
   setTimeout(()=>document.getElementById('cap-fecha')?.focus(), 100);
 }
 
+async function marcarCapacitacionRealizada(id, realizada, mesKey){
+  try{
+    await fetch(`/api/capacitaciones/${id}`, {
+      method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ realizada })
+    });
+    const [ay, mm] = mesKey.split('-');
+    await renderCapacitacionesMes(parseInt(ay), parseInt(mm));
+  }catch(e){ alert('Error: '+e.message); }
+}
+
 async function guardarCapacitacion(id, mesKey){
   const fecha = document.getElementById('cap-fecha')?.value;
   const tema = document.getElementById('cap-tema')?.value?.trim();
@@ -1223,9 +1254,10 @@ async function guardarCapacitacion(id, mesKey){
   const body = {
     fecha, tema,
     tipo: document.getElementById('cap-tipo')?.value||'Oficina',
+    provincia: document.getElementById('cap-provincia')?.value||null,
+    modalidad: document.getElementById('cap-modalidad')?.value||'Presencial',
     ciudad: document.getElementById('cap-ciudad')?.value?.trim()||null,
     horario: document.getElementById('cap-horario')?.value?.trim()||null,
-    direccion: document.getElementById('cap-direccion')?.value?.trim()||null,
     valor: parseFloat(document.getElementById('cap-valor')?.value)||null
   };
   try{
@@ -7117,8 +7149,10 @@ async function renderKpisGiovanna(asesoraKpi, asesoras, puedeVerTodas, rol){
   }
 
   // Cálculos
-  const capOficina = caps.filter(c=>c.tipo==='Oficina').length;
-  const capProvincia = caps.filter(c=>c.tipo==='Provincia').length;
+  // Solo cuentan las capacitaciones MARCADAS como realizadas (checkbox)
+  const capOficina = caps.filter(c=>c.tipo==='Oficina' && c.realizada).length;
+  const capProvincia = caps.filter(c=>c.tipo==='Provincia' && c.realizada).length;
+  const capVirtuales = caps.filter(c=>c.modalidad==='Virtual' && c.realizada).length;
   const instAperturas = inst.filter(i=>i.tipo_actividad==='Apertura').length;
   const instVisitas = inst.filter(i=>i.tipo_actividad==='Visita').length;
   const girasTotal = giras.length;
@@ -7187,7 +7221,7 @@ async function renderKpisGiovanna(asesoraKpi, asesoras, puedeVerTodas, rol){
       ${kpiCard('Visitas a institutos', instVisitas, metas.inst_visitas||'4')}
     </div>
     <div class="kpi-row" style="margin-bottom:12px">
-      ${kpiCard(esMesActual?'Cumplimiento 30 visitas (semana)':'Cumplimiento visitas (última sem.)', cumplimiento.pct_semana||0, metas.visitas_cumplimiento||'100', '%')}
+      ${kpiCard('Capacitaciones virtuales', capVirtuales, metas.cap_virtuales||'1')}
       ${kpiCard('Giras coordinadas', girasPct, metas.giras_pct||'100', '%')}
       ${kpiCard('Casas abiertas coordinadas', casasPct, metas.casas_pct||'100', '%')}
       <div class="kpi" style="border-left:3px solid ${totalRevHechas>=totalRevEsperadas&&totalRevEsperadas>0?'#16a34a':'#dc2626'}">
@@ -7297,8 +7331,8 @@ async function configurarKpiMetas(){
     {key:'cap_provincia', label:'Capacitaciones en provincia', type:'number'},
     {key:'inst_aperturas', label:'Institutos nuevos aperturados', type:'number'},
     {key:'inst_visitas', label:'Visitas a institutos', type:'number'},
+    {key:'cap_virtuales', label:'Capacitaciones virtuales', type:'number'},
     {key:'revisiones', label:'Planificaciones revisadas (texto)', type:'text'},
-    {key:'visitas_cumplimiento', label:'Cumplimiento visitas (%)', type:'number'},
     {key:'giras_pct', label:'Giras coordinadas (%)', type:'number'},
     {key:'casas_pct', label:'Casas abiertas coordinadas (%)', type:'number'}
   ];
@@ -7323,7 +7357,7 @@ async function configurarKpiMetas(){
 }
 
 async function guardarKpiMetas(){
-  const claves = ['cap_oficina','cap_provincia','inst_aperturas','inst_visitas','revisiones','visitas_cumplimiento','giras_pct','casas_pct'];
+  const claves = ['cap_oficina','cap_provincia','cap_virtuales','inst_aperturas','inst_visitas','revisiones','giras_pct','casas_pct'];
   const body = {};
   claves.forEach(k=>{ const el=document.getElementById('kpim-'+k); if(el && el.value!=='') body[k]=el.value; });
   try {
