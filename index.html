@@ -6170,11 +6170,26 @@ const CATALOGO_TESTERS = [
 function buscarEnCatalogo(q){
   if(!q || q.length < 2) return [];
   const norm = q.toUpperCase().replace(/\s+/g,' ').trim();
-  return CATALOGO_TESTERS.filter(p =>
-    (p.codigo && p.codigo.toUpperCase().startsWith(norm)) ||
-    p.nombre.toUpperCase().includes(norm) ||
-    p.categoria.toUpperCase().includes(norm)
-  ).slice(0, 8);
+  // Unir catálogo fijo de testers + catálogo completo de Contifico (sin duplicados)
+  const vistos = new Set();
+  const todos = [];
+  CATALOGO_TESTERS.forEach(p => {
+    const k = p.nombre.toUpperCase();
+    if(!vistos.has(k)){ vistos.add(k); todos.push(p); }
+  });
+  Object.values(window.CATALOGO_POR_ID || {}).forEach(p => {
+    if(!p || !p.nombre) return;
+    const k = String(p.nombre).toUpperCase();
+    if(!vistos.has(k)){
+      vistos.add(k);
+      todos.push({ codigo: p.codigo||null, categoria: p.marca||'CATÁLOGO', nombre: p.nombre });
+    }
+  });
+  return todos.filter(p =>
+    (p.codigo && String(p.codigo).toUpperCase().includes(norm)) ||
+    String(p.nombre).toUpperCase().includes(norm) ||
+    String(p.categoria).toUpperCase().includes(norm)
+  ).slice(0, 40);
 }
 
 async function renderTesters(){
@@ -6464,7 +6479,7 @@ async function renderTestersDetalle(clienteId, clienteNombre, clienteCedula){
     + '<div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px"><i class="ti ti-plus" style="margin-right:5px"></i>Agregar tester</div>'
     + '<div style="position:relative;margin-bottom:10px">'
     + '<input type="text" id="tester-buscar-prod" placeholder="Buscar por código BSK o nombre..." oninput="mostrarSugerenciasProducto(this.value)" onblur="setTimeout(()=>{const s=document.getElementById(\'tester-sugerencias\');if(s)s.style.display=\'none\'},200)" style="width:100%;padding:9px 12px;font-size:13px;border:1px solid var(--border);border-radius:8px;outline:none;box-sizing:border-box">'
-    + '<div id="tester-sugerencias" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid var(--border);border-radius:8px;z-index:100;box-shadow:0 4px 12px rgba(0,0,0,0.1);max-height:220px;overflow-y:auto"></div></div>'
+    + '<div id="tester-sugerencias" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid var(--border);border-radius:8px;z-index:100;box-shadow:0 8px 24px rgba(0,0,0,0.15);max-height:480px;overflow-y:auto"></div></div>'
     + '<div id="tester-producto-sel" style="display:none;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:#166534;align-items:center;gap:8px"><i class="ti ti-check"></i> <span id="tester-producto-sel-text"></span></div>'
     + '<div style="display:flex;gap:8px;align-items:center">'
     + '<input type="date" id="tester-fecha" value="'+new Date().toISOString().split('T')[0]+'" style="padding:8px 10px;font-size:13px;border:1px solid var(--border);border-radius:8px;outline:none;flex:1">'
