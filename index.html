@@ -5222,7 +5222,7 @@ async function renderPlanificacion(){
     const ru = await fetch('/api/usuarios');
     const usuarios = await ru.json();
     ASESORAS_PLAN = usuarios
-      .filter(u => u.rol === 'asesora' && u.activo)
+      .filter(u => (u.rol === 'asesora' || u.rol === 'jefa_ventas') && u.activo)
       .map(u => u.nombre);
   } catch(e) { ASESORAS_PLAN = []; }
 
