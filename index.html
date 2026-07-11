@@ -196,6 +196,7 @@
     <div id="nav-clientes-subs" style="max-height:0;overflow:hidden;transition:max-height 0.25s ease">
       <div class="nav-sub-item" id="navsub-cpf" onclick="navSetSubtab('cpf')"><i class="ti ti-user-dollar" style="font-size:13px"></i>Compras</div>
       <div class="nav-sub-item" id="navsub-prov" onclick="navSetSubtab('prov')"><i class="ti ti-map-pin" style="font-size:13px"></i>Provincia</div>
+      <div class="nav-sub-item" id="navsub-referidos" onclick="navGoReferidos()"><i class="ti ti-user-heart" style="font-size:13px"></i>Referidos<span id="badge-referidos" style="display:none;margin-left:auto;background:#ef4444;color:white;border-radius:10px;font-size:9px;padding:1px 6px;font-weight:700;line-height:1.5">0</span></div>
     </div>
 
     <!-- PLANIFICACIÓN -->
@@ -230,9 +231,14 @@
       <div class="nav-sub-item" id="navsub-kpis-provincias" onclick="navGoKpis('provincias')"><i class="ti ti-map-search" style="font-size:13px"></i>KPIs Provincias</div>
     </div>
     <div class="nav-item" id="nav-inventario" onclick="navSetMod('inventario')"><i class="ti ti-package"></i>Inventario</div>
-    <div class="nav-item" id="nav-documentos" onclick="navSetMod('documentos')"><i class="ti ti-files"></i>Documentos</div>
-    <div class="nav-item" id="nav-nsos" onclick="navSetMod('nsos')"><i class="ti ti-certificate"></i>NSOs</div>
-    <div class="nav-item" id="nav-referidos" onclick="navSetMod('referidos')"><i class="ti ti-user-heart"></i>Referidos<span id="badge-referidos" style="display:none;margin-left:auto;background:#ef4444;color:white;border-radius:10px;font-size:9px;padding:1px 6px;font-weight:700;line-height:1.5">0</span></div>
+    <div class="nav-item" id="nav-documentos" onclick="navToggleGroup('nav-documentos-subs','nav-documentos-chevron','documentos')">
+      <i class="ti ti-files"></i>Documentos
+      <i class="ti ti-chevron-right" id="nav-documentos-chevron" style="margin-left:auto;font-size:12px;transition:transform 0.2s"></i>
+    </div>
+    <div id="nav-documentos-subs" style="max-height:0;overflow:hidden;transition:max-height 0.25s ease">
+      <div class="nav-sub-item" id="navsub-doc-importantes" onclick="navGoDocumentos('importantes')"><i class="ti ti-star" style="font-size:13px"></i>Importantes</div>
+      <div class="nav-sub-item" id="navsub-doc-nsos" onclick="navGoDocumentos('nsos')"><i class="ti ti-certificate" style="font-size:13px"></i>NSOs</div>
+    </div>
     <div class="nav-divider"></div>
     <div class="nav-item" id="nav-reportes" style="display:none" onclick="navToggleGroup('nav-reportes-subs','nav-reportes-chevron','reportes')">
       <i class="ti ti-file-analytics"></i>Reportes
@@ -464,11 +470,11 @@ function navToggleGroup(subsId, chevId, mod){
   if(!subs) return;
   const isOpen = subs.style.maxHeight !== '0px' && subs.style.maxHeight !== '';
   // Cerrar todos los grupos primero
-  ['nav-inicio-subs','nav-clientes-subs','nav-plan-subs','nav-visitas-subs','nav-kpis-subs','nav-reportes-subs','nav-config-subs'].forEach(id => {
+  ['nav-inicio-subs','nav-clientes-subs','nav-plan-subs','nav-visitas-subs','nav-kpis-subs','nav-documentos-subs','nav-reportes-subs','nav-config-subs'].forEach(id => {
     const el = document.getElementById(id);
     if(el) el.style.maxHeight = '0px';
   });
-  ['nav-ventas-chevron','nav-clientes-chevron','nav-plan-chevron','nav-visitas-chevron','nav-kpis-chevron','nav-reportes-chevron','nav-config-chevron'].forEach(id => {
+  ['nav-ventas-chevron','nav-clientes-chevron','nav-plan-chevron','nav-visitas-chevron','nav-kpis-chevron','nav-documentos-chevron','nav-reportes-chevron','nav-config-chevron'].forEach(id => {
     const el = document.getElementById(id);
     if(el) el.style.transform = '';
   });
@@ -526,10 +532,10 @@ function navSetSubtab(tab){
   document.getElementById('navsub-'+tab)?.classList.add('active');
   const enInicio = ['facturas','testers','envios','control'].includes(tab);
   const enClientes = ['cpf','prov'].includes(tab);
-  ['nav-inicio-subs','nav-clientes-subs','nav-plan-subs','nav-visitas-subs','nav-kpis-subs','nav-reportes-subs','nav-config-subs'].forEach(id=>{
+  ['nav-inicio-subs','nav-clientes-subs','nav-plan-subs','nav-visitas-subs','nav-kpis-subs','nav-documentos-subs','nav-reportes-subs','nav-config-subs'].forEach(id=>{
     const el = document.getElementById(id); if(el) el.style.maxHeight='0px';
   });
-  ['nav-ventas-chevron','nav-clientes-chevron','nav-plan-chevron','nav-visitas-chevron','nav-kpis-chevron','nav-reportes-chevron','nav-config-chevron'].forEach(id=>{
+  ['nav-ventas-chevron','nav-clientes-chevron','nav-plan-chevron','nav-visitas-chevron','nav-kpis-chevron','nav-documentos-chevron','nav-reportes-chevron','nav-config-chevron'].forEach(id=>{
     const el = document.getElementById(id); if(el) el.style.transform='';
   });
   if(enInicio){
@@ -555,10 +561,10 @@ function navSetSubtab(tab){
 
 function navSetMod(mod){
   closeSidebar();
-  ['nav-inicio-subs','nav-clientes-subs','nav-plan-subs','nav-visitas-subs','nav-kpis-subs','nav-reportes-subs','nav-config-subs'].forEach(id=>{
+  ['nav-inicio-subs','nav-clientes-subs','nav-plan-subs','nav-visitas-subs','nav-kpis-subs','nav-documentos-subs','nav-reportes-subs','nav-config-subs'].forEach(id=>{
     const el = document.getElementById(id); if(el) el.style.maxHeight='0px';
   });
-  ['nav-ventas-chevron','nav-clientes-chevron','nav-plan-chevron','nav-visitas-chevron','nav-kpis-chevron','nav-reportes-chevron','nav-config-chevron'].forEach(id=>{
+  ['nav-ventas-chevron','nav-clientes-chevron','nav-plan-chevron','nav-visitas-chevron','nav-kpis-chevron','nav-documentos-chevron','nav-reportes-chevron','nav-config-chevron'].forEach(id=>{
     const el = document.getElementById(id); if(el) el.style.transform='';
   });
   if(mod === 'ventas'){
@@ -6365,9 +6371,14 @@ document.addEventListener('DOMContentLoaded', function() {
   if(usuarioActual.rol !== 'admin'){
     document.querySelectorAll('.nav-item').forEach(m => {
       const id = m.id.replace('nav-', '');
-      if(['config','reportes','ventas-mod','marcas-mod','clientes','planificacion','visitas'].includes(id)) return;
+      if(['config','reportes','ventas-mod','marcas-mod','clientes','planificacion','visitas','documentos'].includes(id)) return;
       if(id && !modulos.includes(id) && id !== 'ventas') m.style.display = 'none';
     });
+    // Sub-items con permiso propio
+    if(!modulos.includes('referidos')){ const el=document.getElementById('navsub-referidos'); if(el) el.style.display='none'; }
+    if(!modulos.includes('documentos')){ const el=document.getElementById('navsub-doc-importantes'); if(el) el.style.display='none'; }
+    if(!modulos.includes('nsos')){ const el=document.getElementById('navsub-doc-nsos'); if(el) el.style.display='none'; }
+    if(!modulos.includes('documentos') && !modulos.includes('nsos')){ const el=document.getElementById('nav-documentos'); if(el) el.style.display='none'; }
     document.querySelectorAll('.mod').forEach(m => {
       const id = m.id.replace('mod-', '');
       if(id === 'config' || id === 'reportes') return;
@@ -6661,6 +6672,32 @@ function navGoKpis(tab){
 function navGoReportes(tab){
   window._reportesTab = tab;
   navSetMod('reportes');
+}
+
+function navGoReferidos(){
+  navSetMod('referidos');
+  setTimeout(()=>{
+    document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
+    document.getElementById('navsub-referidos')?.classList.add('active');
+    const subs = document.getElementById('nav-clientes-subs');
+    const chev = document.getElementById('nav-clientes-chevron');
+    if(subs) subs.style.maxHeight = '300px';
+    if(chev) chev.style.transform = 'rotate(180deg)';
+    document.getElementById('nav-clientes')?.classList.add('active');
+  }, 30);
+}
+
+function navGoDocumentos(tab){
+  navSetMod(tab === 'nsos' ? 'nsos' : 'documentos');
+  setTimeout(()=>{
+    document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
+    document.getElementById('navsub-doc-'+(tab==='nsos'?'nsos':'importantes'))?.classList.add('active');
+    const subs = document.getElementById('nav-documentos-subs');
+    const chev = document.getElementById('nav-documentos-chevron');
+    if(subs) subs.style.maxHeight = '300px';
+    if(chev) chev.style.transform = 'rotate(180deg)';
+    document.getElementById('nav-documentos')?.classList.add('active');
+  }, 30);
 }
 function setReportesTab(tab){ window._reportesTab=tab; renderReportes(); }
 
