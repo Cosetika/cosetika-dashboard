@@ -2058,6 +2058,7 @@ function showConfigTab(tab){
     if(btn) btn.style.cssText=`flex:1;padding:11px;font-size:13px;font-weight:500;border:none;cursor:pointer;transition:all 0.2s;background:${t===tab?'var(--brown)':'white'};color:${t===tab?'white':'var(--muted)'}`;
   });
   if(tab==='equipos') renderEquiposConfig();
+  if(tab==='permisos') cargarClientesProvinciasUI();
 }
 
 function navGoConfig(tab){
@@ -2157,6 +2158,11 @@ async function renderConfig(){
           <span id="permisos-status" style="font-size:12px;color:var(--muted)"></span>
           <button onclick="guardarTodosPermisos()" style="padding:8px 18px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-device-floppy"></i> Guardar todos los permisos</button>
         </div>
+      </div>
+      <div class="card" style="margin-top:14px">
+        <div class="card-title"><i class="ti ti-map-pin"></i> Provincias visibles por asesora · Clientes → Provincia</div>
+        <p style="font-size:11px;color:var(--muted);margin:0 0 6px">Cada asesora solo verá los clientes de las provincias marcadas. Sin provincias marcadas, no verá ninguna. Los cambios se guardan al instante; la asesora debe recargar la app para verlos.</p>
+        <div id="cliprov-cont" style="font-size:12px;color:var(--muted)">Cargando...</div>
       </div>
     </div>
 
@@ -2408,6 +2414,59 @@ async function guardarTodosPermisos(){
     if(statusEl) statusEl.innerHTML = '<span style="color:#991b1b">Error al guardar</span>';
   }
 }
+const PROVINCIAS_EC_LISTA = ['Azuay','Bolívar','Cañar','Carchi','Chimborazo','Cotopaxi','El Oro','Esmeraldas','Galápagos','Guayas','Imbabura','Loja','Los Ríos','Manabí','Morona Santiago','Napo','Orellana','Pastaza','Pichincha','Santa Elena','Santo Domingo','Sucumbíos','Tungurahua','Zamora Chinchipe'];
+
+async function cargarClientesProvinciasUI(){
+  const cont = document.getElementById('cliprov-cont');
+  if(!cont) return;
+  try{
+    const [ru, ra] = await Promise.all([fetch('/api/usuarios'), fetch('/api/clientes-provincias')]);
+    const usuarios = await ru.json();
+    const asigs = await ra.json();
+    const porUsuario = {};
+    (Array.isArray(asigs)?asigs:[]).forEach(a=>{ (porUsuario[a.usuario_id]=porUsuario[a.usuario_id]||[]).push(a.provincia); });
+    const asesoras = (Array.isArray(usuarios)?usuarios:[]).filter(u=>u.rol==='asesora' && u.activo);
+    if(asesoras.length===0){ cont.innerHTML = '<p style="font-size:12px;color:var(--muted)">No hay asesoras activas</p>'; return; }
+    cont.innerHTML = asesoras.map(u=>{
+      const asignadas = porUsuario[u.id]||[];
+      return `<div style="padding:12px 0;border-bottom:0.5px solid var(--border)">
+        <div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--text)">${u.nombre.split(' ').slice(0,2).join(' ')} <span id="cliprov-count-${u.id}" style="font-size:10px;color:var(--muted);font-weight:400">· ${asignadas.length} provincia${asignadas.length!==1?'s':''}</span></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          ${PROVINCIAS_EC_LISTA.map(pr=>{
+            const on = asignadas.includes(pr);
+            return `<button onclick="toggleClienteProvincia(${u.id},'${pr}',this)" data-on="${on?'1':'0'}" style="padding:4px 10px;font-size:11px;border-radius:14px;cursor:pointer;border:1px solid ${on?'var(--brown)':'var(--border)'};background:${on?'var(--brown)':'white'};color:${on?'white':'var(--muted)'}">${pr}</button>`;
+          }).join('')}
+        </div>
+      </div>`;
+    }).join('');
+  }catch(e){ cont.innerHTML = '<p style="font-size:12px;color:#dc2626">Error cargando: '+e.message+'</p>'; }
+}
+
+async function toggleClienteProvincia(usuarioId, provincia, btn){
+  const on = btn.dataset.on === '1';
+  btn.disabled = true;
+  try{
+    const r = await fetch('/api/clientes-provincias', {
+      method: on ? 'DELETE' : 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ usuario_id: usuarioId, provincia })
+    });
+    const j = await r.json();
+    if(!j.ok) throw new Error(j.error||'error');
+    const nuevo = !on;
+    btn.dataset.on = nuevo ? '1' : '0';
+    btn.style.border = '1px solid ' + (nuevo?'var(--brown)':'var(--border)');
+    btn.style.background = nuevo?'var(--brown)':'white';
+    btn.style.color = nuevo?'white':'var(--muted)';
+    // Actualizar contador
+    const fila = btn.closest('div[style*="padding:12px 0"]') || btn.parentElement.parentElement;
+    const marcadas = fila ? fila.querySelectorAll('button[data-on="1"]').length : 0;
+    const cnt = document.getElementById('cliprov-count-'+usuarioId);
+    if(cnt) cnt.textContent = '· '+marcadas+' provincia'+(marcadas!==1?'s':'');
+  }catch(e){ alert('Error: '+e.message); }
+  btn.disabled = false;
+}
+
 async function cargarData(){
   document.getElementById('main').innerHTML='<div class="loader"><i class="ti ti-refresh"></i><p>Cargando data...</p></div>';
   try{
@@ -5229,6 +5288,27 @@ async function renderProvincias(provSeleccionada){
       provincias[prov].push({...c, total_anio: totMes, vendedor:v});
     });
   });
+  // Asesoras: solo ven las provincias asignadas por el admin (Configuración → Permisos)
+  const usuarioProv = window.usuarioActual || {};
+  if(usuarioProv.rol === 'asesora'){
+    if(!window._provPermitidasCache){
+      try{
+        const rp = await fetch('/api/clientes-provincias?usuario_id='+usuarioProv.id);
+        const rows = await rp.json();
+        window._provPermitidasCache = (Array.isArray(rows)?rows:[]).map(x=>normProvKpi(x.provincia));
+      }catch(e){ window._provPermitidasCache = []; }
+    }
+    const permitidas = window._provPermitidasCache;
+    if(permitidas.length === 0){
+      document.getElementById('main').innerHTML = `<div class="coming"><i class="ti ti-map-pin-off"></i><p>No tienes provincias asignadas</p><span style="font-size:12px">Pide al administrador que te asigne provincias en Configuración → Permisos</span></div>`;
+      return;
+    }
+    Object.keys(provincias).forEach(k=>{
+      const kn = normProvKpi(k);
+      if(!permitidas.some(a => kn.includes(a) || a.includes(kn))) delete provincias[k];
+    });
+  }
+
   const provOrdenadas=Object.entries(provincias)
     .map(([nombre,clientes])=>({nombre,clientes:clientes.sort((a,b)=>b.total_anio-a.total_anio),total:clientes.reduce((a,c)=>a+c.total_anio,0),num_clientes:clientes.length}))
     .sort((a,b)=>b.total-a.total);

@@ -1628,6 +1628,13 @@ async function initDB() {
         created_at TIMESTAMP DEFAULT NOW(),
         UNIQUE(asesora, provincia)
       );
+      CREATE TABLE IF NOT EXISTS clientes_provincias (
+        id SERIAL PRIMARY KEY,
+        usuario_id INTEGER NOT NULL,
+        provincia VARCHAR(100) NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(usuario_id, provincia)
+      );
       CREATE TABLE IF NOT EXISTS envios_servientrega (
         id SERIAL PRIMARY KEY,
         guia VARCHAR(20) NOT NULL,
@@ -3948,6 +3955,35 @@ const server = http.createServer(async (req, res) => {
       }
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({pedidos, referidos}));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+
+  // ─── PROVINCIAS VISIBLES EN CLIENTES → PROVINCIA (asignadas por asesora) ────
+  if (urlPath === '/api/clientes-provincias' && req.method === 'GET') {
+    try {
+      const uid = parseInt(urlObj.searchParams.get('usuario_id')) || null;
+      const r = uid
+        ? await pool.query('SELECT usuario_id, provincia FROM clientes_provincias WHERE usuario_id=$1 ORDER BY provincia', [uid])
+        : await pool.query('SELECT usuario_id, provincia FROM clientes_provincias ORDER BY usuario_id, provincia');
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.rows));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+  if (urlPath === '/api/clientes-provincias' && req.method === 'POST') {
+    try {
+      const { usuario_id, provincia } = await bodyJSON(req);
+      if (!usuario_id || !provincia) { res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'Faltan datos'})); return; }
+      await pool.query('INSERT INTO clientes_provincias(usuario_id,provincia) VALUES($1,$2) ON CONFLICT DO NOTHING', [usuario_id, provincia]);
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+  if (urlPath === '/api/clientes-provincias' && req.method === 'DELETE') {
+    try {
+      const { usuario_id, provincia } = await bodyJSON(req);
+      await pool.query('DELETE FROM clientes_provincias WHERE usuario_id=$1 AND provincia=$2', [usuario_id, provincia]);
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
   }
 
