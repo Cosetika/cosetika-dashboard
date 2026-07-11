@@ -1096,6 +1096,13 @@ const SEMAFORO_COLORS = {
 };
 
 async function renderInventario(){
+  const usuarioPermiso = window.usuarioActual || {};
+  const modulosPermiso = usuarioPermiso.modulos ? usuarioPermiso.modulos.split(',') : [];
+  const tieneAcceso = usuarioPermiso.rol === 'admin' || modulosPermiso.includes('inventario');
+  if(!tieneAcceso){
+    document.getElementById('main').innerHTML = `<div class="coming"><i class="ti ti-lock"></i><p>Acceso restringido</p></div>`;
+    return;
+  }
   const marca = window._invMarcaSel || 'ZIAJA';
   const marcas = ['BIOSKIN','ERAYBA','ZIAJA','ZIAJA PRO'];
 
@@ -2128,16 +2135,16 @@ async function renderConfig(){
           <table style="width:100%;border-collapse:collapse;font-size:13px">
             <thead><tr style="border-bottom:0.5px solid var(--border)">
               <th style="text-align:left;padding:8px 10px;font-size:11px;color:var(--muted)">Usuario</th>
-              ${MODS_LISTA.map(m=>`<th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);text-transform:uppercase">${m}</th>`).join('')}<th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);text-transform:uppercase">Editar Plan.</th>
-              <th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);white-space:nowrap">Ver visitas<br>de todas</th>
-              <th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);white-space:nowrap">Editar<br>sectores</th>
+              ${MODS_LISTA.map(m=>`<th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);text-transform:uppercase">${m}</th>`).join('')}<th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);white-space:nowrap">Ver visitas<br>de todas</th>
+              <th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);text-transform:uppercase">Editar Plan.</th>
             </tr></thead>
             <tbody>
               ${usuarios.map(u=>{
                 const mods=u.modulos?u.modulos.split(','):[];
                 const esAdmin=u.rol==='admin', esJefa=u.rol==='jefa_ventas';
                 const verTodas=esAdmin||esJefa||mods.includes('ver_visitas_todas');
-                const editarSectores=esAdmin||mods.includes('editar_visitas');
+                window._permModsActuales = window._permModsActuales || {};
+                window._permModsActuales[u.id] = mods;
                 return "<tr style=\"border-bottom:0.5px solid var(--border)\"><td style=\"padding:10px\"><div style=\"font-size:13px;font-weight:500\">" + u.nombre.split(' ')[0] + "</div><div style=\"font-size:11px;color:var(--muted)\">" + u.rol + "</div></td>" +
                   MODS_LISTA.map(m=>"<td style=\"text-align:center;padding:10px\"><input type=\"checkbox\" " + (mods.includes(m)||esAdmin?'checked':'') + " " + (esAdmin?'disabled':'') + " id=\"perm-" + u.id + "-" + m + "\" style=\"accent-color:#A0684A;width:16px;height:16px;cursor:pointer\"/></td>").join('') +
                   "<td style=\"text-align:center;padding:10px\"><input type=\"checkbox\" id=\"perm-" + u.id + "-ver_visitas_todas\" " + (verTodas?'checked':'') + " " + (esAdmin||esJefa?'disabled':'') + " style=\"accent-color:#A0684A;width:16px;height:16px;cursor:pointer\"/></td>" +
@@ -2390,7 +2397,8 @@ async function guardarTodosPermisos(){
       if(!algunCheckboxEditable) return;
       const mods=MODS.filter(m=>document.getElementById('perm-'+id+'-'+m)?.checked);
       if(document.getElementById('perm-'+id+'-ver_visitas_todas')?.checked) mods.push('ver_visitas_todas');
-      if(document.getElementById('perm-'+id+'-editar_visitas')?.checked) mods.push('editar_visitas');
+      // "Editar sectores" ya no se gestiona desde esta tabla — se preserva el valor actual
+      if(((window._permModsActuales||{})[id]||[]).includes('editar_visitas')) mods.push('editar_visitas');
       if(document.getElementById('perm-'+id+'-editar_planificacion')?.checked) mods.push('editar_planificacion');
       await fetch('/api/usuarios/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({modulos:mods.join(',')})});
     }));
@@ -6272,9 +6280,20 @@ document.addEventListener('DOMContentLoaded', function() {
     if(btnBackup){ btnBackup.style.display = 'flex'; actualizarEstadoBotonBackup(); }
   }
 
-  // Todos los paneles son visibles para todos los usuarios.
-  // Reportes y Configuración vienen con display:none en el HTML y solo se
-  // muestran a admin (bloque de arriba).
+  // Módulos según permisos (admin ve todo — su acceso es total e implícito)
+  const modulos = usuarioActual.modulos ? usuarioActual.modulos.split(',') : [];
+  if(usuarioActual.rol !== 'admin'){
+    document.querySelectorAll('.nav-item').forEach(m => {
+      const id = m.id.replace('nav-', '');
+      if(['config','reportes','ventas-mod','marcas-mod','clientes','planificacion','visitas'].includes(id)) return;
+      if(id && !modulos.includes(id) && id !== 'ventas') m.style.display = 'none';
+    });
+    document.querySelectorAll('.mod').forEach(m => {
+      const id = m.id.replace('mod-', '');
+      if(id === 'config' || id === 'reportes') return;
+      if(id && !modulos.includes(id)) m.style.display = 'none';
+    });
+  }
 
   window.usuarioActual = usuarioActual;
   cargarData();
