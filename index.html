@@ -7129,6 +7129,17 @@ async function renderInversiones(){
   const provinciasOrdenadas = Object.entries(porProvincia).sort((a,b)=>b[1].total-a[1].total);
   const maxProv = provinciasOrdenadas.length ? provinciasOrdenadas[0][1].total : 0;
 
+  // Acumulado por asesora (a quién se le entregan más viáticos)
+  const porAsesora = {};
+  giras.forEach(g=>{
+    const ase = (g.asesora||'Sin asesora').trim().split(' ').slice(0,2).join(' ') || 'Sin asesora';
+    if(!porAsesora[ase]) porAsesora[ase] = {total:0, giras:0};
+    porAsesora[ase].total += parseFloat(g.valor_viaticos||0);
+    porAsesora[ase].giras += 1;
+  });
+  const asesorasOrdenadas = Object.entries(porAsesora).sort((a,b)=>b[1].total-a[1].total);
+  const maxAse = asesorasOrdenadas.length ? asesorasOrdenadas[0][1].total : 0;
+
   cont.innerHTML = `
     <!-- Filtro por año -->
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap;padding:12px 14px;background:white;border-radius:10px;border:1px solid var(--border)">
@@ -7167,6 +7178,23 @@ async function renderInversiones(){
               </div>
             </div>
             <div style="width:60px;font-size:10px;color:var(--muted);text-align:right;flex-shrink:0">${d.giras} gira${d.giras!==1?'s':''}</div>
+          </div>`).join('')}
+      </div>
+    </div>
+
+    <!-- Viáticos por asesora -->
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-title"><i class="ti ti-user-dollar"></i> Viáticos por asesora · ${anioSel}</div>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:6px">
+        ${asesorasOrdenadas.map(([ase, d], idx)=>`
+          <div style="display:flex;align-items:center;gap:10px">
+            <div style="width:130px;font-size:12px;font-weight:600;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${ase}</div>
+            <div style="flex:1;background:#f5f3f0;border-radius:6px;height:22px;overflow:hidden">
+              <div style="width:${maxAse?Math.max(Math.round(d.total/maxAse*100),3):0}%;height:100%;background:${idx===0?'#b45309':'var(--brown)'};border-radius:6px;display:flex;align-items:center;justify-content:flex-end;padding-right:8px">
+                <span style="font-size:10px;color:white;font-weight:700;white-space:nowrap">${fmt(d.total)}</span>
+              </div>
+            </div>
+            <div style="width:90px;font-size:10px;color:var(--muted);text-align:right;flex-shrink:0">${d.giras} gira${d.giras!==1?'s':''} · ${d.giras?fmt(d.total/d.giras):'—'}/gira</div>
           </div>`).join('')}
       </div>
     </div>
