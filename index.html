@@ -1019,7 +1019,9 @@ function pintarReferidos(filtro){
         <tr style="border-bottom:1px solid var(--border)">
           <th style="text-align:left;padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;white-space:nowrap">Fecha</th>
           <th style="text-align:left;padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Refiere</th>
+          <th style="text-align:center;padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Bono</th>
           <th style="text-align:left;padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Referido</th>
+          <th style="text-align:center;padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;white-space:nowrap">Primera compra</th>
           <th style="text-align:left;padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;white-space:nowrap">Teléfono referido</th>
           <th style="text-align:center;padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Contactado</th>
           ${esAdmin?'<th style="padding:10px 6px"></th>':''}
@@ -1030,10 +1032,18 @@ function pintarReferidos(filtro){
         <tr style="border-bottom:0.5px solid var(--border);background:${x.contactado?'#f7fdf9':'white'}">
           <td style="padding:10px 14px;font-size:11px;color:var(--brown);white-space:nowrap">${fmtF(x.fecha_dia)}</td>
           <td style="padding:10px 14px">${esc(x.cliente)||'—'}</td>
+          <td style="padding:10px 14px;text-align:center;white-space:nowrap">
+            <input type="checkbox" ${x.bono?'checked':''} onchange="marcarCampoReferido(${x.id}, 'bono', this.checked)" style="accent-color:#d97706;width:16px;height:16px;cursor:pointer;vertical-align:middle">
+            ${x.bono&&x.bono_at?'<div style="font-size:10px;color:#d97706;margin-top:2px">'+esc(x.bono_at)+'</div>':''}
+          </td>
           <td style="padding:10px 14px;font-weight:600">${esc(x.referido)||'—'}</td>
+          <td style="padding:10px 14px;text-align:center;white-space:nowrap">
+            <input type="checkbox" ${x.primera_compra?'checked':''} onchange="marcarCampoReferido(${x.id}, 'primera_compra', this.checked)" style="accent-color:#2563eb;width:16px;height:16px;cursor:pointer;vertical-align:middle">
+            ${x.primera_compra&&x.primera_compra_at?'<div style="font-size:10px;color:#2563eb;margin-top:2px">'+esc(x.primera_compra_at)+'</div>':''}
+          </td>
           <td style="padding:10px 14px;white-space:nowrap"><a href="https://wa.me/${telWa(x.telefono)}" target="_blank" style="display:inline-flex;align-items:center;gap:5px;font-size:12px;color:#16a34a;text-decoration:none;font-weight:500"><i class="ti ti-brand-whatsapp" style="font-size:15px"></i>${esc(x.telefono)||'—'}</a></td>
           <td style="padding:10px 14px;text-align:center;white-space:nowrap">
-            <input type="checkbox" ${x.contactado?'checked':''} onchange="marcarContactado(${x.id}, this.checked)" style="accent-color:#16a34a;width:16px;height:16px;cursor:pointer;vertical-align:middle">
+            <input type="checkbox" ${x.contactado?'checked':''} onchange="marcarCampoReferido(${x.id}, 'contactado', this.checked)" style="accent-color:#16a34a;width:16px;height:16px;cursor:pointer;vertical-align:middle">
             ${x.contactado&&x.contactado_at?'<div style="font-size:10px;color:#16a34a;margin-top:2px">'+esc(x.contactado_at)+'</div>':''}
           </td>
           ${esAdmin?`<td style="padding:10px 6px;text-align:center"><button onclick="borrarReferido(${x.id})" title="Eliminar" style="width:26px;height:26px;border:1px solid #fca5a5;background:#fef2f2;border-radius:6px;cursor:pointer"><i class="ti ti-trash" style="font-size:11px;color:#ef4444"></i></button></td>`:''}
@@ -1043,15 +1053,20 @@ function pintarReferidos(filtro){
   </div>`;
 }
 
-async function marcarContactado(id, valor){
+async function marcarCampoReferido(id, campo, valor){
   const ahora = valor ? new Date().toLocaleString('es-EC',{timeZone:'America/Guayaquil',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : null;
+  const body = {};
+  body[campo] = valor;
+  body[campo+'_at'] = ahora;
   try{
-    await fetch('/api/referidos/'+id, {
+    const r = await fetch('/api/referidos/'+id, {
       method:'PUT', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ contactado: valor, contactado_at: ahora })
+      body: JSON.stringify(body)
     });
+    const j = await r.json();
+    if(!j.ok) throw new Error(j.error||'error');
     const item = (window._referidosData||[]).find(x=>x.id===id);
-    if(item){ item.contactado = valor; item.contactado_at = ahora; }
+    if(item){ item[campo] = valor; item[campo+'_at'] = ahora; }
     pintarReferidos(document.getElementById('ref-buscar')?.value||'');
   }catch(e){ alert('Error al guardar: '+e.message); }
 }

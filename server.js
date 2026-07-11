@@ -1776,6 +1776,10 @@ async function initDB() {
         created_at TIMESTAMP DEFAULT NOW()
       );
       CREATE UNIQUE INDEX IF NOT EXISTS idx_referidos_msgid ON referidos(message_id);
+      ALTER TABLE referidos ADD COLUMN IF NOT EXISTS bono BOOLEAN DEFAULT false;
+      ALTER TABLE referidos ADD COLUMN IF NOT EXISTS bono_at VARCHAR(30);
+      ALTER TABLE referidos ADD COLUMN IF NOT EXISTS primera_compra BOOLEAN DEFAULT false;
+      ALTER TABLE referidos ADD COLUMN IF NOT EXISTS primera_compra_at VARCHAR(30);
       CREATE TABLE IF NOT EXISTS personas (
         id SERIAL PRIMARY KEY,
         cedula VARCHAR(50),
@@ -3992,7 +3996,8 @@ const server = http.createServer(async (req, res) => {
   if (urlPath === '/api/referidos' && req.method === 'GET') {
     try {
       const r = await pool.query(
-        `SELECT id, cliente, referido, telefono, TO_CHAR(fecha,'YYYY-MM-DD') AS fecha_dia, contactado, contactado_at
+        `SELECT id, cliente, referido, telefono, TO_CHAR(fecha,'YYYY-MM-DD') AS fecha_dia,
+                contactado, contactado_at, bono, bono_at, primera_compra, primera_compra_at
          FROM referidos ORDER BY fecha DESC NULLS LAST, id DESC`
       );
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.rows));
@@ -4008,13 +4013,24 @@ const server = http.createServer(async (req, res) => {
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
   }
-  // PUT /api/referidos/:id → actualizar contactado
+  // PUT /api/referidos/:id → actualizar contactado / bono / primera_compra (dinámico:
+  // solo toca los campos enviados en el body)
   if (/^\/api\/referidos\/\d+$/.test(urlPath) && req.method === 'PUT') {
     try {
       const id = parseInt(urlPath.split('/').pop());
-      const { contactado, contactado_at } = await bodyJSON(req);
-      await pool.query('UPDATE referidos SET contactado=$1, contactado_at=$2 WHERE id=$3',
-        [!!contactado, contactado_at||null, id]);
+      const body = await bodyJSON(req);
+      const sets = []; const params = []; let i = 1;
+      [['contactado','contactado_at'],['bono','bono_at'],['primera_compra','primera_compra_at']].forEach(([flag, ts])=>{
+        if (flag in body) {
+          sets.push(flag+'=$'+(i++)); params.push(!!body[flag]);
+          sets.push(ts+'=$'+(i++)); params.push(body[ts]||null);
+        }
+      });
+      if (sets.length === 0) {
+        res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'Sin campos para actualizar'})); return;
+      }
+      params.push(id);
+      await pool.query('UPDATE referidos SET '+sets.join(', ')+' WHERE id=$'+i, params);
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
