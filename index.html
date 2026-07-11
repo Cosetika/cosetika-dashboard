@@ -176,7 +176,7 @@
       <i class="ti ti-chevron-down" id="nav-ventas-chevron" style="margin-left:auto;font-size:12px;transition:transform 0.2s;transform:rotate(180deg)"></i>
     </div>
     <div id="nav-inicio-subs" style="max-height:300px;overflow:hidden;transition:max-height 0.25s ease">
-      <div class="nav-sub-item active" id="navsub-pedidos" onclick="navSetDocTab('pedidos')"><i class="ti ti-shopping-cart" style="font-size:13px"></i>Pedidos</div>
+      <div class="nav-sub-item active" id="navsub-pedidos" onclick="navSetDocTab('pedidos')"><i class="ti ti-shopping-cart" style="font-size:13px"></i>Pedidos<span id="badge-pedidos" style="display:none;margin-left:auto;background:#ef4444;color:white;border-radius:10px;font-size:9px;padding:1px 6px;font-weight:700;line-height:1.5">0</span></div>
       <div class="nav-sub-item" id="navsub-facturas" onclick="navSetSubtab('facturas')"><i class="ti ti-receipt" style="font-size:13px"></i>Facturas</div>
       <div class="nav-sub-item" id="navsub-testers" onclick="navSetDocTab('testers')"><i class="ti ti-flask" style="font-size:13px"></i>Testers</div>
       <div class="nav-sub-item" id="navsub-envios" onclick="navSetDocTab('envios')"><i class="ti ti-truck-delivery" style="font-size:13px"></i>Envíos</div>
@@ -232,7 +232,7 @@
     <div class="nav-item" id="nav-inventario" onclick="navSetMod('inventario')"><i class="ti ti-package"></i>Inventario</div>
     <div class="nav-item" id="nav-documentos" onclick="navSetMod('documentos')"><i class="ti ti-files"></i>Documentos</div>
     <div class="nav-item" id="nav-nsos" onclick="navSetMod('nsos')"><i class="ti ti-certificate"></i>NSOs</div>
-    <div class="nav-item" id="nav-referidos" onclick="navSetMod('referidos')"><i class="ti ti-user-heart"></i>Referidos</div>
+    <div class="nav-item" id="nav-referidos" onclick="navSetMod('referidos')"><i class="ti ti-user-heart"></i>Referidos<span id="badge-referidos" style="display:none;margin-left:auto;background:#ef4444;color:white;border-radius:10px;font-size:9px;padding:1px 6px;font-weight:700;line-height:1.5">0</span></div>
     <div class="nav-divider"></div>
     <div class="nav-item" id="nav-reportes" style="display:none" onclick="navToggleGroup('nav-reportes-subs','nav-reportes-chevron','reportes')">
       <i class="ti ti-file-analytics"></i>Reportes
@@ -840,8 +840,45 @@ async function subirExcelNsos(ev){
   }catch(e){ if(status) status.innerHTML = '<span style="color:#dc2626">Error: '+e.message+'</span>'; }
 }
 
+// ─── BADGES DEL SIDEBAR (pedidos y referidos nuevos) ─────────────────────────
+function _badgeSeenKey(tipo){
+  const u = (window.usuarioActual||{}).usuario || (window.usuarioActual||{}).nombre || 'anon';
+  return 'badge_seen_' + tipo + '_' + u;
+}
+
+function pintarBadge(id, n){
+  const el = document.getElementById(id);
+  if(!el) return;
+  n = parseInt(n)||0;
+  el.style.display = n > 0 ? 'inline-block' : 'none';
+  el.textContent = n > 99 ? '99+' : n;
+}
+
+function marcarBadgeVisto(tipo){
+  try{ localStorage.setItem(_badgeSeenKey(tipo), new Date().toISOString()); }catch(e){}
+  pintarBadge('badge-' + tipo, 0);
+}
+
+async function actualizarBadgesSidebar(){
+  if(!window.usuarioActual) return;
+  try{
+    const ahora = new Date().toISOString();
+    let pd = localStorage.getItem(_badgeSeenKey('pedidos'));
+    let rd = localStorage.getItem(_badgeSeenKey('referidos'));
+    // Primera vez en este dispositivo: baseline = ahora (no marcar lo viejo como nuevo)
+    if(!pd){ localStorage.setItem(_badgeSeenKey('pedidos'), ahora); pd = ahora; }
+    if(!rd){ localStorage.setItem(_badgeSeenKey('referidos'), ahora); rd = ahora; }
+    const r = await fetch('/api/sidebar-badges?pedidos_desde='+encodeURIComponent(pd)+'&referidos_desde='+encodeURIComponent(rd));
+    const j = await r.json();
+    pintarBadge('badge-pedidos', j.pedidos);
+    pintarBadge('badge-referidos', j.referidos);
+  }catch(e){}
+}
+setInterval(actualizarBadgesSidebar, 30 * 1000);
+
 // ─── MÓDULO REFERIDOS ────────────────────────────────────────────────────────
 async function renderReferidos(){
+  marcarBadgeVisto('referidos');
   const main = document.getElementById('main');
   main.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
@@ -893,7 +930,7 @@ function pintarReferidos(filtro){
   if(datos.length === 0){
     cont.style.textAlign='center';
     cont.innerHTML = todos.length===0
-      ? `<div style="padding:40px 20px;color:var(--muted)"><i class="ti ti-user-off" style="font-size:36px;opacity:0.35"></i><p style="margin-top:10px;font-size:14px">No hay referidos registrados aún</p><p style="font-size:12px;margin-top:4px">Los correos del formulario se revisan automáticamente cada 5 minutos</p></div>`
+      ? `<div style="padding:40px 20px;color:var(--muted)"><i class="ti ti-user-off" style="font-size:36px;opacity:0.35"></i><p style="margin-top:10px;font-size:14px">No hay referidos registrados aún</p><p style="font-size:12px;margin-top:4px">Los correos del formulario se revisan automáticamente cada 20 segundos</p></div>`
       : '<div style="padding:30px;color:var(--muted);font-size:13px">Sin resultados para la búsqueda</div>';
     return;
   }
@@ -3750,6 +3787,7 @@ async function resincronizarPedidosWeb(btn){
 }
 
 async function renderPedidosWeb(fechaSel){
+  if(typeof marcarBadgeVisto==='function') marcarBadgeVisto('pedidos');
   const cont = document.getElementById('doc-tab-content');
   if(!cont) return;
   if(!fechaSel) fechaSel = window._pedidosFecha || new Date().toLocaleDateString('en-CA', {timeZone:'America/Guayaquil'});
@@ -6148,6 +6186,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
   window.usuarioActual = usuarioActual;
   cargarData();
+  setTimeout(actualizarBadgesSidebar, 3000);
   // Botón refresh solo en móvil
   const btnRef = document.getElementById('btn-refresh-mobile');
   if(btnRef){

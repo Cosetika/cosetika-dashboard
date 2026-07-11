@@ -848,9 +848,9 @@ async function sincronizarReferidos(opciones){
   }
 }
 
-// Sync de referidos cada 5 minutos
-setTimeout(() => sincronizarReferidos().catch(e => console.error('Error sync referidos inicial:', e.message)), 25000);
-setInterval(() => sincronizarReferidos().catch(e => console.error('Error sync referidos:', e.message)), 5 * 60 * 1000);
+// Sync de referidos cada 20 segundos (igual que pedidos)
+setTimeout(() => sincronizarReferidos().catch(e => console.error('Error sync referidos inicial:', e.message)), 20000);
+setInterval(() => sincronizarReferidos().catch(e => console.error('Error sync referidos:', e.message)), 20 * 1000);
 
 sincronizarHoy().catch(e => console.error('Error sync inicial:', e.message));
 setInterval(() => sincronizarHoy().catch(e => console.error('Error sync:', e.message)), 60 * 60 * 1000);
@@ -3904,6 +3904,25 @@ const server = http.createServer(async (req, res) => {
         'Cache-Control':'no-cache'
       });
       res.end(buf);
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+
+  // GET /api/sidebar-badges → conteo de pedidos/referidos nuevos desde una fecha dada
+  if (urlPath === '/api/sidebar-badges' && req.method === 'GET') {
+    try {
+      const pd = urlObj.searchParams.get('pedidos_desde');
+      const rd = urlObj.searchParams.get('referidos_desde');
+      let pedidos = 0, referidos = 0;
+      if (pd) {
+        const r1 = await pool.query('SELECT COUNT(*) AS n FROM pedidos_web WHERE created_at > $1', [pd]);
+        pedidos = parseInt(r1.rows[0].n) || 0;
+      }
+      if (rd) {
+        const r2 = await pool.query('SELECT COUNT(*) AS n FROM referidos WHERE created_at > $1', [rd]);
+        referidos = parseInt(r2.rows[0].n) || 0;
+      }
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({pedidos, referidos}));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
     return;
   }
