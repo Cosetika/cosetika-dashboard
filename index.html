@@ -3165,6 +3165,15 @@ function enviosFechaActual(){
   return `${ec.getFullYear()}-${String(ec.getMonth()+1).padStart(2,'0')}-${String(ec.getDate()).padStart(2,'0')}`;
 }
 
+// ─── DÍAS HÁBILES (no se trabaja fines de semana) ────────────────────────────
+function esFinDeSemanaISO(iso){ const d = new Date(iso+'T12:00:00'); const w = d.getDay(); return w===0 || w===6; }
+function sumarDiasISO(iso, n){ const d = new Date(iso+'T12:00:00'); d.setDate(d.getDate()+n); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+function siguienteDiaHabilISO(iso){ let f = sumarDiasISO(iso, 1); while(esFinDeSemanaISO(f)) f = sumarDiasISO(f, 1); return f; }
+function anteriorDiaHabilISO(iso){ let f = sumarDiasISO(iso, -1); while(esFinDeSemanaISO(f)) f = sumarDiasISO(f, -1); return f; }
+function esLunesISO(iso){ return new Date(iso+'T12:00:00').getDay() === 1; }
+// Un lunes agrupa (solo en presentación) lo ingresado sábado y domingo
+function fechasDiaConFinde(iso){ return esLunesISO(iso) ? [iso, sumarDiasISO(iso,-1), sumarDiasISO(iso,-2)] : [iso]; }
+
 function enviosFmtFecha(isoDate){
   if(!isoDate) return '—';
   const [y,m,d] = isoDate.split('-');
@@ -3509,14 +3518,13 @@ async function renderEnvios(){
 let CONTROL_FECHA_SEL = null; // YYYY-MM-DD
 
 function controlFechasNavegables(){
-  // Hoy, 7 días atrás y MAÑANA (para ver pedidos movidos al siguiente día)
+  // Solo días hábiles: 7 hacia atrás, el día actual y el siguiente hábil
+  // (si hoy es sáb/dom, el "día actual" es el lunes siguiente)
   const hoy = enviosFechaActual();
-  const fechas = [];
-  for(let i = 7; i >= -1; i--){
-    const d = new Date(hoy + 'T12:00:00');
-    d.setDate(d.getDate() - i);
-    fechas.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`);
-  }
+  const hoyHabil = esFinDeSemanaISO(hoy) ? siguienteDiaHabilISO(hoy) : hoy;
+  const fechas = [hoyHabil];
+  while(fechas.length < 8) fechas.unshift(anteriorDiaHabilISO(fechas[0]));
+  fechas.push(siguienteDiaHabilISO(hoyHabil));
   return fechas;
 }
 
@@ -3621,15 +3629,19 @@ async function renderControlContenido(){
   // y envíos del día — todo en paralelo
   let pedidos = [], facturas = [], envios = [];
   try{
-    const [rPed, rFac, rEnv] = await Promise.all([
-      fetch('/api/pedidos-web?fecha_control=' + CONTROL_FECHA_SEL),
-      fetch('/api/ventas-fecha?fecha=' + CONTROL_FECHA_SEL),
-      fetch('/api/envios?fecha=' + CONTROL_FECHA_SEL)
+    // El lunes agrupa también lo del fin de semana (solo presentación)
+    const fechasCtrl = fechasDiaConFinde(CONTROL_FECHA_SEL);
+    const [rPeds, rFacs, rEnvs] = await Promise.all([
+      Promise.all(fechasCtrl.map(f=>fetch('/api/pedidos-web?fecha_control='+f))),
+      Promise.all(fechasCtrl.map(f=>fetch('/api/ventas-fecha?fecha='+f))),
+      Promise.all(fechasCtrl.map(f=>fetch('/api/envios?fecha='+f)))
     ]);
-    pedidos = await rPed.json();
-    const facData = await rFac.json();
-    facturas = facData.documentos || [];
-    envios = await rEnv.json();
+    const peds = await Promise.all(rPeds.map(r=>r.json()));
+    pedidos = [].concat(...peds.map(l=>Array.isArray(l)?l:[]));
+    const facDatas = await Promise.all(rFacs.map(r=>r.json()));
+    facturas = [].concat(...facDatas.map(d=>d.documentos||[]));
+    const envDatas = await Promise.all(rEnvs.map(r=>r.json()));
+    envios = [].concat(...envDatas.map(l=>Array.isArray(l)?l:[]));
   } catch(e){ console.error('Error cargando datos de Control:', e); }
 
   // Normalizar para comparar por nombre y por cédula/RUC
@@ -3790,22 +3802,29 @@ async function renderPedidosWeb(fechaSel){
   if(typeof marcarBadgeVisto==='function') marcarBadgeVisto('pedidos');
   const cont = document.getElementById('doc-tab-content');
   if(!cont) return;
-  if(!fechaSel) fechaSel = window._pedidosFecha || new Date().toLocaleDateString('en-CA', {timeZone:'America/Guayaquil'});
+  const hoyEc = new Date().toLocaleDateString('en-CA', {timeZone:'America/Guayaquil'});
+  const hoyHabil = esFinDeSemanaISO(hoyEc) ? siguienteDiaHabilISO(hoyEc) : hoyEc;
+  if(!fechaSel) fechaSel = window._pedidosFecha || hoyHabil;
+  // Sin vistas de fin de semana: si cae en sáb/dom, saltar al lunes siguiente
+  if(esFinDeSemanaISO(fechaSel)) fechaSel = siguienteDiaHabilISO(fechaSel);
   window._pedidosFecha = fechaSel;
   cont.innerHTML = '<div style="padding:30px;text-align:center;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:22px"></i></div>';
   let pedidos = [];
-  try{ const r = await fetch('/api/pedidos-web?fecha='+fechaSel); pedidos = await r.json(); }catch(e){}
+  try{
+    // El lunes incluye también los pedidos de sábado y domingo (solo presentación)
+    const rs = await Promise.all(fechasDiaConFinde(fechaSel).map(f=>fetch('/api/pedidos-web?fecha='+f)));
+    const listas = await Promise.all(rs.map(r=>r.json()));
+    pedidos = [].concat(...listas.map(l=>Array.isArray(l)?l:[]));
+  }catch(e){}
   const fechaObj = new Date(fechaSel+'T12:00:00');
-  const ayer = new Date(fechaObj); ayer.setDate(fechaObj.getDate()-1);
-  const manana = new Date(fechaObj); manana.setDate(fechaObj.getDate()+1);
-  const hoy = new Date().toLocaleDateString('en-CA', {timeZone:'America/Guayaquil'});
-  const fmtNav = d => d.toISOString().split('T')[0];
+  const ayerStr = anteriorDiaHabilISO(fechaSel);
+  const mananaNavStr = siguienteDiaHabilISO(fechaSel);
+  const hoy = hoyEc;
   const meses = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
   const esHoy = fechaSel === hoy;
-  const hoyObj = new Date(hoy+'T12:00:00');
-  const mananaHoy = new Date(hoyObj); mananaHoy.setDate(hoyObj.getDate()+1);
-  const mananaStr = fmtNav ? null : null; // placeholder
-  const esManana = fechaSel === (function(){const d=new Date(hoy+'T12:00:00');d.setDate(d.getDate()+1);return d.toISOString().split('T')[0];})();
+  const esManana = fechaSel === sumarDiasISO(hoy, 1);
+  // Límite hacia adelante: el siguiente día hábil después de hoy
+  const sinSiguiente = fechaSel >= siguienteDiaHabilISO(hoyHabil);
   const labelFecha = esHoy
     ? ('Hoy · '+fechaObj.getDate()+' '+meses[fechaObj.getMonth()]+' '+fechaObj.getFullYear())
     : esManana
@@ -3814,10 +3833,10 @@ async function renderPedidosWeb(fechaSel){
   const totalDia = pedidos.reduce((s,p)=>s+parseFloat(p.total||0),0);
 
   let html = '<div style="display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:20px">'
-    + '<button onclick="renderPedidosWeb(\'' + fmtNav(ayer) + '\')" style="width:34px;height:34px;border-radius:50%;border:1px solid var(--border);background:white;cursor:pointer;display:flex;align-items:center;justify-content:center"><i class="ti ti-chevron-left" style="font-size:16px;color:var(--muted)"></i></button>'
+    + '<button onclick="renderPedidosWeb(\'' + ayerStr + '\')" style="width:34px;height:34px;border-radius:50%;border:1px solid var(--border);background:white;cursor:pointer;display:flex;align-items:center;justify-content:center"><i class="ti ti-chevron-left" style="font-size:16px;color:var(--muted)"></i></button>'
     + '<div style="text-align:center"><div style="font-size:16px;font-weight:600">'+labelFecha+'</div>'
-    + '<div style="font-size:12px;color:var(--muted)">'+pedidos.length+' pedido'+(pedidos.length!==1?'s':'')+' · $'+totalDia.toFixed(2)+'</div></div>'
-    + '<button onclick="renderPedidosWeb(\'' + fmtNav(manana) + '\')" '+(esManana?'disabled style="opacity:0.3;cursor:default;"':'')+' style="width:34px;height:34px;border-radius:50%;border:1px solid var(--border);background:white;display:flex;align-items:center;justify-content:center"><i class="ti ti-chevron-right" style="font-size:16px;color:var(--muted)"></i></button>'
+    + '<div style="font-size:12px;color:var(--muted)">'+pedidos.length+' pedido'+(pedidos.length!==1?'s':'')+' · $'+totalDia.toFixed(2)+(esLunesISO(fechaSel)?' · incluye sáb y dom':'')+'</div></div>'
+    + '<button onclick="renderPedidosWeb(\'' + mananaNavStr + '\')" '+(sinSiguiente?'disabled style="opacity:0.3;cursor:default;"':'')+' style="width:34px;height:34px;border-radius:50%;border:1px solid var(--border);background:white;display:flex;align-items:center;justify-content:center"><i class="ti ti-chevron-right" style="font-size:16px;color:var(--muted)"></i></button>'
     + '</div>';
 
   if(pedidos.length === 0){
@@ -3903,15 +3922,12 @@ function setDocTab(tab){
 let FACTURAS_FECHA_SEL = null; // fecha seleccionada en Documentos > Facturas (YYYY-MM-DD)
 
 function facturasFechasNavegables(){
-  // Hoy en Ecuador, hasta 7 días atrás
-  const hoy = enviosFechaActual(); // ya calcula "hoy" en hora Ecuador
-  const fechas = [];
-  for(let i = 7; i >= 0; i--){
-    const d = new Date(hoy + 'T12:00:00');
-    d.setDate(d.getDate() - i);
-    fechas.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`);
-  }
-  return fechas; // [hace 7 días, ..., ayer, hoy]
+  // Solo días hábiles: 7 hacia atrás + el día actual (si hoy es finde, el lunes siguiente)
+  const hoy = enviosFechaActual();
+  const hoyHabil = esFinDeSemanaISO(hoy) ? siguienteDiaHabilISO(hoy) : hoy;
+  const fechas = [hoyHabil];
+  while(fechas.length < 8) fechas.unshift(anteriorDiaHabilISO(fechas[0]));
+  return fechas; // [hace 7 días hábiles, ..., día actual]
 }
 
 function facturasFmtFecha(isoDate){
@@ -3976,11 +3992,20 @@ async function renderDocFacturas(){
       const data = await r.json();
       docs = data.documentos || [];
       lastSync = data.ultima_sync ? new Date(data.ultima_sync).toLocaleTimeString('es-EC',{hour:'2-digit',minute:'2-digit'}) : '—';
+      // Si el día actual es lunes, sumar las facturas del fin de semana
+      if(esLunesISO(FACTURAS_FECHA_SEL)){
+        const prev = await Promise.all([sumarDiasISO(FACTURAS_FECHA_SEL,-1), sumarDiasISO(FACTURAS_FECHA_SEL,-2)]
+          .map(f=>fetch('/api/ventas-fecha?fecha='+f).then(r2=>r2.json()).catch(()=>({}))));
+        docs = docs.concat(...prev.map(d=>d.documentos||[]));
+      }
     } else {
-      const r = await fetch('/api/ventas-fecha?fecha=' + FACTURAS_FECHA_SEL);
-      const data = await r.json();
-      docs = data.documentos || [];
+      const datas = await Promise.all(fechasDiaConFinde(FACTURAS_FECHA_SEL)
+        .map(f=>fetch('/api/ventas-fecha?fecha='+f).then(r2=>r2.json()).catch(()=>({}))));
+      docs = [].concat(...datas.map(d=>d.documentos||[]));
     }
+    // Dedup por número de documento (evita duplicados al mezclar caché + histórico)
+    const _vistosDoc = new Set();
+    docs = docs.filter(d=>{ const k = d.documento || JSON.stringify(d); if(_vistosDoc.has(k)) return false; _vistosDoc.add(k); return true; });
 
     const totalConIva = docs.reduce((a,d)=>a+parseFloat(d.total||0),0);
     const totalSinIva = docs.reduce((a,d)=>a+parseFloat(d.subtotal||d.total/1.15||0),0);
