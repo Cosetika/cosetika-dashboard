@@ -230,6 +230,10 @@
       <div class="nav-sub-item" id="navsub-kpis-provincias" onclick="navGoKpis('provincias')"><i class="ti ti-map-search" style="font-size:13px"></i>KPIs Provincias</div>
     </div>
     <div class="nav-item" id="nav-inventario" onclick="navSetMod('inventario')"><i class="ti ti-package"></i>Inventario</div>
+    <div class="nav-item" id="nav-documentos" onclick="navSetMod('documentos')"><i class="ti ti-files"></i>Documentos</div>
+    <div class="nav-item" id="nav-nsos" onclick="navSetMod('nsos')"><i class="ti ti-certificate"></i>NSOs</div>
+    <div class="nav-item" id="nav-referidos" onclick="navSetMod('referidos')"><i class="ti ti-user-heart"></i>Referidos</div>
+    <div class="nav-divider"></div>
     <div class="nav-item" id="nav-reportes" style="display:none" onclick="navToggleGroup('nav-reportes-subs','nav-reportes-chevron','reportes')">
       <i class="ti ti-file-analytics"></i>Reportes
       <i class="ti ti-chevron-right" id="nav-reportes-chevron" style="margin-left:auto;font-size:12px;transition:transform 0.2s"></i>
@@ -238,10 +242,6 @@
       <div class="nav-sub-item" id="navsub-rep-comisiones" onclick="navGoReportes('comisiones')"><i class="ti ti-coin" style="font-size:13px"></i>Comisiones</div>
       <div class="nav-sub-item" id="navsub-rep-inversiones" onclick="navGoReportes('inversiones')"><i class="ti ti-receipt" style="font-size:13px"></i>Inversiones / Viáticos</div>
     </div>
-    <div class="nav-item" id="nav-documentos" onclick="navSetMod('documentos')"><i class="ti ti-files"></i>Documentos</div>
-    <div class="nav-item" id="nav-nsos" onclick="navSetMod('nsos')"><i class="ti ti-certificate"></i>NSOs</div>
-    <div class="nav-item" id="nav-referidos" onclick="navSetMod('referidos')"><i class="ti ti-user-heart"></i>Referidos</div>
-    <div class="nav-divider"></div>
     <div class="nav-item" id="nav-config" style="display:none" onclick="navToggleGroup('nav-config-subs','nav-config-chevron','config')">
       <i class="ti ti-settings"></i>Configuración
       <i class="ti ti-chevron-right" id="nav-config-chevron" style="margin-left:auto;font-size:12px;transition:transform 0.2s"></i>
@@ -992,13 +992,6 @@ const SEMAFORO_COLORS = {
 };
 
 async function renderInventario(){
-  const usuarioPermiso = window.usuarioActual || {};
-  const modulosPermiso = usuarioPermiso.modulos ? usuarioPermiso.modulos.split(',') : [];
-  const tieneAcceso = usuarioPermiso.rol === 'admin' || modulosPermiso.includes('inventario');
-  if(!tieneAcceso){
-    document.getElementById('main').innerHTML = `<div class="coming"><i class="ti ti-lock"></i><p>Acceso restringido</p></div>`;
-    return;
-  }
   const marca = window._invMarcaSel || 'ZIAJA';
   const marcas = ['BIOSKIN','ERAYBA','ZIAJA','ZIAJA PRO'];
 
@@ -6149,19 +6142,9 @@ document.addEventListener('DOMContentLoaded', function() {
     if(btnBackup){ btnBackup.style.display = 'flex'; actualizarEstadoBotonBackup(); }
   }
 
-  // Módulos según permisos (admin ve todo — su acceso es total e implícito)
-  const modulos = usuarioActual.modulos ? usuarioActual.modulos.split(',') : [];
-  document.querySelectorAll('.nav-item').forEach(m => {
-    if(usuarioActual.rol === 'admin') return;
-    const id = m.id.replace('nav-', '');
-    if(['config','reportes','ventas-mod','marcas-mod','clientes','planificacion','visitas'].includes(id)) return;
-    if(id && !modulos.includes(id) && id !== 'ventas') m.style.display = 'none';
-  });
-  document.querySelectorAll('.mod').forEach(m => {
-    const id = m.id.replace('mod-', '');
-    if(id === 'config' || id === 'reportes') return;
-    if(id && !modulos.includes(id)) m.style.display = 'none';
-  });
+  // Todos los paneles son visibles para todos los usuarios.
+  // Reportes y Configuración vienen con display:none en el HTML y solo se
+  // muestran a admin (bloque de arriba).
 
   window.usuarioActual = usuarioActual;
   cargarData();
