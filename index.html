@@ -736,6 +736,7 @@ async function renderNsos(){
       <div style="font-size:16px;font-weight:600"><i class="ti ti-certificate" style="margin-right:8px;color:var(--brown)"></i>NSOs</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button onclick="toggleFormNso()" style="padding:9px 14px;background:white;color:var(--text);border:1px solid var(--border);border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-plus" style="margin-right:5px"></i>Agregar NSO</button>
+        ${(window.usuarioActual||{}).rol==='admin'?`<button id="nso-config-btn" onclick="toggleConfigNso()" style="padding:9px 14px;background:${window._nsoModoConfig?'#fef2f2':'white'};color:${window._nsoModoConfig?'#dc2626':'var(--text)'};border:1px solid ${window._nsoModoConfig?'#fca5a5':'var(--border)'};border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-settings" style="margin-right:5px"></i>${window._nsoModoConfig?'Salir de configurar':'Configurar'}</button>`:''}
         <button onclick="window.open('/api/nsos/descargar','_blank')" style="padding:9px 14px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-download" style="margin-right:5px"></i>Descargar Excel</button>
       </div>
     </div>
@@ -815,7 +816,7 @@ function pintarListaNsos(filtro){
             <span style="flex:1;font-size:12px;min-width:0">${String(n.nombre||'').replace(/</g,'&lt;')}</span>
             <span style="font-size:11px;color:var(--brown);font-weight:600;white-space:nowrap;font-family:monospace">${String(n.nso||'').replace(/</g,'&lt;')}</span>
             ${n.nso?`<button onclick="copiarNso('${nsoSeguro}',this)" title="Copiar NSO" style="width:26px;height:26px;border:1px solid var(--border);background:white;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-copy" style="font-size:12px;color:var(--muted)"></i></button>`:''}
-            ${(window.usuarioActual||{}).rol==='admin'?`<button onclick="borrarNso(${n.id})" title="Eliminar" style="width:26px;height:26px;border:1px solid #fca5a5;background:#fef2f2;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-trash" style="font-size:11px;color:#ef4444"></i></button>`:''}
+            ${(window.usuarioActual||{}).rol==='admin' && window._nsoModoConfig?`<button onclick="borrarNso(${n.id})" title="Eliminar" style="width:26px;height:26px;border:1px solid #fca5a5;background:#fef2f2;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-trash" style="font-size:11px;color:#ef4444"></i></button>`:''}
           </div>`;}).join('')}
       </div>`;
     }).join('');
@@ -867,6 +868,12 @@ async function guardarNuevaNso(){
   }catch(e){ alert('Error: '+e.message); }
 }
 
+function toggleConfigNso(){
+  if((window.usuarioActual||{}).rol !== 'admin') return;
+  window._nsoModoConfig = !window._nsoModoConfig;
+  renderNsos();
+}
+
 async function copiarNso(nso, btn){
   try{
     await navigator.clipboard.writeText(nso);
@@ -888,6 +895,7 @@ async function copiarNso(nso, btn){
 }
 
 async function borrarNso(id){
+  if((window.usuarioActual||{}).rol !== 'admin') return;
   const item = (window._nsosData||[]).find(x=>x.id===id);
   if(!confirm('¿Eliminar la NSO de "'+(item?item.nombre:'este producto')+'"?')) return;
   try{
