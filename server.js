@@ -3835,6 +3835,30 @@ const server = http.createServer(async (req, res) => {
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
   }
+  // POST /api/nsos → agregar una NSO manualmente
+  if (urlPath === '/api/nsos' && req.method === 'POST') {
+    try {
+      const { marca, nombre, nso } = await bodyJSON(req);
+      if (!nombre || !String(nombre).trim()) {
+        res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'El nombre del producto es obligatorio'})); return;
+      }
+      const r = await pool.query(
+        'INSERT INTO nsos(marca,nombre,nso) VALUES($1,$2,$3) RETURNING id',
+        [String(marca||'').trim().substring(0,90), String(nombre).trim().substring(0,490), String(nso||'').trim().substring(0,90)]
+      );
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, id:r.rows[0].id}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+  // DELETE /api/nsos/:id → eliminar una NSO
+  if (/^\/api\/nsos\/\d+$/.test(urlPath) && req.method === 'DELETE') {
+    try {
+      const id = parseInt(urlPath.split('/').pop());
+      await pool.query('DELETE FROM nsos WHERE id=$1', [id]);
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
   // POST /api/nsos/subir → reemplaza todo con un Excel (multipart campo 'file')
   if (urlPath === '/api/nsos/subir' && req.method === 'POST') {
     try {

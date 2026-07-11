@@ -735,12 +735,25 @@ async function renderNsos(){
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
       <div style="font-size:16px;font-weight:600"><i class="ti ti-certificate" style="margin-right:8px;color:var(--brown)"></i>NSOs</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <input type="file" id="nsos-file-input" accept=".xlsx,.xls" style="display:none" onchange="subirExcelNsos(event)">
-        <button onclick="document.getElementById('nsos-file-input').click()" style="padding:9px 14px;background:white;color:var(--text);border:1px solid var(--border);border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-upload" style="margin-right:5px"></i>Subir Excel</button>
+        <button onclick="toggleFormNso()" style="padding:9px 14px;background:white;color:var(--text);border:1px solid var(--border);border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-plus" style="margin-right:5px"></i>Agregar NSO</button>
         <button onclick="window.open('/api/nsos/descargar','_blank')" style="padding:9px 14px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-download" style="margin-right:5px"></i>Descargar Excel</button>
       </div>
     </div>
     <div id="nsos-status" style="font-size:12px;color:var(--muted);margin-bottom:10px"></div>
+    <div id="nso-form" class="card" style="display:none;margin-bottom:14px;border:2px dashed var(--border)">
+      <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px"><i class="ti ti-plus" style="margin-right:5px"></i>Nueva NSO</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <select id="nso-form-marca" style="padding:9px 10px;font-size:13px;border:1px solid var(--border);border-radius:8px;outline:none">
+          <option value="BIOSKIN">BIOSKIN</option>
+          <option value="ZIAJA">ZIAJA</option>
+          <option value="ZIAJA PRO">ZIAJA PRO</option>
+          <option value="ERAYBA">ERAYBA</option>
+        </select>
+        <input type="text" id="nso-form-nombre" placeholder="Nombre del producto" style="flex:2;min-width:180px;padding:9px 12px;font-size:13px;border:1px solid var(--border);border-radius:8px;outline:none;box-sizing:border-box">
+        <input type="text" id="nso-form-nso" placeholder="Código NSO (ej: NSOC02103-25EC)" style="flex:1;min-width:160px;padding:9px 12px;font-size:13px;border:1px solid var(--border);border-radius:8px;outline:none;box-sizing:border-box">
+        <button onclick="guardarNuevaNso()" style="padding:9px 16px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-check" style="margin-right:4px"></i>Guardar</button>
+      </div>
+    </div>
     <div style="position:relative;margin-bottom:14px">
       <i class="ti ti-search" style="position:absolute;left:11px;top:50%;transform:translateY(-50%);font-size:14px;color:var(--muted)"></i>
       <input type="text" id="nsos-buscar" placeholder="Buscar por nombre, NSO o marca..."
@@ -795,11 +808,15 @@ function pintarListaNsos(filtro){
           <span style="font-size:10px;padding:3px 10px;border-radius:10px;background:${mc}18;color:${mc};font-weight:700;border:1px solid ${mc}40">${marca}</span>
           <span style="font-size:11px;color:var(--muted)">${items.length} producto${items.length!==1?'s':''}</span>
         </div>
-        ${items.map(n=>`
+        ${items.map(n=>{
+          const nsoSeguro = String(n.nso||'').replace(/[^A-Za-z0-9\-]/g,'');
+          return `
           <div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:0.5px solid var(--border)">
             <span style="flex:1;font-size:12px;min-width:0">${String(n.nombre||'').replace(/</g,'&lt;')}</span>
             <span style="font-size:11px;color:var(--brown);font-weight:600;white-space:nowrap;font-family:monospace">${String(n.nso||'').replace(/</g,'&lt;')}</span>
-          </div>`).join('')}
+            ${n.nso?`<button onclick="copiarNso('${nsoSeguro}',this)" title="Copiar NSO" style="width:26px;height:26px;border:1px solid var(--border);background:white;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-copy" style="font-size:12px;color:var(--muted)"></i></button>`:''}
+            ${(window.usuarioActual||{}).rol==='admin'?`<button onclick="borrarNso(${n.id})" title="Eliminar" style="width:26px;height:26px;border:1px solid #fca5a5;background:#fef2f2;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-trash" style="font-size:11px;color:#ef4444"></i></button>`:''}
+          </div>`;}).join('')}
       </div>`;
     }).join('');
 }
@@ -820,24 +837,66 @@ async function cargarNsosIniciales(btn){
   }catch(e){ alert('Error: '+e.message); btn.disabled=false; btn.textContent='Reintentar'; }
 }
 
-async function subirExcelNsos(ev){
-  const f = (ev.target.files||[])[0];
-  ev.target.value = '';
+function toggleFormNso(){
+  const f = document.getElementById('nso-form');
   if(!f) return;
-  if(!confirm('Esto reemplazará TODAS las NSOs actuales con el contenido de "'+f.name+'". ¿Continuar?')) return;
-  const status = document.getElementById('nsos-status');
-  if(status) status.innerHTML = '<i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i> Subiendo '+f.name+'...';
+  f.style.display = f.style.display === 'none' ? 'block' : 'none';
+  if(f.style.display === 'block') document.getElementById('nso-form-nombre')?.focus();
+}
+
+async function guardarNuevaNso(){
+  const marca = document.getElementById('nso-form-marca')?.value || '';
+  const nombre = (document.getElementById('nso-form-nombre')?.value || '').trim();
+  const nso = (document.getElementById('nso-form-nso')?.value || '').trim();
+  if(!nombre){ alert('Ingresa el nombre del producto'); return; }
+  if(!nso){ alert('Ingresa el código NSO'); return; }
   try{
-    const fd = new FormData();
-    fd.append('file', f, f.name);
-    const r = await fetch('/api/nsos/subir', { method:'POST', body: fd });
+    const r = await fetch('/api/nsos', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ marca, nombre, nso })
+    });
     const j = await r.json();
-    if(!j.ok) throw new Error(j.error||'error al subir');
-    if(status) status.innerHTML = '<span style="color:#16a34a">✓ '+j.insertados+' NSOs actualizadas desde el Excel</span>';
+    if(!j.ok) throw new Error(j.error||'error');
+    document.getElementById('nso-form-nombre').value = '';
+    document.getElementById('nso-form-nso').value = '';
+    const status = document.getElementById('nsos-status');
+    if(status) status.innerHTML = '<span style="color:#16a34a">✓ NSO agregada: '+nombre.replace(/</g,'&lt;')+'</span>';
     const rr = await fetch('/api/nsos');
     window._nsosData = await rr.json();
     pintarListaNsos(document.getElementById('nsos-buscar')?.value||'');
-  }catch(e){ if(status) status.innerHTML = '<span style="color:#dc2626">Error: '+e.message+'</span>'; }
+  }catch(e){ alert('Error: '+e.message); }
+}
+
+async function copiarNso(nso, btn){
+  try{
+    await navigator.clipboard.writeText(nso);
+  }catch(e){
+    // Fallback para contextos sin clipboard API
+    const ta = document.createElement('textarea');
+    ta.value = nso; document.body.appendChild(ta); ta.select();
+    try{ document.execCommand('copy'); }catch(e2){}
+    ta.remove();
+  }
+  if(btn){
+    const icono = btn.querySelector('i');
+    if(icono){
+      icono.className = 'ti ti-check';
+      icono.style.color = '#16a34a';
+      setTimeout(()=>{ icono.className = 'ti ti-copy'; icono.style.color = 'var(--muted)'; }, 1200);
+    }
+  }
+}
+
+async function borrarNso(id){
+  const item = (window._nsosData||[]).find(x=>x.id===id);
+  if(!confirm('¿Eliminar la NSO de "'+(item?item.nombre:'este producto')+'"?')) return;
+  try{
+    const r = await fetch('/api/nsos/'+id, { method:'DELETE' });
+    const j = await r.json();
+    if(!j.ok) throw new Error(j.error||'error');
+    window._nsosData = (window._nsosData||[]).filter(x=>x.id!==id);
+    pintarListaNsos(document.getElementById('nsos-buscar')?.value||'');
+  }catch(e){ alert('Error: '+e.message); }
 }
 
 // ─── BADGES DEL SIDEBAR (pedidos y referidos nuevos) ─────────────────────────
