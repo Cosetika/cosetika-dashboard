@@ -261,6 +261,7 @@
       <div class="nav-sub-item" id="navsub-cfg-equipos" onclick="navGoConfig('equipos')"><i class="ti ti-users-group" style="font-size:13px"></i>Equipos</div>
       <div class="nav-sub-item" id="navsub-cfg-sync" onclick="navGoConfig('sync')"><i class="ti ti-refresh" style="font-size:13px"></i>Sincronización</div>
     </div>
+    <div class="nav-item" id="nav-bodegas" style="display:none" onclick="navSetMod('bodegas')"><i class="ti ti-building-warehouse"></i>Bodegas</div>
   </div>
   <!-- Footer usuario -->
   <div class="nav-footer">
@@ -581,7 +582,7 @@ function navSetMod(mod){
 
 const MOD_LABELS = {
   ventas:'Inicio', visitas:'Visitas', kpis:'KPIs',
-  inventario:'Inventario', reportes:'Reportes', config:'Configuración', documentos:'Documentos', nsos:'NSOs', referidos:'Referidos', institutos_cli:'Institutos',
+  inventario:'Inventario', reportes:'Reportes', config:'Configuración', documentos:'Documentos', nsos:'NSOs', referidos:'Referidos', institutos_cli:'Institutos', bodegas:'Bodegas',
   capacitaciones:'Capacitaciones', institutos:'Institutos',
   giras:'Visitas a Provincias', casas_abiertas:'Casas Abiertas',
   'visitas-plan':'Planificación Visitas'
@@ -639,6 +640,8 @@ function setMod(mod){
     renderReferidos();
   } else if(mod==='institutos_cli'){
     renderInstitutosCli();
+  } else if(mod==='bodegas'){
+    renderBodegas();
   } else {
     document.getElementById('main').innerHTML=`
       <div class="coming">
@@ -968,6 +971,133 @@ async function actualizarBadgesSidebar(){
   }catch(e){}
 }
 setInterval(actualizarBadgesSidebar, 30 * 1000);
+
+// ─── MÓDULO BODEGAS (stock POS y Casa — solo admin por ahora) ────────────────
+async function renderBodegas(){
+  const main = document.getElementById('main');
+  if((window.usuarioActual||{}).rol !== 'admin'){
+    main.innerHTML = `<div class="coming"><i class="ti ti-lock"></i><p>Acceso restringido</p></div>`;
+    return;
+  }
+  if(window._bodPoll){ clearInterval(window._bodPoll); window._bodPoll = null; }
+  main.innerHTML = '<div style="padding:30px;text-align:center;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:22px"></i></div>';
+  let data = { productos:[], ultima_sync:null, sync:{enCurso:false} };
+  try{ const r = await fetch('/api/bodegas-stock'); data = await r.json(); }catch(e){}
+  window._bodData = data;
+  if(window._bodMarcaSel === undefined) window._bodMarcaSel = 'TODAS';
+  const marcas = ['TODAS', ...[...new Set((data.productos||[]).map(p=>p.marca||'SIN MARCA'))].sort()];
+  const ult = data.ultima_sync ? new Date(data.ultima_sync).toLocaleString('es-EC',{timeZone:'America/Guayaquil',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : 'nunca';
+
+  main.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+      <div style="font-size:16px;font-weight:600"><i class="ti ti-building-warehouse" style="margin-right:8px;color:var(--brown)"></i>Bodegas <span style="font-size:10px;background:#fef3c7;color:#92400e;border:1px solid #fde68a;border-radius:10px;padding:2px 8px;font-weight:600;vertical-align:middle">En pruebas — solo admin</span></div>
+      <button id="bod-sync-btn" onclick="actualizarBodegasAhora()" ${data.sync&&data.sync.enCurso?'disabled':''} style="padding:9px 16px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-refresh" style="margin-right:5px"></i>Actualizar ahora</button>
+    </div>
+    <div id="bod-status" style="font-size:12px;color:var(--muted);margin-bottom:12px">
+      ${data.sync&&data.sync.enCurso
+        ? '<i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i> Sincronizando... '+(data.sync.procesados||0)+' de '+(data.sync.total||0)+' productos'
+        : 'Última actualización: '+ult+' · se sincroniza automáticamente una vez al día'}
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+      ${marcas.map(m=>`<button onclick="window._bodMarcaSel='${m.replace(/'/g,"\\'")}';pintarBodegas(document.getElementById('bod-buscar')?.value||'')" style="padding:5px 12px;font-size:11px;border-radius:20px;cursor:pointer;border:1px solid ${m===window._bodMarcaSel?'var(--brown)':'var(--border)'};background:${m===window._bodMarcaSel?'#f7f0ea':'white'};font-weight:${m===window._bodMarcaSel?'600':'400'}">${m}</button>`).join('')}
+    </div>
+    <div style="position:relative;margin-bottom:14px">
+      <i class="ti ti-search" style="position:absolute;left:11px;top:50%;transform:translateY(-50%);font-size:14px;color:var(--muted)"></i>
+      <input type="text" id="bod-buscar" placeholder="Buscar producto por nombre o código..."
+        oninput="pintarBodegas(this.value)"
+        style="width:100%;padding:9px 12px 9px 34px;font-size:13px;border:1px solid var(--border);border-radius:10px;outline:none;box-sizing:border-box"
+        onfocus="this.style.borderColor='var(--brown)'" onblur="this.style.borderColor='var(--border)'">
+    </div>
+    <div id="bod-lista"></div>`;
+  pintarBodegas('');
+  if(data.sync && data.sync.enCurso) iniciarPollBodegas();
+}
+
+function pintarBodegas(filtro){
+  const cont = document.getElementById('bod-lista');
+  if(!cont) return;
+  const data = window._bodData || { productos:[] };
+  const q = (filtro||'').toUpperCase().trim();
+  const marcaSel = window._bodMarcaSel || 'TODAS';
+  const productos = (data.productos||[]).filter(p =>
+    (marcaSel==='TODAS' || (p.marca||'SIN MARCA')===marcaSel) &&
+    (!q || String(p.nombre||'').toUpperCase().includes(q) || String(p.codigo||'').toUpperCase().includes(q))
+  );
+  if(productos.length === 0){
+    cont.innerHTML = `<div class="card" style="text-align:center;padding:40px 20px;color:var(--muted)">
+      <i class="ti ti-package-off" style="font-size:36px;opacity:0.35"></i>
+      <p style="margin-top:10px;font-size:14px">${(data.productos||[]).length===0?'Sin datos de stock todavía — pulsa "Actualizar ahora"':'Sin resultados'}</p>
+    </div>`;
+    return;
+  }
+  const esc = v => String(v||'').replace(/</g,'&lt;');
+  const celda = v => v===null||v===undefined
+    ? '<span style="color:#ccc">—</span>'
+    : `<span style="font-weight:700;color:${v<=0?'#dc2626':v<=3?'#d97706':'#16a34a'}">${Math.round(v*100)/100}</span>`;
+  cont.innerHTML = `
+  <div class="card" style="padding:0;overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:560px">
+      <thead>
+        <tr style="border-bottom:1px solid var(--border)">
+          <th style="text-align:left;padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Producto</th>
+          <th style="text-align:left;padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Marca</th>
+          <th style="text-align:center;padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;white-space:nowrap">Bodega POS</th>
+          <th style="text-align:center;padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;white-space:nowrap">Bodega Casa</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${productos.map(p=>`
+        <tr style="border-bottom:0.5px solid var(--border)">
+          <td style="padding:9px 14px">
+            <div style="font-weight:500">${esc(p.nombre)}</div>
+            ${p.codigo?'<div style="font-size:10px;color:var(--muted);font-family:monospace">'+esc(p.codigo)+'</div>':''}
+          </td>
+          <td style="padding:9px 14px;font-size:11px;color:var(--muted)">${esc(p.marca)||'—'}</td>
+          <td style="padding:9px 14px;text-align:center">${celda(p.pos)}</td>
+          <td style="padding:9px 14px;text-align:center">${celda(p.casa)}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>
+  <div style="font-size:11px;color:var(--muted);margin-top:8px">${productos.length} producto${productos.length!==1?'s':''} · <span style="color:#dc2626">rojo</span> = agotado · <span style="color:#d97706">ámbar</span> = 3 o menos</div>`;
+}
+
+function iniciarPollBodegas(){
+  if(window._bodPoll) clearInterval(window._bodPoll);
+  window._bodPoll = setInterval(async ()=>{
+    if(modActual !== 'bodegas'){ clearInterval(window._bodPoll); window._bodPoll=null; return; }
+    try{
+      const r = await fetch('/api/bodegas-stock');
+      const data = await r.json();
+      window._bodData = data;
+      const status = document.getElementById('bod-status');
+      const btn = document.getElementById('bod-sync-btn');
+      if(data.sync && data.sync.enCurso){
+        if(status) status.innerHTML = '<i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i> Sincronizando... '+(data.sync.procesados||0)+' de '+(data.sync.total||0)+' productos';
+      } else {
+        clearInterval(window._bodPoll); window._bodPoll=null;
+        if(btn) btn.disabled = false;
+        renderBodegas();
+      }
+    }catch(e){}
+  }, 4000);
+}
+
+async function actualizarBodegasAhora(){
+  const btn = document.getElementById('bod-sync-btn');
+  if(btn) btn.disabled = true;
+  try{
+    const r = await fetch('/api/bodegas/sync', { method:'POST' });
+    const j = await r.json();
+    if(!j.ok) throw new Error(j.error||'error');
+    const status = document.getElementById('bod-status');
+    if(status) status.innerHTML = '<i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i> Sincronización iniciada — consultando producto por producto (toma unos minutos)';
+    iniciarPollBodegas();
+  }catch(e){
+    alert('Error: '+e.message);
+    if(btn) btn.disabled = false;
+  }
+}
 
 // ─── MÓDULO INSTITUTOS (compras de alumnas marcadas en Contifico) ────────────
 async function renderInstitutosCli(){
@@ -6683,6 +6813,8 @@ document.addEventListener('DOMContentLoaded', function() {
     if(navRep) navRep.style.display = 'flex';
     const navCfg = document.getElementById('nav-config');
     if(navCfg) navCfg.style.display = 'flex';
+    const navBod = document.getElementById('nav-bodegas');
+    if(navBod) navBod.style.display = 'flex';
     const btnBackup = document.getElementById('btn-backup');
     if(btnBackup){ btnBackup.style.display = 'flex'; actualizarEstadoBotonBackup(); }
   }

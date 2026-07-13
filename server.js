@@ -952,6 +952,61 @@ async function sincronizarInstitutos(){
   console.log(`✓ Institutos sync: ${alumnas.length} alumnas (campo ${campo}) de ${personasApi.length} personas — ${actualizadas} actualizadas, ${insertadas} insertadas`);
   return { ok:true, alumnas: alumnas.length, actualizadas, insertadas, campo, personas_leidas: personasApi.length, conteo_por_campo: conteo, ejemplos_por_campo: ejemplos };
 }
+// ─── BODEGAS: stock por producto de Bodega POS y Bodega Casa ────────────────
+let BODEGAS_SYNC = { enCurso: false, procesados: 0, total: 0 };
+
+async function sincronizarBodegas(){
+  if (BODEGAS_SYNC.enCurso) return { ok:false, error:'Sincronización ya en curso' };
+  if (!API_KEY) return { ok:false, error:'CONTIFICO_API_KEY no configurada' };
+  const ids = Object.keys(catalogoProductos || {});
+  if (ids.length === 0) return { ok:false, error:'El catálogo de productos aún no está cargado — intenta en un minuto' };
+  BODEGAS_SYNC = { enCurso: true, procesados: 0, total: ids.length };
+  let guardados = 0, errores = 0;
+  try {
+    for (const pid of ids) {
+      BODEGAS_SYNC.procesados++;
+      try {
+        const resp = await fetch(`https://api.contifico.com/sistema/api/v1/producto/${pid}/stock/`, {
+          headers: { 'Authorization': API_KEY, 'Accept': 'application/json' }
+        });
+        if (!resp.ok) { errores++; continue; }
+        const bodegas = await resp.json();
+        if (!Array.isArray(bodegas)) { errores++; continue; }
+        // Solo interesan Bodega POS y Bodega Casa
+        const relevantes = bodegas.filter(b => /pos|casa/i.test(String(b.bodega_nombre||'')));
+        const info = catalogoProductos[pid] || {};
+        for (const b of relevantes) {
+          await pool.query(
+            `INSERT INTO stock_bodegas(producto_id, codigo, nombre, marca, bodega, cantidad, actualizado_at)
+             VALUES($1,$2,$3,$4,$5,$6,NOW())
+             ON CONFLICT (producto_id, bodega) DO UPDATE SET
+               codigo=$2, nombre=$3, marca=$4, cantidad=$6, actualizado_at=NOW()`,
+            [pid, info.codigo||'', info.nombre||'', info.marca||'', String(b.bodega_nombre||'').substring(0,190), parseFloat(b.cantidad||0)]
+          );
+          guardados++;
+        }
+      } catch(e) { errores++; }
+    }
+    await setConfigApp('bodegas_ultima_sync', new Date().toISOString());
+    console.log(`✓ Bodegas sync: ${ids.length} productos, ${guardados} registros, ${errores} errores`);
+    return { ok:true, productos: ids.length, guardados, errores };
+  } finally {
+    BODEGAS_SYNC.enCurso = false;
+  }
+}
+
+// Sync diario: al arrancar (si los datos tienen más de 20h) y chequeo cada 6 horas
+async function chequearSyncBodegas(){
+  try {
+    const ult = await getConfigApp('bodegas_ultima_sync', null);
+    if (!ult || (Date.now() - new Date(ult).getTime()) > 20*60*60*1000) {
+      sincronizarBodegas().catch(e => console.error('Error sync bodegas:', e.message));
+    }
+  } catch(e) {}
+}
+setTimeout(chequearSyncBodegas, 120000);
+setInterval(chequearSyncBodegas, 6 * 60 * 60 * 1000);
+
 setTimeout(() => sincronizarInstitutos().catch(e => console.error('Error sync institutos inicial:', e.message)), 40000);
 setInterval(() => sincronizarInstitutos().catch(e => console.error('Error sync institutos:', e.message)), 12 * 60 * 60 * 1000);
 
@@ -1903,6 +1958,17 @@ async function initDB() {
       ALTER TABLE personas ALTER COLUMN cedula TYPE VARCHAR(50);
       ALTER TABLE personas ADD COLUMN IF NOT EXISTS instituto VARCHAR(200);
       ALTER TABLE facturas_detalle ADD COLUMN IF NOT EXISTS cedula_ruc VARCHAR(50);
+      CREATE TABLE IF NOT EXISTS stock_bodegas (
+        id SERIAL PRIMARY KEY,
+        producto_id VARCHAR(30) NOT NULL,
+        codigo VARCHAR(100),
+        nombre VARCHAR(500),
+        marca VARCHAR(100),
+        bodega VARCHAR(200) NOT NULL,
+        cantidad NUMERIC(13,2) DEFAULT 0,
+        actualizado_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(producto_id, bodega)
+      );
       CREATE TABLE IF NOT EXISTS clientes_reasignados (
         id SERIAL PRIMARY KEY,
         cliente_ruc VARCHAR(50) NOT NULL,
@@ -4107,6 +4173,38 @@ const server = http.createServer(async (req, res) => {
       const { usuario_id, provincia } = await bodyJSON(req);
       await pool.query('DELETE FROM clientes_provincias WHERE usuario_id=$1 AND provincia=$2', [usuario_id, provincia]);
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
+  // ─── BODEGAS (stock POS y Casa) ─────────────────────────────────────────────
+  // GET /api/bodegas-stock → productos con cantidad por bodega + estado del sync
+  if (urlPath === '/api/bodegas-stock' && req.method === 'GET') {
+    try {
+      const r = await pool.query('SELECT producto_id, codigo, nombre, marca, bodega, cantidad FROM stock_bodegas ORDER BY marca, nombre');
+      const porProducto = {};
+      r.rows.forEach(row => {
+        if (!porProducto[row.producto_id]) porProducto[row.producto_id] = {
+          producto_id: row.producto_id, codigo: row.codigo, nombre: row.nombre, marca: row.marca, pos: null, casa: null
+        };
+        const p = porProducto[row.producto_id];
+        if (/pos/i.test(row.bodega)) p.pos = parseFloat(row.cantidad);
+        else if (/casa/i.test(row.bodega)) p.casa = parseFloat(row.cantidad);
+      });
+      const ultima = await getConfigApp('bodegas_ultima_sync', null);
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ productos: Object.values(porProducto), ultima_sync: ultima, sync: BODEGAS_SYNC }));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+  // POST /api/bodegas/sync → dispara la sincronización en segundo plano
+  if (urlPath === '/api/bodegas/sync' && req.method === 'POST') {
+    try {
+      if (BODEGAS_SYNC.enCurso) {
+        res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, iniciado:false, sync:BODEGAS_SYNC})); return;
+      }
+      sincronizarBodegas().catch(e => console.error('Error sync bodegas manual:', e.message));
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, iniciado:true}));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
   }
