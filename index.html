@@ -199,6 +199,7 @@
       <div class="nav-sub-item" id="navsub-cpf" onclick="navSetSubtab('cpf')"><i class="ti ti-user-dollar" style="font-size:13px"></i>Compras</div>
       <div class="nav-sub-item" id="navsub-prov" onclick="navSetSubtab('prov')"><i class="ti ti-map-pin" style="font-size:13px"></i>Provincia</div>
       <div class="nav-sub-item" id="navsub-referidos" onclick="navGoReferidos()"><i class="ti ti-user-heart" style="font-size:13px"></i>Referidos<span id="badge-referidos" style="display:none;margin-left:auto;background:#ef4444;color:white;border-radius:10px;font-size:9px;padding:1px 6px;font-weight:700;line-height:1.5">0</span></div>
+      <div class="nav-sub-item" id="navsub-institutos-cli" onclick="navGoInstitutosCli()"><i class="ti ti-school" style="font-size:13px"></i>Institutos</div>
     </div>
 
     <!-- PLANIFICACIÓN -->
@@ -580,7 +581,7 @@ function navSetMod(mod){
 
 const MOD_LABELS = {
   ventas:'Inicio', visitas:'Visitas', kpis:'KPIs',
-  inventario:'Inventario', reportes:'Reportes', config:'Configuración', documentos:'Documentos', nsos:'NSOs', referidos:'Referidos',
+  inventario:'Inventario', reportes:'Reportes', config:'Configuración', documentos:'Documentos', nsos:'NSOs', referidos:'Referidos', institutos_cli:'Institutos',
   capacitaciones:'Capacitaciones', institutos:'Institutos',
   giras:'Visitas a Provincias', casas_abiertas:'Casas Abiertas',
   'visitas-plan':'Planificación Visitas'
@@ -636,6 +637,8 @@ function setMod(mod){
     renderNsos();
   } else if(mod==='referidos'){
     renderReferidos();
+  } else if(mod==='institutos_cli'){
+    renderInstitutosCli();
   } else {
     document.getElementById('main').innerHTML=`
       <div class="coming">
@@ -965,6 +968,171 @@ async function actualizarBadgesSidebar(){
   }catch(e){}
 }
 setInterval(actualizarBadgesSidebar, 30 * 1000);
+
+// ─── MÓDULO INSTITUTOS (compras de alumnas marcadas en Contifico) ────────────
+async function renderInstitutosCli(){
+  const main = document.getElementById('main');
+  if(window._instCliAnio === undefined){
+    const h = new Date();
+    window._instCliAnio = h.getFullYear();
+    window._instCliMes = h.getMonth()+1;
+  }
+  main.innerHTML = '<div style="padding:30px;text-align:center;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:22px"></i></div>';
+  let data = { compras:[], totales:{}, alumnas:0, campo:'', ultima_sync:null };
+  try{
+    const r = await fetch(`/api/institutos-compras?anio=${window._instCliAnio}&mes=${window._instCliMes}`);
+    data = await r.json();
+    if(!Array.isArray(data.compras)) data.compras = [];
+  }catch(e){}
+  window._instCliData = data;
+  const esAdmin = (window.usuarioActual||{}).rol === 'admin';
+  const MESES_N = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  const totales = Object.entries(data.totales||{}).sort((a,b)=>b[1].total-a[1].total);
+  const maxInst = totales.length ? totales[0][1].total : 0;
+  const totalMes = totales.reduce((a,[,d])=>a+d.total,0);
+
+  main.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+      <div style="font-size:16px;font-weight:600"><i class="ti ti-school" style="margin-right:8px;color:var(--brown)"></i>Institutos</div>
+      ${esAdmin?`
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <span style="font-size:11px;color:var(--muted)">Campo Contifico:</span>
+        <select onchange="cambiarCampoInstituto(this.value)" style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:11px;outline:none;background:white;cursor:pointer">
+          ${['adicional1_cliente','adicional2_cliente','adicional3_cliente','adicional4_cliente'].map((c,i)=>`<option value="${c}" ${data.campo===c?'selected':''}>Adicional ${i+1}</option>`).join('')}
+        </select>
+        <button id="inst-sync-btn" onclick="sincronizarInstitutosManual()" style="padding:7px 14px;background:white;color:var(--text);border:1px solid var(--border);border-radius:8px;font-size:12px;cursor:pointer;font-weight:500"><i class="ti ti-refresh" style="margin-right:4px"></i>Sincronizar</button>
+      </div>`:''}
+    </div>
+    <div id="inst-status" style="font-size:12px;color:var(--muted);margin-bottom:10px">${data.alumnas} alumna${data.alumnas!==1?'s':''} con instituto${data.ultima_sync?' · última sync: '+new Date(data.ultima_sync).toLocaleTimeString('es-EC',{hour:'2-digit',minute:'2-digit'}):''}</div>
+
+    <div style="display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:16px">
+      <button onclick="instCliNavMes(-1)" style="width:34px;height:34px;border-radius:50%;border:1px solid var(--border);background:white;cursor:pointer;display:flex;align-items:center;justify-content:center"><i class="ti ti-chevron-left" style="font-size:16px;color:var(--muted)"></i></button>
+      <div style="text-align:center">
+        <div style="font-size:16px;font-weight:600">${MESES_N[window._instCliMes]} ${window._instCliAnio}</div>
+        <div style="font-size:12px;color:var(--muted)">${data.compras.length} compra${data.compras.length!==1?'s':''} · ${fmt(totalMes)} sin IVA</div>
+      </div>
+      <button onclick="instCliNavMes(1)" style="width:34px;height:34px;border-radius:50%;border:1px solid var(--border);background:white;cursor:pointer;display:flex;align-items:center;justify-content:center"><i class="ti ti-chevron-right" style="font-size:16px;color:var(--muted)"></i></button>
+    </div>
+
+    ${totales.length===0?'':`
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-title"><i class="ti ti-chart-bar"></i> Total del mes por instituto (sin IVA)</div>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:6px">
+        ${totales.map(([inst,d])=>`
+          <div style="display:flex;align-items:center;gap:10px">
+            <div style="width:130px;font-size:12px;font-weight:600;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${inst}</div>
+            <div style="flex:1;background:#f5f3f0;border-radius:6px;height:22px;overflow:hidden">
+              <div style="width:${maxInst?Math.max(Math.round(d.total/maxInst*100),3):0}%;height:100%;background:var(--brown);border-radius:6px;display:flex;align-items:center;justify-content:flex-end;padding-right:8px">
+                <span style="font-size:10px;color:white;font-weight:700;white-space:nowrap">${fmt(d.total)}</span>
+              </div>
+            </div>
+            <div style="width:70px;font-size:10px;color:var(--muted);text-align:right;flex-shrink:0">${d.compras} compra${d.compras!==1?'s':''}</div>
+          </div>`).join('')}
+      </div>
+    </div>`}
+
+    <div style="position:relative;margin-bottom:14px">
+      <i class="ti ti-search" style="position:absolute;left:11px;top:50%;transform:translateY(-50%);font-size:14px;color:var(--muted)"></i>
+      <input type="text" id="inst-buscar" placeholder="Buscar por cliente o instituto..."
+        oninput="pintarComprasInstitutos(this.value)"
+        style="width:100%;padding:9px 12px 9px 34px;font-size:13px;border:1px solid var(--border);border-radius:10px;outline:none;box-sizing:border-box"
+        onfocus="this.style.borderColor='var(--brown)'" onblur="this.style.borderColor='var(--border)'">
+    </div>
+    <div id="inst-lista"></div>`;
+  pintarComprasInstitutos('');
+}
+
+function pintarComprasInstitutos(filtro){
+  const cont = document.getElementById('inst-lista');
+  if(!cont) return;
+  const data = window._instCliData || { compras:[] };
+  const q = (filtro||'').toUpperCase().trim();
+  const compras = (data.compras||[]).filter(c =>
+    !q || String(c.cliente||'').toUpperCase().includes(q) || String(c.instituto||'').toUpperCase().includes(q)
+  );
+  if(compras.length === 0){
+    cont.innerHTML = `<div class="card" style="text-align:center;padding:40px 20px;color:var(--muted)">
+      <i class="ti ti-school-off" style="font-size:36px;opacity:0.35"></i>
+      <p style="margin-top:10px;font-size:14px">${(data.compras||[]).length===0?'Sin compras de alumnas este mes':'Sin resultados para la búsqueda'}</p>
+      ${data.alumnas===0?'<p style="font-size:12px;margin-top:4px">Marca el campo Instituto en la ficha de la clienta en Contifico y sincroniza</p>':''}
+    </div>`;
+    return;
+  }
+  const esc = v => String(v||'').replace(/</g,'&lt;');
+  const fmtF = f => { const p=String(f||'').substring(0,10).split('-'); const M=['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']; return parseInt(p[2])+' '+M[parseInt(p[1])]+' '+p[0].substring(2); };
+  const totalFiltrado = compras.reduce((a,c)=>a+c.subtotal,0);
+  cont.innerHTML = `
+  <div class="card" style="padding:0;overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:560px">
+      <thead>
+        <tr style="border-bottom:1px solid var(--border)">
+          <th style="text-align:left;padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;white-space:nowrap">Fecha</th>
+          <th style="text-align:left;padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Cliente</th>
+          <th style="text-align:left;padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Instituto</th>
+          <th style="text-align:right;padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;white-space:nowrap">Subtotal (sin IVA)</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${compras.map(c=>`
+        <tr style="border-bottom:0.5px solid var(--border)">
+          <td style="padding:10px 14px;font-size:11px;color:var(--brown);white-space:nowrap">${fmtF(c.fecha)}</td>
+          <td style="padding:10px 14px;font-weight:500">${esc(c.cliente)}</td>
+          <td style="padding:10px 14px"><span style="font-size:11px;padding:2px 10px;border-radius:10px;background:rgba(160,104,74,0.12);color:var(--brown);font-weight:600">${esc(c.instituto)}</span></td>
+          <td style="padding:10px 14px;text-align:right;color:var(--brown);font-weight:600;white-space:nowrap">${fmt(c.subtotal)}</td>
+        </tr>`).join('')}
+        <tr style="background:#faf9f8;font-weight:600;border-top:1px solid var(--border)">
+          <td style="padding:10px 14px" colspan="3">Total${q?' (filtrado)':''}</td>
+          <td style="padding:10px 14px;text-align:right;color:var(--brown)">${fmt(totalFiltrado)}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>`;
+}
+
+function instCliNavMes(delta){
+  let m = window._instCliMes + delta, a = window._instCliAnio;
+  while(m < 1){ m += 12; a--; }
+  while(m > 12){ m -= 12; a++; }
+  window._instCliMes = m; window._instCliAnio = a;
+  renderInstitutosCli();
+}
+
+async function sincronizarInstitutosManual(){
+  const btn = document.getElementById('inst-sync-btn');
+  const status = document.getElementById('inst-status');
+  if(btn) btn.disabled = true;
+  if(status) status.innerHTML = '<i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i> Leyendo personas de Contifico (puede tardar un momento)...';
+  try{
+    const r = await fetch('/api/institutos/sync', { method:'POST' });
+    const j = await r.json();
+    if(!j.ok) throw new Error(j.error||'error');
+    if(j.alumnas === 0){
+      // Avisar si el campo configurado está vacío pero otro tiene datos
+      const conOtros = Object.entries(j.conteo_por_campo||{}).filter(([c,n])=>n>0 && c!==j.campo);
+      if(conOtros.length){
+        alert('El campo configurado ('+j.campo+') no tiene valores, pero '+conOtros.map(([c,n])=>c+' tiene '+n).join(', ')+'. Cambia el campo en el selector.');
+      }
+    }
+    renderInstitutosCli();
+  }catch(e){
+    if(status) status.innerHTML = '<span style="color:#dc2626">Error: '+e.message+'</span>';
+    if(btn) btn.disabled = false;
+  }
+}
+
+async function cambiarCampoInstituto(campo){
+  const status = document.getElementById('inst-status');
+  if(status) status.innerHTML = '<i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i> Guardando y resincronizando...';
+  try{
+    const r = await fetch('/api/institutos/campo', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ campo })
+    });
+    const j = await r.json();
+    if(!j.ok) throw new Error(j.error||'error');
+    renderInstitutosCli();
+  }catch(e){ if(status) status.innerHTML = '<span style="color:#dc2626">Error: '+e.message+'</span>'; }
+}
 
 // ─── MÓDULO REFERIDOS ────────────────────────────────────────────────────────
 async function renderReferidos(){
@@ -2129,7 +2297,7 @@ async function renderConfig(){
   let usuarios=[];
   try{ const r=await fetch('/api/usuarios'); usuarios=await r.json(); }catch(e){}
   await cargarSkuPorMarcaDesdeServidor();
-  const MODS_LISTA=['ventas','visitas','kpis','inventario','documentos','nsos','referidos'];
+  const MODS_LISTA=['ventas','visitas','kpis','inventario','documentos','nsos','referidos','institutos'];
   document.getElementById('main').innerHTML=`
     <div id="cfg-credenciales" style="display:none">
       <div class="card">
@@ -2416,11 +2584,11 @@ async function crearUsuario(){
   const pwd=document.getElementById('new-pwd')?.value;
   const rol=document.getElementById('new-rol')?.value;
   if(!nombre||!usuario){alert('Completa nombre y usuario');return;}
-  try{await fetch('/api/usuarios',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nombre,usuario,password:pwd||'1234',rol,modulos:'ventas,visitas,kpis,inventario,documentos,nsos,referidos'})});alert('Usuario creado ✓');renderConfig();}catch(e){alert('Error al crear usuario');}
+  try{await fetch('/api/usuarios',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nombre,usuario,password:pwd||'1234',rol,modulos:'ventas,visitas,kpis,inventario,documentos,nsos,referidos,institutos'})});alert('Usuario creado ✓');renderConfig();}catch(e){alert('Error al crear usuario');}
 }
 
 async function guardarTodosPermisos(){
-  const MODS=['ventas','visitas','kpis','inventario','documentos','nsos','referidos'];
+  const MODS=['ventas','visitas','kpis','inventario','documentos','nsos','referidos','institutos'];
   const statusEl = document.getElementById('permisos-status');
   // Detectar todos los usuarios presentes en la tabla a partir de los ids de checkbox
   // (id con formato "perm-{userId}-{modulo}"), evitando depender de una lista aparte.
@@ -6469,6 +6637,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     // Sub-items con permiso propio
     if(!modulos.includes('referidos')){ const el=document.getElementById('navsub-referidos'); if(el) el.style.display='none'; }
+    if(!modulos.includes('institutos')){ const el=document.getElementById('navsub-institutos-cli'); if(el) el.style.display='none'; }
     if(!modulos.includes('documentos')){ const el=document.getElementById('navsub-doc-importantes'); if(el) el.style.display='none'; }
     if(!modulos.includes('nsos')){ const el=document.getElementById('navsub-doc-nsos'); if(el) el.style.display='none'; }
     if(!modulos.includes('documentos') && !modulos.includes('nsos')){ const el=document.getElementById('nav-documentos'); if(el) el.style.display='none'; }
@@ -6772,6 +6941,19 @@ function navGoReferidos(){
   setTimeout(()=>{
     document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
     document.getElementById('navsub-referidos')?.classList.add('active');
+    const subs = document.getElementById('nav-clientes-subs');
+    const chev = document.getElementById('nav-clientes-chevron');
+    if(subs) subs.style.maxHeight = '300px';
+    if(chev) chev.style.transform = 'rotate(90deg)';
+    document.getElementById('nav-clientes')?.classList.add('active');
+  }, 30);
+}
+
+function navGoInstitutosCli(){
+  navSetMod('institutos_cli');
+  setTimeout(()=>{
+    document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
+    document.getElementById('navsub-institutos-cli')?.classList.add('active');
     const subs = document.getElementById('nav-clientes-subs');
     const chev = document.getElementById('nav-clientes-chevron');
     if(subs) subs.style.maxHeight = '300px';

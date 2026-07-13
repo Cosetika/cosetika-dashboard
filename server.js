@@ -495,10 +495,10 @@ async function sincronizarHoy() {
       for (const d of clientes) {
         const vendNom = d.vendedor?.razon_social || d.vendedor?.nombre || 'Sin asignar';
         await pool.query(
-          `INSERT INTO facturas_detalle(documento_id, fecha, documento, cliente_nombre, vendedor_nombre, subtotal, total)
-           VALUES($1,$2,$3,$4,$5,$6,$7)
+          `INSERT INTO facturas_detalle(documento_id, fecha, documento, cliente_nombre, vendedor_nombre, subtotal, total, cedula_ruc)
+           VALUES($1,$2,$3,$4,$5,$6,$7,$8)
            ON CONFLICT (documento_id, fecha) DO UPDATE SET
-             documento=$3, cliente_nombre=$4, vendedor_nombre=$5, subtotal=$6, total=$7, actualizado_at=NOW()`,
+             documento=$3, cliente_nombre=$4, vendedor_nombre=$5, subtotal=$6, total=$7, cedula_ruc=$8, actualizado_at=NOW()`,
           [
             String(d.id || d.documento),
             fechaParaSQL(fecha), // fecha en formato YYYY-MM-DD
@@ -506,7 +506,8 @@ async function sincronizarHoy() {
             d.cliente_nombre || '—',
             vendNom,
             parseFloat(d.subtotal || (d.total/1.15) || 0),
-            parseFloat(d.total || 0)
+            parseFloat(d.total || 0),
+            String(d.cliente?.cedula || d.cliente?.ruc || d.cliente?.identificacion || '').replace(/\D/g,'') || null
           ]
         );
       }
@@ -851,6 +852,93 @@ async function sincronizarReferidos(opciones){
 // Sync de referidos cada 20 segundos (igual que pedidos)
 setTimeout(() => sincronizarReferidos().catch(e => console.error('Error sync referidos inicial:', e.message)), 20000);
 setInterval(() => sincronizarReferidos().catch(e => console.error('Error sync referidos:', e.message)), 20 * 1000);
+
+// ─── INSTITUTOS: alumnas marcadas en el campo adicional de Contifico ────────
+async function getConfigApp(clave, porDefecto){
+  try{
+    const r = await pool.query('SELECT valor FROM app_config WHERE clave=$1',[clave]);
+    return r.rows.length ? r.rows[0].valor : porDefecto;
+  }catch(e){ return porDefecto; }
+}
+async function setConfigApp(clave, valor){
+  await pool.query('INSERT INTO app_config(clave,valor) VALUES($1,$2) ON CONFLICT (clave) DO UPDATE SET valor=$2',[clave,valor]);
+}
+
+let INSTITUTOS_ULTIMA_SYNC = null;
+const CAMPOS_ADICIONALES = ['adicional1_cliente','adicional2_cliente','adicional3_cliente','adicional4_cliente'];
+
+async function sincronizarInstitutos(){
+  if (!API_KEY) return { ok:false, error:'CONTIFICO_API_KEY no configurada' };
+  const campo = await getConfigApp('instituto_campo', 'adicional2_cliente');
+  // Leer TODAS las personas de Contifico (paginado v2, fallback v1)
+  const personasApi = [];
+  let nextUrl = 'https://api.contifico.com/sistema/api/v2/persona/?page_size=200';
+  let paginas = 0;
+  try {
+    while (nextUrl && paginas < 200) {
+      const resp = await fetch(nextUrl, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const data = await resp.json();
+      if (Array.isArray(data)) { personasApi.push(...data); nextUrl = null; }
+      else { personasApi.push(...(data.results || [])); nextUrl = data.next || null; }
+      paginas++;
+    }
+  } catch (e) {
+    try {
+      const resp = await fetch('https://api.contifico.com/sistema/api/v1/persona/?es_cliente=true', { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
+      const data = await resp.json();
+      if (Array.isArray(data)) personasApi.push(...data); else throw e;
+    } catch (e2) {
+      console.error('Error leyendo personas de Contifico:', e.message);
+      return { ok:false, error:'No se pudo leer personas de Contifico: ' + e.message };
+    }
+  }
+  // Diagnóstico: cuántas personas tienen valor en cada campo adicional
+  const conteo = {}; const ejemplos = {};
+  CAMPOS_ADICIONALES.forEach(c => {
+    conteo[c] = 0; ejemplos[c] = [];
+    personasApi.forEach(pa => {
+      const v = String(pa[c] || '').trim();
+      if (v) { conteo[c]++; if (ejemplos[c].length < 5 && !ejemplos[c].includes(v)) ejemplos[c].push(v); }
+    });
+  });
+  const alumnas = personasApi
+    .map(pa => ({
+      valor: String(pa[campo] || '').trim().toUpperCase(),
+      cedula: String(pa.cedula || '').replace(/\D/g, ''),
+      ruc: String(pa.ruc || '').replace(/\D/g, ''),
+      nombre: String(pa.razon_social || pa.nombre_comercial || '').trim()
+    }))
+    .filter(a => a.valor);
+  // Reset y re-aplicación (sync completo = fuente de verdad es Contifico)
+  await pool.query('UPDATE personas SET instituto=NULL WHERE instituto IS NOT NULL');
+  let actualizadas = 0, insertadas = 0;
+  for (const a of alumnas) {
+    let hecho = false;
+    if (a.cedula) {
+      const r = await pool.query('UPDATE personas SET instituto=$1 WHERE cedula=$2', [a.valor, a.cedula]);
+      if (r.rowCount > 0) { actualizadas += r.rowCount; hecho = true; }
+    }
+    if (!hecho && a.ruc) {
+      const r = await pool.query('UPDATE personas SET instituto=$1 WHERE ruc=$2', [a.valor, a.ruc]);
+      if (r.rowCount > 0) { actualizadas += r.rowCount; hecho = true; }
+    }
+    if (!hecho && a.nombre) {
+      const r = await pool.query('UPDATE personas SET instituto=$1 WHERE LOWER(razon_social)=LOWER($2)', [a.valor, a.nombre]);
+      if (r.rowCount > 0) { actualizadas += r.rowCount; hecho = true; }
+    }
+    if (!hecho) {
+      await pool.query('INSERT INTO personas(cedula,ruc,razon_social,instituto) VALUES($1,$2,$3,$4)',
+        [a.cedula || null, a.ruc || null, a.nombre || '—', a.valor]);
+      insertadas++;
+    }
+  }
+  INSTITUTOS_ULTIMA_SYNC = new Date().toISOString();
+  console.log(`✓ Institutos sync: ${alumnas.length} alumnas (campo ${campo}) de ${personasApi.length} personas — ${actualizadas} actualizadas, ${insertadas} insertadas`);
+  return { ok:true, alumnas: alumnas.length, actualizadas, insertadas, campo, personas_leidas: personasApi.length, conteo_por_campo: conteo, ejemplos_por_campo: ejemplos };
+}
+setTimeout(() => sincronizarInstitutos().catch(e => console.error('Error sync institutos inicial:', e.message)), 40000);
+setInterval(() => sincronizarInstitutos().catch(e => console.error('Error sync institutos:', e.message)), 12 * 60 * 60 * 1000);
 
 sincronizarHoy().catch(e => console.error('Error sync inicial:', e.message));
 setInterval(() => sincronizarHoy().catch(e => console.error('Error sync:', e.message)), 60 * 60 * 1000);
@@ -1798,6 +1886,12 @@ async function initDB() {
       CREATE INDEX IF NOT EXISTS idx_personas_nombre ON personas(LOWER(razon_social));
       ALTER TABLE personas ALTER COLUMN telefono TYPE VARCHAR(200);
       ALTER TABLE personas ALTER COLUMN cedula TYPE VARCHAR(50);
+      ALTER TABLE personas ADD COLUMN IF NOT EXISTS instituto VARCHAR(200);
+      ALTER TABLE facturas_detalle ADD COLUMN IF NOT EXISTS cedula_ruc VARCHAR(50);
+      CREATE TABLE IF NOT EXISTS app_config (
+        clave VARCHAR(50) PRIMARY KEY,
+        valor TEXT
+      );
       ALTER TABLE personas ALTER COLUMN ruc TYPE VARCHAR(50);
     `);
     const usuarios = [
@@ -2705,10 +2799,10 @@ const server = http.createServer(async (req, res) => {
           const cliNom = doc.cliente?.razon_social || doc.cliente?.nombre_comercial || doc.persona_id || '—';
           const vendNom = doc.vendedor?.razon_social || doc.vendedor?.nombre || 'Sin asignar';
           await pool.query(
-            `INSERT INTO facturas_detalle(documento_id, fecha, documento, cliente_nombre, vendedor_nombre, subtotal, total)
-             VALUES($1,$2,$3,$4,$5,$6,$7)
+            `INSERT INTO facturas_detalle(documento_id, fecha, documento, cliente_nombre, vendedor_nombre, subtotal, total, cedula_ruc)
+             VALUES($1,$2,$3,$4,$5,$6,$7,$8)
              ON CONFLICT (documento_id, fecha) DO UPDATE SET
-               documento=$3, cliente_nombre=$4, vendedor_nombre=$5, subtotal=$6, total=$7, actualizado_at=NOW()`,
+               documento=$3, cliente_nombre=$4, vendedor_nombre=$5, subtotal=$6, total=$7, cedula_ruc=$8, actualizado_at=NOW()`,
             [
               String(doc.id || doc.documento),
               fechaSQL,
@@ -2716,7 +2810,8 @@ const server = http.createServer(async (req, res) => {
               cliNom,
               vendNom,
               parseFloat(doc.subtotal || (doc.total/1.15) || 0),
-              parseFloat(doc.total || 0)
+              parseFloat(doc.total || 0),
+              String(doc.cliente?.cedula || doc.cliente?.ruc || doc.cliente?.identificacion || '').replace(/\D/g,'') || null
             ]
           );
         }
@@ -3989,6 +4084,75 @@ const server = http.createServer(async (req, res) => {
       const { usuario_id, provincia } = await bodyJSON(req);
       await pool.query('DELETE FROM clientes_provincias WHERE usuario_id=$1 AND provincia=$2', [usuario_id, provincia]);
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
+  // ─── INSTITUTOS (compras de alumnas) ────────────────────────────────────────
+  // GET /api/institutos-compras?anio=&mes= → compras del mes de las alumnas con instituto
+  if (urlPath === '/api/institutos-compras' && req.method === 'GET') {
+    try {
+      const anio = parseInt(urlObj.searchParams.get('anio')) || new Date().getFullYear();
+      const mes = parseInt(urlObj.searchParams.get('mes')) || (new Date().getMonth() + 1);
+      const inicio = `${anio}-${String(mes).padStart(2,'0')}-01`;
+      const ra = await pool.query("SELECT cedula, ruc, razon_social, instituto FROM personas WHERE instituto IS NOT NULL AND instituto<>''");
+      const alumnas = ra.rows;
+      const rf = await pool.query(
+        `SELECT TO_CHAR(fecha,'YYYY-MM-DD') AS fecha_dia, documento, cliente_nombre, cedula_ruc, subtotal
+         FROM facturas_detalle
+         WHERE fecha >= $1::date AND fecha < ($1::date + INTERVAL '1 month')
+         ORDER BY fecha DESC, id DESC`, [inicio]);
+      const norm = x => String(x||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase().replace(/[^A-Z ]/g,' ').replace(/\s+/g,' ').trim();
+      const porCed = {}; const porNombre = [];
+      alumnas.forEach(a => {
+        const ced = String(a.cedula||'').replace(/\D/g,'');
+        const ruc = String(a.ruc||'').replace(/\D/g,'');
+        if (ced) porCed[ced] = a;
+        if (ruc) { porCed[ruc] = a; if (ruc.length === 13) porCed[ruc.substring(0,10)] = a; }
+        const n = norm(a.razon_social);
+        if (n) porNombre.push({ n, ancla: n.split(' ').slice(0,2).join(' '), a });
+      });
+      const compras = [];
+      rf.rows.forEach(f => {
+        let alum = null;
+        const ced = String(f.cedula_ruc||'').replace(/\D/g,'');
+        if (ced) alum = porCed[ced] || (ced.length === 13 ? porCed[ced.substring(0,10)] : null);
+        if (!alum) {
+          const n = norm(f.cliente_nombre);
+          if (n) {
+            const anclaF = n.split(' ').slice(0,2).join(' ');
+            const m = porNombre.find(x => x.n === n || (anclaF.length >= 7 && (x.n.startsWith(anclaF) || n.startsWith(x.ancla))));
+            if (m) alum = m.a;
+          }
+        }
+        if (alum) compras.push({ fecha: f.fecha_dia, documento: f.documento, cliente: f.cliente_nombre, instituto: alum.instituto, subtotal: parseFloat(f.subtotal||0) });
+      });
+      const totales = {};
+      compras.forEach(c => { if(!totales[c.instituto]) totales[c.instituto] = { total:0, compras:0 }; totales[c.instituto].total += c.subtotal; totales[c.instituto].compras++; });
+      const campo = await getConfigApp('instituto_campo', 'adicional2_cliente');
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ alumnas: alumnas.length, compras, totales, campo, ultima_sync: INSTITUTOS_ULTIMA_SYNC }));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+  // POST /api/institutos/sync → sincronizar alumnas desde Contifico ahora
+  if (urlPath === '/api/institutos/sync' && req.method === 'POST') {
+    try {
+      const resultado = await sincronizarInstitutos();
+      res.writeHead(resultado.ok ? 200 : 500,{'Content-Type':'application/json'}); res.end(JSON.stringify(resultado));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+  // POST /api/institutos/campo {campo} → configurar cuál adicional*_cliente es "Instituto"
+  if (urlPath === '/api/institutos/campo' && req.method === 'POST') {
+    try {
+      const { campo } = await bodyJSON(req);
+      if (!CAMPOS_ADICIONALES.includes(campo)) {
+        res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'Campo inválido'})); return;
+      }
+      await setConfigApp('instituto_campo', campo);
+      const resultado = await sincronizarInstitutos();
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, ...resultado}));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
   }
