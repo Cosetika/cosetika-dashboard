@@ -132,6 +132,13 @@ setInterval(() => sincronizarCatalogo().catch(e => console.error(e)), 24 * 60 * 
 // ─── GENERADOR DATA.JSON ──────────────────────────────────────
 async function generarDataJson(fi, ff) {
   const vendedores = {};
+  // Reasignaciones manuales: el cliente (todo su historial) se agrupa bajo la vendedora destino
+  const REASIG = {};
+  try {
+    const rr = await pool.query('SELECT cliente_ruc, vendedora_destino FROM clientes_reasignados');
+    rr.rows.forEach(x => { const k = String(x.cliente_ruc||'').replace(/\D/g,''); if (k) REASIG[k] = x.vendedora_destino; });
+    if (rr.rows.length) console.log(`Reasignaciones activas: ${rr.rows.length}`);
+  } catch(e) { console.log('Sin reasignaciones:', e.message); }
   const documentosVistos = new Set(); // evita procesar el mismo documento dos veces (ej: si la API repite en paginación)
   let nextUrl = 'https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=' + fi + '&fecha_final=' + ff + '&page_size=100';
   let paginas = 0;
@@ -158,8 +165,11 @@ async function generarDataJson(fi, ff) {
       return true;
     });
     docs.forEach(doc => {
-      const vendId = doc.vendedor?.id || doc.vendedor_identificacion || 'sin_vendedor';
-      const vendNom = doc.vendedor?.razon_social || ('Vendedor ' + (doc.vendedor_identificacion || 'Sin Asignar'));
+      let vendId = doc.vendedor?.id || doc.vendedor_identificacion || 'sin_vendedor';
+      let vendNom = doc.vendedor?.razon_social || ('Vendedor ' + (doc.vendedor_identificacion || 'Sin Asignar'));
+      // Reasignación manual de cliente → vendedora (Configuración → Sincronización)
+      const rucReasig = String((doc.cliente && (doc.cliente.ruc || doc.cliente.cedula)) || '').replace(/\D/g,'');
+      if (rucReasig && REASIG[rucReasig]) { vendNom = REASIG[rucReasig]; vendId = 'reasig::' + vendNom; }
       const cliId = doc.cliente && doc.cliente.id ? doc.cliente.id : doc.persona_id;
       const cliNom = (doc.cliente && (doc.cliente.razon_social || doc.cliente.nombre_comercial)) || '—';
       const cliRuc = (doc.cliente && (doc.cliente.ruc || doc.cliente.cedula)) || '';
@@ -240,7 +250,7 @@ async function generarDataJson(fi, ff) {
   }
   const resultado = {};
   Object.values(vendedores).forEach(vend => {
-    resultado[vend.nombre] = Object.values(vend.clientes).map(cli => ({
+    const listaCli = Object.values(vend.clientes).map(cli => ({
       id: cli.id, nombre: cli.nombre, ruc: cli.ruc,
       telefono: cli.telefono || '',
       direccion: cli.direccion || '',
@@ -255,7 +265,12 @@ async function generarDataJson(fi, ff) {
       frecuencia: Object.values(cli.frecuencia).map(f => ({ anio: f.anio, mes: f.mes, total: Math.round(f.total*100)/100, subtotal: Math.round(f.subtotal*100)/100, compras: f.compras })).sort((a,b) => a.anio!==b.anio ? a.anio-b.anio : a.mes-b.mes),
       frecuencia_dia: Object.values(cli.frecuenciaPorDia||{}).map(f => ({ anio: f.anio, mes: f.mes, dia: f.dia, total: Math.round(f.total*100)/100, subtotal: Math.round(f.subtotal*100)/100, compras: f.compras }))
     })).sort((a,b) => b.total-a.total);
+    // Acumular (no sobreescribir): una vendedora puede aparecer con su id real y con
+    // el id sintético 'reasig::' — ambos grupos se fusionan bajo el mismo nombre
+    if (!resultado[vend.nombre]) resultado[vend.nombre] = [];
+    resultado[vend.nombre].push(...listaCli);
   });
+  Object.keys(resultado).forEach(k => resultado[k].sort((a,b) => b.total - a.total));
   console.log(`Generación completa. Duplicados omitidos: ${duplicadosOmitidos}`);
   return resultado;
 }
@@ -1888,6 +1903,14 @@ async function initDB() {
       ALTER TABLE personas ALTER COLUMN cedula TYPE VARCHAR(50);
       ALTER TABLE personas ADD COLUMN IF NOT EXISTS instituto VARCHAR(200);
       ALTER TABLE facturas_detalle ADD COLUMN IF NOT EXISTS cedula_ruc VARCHAR(50);
+      CREATE TABLE IF NOT EXISTS clientes_reasignados (
+        id SERIAL PRIMARY KEY,
+        cliente_ruc VARCHAR(50) NOT NULL,
+        cliente_nombre VARCHAR(500),
+        vendedora_destino VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(cliente_ruc)
+      );
       CREATE TABLE IF NOT EXISTS app_config (
         clave VARCHAR(50) PRIMARY KEY,
         valor TEXT
@@ -4083,6 +4106,39 @@ const server = http.createServer(async (req, res) => {
     try {
       const { usuario_id, provincia } = await bodyJSON(req);
       await pool.query('DELETE FROM clientes_provincias WHERE usuario_id=$1 AND provincia=$2', [usuario_id, provincia]);
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
+  // ─── CLIENTES REASIGNADOS (historial bajo otra vendedora) ───────────────────
+  if (urlPath === '/api/clientes-reasignados' && req.method === 'GET') {
+    try {
+      const r = await pool.query('SELECT id, cliente_ruc, cliente_nombre, vendedora_destino FROM clientes_reasignados ORDER BY id DESC');
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.rows));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+  if (urlPath === '/api/clientes-reasignados' && req.method === 'POST') {
+    try {
+      const { cliente_ruc, cliente_nombre, vendedora_destino } = await bodyJSON(req);
+      const digits = String(cliente_ruc||'').replace(/\D/g,'');
+      if ((digits.length !== 10 && digits.length !== 13) || !vendedora_destino) {
+        res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'Se requiere cédula (10) o RUC (13) y vendedora destino'})); return;
+      }
+      await pool.query(
+        `INSERT INTO clientes_reasignados(cliente_ruc, cliente_nombre, vendedora_destino) VALUES($1,$2,$3)
+         ON CONFLICT (cliente_ruc) DO UPDATE SET cliente_nombre=$2, vendedora_destino=$3`,
+        [digits, String(cliente_nombre||'').substring(0,490), String(vendedora_destino).substring(0,250)]
+      );
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+  if (/^\/api\/clientes-reasignados\/\d+$/.test(urlPath) && req.method === 'DELETE') {
+    try {
+      const id = parseInt(urlPath.split('/').pop());
+      await pool.query('DELETE FROM clientes_reasignados WHERE id=$1', [id]);
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;

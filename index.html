@@ -2265,6 +2265,7 @@ function showConfigTab(tab){
   });
   if(tab==='equipos') renderEquiposConfig();
   if(tab==='permisos') cargarClientesProvinciasUI();
+  if(tab==='sync') cargarReasignadosUI();
 }
 
 function navGoConfig(tab){
@@ -2379,6 +2380,17 @@ async function renderConfig(){
       </div>
     </div>
     <div id="cfg-sync" style="display:none">
+      <div class="card" style="margin-bottom:14px">
+        <div class="card-title"><i class="ti ti-user-share"></i> Clientes reasignados de vendedora</div>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:12px">El cliente y <b>todo su historial</b> de compras se mostrará bajo la vendedora destino, sin importar quién emitió las facturas. Tras agregar o quitar, pulsa "Regenerar data.json ahora" (tarjeta de abajo) para aplicar el cambio.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+          <input type="text" id="reasig-ruc" placeholder="Cédula o RUC del cliente" inputmode="numeric" style="flex:1;min-width:150px;padding:8px 12px;font-size:12px;border:1px solid var(--border);border-radius:8px;outline:none;box-sizing:border-box">
+          <input type="text" id="reasig-nombre" placeholder="Nombre (referencia)" style="flex:1;min-width:150px;padding:8px 12px;font-size:12px;border:1px solid var(--border);border-radius:8px;outline:none;box-sizing:border-box">
+          <select id="reasig-vend" style="padding:8px 10px;font-size:12px;border:1px solid var(--border);border-radius:8px;outline:none;background:white;max-width:220px"></select>
+          <button onclick="agregarReasignado()" style="padding:8px 16px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:12px;cursor:pointer;font-weight:500"><i class="ti ti-plus" style="margin-right:4px"></i>Agregar</button>
+        </div>
+        <div id="reasig-lista" style="font-size:12px;color:var(--muted)">Cargando...</div>
+      </div>
       <div class="card">
         <div class="card-title"><i class="ti ti-refresh"></i> Sincronización de datos</div>
         <p style="font-size:13px;color:var(--muted);margin-bottom:12px">Regenera el data.json descargando todas las facturas del año desde Contifico. Clientes y marcas se actualizan automáticamente.</p>
@@ -2621,6 +2633,54 @@ async function guardarTodosPermisos(){
   }
 }
 const PROVINCIAS_EC_LISTA = ['Azuay','Bolívar','Cañar','Carchi','Chimborazo','Cotopaxi','El Oro','Esmeraldas','Galápagos','Guayas','Imbabura','Loja','Los Ríos','Manabí','Morona Santiago','Napo','Orellana','Pastaza','Pichincha','Santa Elena','Santo Domingo','Sucumbíos','Tungurahua','Zamora Chinchipe'];
+
+async function cargarReasignadosUI(){
+  const sel = document.getElementById('reasig-vend');
+  const lista = document.getElementById('reasig-lista');
+  if(sel && sel.options.length === 0){
+    const vends = Object.keys(DATA||{}).sort();
+    sel.innerHTML = '<option value="">— Vendedora destino —</option>' + vends.map(v=>`<option value="${v.replace(/"/g,'')}">${v}</option>`).join('');
+  }
+  if(!lista) return;
+  try{
+    const r = await fetch('/api/clientes-reasignados');
+    const rows = await r.json();
+    if(!Array.isArray(rows) || rows.length === 0){ lista.innerHTML = 'No hay clientes reasignados'; return; }
+    lista.innerHTML = rows.map(x=>`
+      <div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:0.5px solid var(--border)">
+        <span style="flex:1;color:var(--text)"><b>${String(x.cliente_nombre||'').replace(/</g,'&lt;')||x.cliente_ruc}</b> <span style="color:var(--muted)">(${x.cliente_ruc})</span> <i class="ti ti-arrow-right" style="font-size:11px;color:var(--muted)"></i> <b style="color:var(--brown)">${String(x.vendedora_destino).replace(/</g,'&lt;')}</b></span>
+        <button onclick="quitarReasignado(${x.id})" title="Quitar" style="width:26px;height:26px;border:1px solid #fca5a5;background:#fef2f2;border-radius:6px;cursor:pointer"><i class="ti ti-trash" style="font-size:11px;color:#ef4444"></i></button>
+      </div>`).join('');
+  }catch(e){ lista.innerHTML = '<span style="color:#dc2626">Error: '+e.message+'</span>'; }
+}
+
+async function agregarReasignado(){
+  const ruc = (document.getElementById('reasig-ruc')?.value||'').replace(/\D/g,'');
+  const nombre = (document.getElementById('reasig-nombre')?.value||'').trim();
+  const vend = document.getElementById('reasig-vend')?.value||'';
+  if(ruc.length !== 10 && ruc.length !== 13){ alert('Ingresa la cédula (10 dígitos) o RUC (13) del cliente'); return; }
+  if(!vend){ alert('Selecciona la vendedora destino'); return; }
+  try{
+    const r = await fetch('/api/clientes-reasignados', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ cliente_ruc: ruc, cliente_nombre: nombre, vendedora_destino: vend })
+    });
+    const j = await r.json();
+    if(!j.ok) throw new Error(j.error||'error');
+    document.getElementById('reasig-ruc').value = '';
+    document.getElementById('reasig-nombre').value = '';
+    await cargarReasignadosUI();
+    alert('Reasignación guardada. Ahora pulsa "Regenerar data.json ahora" para aplicarla.');
+  }catch(e){ alert('Error: '+e.message); }
+}
+
+async function quitarReasignado(id){
+  if(!confirm('¿Quitar esta reasignación? El cliente volverá a mostrarse bajo la vendedora de sus facturas (tras regenerar).')) return;
+  try{
+    await fetch('/api/clientes-reasignados/'+id, { method:'DELETE' });
+    await cargarReasignadosUI();
+  }catch(e){ alert('Error: '+e.message); }
+}
 
 async function cargarClientesProvinciasUI(){
   const cont = document.getElementById('cliprov-cont');
