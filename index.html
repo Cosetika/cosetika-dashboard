@@ -173,6 +173,7 @@
     <!-- INICIO -->
     <div class="nav-item active" id="nav-ventas" onclick="navToggleGroup('nav-inicio-subs','nav-ventas-chevron','ventas')">
       <i class="ti ti-home"></i>Inicio
+      <span id="badge-pedidos-inicio" style="display:none;margin-left:auto;background:#ef4444;color:white;border-radius:10px;font-size:9px;padding:1px 6px;font-weight:700;line-height:1.5">0</span>
       <i class="ti ti-chevron-down" id="nav-ventas-chevron" style="margin-left:auto;font-size:12px;transition:transform 0.2s;transform:rotate(180deg)"></i>
     </div>
     <div id="nav-inicio-subs" style="max-height:300px;overflow:hidden;transition:max-height 0.25s ease">
@@ -191,6 +192,7 @@
     <!-- CLIENTES -->
     <div class="nav-item" id="nav-clientes" onclick="navToggleGroup('nav-clientes-subs','nav-clientes-chevron','clientes')">
       <i class="ti ti-users"></i>Clientes
+      <span id="badge-referidos-clientes" style="display:none;margin-left:auto;background:#ef4444;color:white;border-radius:10px;font-size:9px;padding:1px 6px;font-weight:700;line-height:1.5">0</span>
       <i class="ti ti-chevron-right" id="nav-clientes-chevron" style="margin-left:auto;font-size:12px;transition:transform 0.2s"></i>
     </div>
     <div id="nav-clientes-subs" style="max-height:0;overflow:hidden;transition:max-height 0.25s ease">
@@ -927,9 +929,22 @@ function pintarBadge(id, n){
   el.textContent = n > 99 ? '99+' : n;
 }
 
+function pintarBadgeParent(id, n){
+  const el = document.getElementById(id);
+  if(!el) return;
+  n = parseInt(n)||0;
+  el.style.display = n > 0 ? 'inline-block' : 'none';
+  el.textContent = n > 99 ? '99+' : n;
+  // El chevron del grupo también usa margin-left:auto — cuando el badge está
+  // visible, el badge toma el empuje y el chevron se pega a su lado
+  const chev = el.nextElementSibling;
+  if(chev && chev.tagName === 'I') chev.style.marginLeft = n > 0 ? '6px' : 'auto';
+}
+
 function marcarBadgeVisto(tipo){
   try{ localStorage.setItem(_badgeSeenKey(tipo), new Date().toISOString()); }catch(e){}
   pintarBadge('badge-' + tipo, 0);
+  pintarBadgeParent(tipo === 'pedidos' ? 'badge-pedidos-inicio' : 'badge-referidos-clientes', 0);
 }
 
 async function actualizarBadgesSidebar(){
@@ -945,6 +960,8 @@ async function actualizarBadgesSidebar(){
     const j = await r.json();
     pintarBadge('badge-pedidos', j.pedidos);
     pintarBadge('badge-referidos', j.referidos);
+    pintarBadgeParent('badge-pedidos-inicio', j.pedidos);
+    pintarBadgeParent('badge-referidos-clientes', j.referidos);
   }catch(e){}
 }
 setInterval(actualizarBadgesSidebar, 30 * 1000);
@@ -4722,9 +4739,13 @@ function renderVentasPanel(){
     <div class="card" style="margin-bottom:12px">
       <div class="card-title"><i class="ti ti-users"></i> Ventas por vendedora — ${etiqueta}</div>
       ${porVend.length===0?'<p style="font-size:12px;color:var(--muted)">Sin ventas en este período</p>':
-      porVend.map(v=>`
+      porVend.map((v,vi)=>{
+        const mesesV = Array.from({length:12},(_,mi)=>getVentasMes(DATA[v.nombre]||[], mi+1, ventasFiltroAnio));
+        const maxMesV = Math.max(...mesesV, 1);
+        return `
         <div style="margin-bottom:10px">
           <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+            <button onclick="toggleVendMensual(${vi})" title="Ver ventas mensuales" style="width:22px;height:22px;border:1px solid var(--border);background:white;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;padding:0"><i id="vend-mensual-chev-${vi}" class="ti ti-chevron-right" style="font-size:12px;color:var(--muted);transition:transform 0.2s"></i></button>
             <div style="width:28px;height:28px;border-radius:50%;background:${getVendColor(v.nombre)};display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff;flex-shrink:0">${v.nombre.split(' ').map(w=>w[0]).join('').substring(0,2)}</div>
             <span style="font-size:12px;flex:1;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${nombreCorto(v.nombre)}</span>
             <div style="text-align:right;flex-shrink:0;line-height:1.3">
@@ -4732,11 +4753,22 @@ function renderVentasPanel(){
               <div style="font-size:9px;color:var(--muted)">c/IVA: <b style="color:var(--text)">${fmt(v.total)}</b></div>
             </div>
           </div>
-          <div style="height:6px;background:#f0ede9;border-radius:3px;overflow:hidden;margin-left:34px">
+          <div style="height:6px;background:#f0ede9;border-radius:3px;overflow:hidden;margin-left:62px">
             <div style="height:100%;border-radius:3px;background:${getVendColor(v.nombre)};width:${pct(v.total,maxVend)}%;transition:width 0.4s"></div>
           </div>
+          <div id="vend-mensual-${vi}" style="display:none;margin:8px 0 4px 62px;padding:10px 12px;background:#faf9f8;border-radius:8px;border:1px solid var(--border)">
+            <div style="font-size:10px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">Ventas mensuales ${ventasFiltroAnio} (sin IVA)</div>
+            ${mesesV.map((val,mi)=>`
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
+              <span style="width:28px;font-size:10px;color:var(--muted);flex-shrink:0">${MESES_CORTO[mi+1]}</span>
+              <div style="flex:1;height:8px;background:#f0ede9;border-radius:4px;overflow:hidden">
+                <div style="height:100%;width:${Math.round(val/maxMesV*100)}%;background:${getVendColor(v.nombre)};border-radius:4px"></div>
+              </div>
+              <span style="width:74px;text-align:right;font-size:10px;color:${val>0?'var(--text)':'#ccc'};font-weight:600;flex-shrink:0">${val>0?fmt(val/1.15):'—'}</span>
+            </div>`).join('')}
+          </div>
         </div>
-      `).join('')}
+      `;}).join('')}
     </div>
 
   `;
@@ -4746,6 +4778,15 @@ function renderVentasPanel(){
     dibujarComparativoAnual('ultimos2');
     cargarYDibujarVentasMesDia();
   });
+}
+
+function toggleVendMensual(i){
+  const det = document.getElementById('vend-mensual-'+i);
+  const chev = document.getElementById('vend-mensual-chev-'+i);
+  if(!det) return;
+  const abierto = det.style.display !== 'none';
+  det.style.display = abierto ? 'none' : 'block';
+  if(chev) chev.style.transform = abierto ? '' : 'rotate(90deg)';
 }
 
 let _vendSeleccionadaIdx = null;
@@ -5835,12 +5876,14 @@ async function renderPlanificacion(){
       sector: r.sector||'',
       cliente: r.cliente||'',
       coordinado: !!r.coordinado,
-      visitado_at: r.visitado_at||''
+      visitado_at: r.visitado_at||'',
+      primera_compra_at: r.primera_compra_at||'',
+      recompra_at: r.recompra_at||''
     }));
     // Rellenar hasta 20 filas
-    while(planRows.length < 30) planRows.push({dia:'',sector:'',cliente:'',coordinado:false,visitado_at:''});
+    while(planRows.length < 30) planRows.push({dia:'',sector:'',cliente:'',coordinado:false,visitado_at:'',primera_compra_at:'',recompra_at:''});
   } else {
-    planRows = Array.from({length:30}, ()=>({dia:'',sector:'',cliente:'',coordinado:false,visitado_at:''}));
+    planRows = Array.from({length:30}, ()=>({dia:'',sector:'',cliente:'',coordinado:false,visitado_at:'',primera_compra_at:'',recompra_at:''}));
   }
 
   // Si admin o jefa, mostrar selector de asesora
@@ -5930,6 +5973,8 @@ async function renderPlanificacion(){
               <th style="padding:8px 10px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Cliente</th>
               <th style="padding:8px 10px;text-align:center;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;width:70px">Visitado</th>
               <th style="padding:8px 10px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;width:130px">Fecha visita</th>
+              <th style="padding:8px 6px;text-align:center;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;width:76px">1era compra</th>
+              <th style="padding:8px 6px;text-align:center;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;width:76px">Recompra</th>
               <th style="width:30px"></th>
             </tr>
           </thead>
@@ -5986,6 +6031,16 @@ function renderPlanRow(row, i, weekDayNames){
     </td>
     <td style="padding:5px 8px;font-size:10px;color:var(--muted)">
       ${row.visitado_at ? `<span style='color:#085041;font-weight:500'>${row.visitado_at}</span>` : ''}
+    </td>
+    <td style="padding:5px 6px;text-align:center">
+      <input type="checkbox" ${row.primera_compra_at?'checked':''} onchange="marcarCompraPlan(${i},'primera_compra_at',this.checked)"
+        style="accent-color:#2563eb;width:16px;height:16px;cursor:pointer"/>
+      <div style="font-size:9px;color:#2563eb;font-weight:600">${row.primera_compra_at||''}</div>
+    </td>
+    <td style="padding:5px 6px;text-align:center">
+      <input type="checkbox" ${row.recompra_at?'checked':''} onchange="marcarCompraPlan(${i},'recompra_at',this.checked)"
+        style="accent-color:#d97706;width:16px;height:16px;cursor:pointer"/>
+      <div style="font-size:9px;color:#d97706;font-weight:600">${row.recompra_at||''}</div>
     </td>
     <td style="padding:5px 4px;text-align:center">
       <button onclick="eliminarFilaPlan(${i})" style="background:none;border:none;cursor:pointer;color:#ccc;font-size:14px;padding:2px 4px" title="Eliminar">×</button>
@@ -6054,6 +6109,21 @@ async function marcarVisitado(i, checked){
   await autoGuardarPlanificacion();
 }
 
+async function marcarCompraPlan(i, campo, checked){
+  // Solo fecha (sin hora), timezone Ecuador
+  planRows[i][campo] = checked
+    ? new Date().toLocaleDateString('es-EC', {timeZone:'America/Guayaquil', day:'2-digit', month:'2-digit'})
+    : '';
+  const row = document.getElementById('plan-row-'+i);
+  if(row){
+    // TD 6 = 1era compra, TD 7 = recompra (0=#,1=día,2=sector,3=cliente,4=visitado,5=fecha,8=eliminar)
+    const td = row.querySelectorAll('td')[campo==='primera_compra_at' ? 6 : 7];
+    const div = td ? td.querySelector('div') : null;
+    if(div) div.textContent = planRows[i][campo];
+  }
+  await autoGuardarPlanificacion();
+}
+
 async function autoGuardarPlanificacion(){
   const tbody = document.getElementById('plan-tbody');
   if(!tbody){ console.error('plan-tbody no encontrado'); return; }
@@ -6066,7 +6136,9 @@ async function autoGuardarPlanificacion(){
     const cliente = tds[3].querySelector('input[type="text"]')?.value || '';
     const coordinado = tds[4].querySelector('input[type="checkbox"]')?.checked || false;
     const visitado_at = (planRows[idx]?.visitado_at) || '';
-    if(dia || sector || cliente || coordinado) rows.push({ dia, sector, cliente, coordinado, visitado_at });
+    const primera_compra_at = (planRows[idx]?.primera_compra_at) || '';
+    const recompra_at = (planRows[idx]?.recompra_at) || '';
+    if(dia || sector || cliente || coordinado || primera_compra_at || recompra_at) rows.push({ dia, sector, cliente, coordinado, visitado_at, primera_compra_at, recompra_at });
   });
   console.log('AutoGuardar:', window._planAsesoraActual, window._planSemanaActual, rows.length, 'filas');
   if(rows.length === 0){ console.warn('Sin filas para guardar'); return; }
@@ -6087,7 +6159,7 @@ async function autoGuardarPlanificacion(){
 function agregarFilaPlan(){
   const weekDates = getWeekDates(planWeekOffset);
   const weekDayNames = weekDates.map(d=>`${getDayName(d)} ${d.getDate()}`);
-  planRows.push({dia:'',sector:'',cliente:'',coordinado:false,visitado_at:''});
+  planRows.push({dia:'',sector:'',cliente:'',coordinado:false,visitado_at:'',primera_compra_at:'',recompra_at:''});
   const tbody = document.getElementById('plan-tbody');
   if(tbody){
     const i = planRows.length-1;
@@ -6128,8 +6200,10 @@ async function guardarPlanificacion(asesora, semanaKey){
     const cliente = tds[3].querySelector('input[type="text"]')?.value || '';
     const coordinado = tds[4].querySelector('input[type="checkbox"]')?.checked || false;
     const visitado_at = (planRows[i] && planRows[i].visitado_at) || '';
-    if(dia || sector || cliente || coordinado){
-      rows.push({ dia, sector, cliente, coordinado, visitado_at });
+    const primera_compra_at = (planRows[i] && planRows[i].primera_compra_at) || '';
+    const recompra_at = (planRows[i] && planRows[i].recompra_at) || '';
+    if(dia || sector || cliente || coordinado || primera_compra_at || recompra_at){
+      rows.push({ dia, sector, cliente, coordinado, visitado_at, primera_compra_at, recompra_at });
     }
   });
 
