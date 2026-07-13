@@ -1003,11 +1003,36 @@ async function sincronizarBodegas(){
       } catch(e) { errores++; }
     }
     await setConfigApp('bodegas_ultima_sync', new Date().toISOString());
+    // La Proyección (Inventario) se alimenta de estas mismas cantidades: reconstruir
+    await reconstruirInventarioDesdeBodegas();
     console.log(`✓ Bodegas sync: ${ids.length} productos, ${guardados} registros, ${errores} errores`);
     return { ok:true, productos: ids.length, guardados, errores };
   } finally {
     BODEGAS_SYNC.enCurso = false;
   }
+}
+
+// Reemplaza el antiguo Excel de saldos: el stock de la Proyección es la suma de
+// Bodega POS + Bodega Casa sincronizadas desde Contifico, con corte = hoy.
+async function reconstruirInventarioDesdeBodegas(){
+  try {
+    const r = await pool.query('SELECT producto_id, codigo, cantidad FROM stock_bodegas');
+    if (r.rows.length === 0) return;
+    const productos = {};
+    r.rows.forEach(row => {
+      if (!productos[row.producto_id]) productos[row.producto_id] = { cantidad: 0, sku: row.codigo || '' };
+      productos[row.producto_id].cantidad += parseFloat(row.cantidad) || 0; // POS + Casa
+    });
+    const fechaCorte = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Guayaquil' });
+    INVENTARIO_CACHE = { fecha_corte: fechaCorte, productos };
+    INVENTARIO_CACHE_TS = new Date().toISOString();
+    await pool.query(
+      `INSERT INTO inventario_data(id_unico, fecha_corte, datos, actualizado_at) VALUES('principal',$1,$2,NOW())
+       ON CONFLICT (id_unico) DO UPDATE SET fecha_corte=$1, datos=$2, actualizado_at=NOW()`,
+      [fechaCorte, JSON.stringify(INVENTARIO_CACHE)]
+    );
+    console.log(`✓ Proyección reconstruida desde bodegas: ${Object.keys(productos).length} productos, corte ${fechaCorte}`);
+  } catch(e) { console.error('Error reconstruyendo proyección desde bodegas:', e.message); }
 }
 
 // Sync diario: al arrancar (si los datos tienen más de 20h) y chequeo cada 6 horas

@@ -233,7 +233,14 @@
       <div class="nav-sub-item" id="navsub-kpis-asesoras" onclick="navGoKpis('asesoras')"><i class="ti ti-users" style="font-size:13px"></i>KPIs Asesoras</div>
       <div class="nav-sub-item" id="navsub-kpis-provincias" onclick="navGoKpis('provincias')"><i class="ti ti-map-search" style="font-size:13px"></i>KPIs Provincias</div>
     </div>
-    <div class="nav-item" id="nav-inventario" onclick="navSetMod('inventario')"><i class="ti ti-package"></i>Inventario</div>
+    <div class="nav-item" id="nav-inventario" onclick="navToggleGroup('nav-inventario-subs','nav-inventario-chevron','inventario')">
+      <i class="ti ti-package"></i>Inventario
+      <i class="ti ti-chevron-right" id="nav-inventario-chevron" style="margin-left:auto;font-size:12px;transition:transform 0.2s"></i>
+    </div>
+    <div id="nav-inventario-subs" style="max-height:0;overflow:hidden;transition:max-height 0.25s ease">
+      <div class="nav-sub-item" id="navsub-inv-bodegas" onclick="navGoInventario('bodegas')"><i class="ti ti-building-warehouse" style="font-size:13px"></i>Bodegas</div>
+      <div class="nav-sub-item" id="navsub-inv-proyeccion" onclick="navGoInventario('proyeccion')"><i class="ti ti-chart-dots" style="font-size:13px"></i>Proyección</div>
+    </div>
     <div class="nav-item" id="nav-documentos" onclick="navToggleGroup('nav-documentos-subs','nav-documentos-chevron','documentos')">
       <i class="ti ti-files"></i>Documentos
       <i class="ti ti-chevron-right" id="nav-documentos-chevron" style="margin-left:auto;font-size:12px;transition:transform 0.2s"></i>
@@ -261,7 +268,6 @@
       <div class="nav-sub-item" id="navsub-cfg-equipos" onclick="navGoConfig('equipos')"><i class="ti ti-users-group" style="font-size:13px"></i>Equipos</div>
       <div class="nav-sub-item" id="navsub-cfg-sync" onclick="navGoConfig('sync')"><i class="ti ti-refresh" style="font-size:13px"></i>Sincronización</div>
     </div>
-    <div class="nav-item" id="nav-bodegas" style="display:none" onclick="navSetMod('bodegas')"><i class="ti ti-building-warehouse"></i>Bodegas</div>
   </div>
   <!-- Footer usuario -->
   <div class="nav-footer">
@@ -474,11 +480,11 @@ function navToggleGroup(subsId, chevId, mod){
   if(!subs) return;
   const isOpen = subs.style.maxHeight !== '0px' && subs.style.maxHeight !== '';
   // Cerrar todos los grupos primero
-  ['nav-inicio-subs','nav-clientes-subs','nav-plan-subs','nav-visitas-subs','nav-kpis-subs','nav-documentos-subs','nav-reportes-subs','nav-config-subs'].forEach(id => {
+  ['nav-inicio-subs','nav-clientes-subs','nav-plan-subs','nav-visitas-subs','nav-kpis-subs','nav-inventario-subs','nav-documentos-subs','nav-reportes-subs','nav-config-subs'].forEach(id => {
     const el = document.getElementById(id);
     if(el) el.style.maxHeight = '0px';
   });
-  ['nav-ventas-chevron','nav-clientes-chevron','nav-plan-chevron','nav-visitas-chevron','nav-kpis-chevron','nav-documentos-chevron','nav-reportes-chevron','nav-config-chevron'].forEach(id => {
+  ['nav-ventas-chevron','nav-clientes-chevron','nav-plan-chevron','nav-visitas-chevron','nav-kpis-chevron','nav-inventario-chevron','nav-documentos-chevron','nav-reportes-chevron','nav-config-chevron'].forEach(id => {
     const el = document.getElementById(id);
     if(el) el.style.transform = '';
   });
@@ -536,10 +542,10 @@ function navSetSubtab(tab){
   document.getElementById('navsub-'+tab)?.classList.add('active');
   const enInicio = ['facturas','testers','envios','control'].includes(tab);
   const enClientes = ['cpf','prov'].includes(tab);
-  ['nav-inicio-subs','nav-clientes-subs','nav-plan-subs','nav-visitas-subs','nav-kpis-subs','nav-documentos-subs','nav-reportes-subs','nav-config-subs'].forEach(id=>{
+  ['nav-inicio-subs','nav-clientes-subs','nav-plan-subs','nav-visitas-subs','nav-kpis-subs','nav-inventario-subs','nav-documentos-subs','nav-reportes-subs','nav-config-subs'].forEach(id=>{
     const el = document.getElementById(id); if(el) el.style.maxHeight='0px';
   });
-  ['nav-ventas-chevron','nav-clientes-chevron','nav-plan-chevron','nav-visitas-chevron','nav-kpis-chevron','nav-documentos-chevron','nav-reportes-chevron','nav-config-chevron'].forEach(id=>{
+  ['nav-ventas-chevron','nav-clientes-chevron','nav-plan-chevron','nav-visitas-chevron','nav-kpis-chevron','nav-inventario-chevron','nav-documentos-chevron','nav-reportes-chevron','nav-config-chevron'].forEach(id=>{
     const el = document.getElementById(id); if(el) el.style.transform='';
   });
   if(enInicio){
@@ -565,10 +571,10 @@ function navSetSubtab(tab){
 
 function navSetMod(mod){
   closeSidebar();
-  ['nav-inicio-subs','nav-clientes-subs','nav-plan-subs','nav-visitas-subs','nav-kpis-subs','nav-documentos-subs','nav-reportes-subs','nav-config-subs'].forEach(id=>{
+  ['nav-inicio-subs','nav-clientes-subs','nav-plan-subs','nav-visitas-subs','nav-kpis-subs','nav-inventario-subs','nav-documentos-subs','nav-reportes-subs','nav-config-subs'].forEach(id=>{
     const el = document.getElementById(id); if(el) el.style.maxHeight='0px';
   });
-  ['nav-ventas-chevron','nav-clientes-chevron','nav-plan-chevron','nav-visitas-chevron','nav-kpis-chevron','nav-documentos-chevron','nav-reportes-chevron','nav-config-chevron'].forEach(id=>{
+  ['nav-ventas-chevron','nav-clientes-chevron','nav-plan-chevron','nav-visitas-chevron','nav-kpis-chevron','nav-inventario-chevron','nav-documentos-chevron','nav-reportes-chevron','nav-config-chevron'].forEach(id=>{
     const el = document.getElementById(id); if(el) el.style.transform='';
   });
   if(mod === 'ventas'){
@@ -975,7 +981,9 @@ setInterval(actualizarBadgesSidebar, 30 * 1000);
 // ─── MÓDULO BODEGAS (stock POS y Casa — solo admin por ahora) ────────────────
 async function renderBodegas(){
   const main = document.getElementById('main');
-  if((window.usuarioActual||{}).rol !== 'admin'){
+  const uBod = window.usuarioActual || {};
+  const modsBod = uBod.modulos ? uBod.modulos.split(',') : [];
+  if(uBod.rol !== 'admin' && !modsBod.includes('inventario')){
     main.innerHTML = `<div class="coming"><i class="ti ti-lock"></i><p>Acceso restringido</p></div>`;
     return;
   }
@@ -990,7 +998,7 @@ async function renderBodegas(){
 
   main.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
-      <div style="font-size:16px;font-weight:600"><i class="ti ti-building-warehouse" style="margin-right:8px;color:var(--brown)"></i>Bodegas <span style="font-size:10px;background:#fef3c7;color:#92400e;border:1px solid #fde68a;border-radius:10px;padding:2px 8px;font-weight:600;vertical-align:middle">En pruebas — solo admin</span></div>
+      <div style="font-size:16px;font-weight:600"><i class="ti ti-building-warehouse" style="margin-right:8px;color:var(--brown)"></i>Bodegas</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button id="bod-bajo-btn" onclick="window._bodSoloBajo=!window._bodSoloBajo;pintarBodegas(document.getElementById('bod-buscar')?.value||'');this.style.background=window._bodSoloBajo?'#fef2f2':'white';this.style.color=window._bodSoloBajo?'#dc2626':'var(--text)';this.style.borderColor=window._bodSoloBajo?'#fca5a5':'var(--border)'" style="padding:9px 14px;background:${window._bodSoloBajo?'#fef2f2':'white'};color:${window._bodSoloBajo?'#dc2626':'var(--text)'};border:1px solid ${window._bodSoloBajo?'#fca5a5':'var(--border)'};border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-alert-triangle" style="margin-right:5px"></i>Stock bajo</button>
         <button onclick="window.open('/api/bodegas-excel?marca='+encodeURIComponent(window._bodMarcaSel||'TODAS'),'_blank')" style="padding:9px 14px;background:white;color:var(--text);border:1px solid var(--border);border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-download" style="margin-right:5px"></i>Descargar Excel</button>
@@ -1483,11 +1491,10 @@ async function renderInventario(){
           </button>`).join('')}
       </div>
       <div style="display:flex;align-items:center;gap:10px">
-        <input type="file" id="inv-file-input" accept=".xlsx" style="display:none" onchange="subirExcelInventario(event)">
-        <button onclick="document.getElementById('inv-file-input').click()" style="padding:7px 14px;font-size:12px;border-radius:8px;border:1px solid var(--border);background:white;cursor:pointer;display:flex;align-items:center;gap:6px">
-          <i class="ti ti-upload" style="font-size:14px"></i> Subir inventario (Excel)
-        </button>
         <span id="inv-upload-status" style="font-size:12px;color:var(--muted)"></span>
+        <button id="inv-actualizar-btn" onclick="actualizarProyeccionAhora()" style="padding:7px 14px;font-size:12px;border-radius:8px;border:none;background:var(--brown);color:white;cursor:pointer;display:flex;align-items:center;gap:6px;font-weight:500">
+          <i class="ti ti-refresh" style="font-size:14px"></i> Actualizar
+        </button>
       </div>
     </div>
     <div id="inventario-contenido">
@@ -1512,8 +1519,8 @@ function renderInventarioContenido(data, marca){
     cont.innerHTML = `
       <div style="text-align:center;padding:50px 20px;color:var(--muted)">
         <i class="ti ti-package-off" style="font-size:40px;opacity:0.4"></i>
-        <p style="margin-top:10px;font-size:14px">Todavía no se ha subido ningún inventario.</p>
-        <p style="font-size:12px">Usa el botón "Subir inventario (Excel)" arriba para cargar el reporte de saldos de Contifico.</p>
+        <p style="margin-top:10px;font-size:14px">Todavía no hay datos de stock.</p>
+        <p style="font-size:12px">Pulsa "Actualizar" arriba — el stock se lee directo de Contifico (Bodega POS + Bodega Casa), sin Excel.</p>
       </div>`;
     return;
   }
@@ -1647,26 +1654,32 @@ function recalcularColumnaFalta(meses){
   }
 }
 
-async function subirExcelInventario(event){
-  const file = event.target.files[0];
-  if(!file) return;
-  const statusEl = document.getElementById('inv-upload-status');
-  if(statusEl) statusEl.innerHTML = '<i class="ti ti-loader"></i> Subiendo...';
+async function actualizarProyeccionAhora(){
+  const status = document.getElementById('inv-upload-status');
+  const btn = document.getElementById('inv-actualizar-btn');
+  if(btn) btn.disabled = true;
   try{
-    const formData = new FormData();
-    formData.append('file', file);
-    const res = await fetch('/api/inventario/subir', { method:'POST', body: formData });
-    const data = await res.json();
-    if(data.ok){
-      if(statusEl) statusEl.innerHTML = `<span style="color:#085041">✓ ${data.productos_cargados} productos cargados (corte ${data.fecha_corte})</span>`;
-      renderInventario();
-    } else {
-      if(statusEl) statusEl.innerHTML = `<span style="color:#791F1F">Error: ${data.error}</span>`;
-    }
+    const r = await fetch('/api/bodegas/sync', { method:'POST' });
+    const j = await r.json();
+    if(!j.ok) throw new Error(j.error||'error');
+    if(status) status.innerHTML = '<i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i> Leyendo stock de Contifico...';
+    const poll = setInterval(async ()=>{
+      if(modActual !== 'inventario'){ clearInterval(poll); return; }
+      try{
+        const rr = await fetch('/api/bodegas-stock');
+        const dd = await rr.json();
+        if(dd.sync && dd.sync.enCurso){
+          if(status) status.innerHTML = '<i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i> '+(dd.sync.procesados||0)+' de '+(dd.sync.total||0)+' productos...';
+        } else {
+          clearInterval(poll);
+          renderInventario();
+        }
+      }catch(e){}
+    }, 4000);
   }catch(e){
-    if(statusEl) statusEl.innerHTML = `<span style="color:#791F1F">Error: ${e.message}</span>`;
+    if(status) status.innerHTML = '<span style="color:#dc2626">Error: '+e.message+'</span>';
+    if(btn) btn.disabled = false;
   }
-  event.target.value = '';
 }
 
 function descargarInventarioExcel(marca, fechaCorteFmt){
@@ -6844,8 +6857,6 @@ document.addEventListener('DOMContentLoaded', function() {
     if(navRep) navRep.style.display = 'flex';
     const navCfg = document.getElementById('nav-config');
     if(navCfg) navCfg.style.display = 'flex';
-    const navBod = document.getElementById('nav-bodegas');
-    if(navBod) navBod.style.display = 'flex';
     const btnBackup = document.getElementById('btn-backup');
     if(btnBackup){ btnBackup.style.display = 'flex'; actualizarEstadoBotonBackup(); }
   }
@@ -7182,6 +7193,19 @@ function navGoInstitutosCli(){
     if(subs) subs.style.maxHeight = '300px';
     if(chev) chev.style.transform = 'rotate(90deg)';
     document.getElementById('nav-clientes')?.classList.add('active');
+  }, 30);
+}
+
+function navGoInventario(tab){
+  navSetMod(tab === 'bodegas' ? 'bodegas' : 'inventario');
+  setTimeout(()=>{
+    document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
+    document.getElementById('navsub-inv-'+(tab==='bodegas'?'bodegas':'proyeccion'))?.classList.add('active');
+    const subs = document.getElementById('nav-inventario-subs');
+    const chev = document.getElementById('nav-inventario-chevron');
+    if(subs) subs.style.maxHeight = '300px';
+    if(chev) chev.style.transform = 'rotate(90deg)';
+    document.getElementById('nav-inventario')?.classList.add('active');
   }, 30);
 }
 
