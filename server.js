@@ -1984,6 +1984,11 @@ async function initDB() {
         actualizado_at TIMESTAMP DEFAULT NOW(),
         UNIQUE(producto_id, bodega)
       );
+      CREATE TABLE IF NOT EXISTS stock_minimos (
+        producto_id VARCHAR(30) PRIMARY KEY,
+        minimo NUMERIC(13,2) DEFAULT 0,
+        actualizado_at TIMESTAMP DEFAULT NOW()
+      );
       CREATE TABLE IF NOT EXISTS clientes_reasignados (
         id SERIAL PRIMARY KEY,
         cliente_ruc VARCHAR(50) NOT NULL,
@@ -4207,10 +4212,30 @@ const server = http.createServer(async (req, res) => {
         else if (/casa/i.test(row.bodega)) p.casa = parseFloat(row.cantidad);
       });
       const productosFiltrados = filtrarProductosBodega(Object.values(porProducto));
+      // Adjuntar el mínimo configurado por producto
+      const rm = await pool.query('SELECT producto_id, minimo FROM stock_minimos');
+      const minimos = {};
+      rm.rows.forEach(x => { minimos[x.producto_id] = parseFloat(x.minimo) || 0; });
+      productosFiltrados.forEach(pr => { pr.minimo = minimos[pr.producto_id] || 0; });
       const ultima = await getConfigApp('bodegas_ultima_sync', null);
       res.writeHead(200,{'Content-Type':'application/json'});
       res.end(JSON.stringify({ productos: productosFiltrados, ultima_sync: ultima, sync: BODEGAS_SYNC }));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+  // PUT /api/bodegas/minimo → guardar el mínimo de un producto
+  if (urlPath === '/api/bodegas/minimo' && req.method === 'PUT') {
+    try {
+      const { producto_id, minimo } = await bodyJSON(req);
+      if (!producto_id) { res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'Falta producto_id'})); return; }
+      const m = Math.max(0, parseFloat(minimo) || 0);
+      await pool.query(
+        `INSERT INTO stock_minimos(producto_id, minimo, actualizado_at) VALUES($1,$2,NOW())
+         ON CONFLICT (producto_id) DO UPDATE SET minimo=$2, actualizado_at=NOW()`,
+        [String(producto_id).substring(0,29), m]
+      );
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, minimo:m}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
   }
   // POST /api/bodegas/sync → dispara la sincronización en segundo plano
@@ -4243,10 +4268,13 @@ const server = http.createServer(async (req, res) => {
       if (marcaSel !== 'TODAS') {
         lista = lista.filter(pr => String(pr.marca||'').toUpperCase() === marcaSel || String(pr.marca||'').toUpperCase().replace(/\s+/g,'') === marcaSel.replace(/\s+/g,''));
       }
-      const filas = [['Código','Producto','Marca','Bodega POS','Bodega Casa']];
-      lista.forEach(pr => filas.push([pr.codigo||'', pr.nombre||'', pr.marca||'', pr.pos!=null?pr.pos:'', pr.casa!=null?pr.casa:'']));
+      const rmx = await pool.query('SELECT producto_id, minimo FROM stock_minimos');
+      const minimosX = {};
+      rmx.rows.forEach(x => { minimosX[x.producto_id] = parseFloat(x.minimo) || 0; });
+      const filas = [['Código','Producto','Marca','Mínimo','Bodega POS','Bodega Casa']];
+      lista.forEach(pr => filas.push([pr.codigo||'', pr.nombre||'', pr.marca||'', minimosX[pr.producto_id]||'', pr.pos!=null?pr.pos:'', pr.casa!=null?pr.casa:'']));
       const ws = XLSX.utils.aoa_to_sheet(filas);
-      ws['!cols'] = [{wch:12},{wch:55},{wch:14},{wch:12},{wch:12}];
+      ws['!cols'] = [{wch:12},{wch:55},{wch:14},{wch:10},{wch:12},{wch:12}];
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Stock');
       const buf = XLSX.write(wb, { type:'buffer', bookType:'xlsx' });
