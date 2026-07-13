@@ -4191,9 +4191,20 @@ const server = http.createServer(async (req, res) => {
         if (/pos/i.test(row.bodega)) p.pos = parseFloat(row.cantidad);
         else if (/casa/i.test(row.bodega)) p.casa = parseFloat(row.cantidad);
       });
+      // Solo las 4 marcas propias; en ZIAJA se excluyen las promos y en
+      // ZIAJA PRO el kit básico (armados, no productos individuales)
+      const MARCAS_BODEGA = ['BIOSKIN','ERAYBA','ZIAJA','ZIAJAPRO'];
+      const productosFiltrados = Object.values(porProducto).filter(pr => {
+        const marcaN = String(pr.marca||'').toUpperCase().replace(/\s+/g,'');
+        if (!MARCAS_BODEGA.includes(marcaN)) return false;
+        const nombreN = String(pr.nombre||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
+        if (marcaN === 'ZIAJA' && nombreN.includes('PROMO')) return false;
+        if (marcaN === 'ZIAJAPRO' && nombreN.includes('KIT BASICO')) return false;
+        return true;
+      });
       const ultima = await getConfigApp('bodegas_ultima_sync', null);
       res.writeHead(200,{'Content-Type':'application/json'});
-      res.end(JSON.stringify({ productos: Object.values(porProducto), ultima_sync: ultima, sync: BODEGAS_SYNC }));
+      res.end(JSON.stringify({ productos: productosFiltrados, ultima_sync: ultima, sync: BODEGAS_SYNC }));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
     return;
   }
