@@ -955,6 +955,21 @@ async function sincronizarInstitutos(){
 // ─── BODEGAS: stock por producto de Bodega POS y Bodega Casa ────────────────
 let BODEGAS_SYNC = { enCurso: false, procesados: 0, total: 0 };
 
+// Solo las 4 marcas propias, sin combos/armados: se excluyen las "Promo ...",
+// las "Línea ..." (líneas completas = combos) y el Kit Básico de Ziaja Pro
+function filtrarProductosBodega(lista){
+  const MARCAS_BODEGA = ['BIOSKIN','ERAYBA','ZIAJA','ZIAJAPRO'];
+  return lista.filter(pr => {
+    const marcaN = String(pr.marca||'').toUpperCase().replace(/\s+/g,'');
+    if (!MARCAS_BODEGA.includes(marcaN)) return false;
+    const nombreN = String(pr.nombre||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase().trim();
+    if (nombreN.includes('PROMO')) return false;       // Promo Kit / Promo Línea Completa (todas las marcas)
+    if (nombreN.startsWith('LINEA ')) return false;    // Línea Acai Berry, Línea Completa Curls, etc. (combos)
+    if (nombreN.includes('KIT BASICO')) return false;  // Kit Básico Ziaja Pro
+    return true;
+  });
+}
+
 async function sincronizarBodegas(){
   if (BODEGAS_SYNC.enCurso) return { ok:false, error:'Sincronización ya en curso' };
   if (!API_KEY) return { ok:false, error:'CONTIFICO_API_KEY no configurada' };
@@ -4191,17 +4206,7 @@ const server = http.createServer(async (req, res) => {
         if (/pos/i.test(row.bodega)) p.pos = parseFloat(row.cantidad);
         else if (/casa/i.test(row.bodega)) p.casa = parseFloat(row.cantidad);
       });
-      // Solo las 4 marcas propias; en ZIAJA se excluyen las promos y en
-      // ZIAJA PRO el kit básico (armados, no productos individuales)
-      const MARCAS_BODEGA = ['BIOSKIN','ERAYBA','ZIAJA','ZIAJAPRO'];
-      const productosFiltrados = Object.values(porProducto).filter(pr => {
-        const marcaN = String(pr.marca||'').toUpperCase().replace(/\s+/g,'');
-        if (!MARCAS_BODEGA.includes(marcaN)) return false;
-        const nombreN = String(pr.nombre||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
-        if (marcaN === 'ZIAJA' && nombreN.includes('PROMO')) return false;
-        if (marcaN === 'ZIAJAPRO' && nombreN.includes('KIT BASICO')) return false;
-        return true;
-      });
+      const productosFiltrados = filtrarProductosBodega(Object.values(porProducto));
       const ultima = await getConfigApp('bodegas_ultima_sync', null);
       res.writeHead(200,{'Content-Type':'application/json'});
       res.end(JSON.stringify({ productos: productosFiltrados, ultima_sync: ultima, sync: BODEGAS_SYNC }));
@@ -4217,6 +4222,42 @@ const server = http.createServer(async (req, res) => {
       sincronizarBodegas().catch(e => console.error('Error sync bodegas manual:', e.message));
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, iniciado:true}));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
+  // GET /api/bodegas-excel?marca=TODAS|BIOSKIN|... → Excel del stock (solo cantidades)
+  if (urlPath === '/api/bodegas-excel' && req.method === 'GET') {
+    try {
+      const marcaSel = (urlObj.searchParams.get('marca') || 'TODAS').toUpperCase();
+      const r = await pool.query('SELECT producto_id, codigo, nombre, marca, bodega, cantidad FROM stock_bodegas ORDER BY marca, nombre');
+      const porProducto = {};
+      r.rows.forEach(row => {
+        if (!porProducto[row.producto_id]) porProducto[row.producto_id] = {
+          producto_id: row.producto_id, codigo: row.codigo, nombre: row.nombre, marca: row.marca, pos: null, casa: null
+        };
+        const pr = porProducto[row.producto_id];
+        if (/pos/i.test(row.bodega)) pr.pos = parseFloat(row.cantidad);
+        else if (/casa/i.test(row.bodega)) pr.casa = parseFloat(row.cantidad);
+      });
+      let lista = filtrarProductosBodega(Object.values(porProducto));
+      if (marcaSel !== 'TODAS') {
+        lista = lista.filter(pr => String(pr.marca||'').toUpperCase() === marcaSel || String(pr.marca||'').toUpperCase().replace(/\s+/g,'') === marcaSel.replace(/\s+/g,''));
+      }
+      const filas = [['Código','Producto','Marca','Bodega POS','Bodega Casa']];
+      lista.forEach(pr => filas.push([pr.codigo||'', pr.nombre||'', pr.marca||'', pr.pos!=null?pr.pos:'', pr.casa!=null?pr.casa:'']));
+      const ws = XLSX.utils.aoa_to_sheet(filas);
+      ws['!cols'] = [{wch:12},{wch:55},{wch:14},{wch:12},{wch:12}];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Stock');
+      const buf = XLSX.write(wb, { type:'buffer', bookType:'xlsx' });
+      const nombreArchivo = 'STOCK_BODEGAS' + (marcaSel!=='TODAS' ? '_'+marcaSel.replace(/[^A-Z0-9]/g,'_') : '') + '.xlsx';
+      res.writeHead(200,{
+        'Content-Type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition':'attachment; filename="'+nombreArchivo+'"',
+        'Cache-Control':'no-cache'
+      });
+      res.end(buf);
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
     return;
   }
 
