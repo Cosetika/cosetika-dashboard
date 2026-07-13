@@ -174,7 +174,7 @@
     <div class="nav-item active" id="nav-ventas" onclick="navToggleGroup('nav-inicio-subs','nav-ventas-chevron','ventas')">
       <i class="ti ti-home"></i>Inicio
       <span id="badge-pedidos-inicio" style="display:none;margin-left:auto;background:#ef4444;color:white;border-radius:10px;font-size:9px;padding:1px 6px;font-weight:700;line-height:1.5">0</span>
-      <i class="ti ti-chevron-down" id="nav-ventas-chevron" style="margin-left:auto;font-size:12px;transition:transform 0.2s;transform:rotate(180deg)"></i>
+      <i class="ti ti-chevron-right" id="nav-ventas-chevron" style="margin-left:auto;font-size:12px;transition:transform 0.2s;transform:rotate(90deg)"></i>
     </div>
     <div id="nav-inicio-subs" style="max-height:300px;overflow:hidden;transition:max-height 0.25s ease">
       <div class="nav-sub-item active" id="navsub-pedidos" onclick="navSetDocTab('pedidos')"><i class="ti ti-shopping-cart" style="font-size:13px"></i>Pedidos<span id="badge-pedidos" style="display:none;margin-left:auto;background:#ef4444;color:white;border-radius:10px;font-size:9px;padding:1px 6px;font-weight:700;line-height:1.5">0</span></div>
@@ -483,7 +483,7 @@ function navToggleGroup(subsId, chevId, mod){
   // Si estaba cerrado, abrir este
   if(!isOpen){
     subs.style.maxHeight = '300px';
-    if(chev) chev.style.transform = 'rotate(180deg)';
+    if(chev) chev.style.transform = 'rotate(90deg)';
   }
   // Navegar al módulo si aplica
   if(mod === 'ventas' && modActual !== 'ventas') setMod('ventas');
@@ -506,7 +506,7 @@ function navSetDocTab(tab){
   const subs = document.getElementById('nav-inicio-subs');
   const chev = document.getElementById('nav-ventas-chevron');
   if(subs) subs.style.maxHeight = '300px';
-  if(chev) chev.style.transform = 'rotate(180deg)';
+  if(chev) chev.style.transform = 'rotate(90deg)';
   document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
   document.getElementById('navsub-'+tab)?.classList.add('active');
   window._docTab = tab;
@@ -542,10 +542,10 @@ function navSetSubtab(tab){
   });
   if(enInicio){
     document.getElementById('nav-inicio-subs').style.maxHeight='300px';
-    document.getElementById('nav-ventas-chevron').style.transform='rotate(180deg)';
+    document.getElementById('nav-ventas-chevron').style.transform='rotate(90deg)';
   } else if(enClientes){
     document.getElementById('nav-clientes-subs').style.maxHeight='300px';
-    document.getElementById('nav-clientes-chevron').style.transform='rotate(180deg)';
+    document.getElementById('nav-clientes-chevron').style.transform='rotate(90deg)';
   }
   if(modActual !== 'ventas'){
     document.querySelectorAll('.nav-item').forEach(m=>m.classList.remove('active'));
@@ -573,7 +573,7 @@ function navSetMod(mod){
     const subs = document.getElementById('nav-inicio-subs');
     const chev = document.getElementById('nav-ventas-chevron');
     if(subs) subs.style.maxHeight = '300px';
-    if(chev) chev.style.transform = 'rotate(180deg)';
+    if(chev) chev.style.transform = 'rotate(90deg)';
   }
   setMod(mod);
 }
@@ -1543,7 +1543,7 @@ function navGoCapacitaciones(){
   const subs = document.getElementById('nav-plan-subs');
   const chev = document.getElementById('nav-plan-chevron');
   if(subs) subs.style.maxHeight = '200px';
-  if(chev) chev.style.transform = 'rotate(180deg)';
+  if(chev) chev.style.transform = 'rotate(90deg)';
   if(modActual !== 'capacitaciones') { modActual='capacitaciones'; document.getElementById('mobile-mod-title').textContent='Capacitaciones'; }
   document.getElementById('sidebar')?.classList.add('hidden');
   document.getElementById('body')?.classList.add('full-width');
@@ -1795,7 +1795,7 @@ function navGoPlan(modulo){
   const subs = document.getElementById('nav-plan-subs');
   const chev = document.getElementById('nav-plan-chevron');
   if(subs) subs.style.maxHeight = '200px';
-  if(chev) chev.style.transform = 'rotate(180deg)';
+  if(chev) chev.style.transform = 'rotate(90deg)';
   modActual = modulo;
   document.getElementById('mobile-mod-title').textContent = {giras:'Visitas a Provincias',casas_abiertas:'Casas Abiertas',institutos:'Institutos'}[modulo]||modulo;
   document.getElementById('sidebar')?.classList.add('hidden');
@@ -2108,7 +2108,7 @@ function navGoConfig(tab){
   const subs = document.getElementById('nav-config-subs');
   const chev = document.getElementById('nav-config-chevron');
   if(subs) subs.style.maxHeight = '200px';
-  if(chev) chev.style.transform = 'rotate(180deg)';
+  if(chev) chev.style.transform = 'rotate(90deg)';
   document.getElementById('mobile-mod-title').textContent = {credenciales:'Credenciales', permisos:'Permisos', equipos:'Equipos', sync:'Sincronización'}[tab] || 'Configuración';
   if(modActual !== 'config'){
     modActual = 'config';
@@ -2690,7 +2690,7 @@ function initVendedoras(){
   const subs = document.getElementById('nav-inicio-subs');
   const chev = document.getElementById('nav-ventas-chevron');
   if(subs) subs.style.maxHeight = '300px';
-  if(chev) chev.style.transform = 'rotate(180deg)';
+  if(chev) chev.style.transform = 'rotate(90deg)';
   window._docTab = 'pedidos';
   document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
   document.getElementById('navsub-pedidos')?.classList.add('active');
@@ -4756,17 +4756,21 @@ function renderVentasPanel(){
           <div style="height:6px;background:#f0ede9;border-radius:3px;overflow:hidden;margin-left:62px">
             <div style="height:100%;border-radius:3px;background:${getVendColor(v.nombre)};width:${pct(v.total,maxVend)}%;transition:width 0.4s"></div>
           </div>
-          <div id="vend-mensual-${vi}" style="display:none;margin:8px 0 4px 62px;padding:10px 12px;background:#faf9f8;border-radius:8px;border:1px solid var(--border)">
-            <div style="font-size:10px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">Ventas mensuales ${ventasFiltroAnio} (sin IVA)</div>
-            ${mesesV.map((val,mi)=>`
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
-              <span style="width:28px;font-size:10px;color:var(--muted);flex-shrink:0">${MESES_CORTO[mi+1]}</span>
-              <div style="flex:1;height:8px;background:#f0ede9;border-radius:4px;overflow:hidden">
-                <div style="height:100%;width:${Math.round(val/maxMesV*100)}%;background:${getVendColor(v.nombre)};border-radius:4px"></div>
-              </div>
-              <span style="width:74px;text-align:right;font-size:10px;color:${val>0?'var(--text)':'#ccc'};font-weight:600;flex-shrink:0">${val>0?fmt(val/1.15):'—'}</span>
-            </div>`).join('')}
-          </div>
+          <div id="vend-mensual-${vi}" style="display:none;margin:8px 0 4px 62px;padding:12px 14px;background:#faf9f8;border-radius:8px;border:1px solid var(--border)">
+            <div style="font-size:11px;font-weight:600;margin-bottom:12px">Ventas por mes — ${ventasFiltroAnio} <span style="color:var(--muted);font-weight:400;font-size:10px">(sin IVA)</span></div>
+            <div style="display:flex;align-items:flex-end;gap:4px;height:120px;overflow-x:auto">
+              ${mesesV.slice(0, ventasFiltroAnio===new Date().getFullYear() ? new Date().getMonth()+1 : 12).map((val,mi)=>{
+                const PASTEL = ['#93c5fd','#c4b5fd','#fdba74','#5eead4','#fda4af','#bef264','#a5b4fc','#f9a8d4','#fcd34d','#6ee7b7','#fca5a5','#7dd3fc'];
+                const sinIva = val/1.15;
+                const hpx = val>0 ? Math.max(Math.round(val/maxMesV*68), 6) : 0;
+                const lbl = val>0 ? (sinIva>=1000 ? '$'+(sinIva/1000).toFixed(1)+'K' : '$'+Math.round(sinIva)) : '';
+                return `<div style="flex:1;min-width:34px;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%">
+                  <span style="font-size:10px;font-weight:700;color:var(--text);margin-bottom:3px;white-space:nowrap">${lbl}</span>
+                  <div style="width:60%;max-width:26px;height:${hpx}px;background:${PASTEL[mi]};border-radius:4px 4px 2px 2px"></div>
+                  <span style="font-size:9px;font-weight:600;color:${val>0?PASTEL[mi]:'#ccc'};margin-top:5px">${MESES_CORTO[mi+1]}</span>
+                </div>`;
+              }).join('')}
+            </div></div>
         </div>
       `;}).join('')}
     </div>
@@ -6771,7 +6775,7 @@ function navGoReferidos(){
     const subs = document.getElementById('nav-clientes-subs');
     const chev = document.getElementById('nav-clientes-chevron');
     if(subs) subs.style.maxHeight = '300px';
-    if(chev) chev.style.transform = 'rotate(180deg)';
+    if(chev) chev.style.transform = 'rotate(90deg)';
     document.getElementById('nav-clientes')?.classList.add('active');
   }, 30);
 }
@@ -6784,7 +6788,7 @@ function navGoDocumentos(tab){
     const subs = document.getElementById('nav-documentos-subs');
     const chev = document.getElementById('nav-documentos-chevron');
     if(subs) subs.style.maxHeight = '300px';
-    if(chev) chev.style.transform = 'rotate(180deg)';
+    if(chev) chev.style.transform = 'rotate(90deg)';
     document.getElementById('nav-documentos')?.classList.add('active');
   }, 30);
 }
