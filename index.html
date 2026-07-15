@@ -1272,9 +1272,9 @@ function pintarLotes(filtro){
                 <th style="text-align:left;padding:4px 8px;font-size:9px;color:var(--muted);text-transform:uppercase">Lote</th>
                 <th style="text-align:left;padding:4px 8px;font-size:9px;color:var(--muted);text-transform:uppercase">Caduca</th>
                 <th style="text-align:center;padding:4px 8px;font-size:9px;color:var(--muted);text-transform:uppercase">Ingresado</th>
-                <th style="text-align:center;padding:4px 8px;font-size:9px;color:var(--muted);text-transform:uppercase">Restante</th>
-                <th style="text-align:center;padding:4px 8px;font-size:9px;color:var(--muted);text-transform:uppercase">Meses p/ agotar</th>
+                <th style="text-align:center;padding:4px 8px;font-size:9px;color:var(--muted);text-transform:uppercase">Inventario en meses</th>
                 <th style="text-align:center;padding:4px 8px;font-size:9px;color:var(--muted);text-transform:uppercase">Límite de venta</th>
+                <th style="text-align:center;padding:4px 8px;font-size:9px;color:var(--muted);text-transform:uppercase">Meses disponibles para la venta</th>
                 ${(window.usuarioActual||{}).rol==='admin'?'<th style="width:60px"></th>':''}
               </tr></thead>
               <tbody>${lts.map(l=>{
@@ -1283,9 +1283,9 @@ function pintarLotes(filtro){
                   <td style="padding:4px 8px;font-family:monospace;font-weight:600">${esc(l.lote)}</td>
                   <td style="padding:4px 8px;color:${c};font-weight:600">${fmtF(l.caduca)}</td>
                   <td style="padding:4px 8px;text-align:center;color:var(--muted)">${l.cantidad}</td>
-                  <td style="padding:4px 8px;text-align:center;font-weight:700">${l.restante}</td>
-                  <td style="padding:4px 8px;text-align:center">${l.restante>0?(l.meses_agotar>=99?'∞':l.meses_agotar+' m'):'—'}</td>
-                  <td style="padding:4px 8px;text-align:center">${l.meses_caducidad<0?'<span style=\"color:#7f1d1d;font-weight:700\">caducado</span>':(fmtF(l.limite_venta)+' <span style=\"font-size:9px;color:'+(l.meses_limite<0?'#dc2626':'var(--muted)')+'\">('+(l.meses_limite>=0?'en '+l.meses_limite+' m':'pasó hace '+Math.abs(l.meses_limite)+' m')+')</span>')}</td>
+                  <td style="padding:4px 8px;text-align:center;font-weight:700">${l.restante>0?(l.meses_agotar>=99?'∞':l.meses_agotar+' m'):'—'}</td>
+                  <td style="padding:4px 8px;text-align:center;font-weight:600">${l.meses_caducidad<0?'<span style=\"color:#7f1d1d;font-weight:700\">caducado</span>':fmtF(l.limite_venta)}</td>
+                  <td style="padding:4px 8px;text-align:center;color:${l.meses_limite<0?'#dc2626':'var(--text)'};font-weight:700">${l.meses_limite>=0?l.meses_limite+' m':'pasó hace '+Math.abs(l.meses_limite)+' m'}</td>
                   ${(window.usuarioActual||{}).rol==='admin'?`<td style="padding:4px 6px;text-align:center;white-space:nowrap"><button onclick="editarLote(${l.id},'${p.producto_id}','${String(p.nombre||'').replace(/['\"<>]/g,'')}','${String(p.marca||'').replace(/['\"<>]/g,'')}','${String(l.lote).replace(/['\"<>]/g,'')}','${l.caduca}',${l.cantidad})" title="Editar" style="width:22px;height:22px;border:1px solid var(--border);background:white;border-radius:5px;cursor:pointer;margin-right:4px"><i class="ti ti-pencil" style="font-size:9px;color:var(--muted)"></i></button><button onclick="borrarLote(${l.id})" title="Eliminar" style="width:22px;height:22px;border:1px solid #fca5a5;background:#fef2f2;border-radius:5px;cursor:pointer"><i class="ti ti-trash" style="font-size:9px;color:#ef4444"></i></button></td>`:''}
                 </tr>`;}).join('')}</tbody>
             </table>`}
