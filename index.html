@@ -1201,66 +1201,106 @@ function pintarLotes(filtro){
   const data = window._lotesData || { productos:[] };
   const q = (filtro||'').toUpperCase().trim();
   const marcaSel = window._lotMarcaSel || 'TODAS';
-  const enRiesgo = p => p.lotes.some(l=>['rojo','caducado','amarillo'].includes(l.estado));
+  const enRiesgo = p => (p.lotes||[]).some(l=>['rojo','caducado','amarillo'].includes(l.estado));
   let productos = (data.productos||[]).filter(p =>
     (marcaSel==='TODAS' || String(p.marca||'').toUpperCase().replace(/\s+/g,'')===marcaSel.replace(/\s+/g,'')) &&
-    (!q || String(p.nombre||'').toUpperCase().includes(q) || String(p.codigo||'').toUpperCase().includes(q) || p.lotes.some(l=>String(l.lote).toUpperCase().includes(q)))
+    (!q || String(p.nombre||'').toUpperCase().includes(q) || String(p.codigo||'').toUpperCase().includes(q) || (p.lotes||[]).some(l=>String(l.lote).toUpperCase().includes(q)))
   );
   if(window._lotSoloRiesgo) productos = productos.filter(enRiesgo);
   if(productos.length === 0){
     cont.innerHTML = `<div class="card" style="text-align:center;padding:40px 20px;color:var(--muted)">
       <i class="ti ti-calendar-check" style="font-size:36px;opacity:0.35"></i>
-      <p style="margin-top:10px;font-size:14px">${(data.productos||[]).length===0?'No hay lotes registrados aún — agrega el primero':'Sin resultados'}</p>
+      <p style="margin-top:10px;font-size:14px">Sin resultados</p>
     </div>`;
     return;
   }
   const esc = v => String(v||'').replace(/</g,'&lt;');
-  const fmtF = f => { const p=String(f||'').substring(0,10).split('-'); const M=['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']; return parseInt(p[2])+' '+M[parseInt(p[1])]+' '+p[0]; };
-  const CHIP = {
-    caducado:{bg:'#7f1d1d',fg:'white',txt:'CADUCADO'},
-    rojo:{bg:'#fef2f2',fg:'#dc2626',txt:'No alcanza'},
-    amarillo:{bg:'#fffbeb',fg:'#d97706',txt:'Justo'},
-    verde:{bg:'#f0fdf4',fg:'#16a34a',txt:'OK'},
-    agotado:{bg:'#f5f5f5',fg:'#9ca3af',txt:'Agotado'}
+  const fmtF = f => { const p=String(f||'').substring(0,10).split('-'); const M=['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']; return parseInt(p[2])+' '+M[parseInt(p[1])]+' '+String(p[0]).substring(2); };
+  const COLOR = { caducado:'#7f1d1d', rojo:'#dc2626', amarillo:'#d97706', verde:'#16a34a', agotado:'#9ca3af' };
+  const celdaLote = l => {
+    if(!l) return '<span style="color:#ddd">—</span>';
+    const c = COLOR[l.estado] || '#16a34a';
+    return `<div style="line-height:1.35">
+      <div style="font-family:monospace;font-weight:700;font-size:11px">${esc(l.lote)}</div>
+      <div style="font-size:10px;color:${c};font-weight:600">${fmtF(l.caduca)}${l.estado==='caducado'?' ⚠':''} · ${l.restante} uds</div>
+    </div>`;
   };
-  const esAdmin = (window.usuarioActual||{}).rol === 'admin';
-  cont.innerHTML = productos.map(p=>`
-    <div class="card" style="margin-bottom:10px">
-      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px">
-        <div>
-          <div style="font-size:13px;font-weight:600">${esc(p.nombre)}</div>
-          <div style="font-size:11px;color:var(--muted)">${esc(p.marca)}${p.codigo?' · '+esc(p.codigo):''} · stock actual: <b>${p.stock}</b> · rotación: <b>${p.rotacion}</b>/mes${p.sin_lote>0?' · <span style="color:#d97706">'+p.sin_lote+' uds sin lote registrado</span>':''}</div>
-        </div>
-      </div>
-      <div style="overflow-x:auto">
-        <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:560px">
-          <thead><tr style="border-bottom:1px solid var(--border)">
-            <th style="text-align:left;padding:6px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Lote</th>
-            <th style="text-align:left;padding:6px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Caduca</th>
-            <th style="text-align:center;padding:6px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Ingresado</th>
-            <th style="text-align:center;padding:6px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Restante</th>
-            <th style="text-align:center;padding:6px 10px;font-size:10px;color:var(--muted);text-transform:uppercase;white-space:nowrap">Meses p/ agotar</th>
-            <th style="text-align:center;padding:6px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Estado</th>
-            ${esAdmin?'<th style="width:34px"></th>':''}
-          </tr></thead>
-          <tbody>
-            ${p.lotes.map(l=>{
-              const c = CHIP[l.estado]||CHIP.verde;
-              return `<tr style="border-bottom:0.5px solid var(--border);${l.estado==='agotado'?'opacity:0.55':''}">
-                <td style="padding:7px 10px;font-family:monospace;font-weight:600">${esc(l.lote)}</td>
-                <td style="padding:7px 10px;white-space:nowrap">${fmtF(l.caduca)} <span style="font-size:10px;color:var(--muted)">(${l.meses_caducidad>=0?l.meses_caducidad+' m':'hace '+Math.abs(l.meses_caducidad)+' m'})</span></td>
-                <td style="padding:7px 10px;text-align:center;color:var(--muted)">${l.cantidad}</td>
-                <td style="padding:7px 10px;text-align:center;font-weight:700">${l.restante}</td>
-                <td style="padding:7px 10px;text-align:center">${l.restante>0?(l.meses_agotar>=99?'∞':l.meses_agotar):'—'}</td>
-                <td style="padding:7px 10px;text-align:center"><span style="font-size:10px;padding:2px 10px;border-radius:10px;background:${c.bg};color:${c.fg};font-weight:700">${c.txt}</span></td>
-                ${esAdmin?`<td style="padding:7px 6px;text-align:center"><button onclick="borrarLote(${l.id})" title="Eliminar" style="width:24px;height:24px;border:1px solid #fca5a5;background:#fef2f2;border-radius:6px;cursor:pointer"><i class="ti ti-trash" style="font-size:10px;color:#ef4444"></i></button></td>`:''}
-              </tr>`;
-            }).join('')}
-          </tbody>
-        </table>
-      </div>
-    </div>`).join('')
-    + `<div style="font-size:11px;color:var(--muted);margin-top:4px">La baja es automática (FIFO): el stock actual de Bodegas se asigna primero a los lotes más nuevos — lo restante es lo que queda del lote más antiguo. "Meses p/ agotar" usa la rotación de Proyección.</div>`;
+  cont.innerHTML = `
+  <div class="card" style="padding:0;overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:760px">
+      <thead>
+        <tr style="border-bottom:1px solid var(--border)">
+          <th style="text-align:left;padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Producto</th>
+          <th style="text-align:center;padding:10px 10px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Stock</th>
+          <th style="text-align:left;padding:10px 10px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Lote 1 (sale primero)</th>
+          <th style="text-align:left;padding:10px 10px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Lote 2</th>
+          <th style="text-align:left;padding:10px 10px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Lote 3</th>
+          <th style="width:90px"></th>
+        </tr>
+      </thead>
+      <tbody>
+        ${productos.map(p=>{
+          const lts = p.lotes || [];
+          const extra = lts.length > 3 ? lts.length - 3 : 0;
+          const riesgoFila = enRiesgo(p);
+          return `
+        <tr style="border-bottom:0.5px solid var(--border);background:${riesgoFila?'#fef8f8':'white'}" ${lts.length?`onclick="toggleDetalleLotes('${p.producto_id}')"`:''}>
+          <td style="padding:9px 14px;${lts.length?'cursor:pointer;':''}">
+            <div style="font-weight:500">${esc(p.nombre)}</div>
+            <div style="font-size:10px;color:var(--muted)">${esc(p.marca)}${p.codigo?' · <span style="font-family:monospace">'+esc(p.codigo)+'</span>':''}${p.sin_lote>0?' · <span style="color:#d97706">'+p.sin_lote+' uds sin lote</span>':''}</div>
+          </td>
+          <td style="padding:9px 10px;text-align:center;font-weight:700">${p.stock}</td>
+          <td style="padding:9px 10px">${celdaLote(lts[0])}</td>
+          <td style="padding:9px 10px">${celdaLote(lts[1])}</td>
+          <td style="padding:9px 10px">${celdaLote(lts[2])}${extra?'<div style="font-size:9px;color:var(--muted);margin-top:2px">+'+extra+' más</div>':''}</td>
+          <td style="padding:9px 10px;text-align:center">
+            <button onclick="event.stopPropagation();abrirFormLotePara('${p.producto_id}','${String(p.nombre||'').replace(/['\"<>]/g,'')}','${String(p.marca||'').replace(/['\"<>]/g,'')}')" style="padding:5px 10px;font-size:11px;border:1px solid var(--border);background:white;border-radius:6px;cursor:pointer;white-space:nowrap;font-weight:500"><i class="ti ti-plus" style="font-size:10px"></i> Lote</button>
+          </td>
+        </tr>
+        <tr id="lote-det-${p.producto_id}" style="display:none;background:#faf9f8">
+          <td colspan="6" style="padding:8px 14px">
+            ${lts.length===0?'<span style="font-size:11px;color:var(--muted)">Sin lotes registrados</span>':`
+            <table style="width:100%;border-collapse:collapse;font-size:11px">
+              <thead><tr>
+                <th style="text-align:left;padding:4px 8px;font-size:9px;color:var(--muted);text-transform:uppercase">Lote</th>
+                <th style="text-align:left;padding:4px 8px;font-size:9px;color:var(--muted);text-transform:uppercase">Caduca</th>
+                <th style="text-align:center;padding:4px 8px;font-size:9px;color:var(--muted);text-transform:uppercase">Ingresado</th>
+                <th style="text-align:center;padding:4px 8px;font-size:9px;color:var(--muted);text-transform:uppercase">Restante</th>
+                <th style="text-align:center;padding:4px 8px;font-size:9px;color:var(--muted);text-transform:uppercase">Meses p/ agotar</th>
+                <th style="text-align:center;padding:4px 8px;font-size:9px;color:var(--muted);text-transform:uppercase">Caduca en</th>
+                ${(window.usuarioActual||{}).rol==='admin'?'<th style="width:30px"></th>':''}
+              </tr></thead>
+              <tbody>${lts.map(l=>{
+                const c = COLOR[l.estado]||'#16a34a';
+                return `<tr>
+                  <td style="padding:4px 8px;font-family:monospace;font-weight:600">${esc(l.lote)}</td>
+                  <td style="padding:4px 8px;color:${c};font-weight:600">${fmtF(l.caduca)}</td>
+                  <td style="padding:4px 8px;text-align:center;color:var(--muted)">${l.cantidad}</td>
+                  <td style="padding:4px 8px;text-align:center;font-weight:700">${l.restante}</td>
+                  <td style="padding:4px 8px;text-align:center">${l.restante>0?(l.meses_agotar>=99?'∞':l.meses_agotar+' m'):'—'}</td>
+                  <td style="padding:4px 8px;text-align:center">${l.meses_caducidad>=0?l.meses_caducidad+' m':'<span style=\"color:#7f1d1d;font-weight:700\">caducado</span>'}</td>
+                  ${(window.usuarioActual||{}).rol==='admin'?`<td style="padding:4px 6px;text-align:center"><button onclick="borrarLote(${l.id})" style="width:22px;height:22px;border:1px solid #fca5a5;background:#fef2f2;border-radius:5px;cursor:pointer"><i class="ti ti-trash" style="font-size:9px;color:#ef4444"></i></button></td>`:''}
+                </tr>`;}).join('')}</tbody>
+            </table>`}
+          </td>
+        </tr>`;}).join('')}
+      </tbody>
+    </table>
+  </div>
+  <div style="font-size:11px;color:var(--muted);margin-top:8px">${productos.length} producto${productos.length!==1?'s':''} · clic en una fila para ver el detalle de sus lotes · baja automática FIFO: el restante del lote más viejo se calcula contra el stock real de Bodegas</div>`;
+}
+
+function toggleDetalleLotes(pid){
+  const det = document.getElementById('lote-det-'+pid);
+  if(det) det.style.display = det.style.display === 'none' ? 'table-row' : 'none';
+}
+
+function abrirFormLotePara(id, nombre, marca){
+  const f = document.getElementById('lote-form');
+  if(f) f.style.display = 'block';
+  selProductoLote(id, nombre, marca);
+  document.getElementById('lote-numero')?.focus();
+  f?.scrollIntoView({behavior:'smooth', block:'center'});
 }
 
 let _loteProdSel = null;

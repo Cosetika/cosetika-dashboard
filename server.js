@@ -4345,9 +4345,26 @@ const server = http.createServer(async (req, res) => {
       } catch(e) {}
       const hoyMs = new Date(new Date().toLocaleDateString('en-CA',{timeZone:'America/Guayaquil'}) + 'T12:00:00').getTime();
       // Agrupar lotes por producto
-      const porProducto = {};
-      rl.rows.forEach(l => { (porProducto[l.producto_id] = porProducto[l.producto_id] || []).push(l); });
-      const productos = Object.entries(porProducto).map(([pid, lts]) => {
+      const porLote = {};
+      rl.rows.forEach(l => { (porLote[l.producto_id] = porLote[l.producto_id] || []).push(l); });
+      // Base: TODOS los productos del catálogo de las 4 marcas (mismo filtro que Bodegas),
+      // tengan o no lotes registrados
+      const baseCatalogo = filtrarProductosBodega(
+        Object.entries(catalogoProductos || {}).map(([id, info]) => ({
+          producto_id: id, codigo: info.codigo||'', nombre: info.nombre||'', marca: info.marca||''
+        }))
+      );
+      // Incluir también productos con lotes que ya no estén en el catálogo (no perder datos)
+      const idsBase = new Set(baseCatalogo.map(b => b.producto_id));
+      Object.keys(porLote).forEach(pid => {
+        if (!idsBase.has(pid)) {
+          const l0 = porLote[pid][0];
+          baseCatalogo.push({ producto_id: pid, codigo: l0.codigo, nombre: l0.nombre, marca: l0.marca });
+        }
+      });
+      const productos = baseCatalogo.map(base => {
+        const pid = base.producto_id;
+        const lts = porLote[pid] || [];
         const stock = Math.max(0, stockPor[pid] || 0);
         const rot = rotacion[pid] || 0;
         // FIFO: el stock actual se asigna del lote MÁS NUEVO hacia el más viejo;
@@ -4380,11 +4397,10 @@ const server = http.createServer(async (req, res) => {
             estado
           };
         });
-        const info = lts[0];
         return {
-          producto_id: pid, codigo: info.codigo, nombre: info.nombre, marca: info.marca,
+          producto_id: pid, codigo: base.codigo, nombre: base.nombre, marca: base.marca,
           stock, rotacion: Math.round(rot*100)/100,
-          sin_lote: Math.round(porAsignar*100)/100,
+          sin_lote: lts.length ? Math.round(porAsignar*100)/100 : 0,
           lotes
         };
       }).sort((a,b) => String(a.nombre||'').localeCompare(String(b.nombre||'')));
