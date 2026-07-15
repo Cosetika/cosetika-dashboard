@@ -1231,6 +1231,7 @@ function pintarLotes(filtro){
       <thead>
         <tr style="border-bottom:1px solid var(--border)">
           <th style="text-align:left;padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Producto</th>
+          <th style="text-align:center;padding:10px 10px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;white-space:nowrap">Rotación /mes</th>
           <th style="text-align:center;padding:10px 10px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Stock</th>
           <th style="text-align:left;padding:10px 10px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Lote 1 (sale primero)</th>
           <th style="text-align:left;padding:10px 10px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Lote 2</th>
@@ -1249,6 +1250,7 @@ function pintarLotes(filtro){
             <div style="font-weight:500">${esc(p.nombre)}</div>
             <div style="font-size:10px;color:var(--muted)">${esc(p.marca)}${p.codigo?' · <span style="font-family:monospace">'+esc(p.codigo)+'</span>':''}${p.sin_lote>0?' · <span style="color:#d97706">'+p.sin_lote+' uds sin lote</span>':''}</div>
           </td>
+          <td style="padding:9px 10px;text-align:center;color:${p.rotacion>0?'var(--text)':'#ccc'}">${p.rotacion>0?p.rotacion:'—'}</td>
           <td style="padding:9px 10px;text-align:center;font-weight:700">${p.stock}</td>
           <td style="padding:9px 10px">${celdaLote(lts[0])}</td>
           <td style="padding:9px 10px">${celdaLote(lts[1])}</td>
@@ -1258,7 +1260,7 @@ function pintarLotes(filtro){
           </td>
         </tr>
         <tr id="lote-det-${p.producto_id}" style="display:none;background:#faf9f8">
-          <td colspan="6" style="padding:8px 14px">
+          <td colspan="7" style="padding:8px 14px">
             ${lts.length===0?'<span style="font-size:11px;color:var(--muted)">Sin lotes registrados</span>':`
             <table style="width:100%;border-collapse:collapse;font-size:11px">
               <thead><tr>
