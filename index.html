@@ -1212,6 +1212,17 @@ function pintarLotes(filtro){
     (!q || String(p.nombre||'').toUpperCase().includes(q) || String(p.codigo||'').toUpperCase().includes(q) || (p.lotes||[]).some(l=>String(l.lote).toUpperCase().includes(q)))
   );
   if(window._lotSoloRiesgo) productos = productos.filter(enRiesgo);
+  // Ranking de compromiso con la caducidad: primero los productos cuyo peor lote
+  // tiene más inventario en meses del que le queda disponible para la venta
+  const compromiso = p => {
+    const lts = (p.lotes||[]).filter(l => l.restante > 0);
+    if(lts.length === 0) return -1e9; // sin lotes activos → al final
+    return Math.max(...lts.map(l => Math.min(l.meses_agotar, 99) - l.meses_limite));
+  };
+  productos.sort((a,b) => {
+    const d = compromiso(b) - compromiso(a);
+    return d !== 0 ? d : String(a.nombre||'').localeCompare(String(b.nombre||''));
+  });
   if(productos.length === 0){
     cont.innerHTML = `<div class="card" style="text-align:center;padding:40px 20px;color:var(--muted)">
       <i class="ti ti-calendar-check" style="font-size:36px;opacity:0.35"></i>
