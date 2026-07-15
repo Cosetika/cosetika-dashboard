@@ -1547,18 +1547,38 @@ async function guardarInventarioEnDB(data) {
 // de Railway, que bloquea todo tráfico SMTP saliente (puertos 25/465/587/2525)
 // salvo en el plan Pro o superior. Por eso el backup es una descarga manual
 // directa desde el dashboard, con un recordatorio visual si pasa de una semana.
+// Lista de respaldo por si falla la consulta dinámica de tablas
 const TABLAS_BACKUP = ['inventario_data', 'usuarios', 'visitas', 'planificacion', 'asesor_zonas', 'asesor_provincias', 'ventas_data'];
 
 async function generarBackupCompleto() {
-  const backup = { generado_en: new Date().toISOString(), tablas: {} };
-  for (const tabla of TABLAS_BACKUP) {
+  const backup = { generado_en: new Date().toISOString(), version: 2, tablas: {} };
+  // Lista DINÁMICA: todas las tablas públicas de la BD — así el backup nunca se
+  // queda desactualizado cuando se agregan módulos nuevos
+  let tablas = [];
+  try {
+    const rt = await pool.query("SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename");
+    tablas = rt.rows.map(x => x.tablename);
+  } catch(e) { tablas = TABLAS_BACKUP; }
+  for (const tabla of tablas) {
     try {
-      const r = await pool.query(`SELECT * FROM ${tabla}`);
+      let r;
+      if (tabla === 'documentos') {
+        // Los PDF (BYTEA) van en base64: restaurables y mucho más compactos que el
+        // formato Buffer que produciría JSON.stringify sobre el binario crudo
+        r = await pool.query("SELECT id, nombre, tamano, subido_por, created_at, encode(archivo,'base64') AS archivo_base64 FROM documentos");
+      } else {
+        r = await pool.query(`SELECT * FROM ${tabla}`);
+      }
       backup.tablas[tabla] = r.rows;
     } catch(e) {
       backup.tablas[tabla] = { error: e.message };
     }
   }
+  // Resumen de conteos para verificar el backup de un vistazo
+  backup.resumen = {};
+  Object.entries(backup.tablas).forEach(([t, rows]) => {
+    backup.resumen[t] = Array.isArray(rows) ? rows.length : 'ERROR';
+  });
   return backup;
 }
 
@@ -5016,7 +5036,7 @@ const server = http.createServer(async (req, res) => {
   if (urlPath === '/api/backup/descargar' && req.method === 'GET') {
     try {
       const backup = await generarBackupCompleto();
-      const json = JSON.stringify(backup, null, 2);
+      const json = JSON.stringify(backup);
       const fechaStr = fmtDateEC(nowEC()).split('/').join('-');
       await registrarDescargaBackup();
       res.writeHead(200, {
