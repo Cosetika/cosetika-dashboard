@@ -1256,12 +1256,15 @@ function pintarLotes(filtro){
         </tr>
       </thead>
       <tbody>
-        ${productos.map(p=>{
+        ${productos.map((p,pi)=>{
           const lts = p.lotes || [];
           const extra = lts.length > 3 ? lts.length - 3 : 0;
           const riesgoFila = enRiesgo(p);
+          // Alternar fondo por producto para distinguir dónde termina uno y empieza otro;
+          // los productos en riesgo alternan entre dos tonos rojizos
+          const bgProd = riesgoFila ? (pi%2 ? '#fdf0ee' : '#fef8f8') : (pi%2 ? '#f6f3ef' : 'white');
           return `
-        <tr style="border-bottom:0.5px solid var(--border);background:${riesgoFila?'#fef8f8':'white'}" ${lts.length?`onclick="toggleDetalleLotes('${p.producto_id}')"`:''}>
+        <tr style="border-bottom:0.5px solid var(--border);border-top:${pi>0?'2px solid #ddd5c9':'none'};background:${bgProd}" ${lts.length?`onclick="toggleDetalleLotes('${p.producto_id}')"`:''}>
           <td style="padding:9px 14px;${lts.length?'cursor:pointer;':''}">
             <div style="font-weight:500">${esc(p.nombre)}</div>
             <div style="font-size:10px;color:var(--muted)">${esc(p.marca)}${p.codigo?' · <span style="font-family:monospace">'+esc(p.codigo)+'</span>':''}${p.sin_lote>0?' · <span style="color:#d97706">'+p.sin_lote+' uds sin lote</span>':''}</div>
@@ -1275,7 +1278,7 @@ function pintarLotes(filtro){
             <button onclick="event.stopPropagation();abrirFormLotePara('${p.producto_id}','${String(p.nombre||'').replace(/['\"<>]/g,'')}','${String(p.marca||'').replace(/['\"<>]/g,'')}')" style="padding:5px 10px;font-size:11px;border:1px solid var(--border);background:white;border-radius:6px;cursor:pointer;white-space:nowrap;font-weight:500"><i class="ti ti-plus" style="font-size:10px"></i> Lote</button>
           </td>
         </tr>
-        <tr id="lote-det-${p.producto_id}" style="display:none;background:#faf9f8">
+        <tr id="lote-det-${p.producto_id}" style="display:none;background:${bgProd}">
           <td colspan="7" style="padding:8px 14px">
             ${lts.length===0?'<span style="font-size:11px;color:var(--muted)">Sin lotes registrados</span>':`
             <table style="width:100%;border-collapse:collapse;font-size:11px">
