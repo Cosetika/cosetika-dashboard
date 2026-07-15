@@ -2009,6 +2009,18 @@ async function initDB() {
         actualizado_at TIMESTAMP DEFAULT NOW(),
         UNIQUE(producto_id, bodega)
       );
+      CREATE TABLE IF NOT EXISTS lotes (
+        id SERIAL PRIMARY KEY,
+        producto_id VARCHAR(30) NOT NULL,
+        codigo VARCHAR(100),
+        nombre VARCHAR(500),
+        marca VARCHAR(100),
+        lote VARCHAR(100) NOT NULL,
+        fecha_caducidad DATE NOT NULL,
+        cantidad NUMERIC(13,2) NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_lotes_producto ON lotes(producto_id);
       CREATE TABLE IF NOT EXISTS stock_minimos (
         producto_id VARCHAR(30) PRIMARY KEY,
         minimo NUMERIC(13,2) DEFAULT 0,
@@ -4311,6 +4323,102 @@ const server = http.createServer(async (req, res) => {
       });
       res.end(buf);
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+
+  // ─── LOTES (caducidades con baja FIFO automática contra el stock real) ──────
+  // GET /api/lotes → lotes por producto con restante FIFO, meses para agotar y semáforo
+  if (urlPath === '/api/lotes' && req.method === 'GET') {
+    try {
+      const rl = await pool.query(
+        `SELECT id, producto_id, codigo, nombre, marca, lote, TO_CHAR(fecha_caducidad,'YYYY-MM-DD') AS caduca, cantidad
+         FROM lotes ORDER BY producto_id, fecha_caducidad ASC, id ASC`);
+      // Stock actual por producto (POS + Casa)
+      const rs = await pool.query('SELECT producto_id, cantidad FROM stock_bodegas');
+      const stockPor = {};
+      rs.rows.forEach(x => { stockPor[x.producto_id] = (stockPor[x.producto_id]||0) + (parseFloat(x.cantidad)||0); });
+      // Rotación mensual (misma que Proyección)
+      let rotacion = {};
+      try {
+        const fc = (INVENTARIO_CACHE && INVENTARIO_CACHE.fecha_corte) || new Date().toLocaleDateString('en-CA',{timeZone:'America/Guayaquil'});
+        rotacion = calcularRotacionMensual(fc);
+      } catch(e) {}
+      const hoyMs = new Date(new Date().toLocaleDateString('en-CA',{timeZone:'America/Guayaquil'}) + 'T12:00:00').getTime();
+      // Agrupar lotes por producto
+      const porProducto = {};
+      rl.rows.forEach(l => { (porProducto[l.producto_id] = porProducto[l.producto_id] || []).push(l); });
+      const productos = Object.entries(porProducto).map(([pid, lts]) => {
+        const stock = Math.max(0, stockPor[pid] || 0);
+        const rot = rotacion[pid] || 0;
+        // FIFO: el stock actual se asigna del lote MÁS NUEVO hacia el más viejo;
+        // lo que sobra tras llenar los nuevos es lo que queda del lote viejo
+        let porAsignar = stock;
+        const restantes = new Array(lts.length).fill(0);
+        for (let i = lts.length - 1; i >= 0; i--) {
+          const asig = Math.min(parseFloat(lts[i].cantidad)||0, porAsignar);
+          restantes[i] = asig;
+          porAsignar -= asig;
+        }
+        // porAsignar > 0 = hay stock sin lote registrado (se informa aparte)
+        let acumulado = 0;
+        const lotes = lts.map((l, i) => {
+          const restante = restantes[i];
+          acumulado += restante;
+          const mesesCaducidad = (new Date(l.caduca + 'T12:00:00').getTime() - hoyMs) / (30.44*24*60*60*1000);
+          const mesesAgotar = restante === 0 ? 0 : (rot > 0 ? acumulado / rot : 99);
+          let estado = 'verde';
+          if (restante === 0) estado = 'agotado';
+          else if (mesesCaducidad < 0) estado = 'caducado';
+          else if (mesesAgotar > mesesCaducidad) estado = 'rojo';
+          else if (mesesAgotar > mesesCaducidad * 0.75) estado = 'amarillo';
+          return {
+            id: l.id, lote: l.lote, caduca: l.caduca,
+            cantidad: parseFloat(l.cantidad)||0,
+            restante: Math.round(restante*100)/100,
+            meses_agotar: Math.round(mesesAgotar*10)/10,
+            meses_caducidad: Math.round(mesesCaducidad*10)/10,
+            estado
+          };
+        });
+        const info = lts[0];
+        return {
+          producto_id: pid, codigo: info.codigo, nombre: info.nombre, marca: info.marca,
+          stock, rotacion: Math.round(rot*100)/100,
+          sin_lote: Math.round(porAsignar*100)/100,
+          lotes
+        };
+      }).sort((a,b) => String(a.nombre||'').localeCompare(String(b.nombre||'')));
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ productos }));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+  // POST /api/lotes → registrar un lote
+  if (urlPath === '/api/lotes' && req.method === 'POST') {
+    try {
+      const { producto_id, lote, fecha_caducidad, cantidad } = await bodyJSON(req);
+      const cant = parseFloat(cantidad) || 0;
+      if (!producto_id || !String(lote||'').trim() || !fecha_caducidad || cant <= 0) {
+        res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'Se requiere producto, número de lote, fecha de caducidad y cantidad mayor a 0'})); return;
+      }
+      const info = catalogoProductos[producto_id] || {};
+      await pool.query(
+        `INSERT INTO lotes(producto_id, codigo, nombre, marca, lote, fecha_caducidad, cantidad)
+         VALUES($1,$2,$3,$4,$5,$6,$7)`,
+        [String(producto_id).substring(0,29), info.codigo||'', info.nombre||'', info.marca||'',
+         String(lote).trim().substring(0,90), fecha_caducidad, cant]
+      );
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+  // DELETE /api/lotes/:id
+  if (/^\/api\/lotes\/\d+$/.test(urlPath) && req.method === 'DELETE') {
+    try {
+      const id = parseInt(urlPath.split('/').pop());
+      await pool.query('DELETE FROM lotes WHERE id=$1', [id]);
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
   }
 
