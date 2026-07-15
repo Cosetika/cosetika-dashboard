@@ -239,8 +239,8 @@
     </div>
     <div id="nav-inventario-subs" style="max-height:0;overflow:hidden;transition:max-height 0.25s ease">
       <div class="nav-sub-item" id="navsub-inv-bodegas" onclick="navGoInventario('bodegas')"><i class="ti ti-building-warehouse" style="font-size:13px"></i>Bodegas</div>
+      <div class="nav-sub-item" id="navsub-inv-lotes" onclick="navGoInventario('lotes')"><i class="ti ti-calendar-x" style="font-size:13px"></i>Caducidad</div>
       <div class="nav-sub-item" id="navsub-inv-proyeccion" onclick="navGoInventario('proyeccion')"><i class="ti ti-chart-dots" style="font-size:13px"></i>Proyección</div>
-      <div class="nav-sub-item" id="navsub-inv-lotes" onclick="navGoInventario('lotes')"><i class="ti ti-calendar-x" style="font-size:13px"></i>Lotes</div>
     </div>
     <div class="nav-item" id="nav-documentos" onclick="navToggleGroup('nav-documentos-subs','nav-documentos-chevron','documentos')">
       <i class="ti ti-files"></i>Documentos
@@ -589,7 +589,7 @@ function navSetMod(mod){
 
 const MOD_LABELS = {
   ventas:'Inicio', visitas:'Visitas', kpis:'KPIs',
-  inventario:'Inventario', reportes:'Reportes', config:'Configuración', documentos:'Documentos', nsos:'NSOs', referidos:'Referidos', institutos_cli:'Institutos', bodegas:'Bodegas', lotes:'Lotes',
+  inventario:'Inventario', reportes:'Reportes', config:'Configuración', documentos:'Documentos', nsos:'NSOs', referidos:'Referidos', institutos_cli:'Institutos', bodegas:'Bodegas', lotes:'Caducidad',
   capacitaciones:'Capacitaciones', institutos:'Institutos',
   giras:'Visitas a Provincias', casas_abiertas:'Casas Abiertas',
   'visitas-plan':'Planificación Visitas'
@@ -1273,8 +1273,8 @@ function pintarLotes(filtro){
                 <th style="text-align:left;padding:4px 8px;font-size:9px;color:var(--muted);text-transform:uppercase">Caduca</th>
                 <th style="text-align:center;padding:4px 8px;font-size:9px;color:var(--muted);text-transform:uppercase">Ingresado</th>
                 <th style="text-align:center;padding:4px 8px;font-size:9px;color:var(--muted);text-transform:uppercase">Inventario en meses</th>
-                <th style="text-align:center;padding:4px 8px;font-size:9px;color:var(--muted);text-transform:uppercase">Límite de venta</th>
                 <th style="text-align:center;padding:4px 8px;font-size:9px;color:var(--muted);text-transform:uppercase">Meses disponibles para la venta</th>
+                <th style="text-align:center;padding:4px 8px;font-size:9px;color:var(--muted);text-transform:uppercase">Límite de venta</th>
                 ${(window.usuarioActual||{}).rol==='admin'?'<th style="width:60px"></th>':''}
               </tr></thead>
               <tbody>${lts.map(l=>{
@@ -1283,9 +1283,9 @@ function pintarLotes(filtro){
                   <td style="padding:4px 8px;font-family:monospace;font-weight:600">${esc(l.lote)}</td>
                   <td style="padding:4px 8px;color:${c};font-weight:600">${fmtF(l.caduca)}</td>
                   <td style="padding:4px 8px;text-align:center;color:var(--muted)">${l.cantidad}</td>
-                  <td style="padding:4px 8px;text-align:center;font-weight:700">${l.restante>0?(l.meses_agotar>=99?'∞':l.meses_agotar+' m'):'—'}</td>
+                  <td style="padding:4px 8px;text-align:center;font-weight:700;color:${l.restante>0&&l.meses_limite<l.meses_agotar?'#dc2626':'var(--text)'}">${l.restante>0?(l.meses_agotar>=99?'∞':l.meses_agotar+' m'):'—'}</td>
+                  <td style="padding:4px 8px;text-align:center;font-weight:700;color:${l.restante>0&&l.meses_limite<l.meses_agotar?'#dc2626':'var(--text)'}">${l.meses_limite>=0?l.meses_limite+' m':'pasó hace '+Math.abs(l.meses_limite)+' m'}</td>
                   <td style="padding:4px 8px;text-align:center;font-weight:600">${l.meses_caducidad<0?'<span style=\"color:#7f1d1d;font-weight:700\">caducado</span>':fmtF(l.limite_venta)}</td>
-                  <td style="padding:4px 8px;text-align:center;color:${l.meses_limite<0?'#dc2626':'var(--text)'};font-weight:700">${l.meses_limite>=0?l.meses_limite+' m':'pasó hace '+Math.abs(l.meses_limite)+' m'}</td>
                   ${(window.usuarioActual||{}).rol==='admin'?`<td style="padding:4px 6px;text-align:center;white-space:nowrap"><button onclick="editarLote(${l.id},'${p.producto_id}','${String(p.nombre||'').replace(/['\"<>]/g,'')}','${String(p.marca||'').replace(/['\"<>]/g,'')}','${String(l.lote).replace(/['\"<>]/g,'')}','${l.caduca}',${l.cantidad})" title="Editar" style="width:22px;height:22px;border:1px solid var(--border);background:white;border-radius:5px;cursor:pointer;margin-right:4px"><i class="ti ti-pencil" style="font-size:9px;color:var(--muted)"></i></button><button onclick="borrarLote(${l.id})" title="Eliminar" style="width:22px;height:22px;border:1px solid #fca5a5;background:#fef2f2;border-radius:5px;cursor:pointer"><i class="ti ti-trash" style="font-size:9px;color:#ef4444"></i></button></td>`:''}
                 </tr>`;}).join('')}</tbody>
             </table>`}
