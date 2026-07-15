@@ -1162,7 +1162,6 @@ async function renderLotes(){
       <div style="font-size:16px;font-weight:600"><i class="ti ti-calendar-x" style="margin-right:8px;color:var(--brown)"></i>Lotes y caducidades</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button id="lot-riesgo-btn" onclick="window._lotSoloRiesgo=!window._lotSoloRiesgo;pintarLotes(document.getElementById('lot-buscar')?.value||'');this.style.background=window._lotSoloRiesgo?'#fef2f2':'white';this.style.color=window._lotSoloRiesgo?'#dc2626':'var(--text)';this.style.borderColor=window._lotSoloRiesgo?'#fca5a5':'var(--border)'" style="padding:9px 14px;background:${window._lotSoloRiesgo?'#fef2f2':'white'};color:${window._lotSoloRiesgo?'#dc2626':'var(--text)'};border:1px solid ${window._lotSoloRiesgo?'#fca5a5':'var(--border)'};border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-alert-triangle" style="margin-right:5px"></i>En riesgo</button>
-        <button onclick="toggleFormLote()" style="padding:9px 16px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-plus" style="margin-right:5px"></i>Agregar lote</button>
       </div>
     </div>
     <div id="lote-form" class="card" style="display:none;margin-bottom:14px;border:2px dashed var(--border);overflow:visible">
@@ -1173,10 +1172,16 @@ async function renderLotes(){
         <div id="lote-prod-sug" style="display:none;margin-top:8px;background:white;border:1px solid var(--border);border-radius:8px;max-height:300px;overflow-y:auto"></div>
       </div>
       <div id="lote-prod-sel" style="display:none;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:#166534"><i class="ti ti-check"></i> <span id="lote-prod-sel-text"></span></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <input type="number" id="lote-cantidad" min="1" placeholder="Unidades *" style="width:120px;padding:9px 12px;font-size:13px;border:1px solid var(--border);border-radius:8px;outline:none;box-sizing:border-box">
-        <input type="text" id="lote-caducidad" placeholder="Caducidad MM/AA (ej: 11/30) *" inputmode="numeric" style="flex:1;min-width:170px;padding:9px 12px;font-size:13px;border:1px solid var(--border);border-radius:8px;outline:none;box-sizing:border-box">
-        <input type="text" id="lote-numero" placeholder="Número de lote *" style="flex:1;min-width:130px;padding:9px 12px;font-size:13px;border:1px solid var(--border);border-radius:8px;outline:none;box-sizing:border-box">
+      <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center">
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--muted)">Cantidad:
+          <input type="number" id="lote-cantidad" min="1" placeholder="125" style="width:90px;padding:9px 12px;font-size:13px;font-weight:400;border:1px solid var(--border);border-radius:8px;outline:none;box-sizing:border-box">
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--muted);white-space:nowrap">Fecha de caducidad:
+          <input type="text" id="lote-caducidad" placeholder="MM/AA (ej: 11/30)" inputmode="numeric" style="width:130px;padding:9px 12px;font-size:13px;font-weight:400;border:1px solid var(--border);border-radius:8px;outline:none;box-sizing:border-box">
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--muted);flex:1;min-width:180px">Lote:
+          <input type="text" id="lote-numero" placeholder="748" style="flex:1;padding:9px 12px;font-size:13px;font-weight:400;border:1px solid var(--border);border-radius:8px;outline:none;box-sizing:border-box">
+        </label>
         <button onclick="guardarNuevoLote()" style="padding:9px 16px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-check" style="margin-right:4px"></i>Guardar</button>
       </div>
     </div>
@@ -1269,7 +1274,7 @@ function pintarLotes(filtro){
                 <th style="text-align:center;padding:4px 8px;font-size:9px;color:var(--muted);text-transform:uppercase">Ingresado</th>
                 <th style="text-align:center;padding:4px 8px;font-size:9px;color:var(--muted);text-transform:uppercase">Restante</th>
                 <th style="text-align:center;padding:4px 8px;font-size:9px;color:var(--muted);text-transform:uppercase">Meses p/ agotar</th>
-                <th style="text-align:center;padding:4px 8px;font-size:9px;color:var(--muted);text-transform:uppercase">Caduca en</th>
+                <th style="text-align:center;padding:4px 8px;font-size:9px;color:var(--muted);text-transform:uppercase">Límite de venta</th>
                 ${(window.usuarioActual||{}).rol==='admin'?'<th style="width:60px"></th>':''}
               </tr></thead>
               <tbody>${lts.map(l=>{
@@ -1280,7 +1285,7 @@ function pintarLotes(filtro){
                   <td style="padding:4px 8px;text-align:center;color:var(--muted)">${l.cantidad}</td>
                   <td style="padding:4px 8px;text-align:center;font-weight:700">${l.restante}</td>
                   <td style="padding:4px 8px;text-align:center">${l.restante>0?(l.meses_agotar>=99?'∞':l.meses_agotar+' m'):'—'}</td>
-                  <td style="padding:4px 8px;text-align:center">${l.meses_caducidad>=0?l.meses_caducidad+' m':'<span style=\"color:#7f1d1d;font-weight:700\">caducado</span>'}</td>
+                  <td style="padding:4px 8px;text-align:center">${l.meses_caducidad<0?'<span style=\"color:#7f1d1d;font-weight:700\">caducado</span>':(fmtF(l.limite_venta)+' <span style=\"font-size:9px;color:'+(l.meses_limite<0?'#dc2626':'var(--muted)')+'\">('+(l.meses_limite>=0?'en '+l.meses_limite+' m':'pasó hace '+Math.abs(l.meses_limite)+' m')+')</span>')}</td>
                   ${(window.usuarioActual||{}).rol==='admin'?`<td style="padding:4px 6px;text-align:center;white-space:nowrap"><button onclick="editarLote(${l.id},'${p.producto_id}','${String(p.nombre||'').replace(/['\"<>]/g,'')}','${String(p.marca||'').replace(/['\"<>]/g,'')}','${String(l.lote).replace(/['\"<>]/g,'')}','${l.caduca}',${l.cantidad})" title="Editar" style="width:22px;height:22px;border:1px solid var(--border);background:white;border-radius:5px;cursor:pointer;margin-right:4px"><i class="ti ti-pencil" style="font-size:9px;color:var(--muted)"></i></button><button onclick="borrarLote(${l.id})" title="Eliminar" style="width:22px;height:22px;border:1px solid #fca5a5;background:#fef2f2;border-radius:5px;cursor:pointer"><i class="ti ti-trash" style="font-size:9px;color:#ef4444"></i></button></td>`:''}
                 </tr>`;}).join('')}</tbody>
             </table>`}
@@ -1289,7 +1294,7 @@ function pintarLotes(filtro){
       </tbody>
     </table>
   </div>
-  <div style="font-size:11px;color:var(--muted);margin-top:8px">${productos.length} producto${productos.length!==1?'s':''} · clic en una fila para ver el detalle de sus lotes · baja automática FIFO: el restante del lote más viejo se calcula contra el stock real de Bodegas</div>`;
+  <div style="font-size:11px;color:var(--muted);margin-top:8px">${productos.length} producto${productos.length!==1?'s':''} · clic en una fila para ver el detalle de sus lotes · baja FIFO automática contra el stock real de Bodegas · <b>límite de venta = caducidad − 4 meses (margen comercial)</b>: el semáforo compara los meses para agotar contra ese límite</div>`;
 }
 
 function toggleDetalleLotes(pid){

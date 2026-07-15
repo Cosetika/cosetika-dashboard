@@ -4378,22 +4378,29 @@ const server = http.createServer(async (req, res) => {
         }
         // porAsignar > 0 = hay stock sin lote registrado (se informa aparte)
         let acumulado = 0;
+        const MARGEN_COMERCIAL_MESES = 4; // los productos deben venderse 4 meses antes de caducar
         const lotes = lts.map((l, i) => {
           const restante = restantes[i];
           acumulado += restante;
-          const mesesCaducidad = (new Date(l.caduca + 'T12:00:00').getTime() - hoyMs) / (30.44*24*60*60*1000);
+          const fechaCad = new Date(l.caduca + 'T12:00:00');
+          const mesesCaducidad = (fechaCad.getTime() - hoyMs) / (30.44*24*60*60*1000);
+          // Límite de venta: 4 meses antes de la caducidad
+          const fechaLimite = new Date(fechaCad); fechaLimite.setMonth(fechaLimite.getMonth() - MARGEN_COMERCIAL_MESES);
+          const mesesLimite = mesesCaducidad - MARGEN_COMERCIAL_MESES;
           const mesesAgotar = restante === 0 ? 0 : (rot > 0 ? acumulado / rot : 99);
           let estado = 'verde';
           if (restante === 0) estado = 'agotado';
           else if (mesesCaducidad < 0) estado = 'caducado';
-          else if (mesesAgotar > mesesCaducidad) estado = 'rojo';
-          else if (mesesAgotar > mesesCaducidad * 0.75) estado = 'amarillo';
+          else if (mesesAgotar > mesesLimite) estado = 'rojo';       // no alcanza antes del límite de venta
+          else if (mesesAgotar > mesesLimite * 0.75) estado = 'amarillo';
           return {
             id: l.id, lote: l.lote, caduca: l.caduca,
+            limite_venta: fechaLimite.toISOString().substring(0,10),
             cantidad: parseFloat(l.cantidad)||0,
             restante: Math.round(restante*100)/100,
             meses_agotar: Math.round(mesesAgotar*10)/10,
             meses_caducidad: Math.round(mesesCaducidad*10)/10,
+            meses_limite: Math.round(mesesLimite*10)/10,
             estado
           };
         });
