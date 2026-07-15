@@ -4409,6 +4409,15 @@ const server = http.createServer(async (req, res) => {
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
     return;
   }
+  function normalizarFechaCaducidad(f){
+    const str = String(f||'').trim();
+    if (/^\d{4}-\d{2}$/.test(str)) {
+      const [a, m] = str.split('-').map(Number);
+      const ultimoDia = new Date(a, m, 0).getDate();
+      return `${a}-${String(m).padStart(2,'0')}-${ultimoDia}`;
+    }
+    return str;
+  }
   // POST /api/lotes → registrar un lote
   if (urlPath === '/api/lotes' && req.method === 'POST') {
     try {
@@ -4422,8 +4431,31 @@ const server = http.createServer(async (req, res) => {
         `INSERT INTO lotes(producto_id, codigo, nombre, marca, lote, fecha_caducidad, cantidad)
          VALUES($1,$2,$3,$4,$5,$6,$7)`,
         [String(producto_id).substring(0,29), info.codigo||'', info.nombre||'', info.marca||'',
-         String(lote).trim().substring(0,90), fecha_caducidad, cant]
+         String(lote).trim().substring(0,90), normalizarFechaCaducidad(fecha_caducidad), cant]
       );
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+  // PUT /api/lotes/:id → editar lote (número, caducidad, cantidad — dinámico)
+  if (/^\/api\/lotes\/\d+$/.test(urlPath) && req.method === 'PUT') {
+    try {
+      const id = parseInt(urlPath.split('/').pop());
+      const body = await bodyJSON(req);
+      const sets = []; const params = []; let i = 1;
+      if ('lote' in body) {
+        if (!String(body.lote||'').trim()) { res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'El número de lote es obligatorio'})); return; }
+        sets.push('lote=$'+(i++)); params.push(String(body.lote).trim().substring(0,90));
+      }
+      if ('fecha_caducidad' in body && body.fecha_caducidad) { sets.push('fecha_caducidad=$'+(i++)); params.push(normalizarFechaCaducidad(body.fecha_caducidad)); }
+      if ('cantidad' in body) {
+        const c = parseFloat(body.cantidad)||0;
+        if (c <= 0) { res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'Cantidad inválida'})); return; }
+        sets.push('cantidad=$'+(i++)); params.push(c);
+      }
+      if (sets.length === 0) { res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'Sin campos'})); return; }
+      params.push(id);
+      await pool.query('UPDATE lotes SET '+sets.join(', ')+' WHERE id=$'+i, params);
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;

@@ -1175,7 +1175,7 @@ async function renderLotes(){
       <div id="lote-prod-sel" style="display:none;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:#166534"><i class="ti ti-check"></i> <span id="lote-prod-sel-text"></span></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <input type="text" id="lote-numero" placeholder="Número de lote *" style="flex:1;min-width:130px;padding:9px 12px;font-size:13px;border:1px solid var(--border);border-radius:8px;outline:none;box-sizing:border-box">
-        <input type="date" id="lote-caducidad" style="flex:1;min-width:140px;padding:8px 12px;font-size:13px;border:1px solid var(--border);border-radius:8px;outline:none;box-sizing:border-box">
+        <input type="month" id="lote-caducidad" title="Mes y año de caducidad" style="flex:1;min-width:140px;padding:8px 12px;font-size:13px;border:1px solid var(--border);border-radius:8px;outline:none;box-sizing:border-box">
         <input type="number" id="lote-cantidad" min="1" placeholder="Cantidad *" style="width:110px;padding:9px 12px;font-size:13px;border:1px solid var(--border);border-radius:8px;outline:none;box-sizing:border-box">
         <button onclick="guardarNuevoLote()" style="padding:9px 16px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-check" style="margin-right:4px"></i>Guardar</button>
       </div>
@@ -1215,7 +1215,7 @@ function pintarLotes(filtro){
     return;
   }
   const esc = v => String(v||'').replace(/</g,'&lt;');
-  const fmtF = f => { const p=String(f||'').substring(0,10).split('-'); const M=['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']; return parseInt(p[2])+' '+M[parseInt(p[1])]+' '+String(p[0]).substring(2); };
+  const fmtF = f => { const p=String(f||'').substring(0,10).split('-'); const M=['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']; return M[parseInt(p[1])]+' '+String(p[0]).substring(2); };
   const COLOR = { caducado:'#7f1d1d', rojo:'#dc2626', amarillo:'#d97706', verde:'#16a34a', agotado:'#9ca3af' };
   const celdaLote = l => {
     if(!l) return '<span style="color:#ddd">—</span>';
@@ -1270,7 +1270,7 @@ function pintarLotes(filtro){
                 <th style="text-align:center;padding:4px 8px;font-size:9px;color:var(--muted);text-transform:uppercase">Restante</th>
                 <th style="text-align:center;padding:4px 8px;font-size:9px;color:var(--muted);text-transform:uppercase">Meses p/ agotar</th>
                 <th style="text-align:center;padding:4px 8px;font-size:9px;color:var(--muted);text-transform:uppercase">Caduca en</th>
-                ${(window.usuarioActual||{}).rol==='admin'?'<th style="width:30px"></th>':''}
+                ${(window.usuarioActual||{}).rol==='admin'?'<th style="width:60px"></th>':''}
               </tr></thead>
               <tbody>${lts.map(l=>{
                 const c = COLOR[l.estado]||'#16a34a';
@@ -1281,7 +1281,7 @@ function pintarLotes(filtro){
                   <td style="padding:4px 8px;text-align:center;font-weight:700">${l.restante}</td>
                   <td style="padding:4px 8px;text-align:center">${l.restante>0?(l.meses_agotar>=99?'∞':l.meses_agotar+' m'):'—'}</td>
                   <td style="padding:4px 8px;text-align:center">${l.meses_caducidad>=0?l.meses_caducidad+' m':'<span style=\"color:#7f1d1d;font-weight:700\">caducado</span>'}</td>
-                  ${(window.usuarioActual||{}).rol==='admin'?`<td style="padding:4px 6px;text-align:center"><button onclick="borrarLote(${l.id})" style="width:22px;height:22px;border:1px solid #fca5a5;background:#fef2f2;border-radius:5px;cursor:pointer"><i class="ti ti-trash" style="font-size:9px;color:#ef4444"></i></button></td>`:''}
+                  ${(window.usuarioActual||{}).rol==='admin'?`<td style="padding:4px 6px;text-align:center;white-space:nowrap"><button onclick="editarLote(${l.id},'${p.producto_id}','${String(p.nombre||'').replace(/['\"<>]/g,'')}','${String(p.marca||'').replace(/['\"<>]/g,'')}','${String(l.lote).replace(/['\"<>]/g,'')}','${l.caduca}',${l.cantidad})" title="Editar" style="width:22px;height:22px;border:1px solid var(--border);background:white;border-radius:5px;cursor:pointer;margin-right:4px"><i class="ti ti-pencil" style="font-size:9px;color:var(--muted)"></i></button><button onclick="borrarLote(${l.id})" title="Eliminar" style="width:22px;height:22px;border:1px solid #fca5a5;background:#fef2f2;border-radius:5px;cursor:pointer"><i class="ti ti-trash" style="font-size:9px;color:#ef4444"></i></button></td>`:''}
                 </tr>`;}).join('')}</tbody>
             </table>`}
           </td>
@@ -1298,6 +1298,7 @@ function toggleDetalleLotes(pid){
 }
 
 function abrirFormLotePara(id, nombre, marca){
+  window._loteEditando = null;
   const f = document.getElementById('lote-form');
   if(f) f.style.display = 'block';
   selProductoLote(id, nombre, marca);
@@ -1307,6 +1308,7 @@ function abrirFormLotePara(id, nombre, marca){
 
 let _loteProdSel = null;
 function toggleFormLote(){
+  window._loteEditando = null;
   const f = document.getElementById('lote-form');
   if(!f) return;
   f.style.display = f.style.display === 'none' ? 'block' : 'none';
@@ -1346,22 +1348,38 @@ function selProductoLote(id, nombre, marca){
   if(sel) sel.style.display = 'block';
 }
 
+function editarLote(id, prodId, nombre, marca, lote, caduca, cantidad){
+  window._loteEditando = id;
+  const f = document.getElementById('lote-form');
+  if(f) f.style.display = 'block';
+  selProductoLote(prodId, nombre, marca);
+  const inLote = document.getElementById('lote-numero'); if(inLote) inLote.value = lote;
+  const inCad = document.getElementById('lote-caducidad'); if(inCad) inCad.value = String(caduca||'').substring(0,7);
+  const inCant = document.getElementById('lote-cantidad'); if(inCant) inCant.value = cantidad;
+  f?.scrollIntoView({behavior:'smooth', block:'center'});
+}
+
 async function guardarNuevoLote(){
-  if(!_loteProdSel){ alert('Selecciona un producto del catálogo'); return; }
+  if(!_loteProdSel && !window._loteEditando){ alert('Selecciona un producto del catálogo'); return; }
   const lote = (document.getElementById('lote-numero')?.value||'').trim();
   const caduca = document.getElementById('lote-caducidad')?.value||'';
   const cant = parseFloat(document.getElementById('lote-cantidad')?.value)||0;
   if(!lote){ alert('El número de lote es obligatorio'); return; }
-  if(!caduca){ alert('Ingresa la fecha de caducidad'); return; }
+  if(!caduca){ alert('Ingresa el mes y año de caducidad'); return; }
   if(cant <= 0){ alert('Ingresa la cantidad del lote'); return; }
   try{
-    const r = await fetch('/api/lotes', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ producto_id: _loteProdSel.id, lote, fecha_caducidad: caduca, cantidad: cant })
+    const editId = window._loteEditando;
+    const r = await fetch(editId ? '/api/lotes/'+editId : '/api/lotes', {
+      method: editId ? 'PUT' : 'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(editId
+        ? { lote, fecha_caducidad: caduca, cantidad: cant }
+        : { producto_id: _loteProdSel.id, lote, fecha_caducidad: caduca, cantidad: cant })
     });
     const j = await r.json();
     if(!j.ok) throw new Error(j.error||'error');
     _loteProdSel = null;
+    window._loteEditando = null;
     renderLotes();
   }catch(e){ alert('Error: '+e.message); }
 }
