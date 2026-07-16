@@ -4826,12 +4826,12 @@ async function renderPedidosWeb(fechaSel){
     : esManana
     ? ('Mañana · '+fechaObj.getDate()+' '+meses[fechaObj.getMonth()]+' '+fechaObj.getFullYear())
     : (fechaObj.getDate()+' '+meses[fechaObj.getMonth()]+' '+fechaObj.getFullYear());
-  const totalDia = pedidos.reduce((s,p)=>s+parseFloat(p.total||0),0);
+  const totalDia = pedidos.reduce((s,p)=>s+parseFloat(p.subtotal || (p.total?p.total/1.15:0) || 0),0); // sin IVA
 
   let html = '<div style="display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:20px">'
     + '<button onclick="renderPedidosWeb(\'' + ayerStr + '\')" style="width:34px;height:34px;border-radius:50%;border:1px solid var(--border);background:white;cursor:pointer;display:flex;align-items:center;justify-content:center"><i class="ti ti-chevron-left" style="font-size:16px;color:var(--muted)"></i></button>'
     + '<div style="text-align:center"><div style="font-size:16px;font-weight:600">'+labelFecha+'</div>'
-    + '<div style="font-size:12px;color:var(--muted)">'+pedidos.length+' pedido'+(pedidos.length!==1?'s':'')+' · $'+totalDia.toFixed(2)+(esLunesISO(fechaSel)?' · incluye sáb y dom':'')+'</div></div>'
+    + '<div style="font-size:12px;color:var(--muted)">'+pedidos.length+' pedido'+(pedidos.length!==1?'s':'')+' · Total sin IVA: $'+totalDia.toFixed(2)+(esLunesISO(fechaSel)?' · incluye sáb y dom':'')+'</div></div>'
     + '<button onclick="renderPedidosWeb(\'' + mananaNavStr + '\')" '+(sinSiguiente?'disabled style="opacity:0.3;cursor:default;"':'')+' style="width:34px;height:34px;border-radius:50%;border:1px solid var(--border);background:white;display:flex;align-items:center;justify-content:center"><i class="ti ti-chevron-right" style="font-size:16px;color:var(--muted)"></i></button>'
     + '</div>';
 
