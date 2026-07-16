@@ -2878,7 +2878,7 @@ async function renderConfig(){
   let usuarios=[];
   try{ const r=await fetch('/api/usuarios'); usuarios=await r.json(); }catch(e){}
   await cargarSkuPorMarcaDesdeServidor();
-  const MODS_LISTA=['ventas','visitas','kpis','inventario','documentos','nsos','referidos','institutos'];
+  const MODS_LISTA=['ventas','inventario','documentos'];
   document.getElementById('main').innerHTML=`
     <div id="cfg-credenciales" style="display:none">
       <div class="card">
@@ -2923,7 +2923,7 @@ async function renderConfig(){
           <table style="width:100%;border-collapse:collapse;font-size:13px">
             <thead><tr style="border-bottom:0.5px solid var(--border)">
               <th style="text-align:left;padding:8px 10px;font-size:11px;color:var(--muted)">Usuario</th>
-              ${MODS_LISTA.map(m=>`<th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);text-transform:uppercase">${m}</th>`).join('')}<th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);white-space:nowrap">Ver visitas<br>de todas</th>
+              ${MODS_LISTA.map(m=>`<th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);text-transform:uppercase">${m}</th>`).join('')}<th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);white-space:nowrap;text-transform:uppercase">Ver visitas<br>de todas</th>
               <th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);text-transform:uppercase">Editar Plan.</th>
             </tr></thead>
             <tbody>
@@ -3176,11 +3176,11 @@ async function crearUsuario(){
   const pwd=document.getElementById('new-pwd')?.value;
   const rol=document.getElementById('new-rol')?.value;
   if(!nombre||!usuario){alert('Completa nombre y usuario');return;}
-  try{await fetch('/api/usuarios',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nombre,usuario,password:pwd||'1234',rol,modulos:'ventas,visitas,kpis,inventario,documentos,nsos,referidos,institutos'})});alert('Usuario creado ✓');renderConfig();}catch(e){alert('Error al crear usuario');}
+  try{await fetch('/api/usuarios',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nombre,usuario,password:pwd||'1234',rol,modulos:'ventas,inventario,documentos'})});alert('Usuario creado ✓');renderConfig();}catch(e){alert('Error al crear usuario');}
 }
 
 async function guardarTodosPermisos(){
-  const MODS=['ventas','visitas','kpis','inventario','documentos','nsos','referidos','institutos'];
+  const MODS=['ventas','inventario','documentos'];
   const statusEl = document.getElementById('permisos-status');
   // Detectar todos los usuarios presentes en la tabla a partir de los ids de checkbox
   // (id con formato "perm-{userId}-{modulo}"), evitando depender de una lista aparte.
@@ -7272,15 +7272,16 @@ document.addEventListener('DOMContentLoaded', function() {
   if(usuarioActual.rol !== 'admin'){
     document.querySelectorAll('.nav-item').forEach(m => {
       const id = m.id.replace('nav-', '');
-      if(['config','reportes','ventas-mod','marcas-mod','clientes','planificacion','visitas','documentos'].includes(id)) return;
+      // visitas y kpis son visibles para todos (ya no se gestionan por permiso)
+      if(['config','reportes','ventas-mod','marcas-mod','clientes','planificacion','visitas','kpis','documentos'].includes(id)) return;
       if(id && !modulos.includes(id) && id !== 'ventas') m.style.display = 'none';
     });
-    // Sub-items con permiso propio
-    if(!modulos.includes('referidos')){ const el=document.getElementById('navsub-referidos'); if(el) el.style.display='none'; }
-    if(!modulos.includes('institutos')){ const el=document.getElementById('navsub-institutos-cli'); if(el) el.style.display='none'; }
-    if(!modulos.includes('documentos')){ const el=document.getElementById('navsub-doc-importantes'); if(el) el.style.display='none'; }
-    if(!modulos.includes('nsos')){ const el=document.getElementById('navsub-doc-nsos'); if(el) el.style.display='none'; }
-    if(!modulos.includes('documentos') && !modulos.includes('nsos')){ const el=document.getElementById('nav-documentos'); if(el) el.style.display='none'; }
+    // El permiso "documentos" gobierna Documentos (Importantes + NSOs), Referidos e Institutos
+    if(!modulos.includes('documentos')){
+      ['navsub-referidos','navsub-institutos-cli','navsub-doc-importantes','navsub-doc-nsos','nav-documentos'].forEach(idEl=>{
+        const el = document.getElementById(idEl); if(el) el.style.display = 'none';
+      });
+    }
     document.querySelectorAll('.mod').forEach(m => {
       const id = m.id.replace('mod-', '');
       if(id === 'config' || id === 'reportes') return;
