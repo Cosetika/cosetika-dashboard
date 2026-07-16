@@ -4826,7 +4826,8 @@ async function renderPedidosWeb(fechaSel){
     : esManana
     ? ('Mañana · '+fechaObj.getDate()+' '+meses[fechaObj.getMonth()]+' '+fechaObj.getFullYear())
     : (fechaObj.getDate()+' '+meses[fechaObj.getMonth()]+' '+fechaObj.getFullYear());
-  const totalDia = pedidos.reduce((s,p)=>s+parseFloat(p.subtotal || (p.total?p.total/1.15:0) || 0),0); // sin IVA
+  // Sin IVA: el 'subtotal' del correo de WooCommerce viene CON IVA, así que se deriva del total (IVA 15%)
+  const totalDia = pedidos.reduce((s,p)=>s+(parseFloat(p.total||0)/1.15),0);
 
   let html = '<div style="display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:20px">'
     + '<button onclick="renderPedidosWeb(\'' + ayerStr + '\')" style="width:34px;height:34px;border-radius:50%;border:1px solid var(--border);background:white;cursor:pointer;display:flex;align-items:center;justify-content:center"><i class="ti ti-chevron-left" style="font-size:16px;color:var(--muted)"></i></button>'
