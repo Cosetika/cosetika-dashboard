@@ -222,6 +222,7 @@
     <div id="nav-visitas-subs" style="max-height:0;overflow:hidden;transition:max-height 0.25s ease">
       <div class="nav-sub-item" id="navsub-visitas-plan" onclick="navGoVisitas('planificacion')"><i class="ti ti-calendar" style="font-size:13px"></i>Planificación</div>
       <div class="nav-sub-item" id="navsub-visitas-real" onclick="navGoVisitas('realizadas')"><i class="ti ti-map-2" style="font-size:13px"></i>Provincias y Sectores</div>
+      <div class="nav-sub-item" id="navsub-visitas-viaticos" onclick="navGoVisitas('viaticos')"><i class="ti ti-cash" style="font-size:13px"></i>Viáticos</div>
     </div>
 
     <div class="nav-divider"></div>
@@ -525,9 +526,9 @@ function navSetDocTab(tab){
 function navGoVisitas(tab){
   closeSidebar();
   window._visitaTab = tab;
-  document.getElementById('mobile-mod-title').textContent = tab==='planificacion'?'Plan. Visitas':'Provincias y Sectores';
+  document.getElementById('mobile-mod-title').textContent = tab==='planificacion'?'Plan. Visitas':tab==='viaticos'?'Viáticos':'Provincias y Sectores';
   document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
-  document.getElementById(tab==='planificacion'?'navsub-visitas-plan':'navsub-visitas-real')?.classList.add('active');
+  document.getElementById(tab==='planificacion'?'navsub-visitas-plan':tab==='viaticos'?'navsub-visitas-viaticos':'navsub-visitas-real')?.classList.add('active');
   if(modActual !== 'visitas') setMod('visitas');
   else renderModVisitas();
 }
@@ -1139,6 +1140,124 @@ async function actualizarBodegasAhora(){
     alert('Error: '+e.message);
     if(btn) btn.disabled = false;
   }
+}
+
+// ─── VIÁTICOS: tarifario por provincia/ciudad (todas ven, solo admin edita) ──
+const VIATICOS_DATOS_INICIALES = [
+  {provincia:'Imbabura', ciudad:'Ibarra - Otavalo', desayuno:5, almuerzo:5, cena:5, hotel:25, transporte:30, taxi:10},
+  {provincia:'Santo Domingo', ciudad:'Santo Domingo', desayuno:5, almuerzo:5, cena:5, hotel:25, transporte:30, taxi:15},
+  {provincia:'Tungurahua', ciudad:'Ambato - Latacunga', desayuno:5, almuerzo:5, cena:5, hotel:25, transporte:30, taxi:10},
+  {provincia:'Guayas', ciudad:'La Troncal', desayuno:5, almuerzo:5, cena:5, hotel:0, transporte:30, taxi:10},
+  {provincia:'Guayas', ciudad:'General Antonio Elizalde (Bucay)', desayuno:5, almuerzo:5, cena:5, hotel:0, transporte:30, taxi:10},
+  {provincia:'Los Ríos', ciudad:'Machala - San Rosa', desayuno:5, almuerzo:5, cena:5, hotel:35, transporte:30, taxi:10},
+  {provincia:'Azuay', ciudad:'Cuenca', desayuno:5, almuerzo:5, cena:5, hotel:35, transporte:30, taxi:10}
+];
+const VIATICOS_CAMPOS = [['desayuno','Desayuno'],['almuerzo','Almuerzo'],['cena','Cena'],['hotel','Hotel x noche'],['transporte','Transporte ida y vuelta'],['taxi','Taxi x día']];
+
+async function renderViaticosTarifas(){
+  const cont = document.getElementById('visitas-content');
+  if(!cont) return;
+  cont.innerHTML = '<div style="padding:30px;text-align:center;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:22px"></i></div>';
+  let filas = [];
+  try{ const r = await fetch('/api/viaticos-tarifas'); filas = await r.json(); if(!Array.isArray(filas)) filas = []; }catch(e){}
+  const esAdmin = (window.usuarioActual||{}).rol === 'admin';
+  const esc = v => String(v||'').replace(/</g,'&lt;');
+
+  cont.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+      <div style="font-size:16px;font-weight:600"><i class="ti ti-cash" style="margin-right:8px;color:var(--brown)"></i>Planificación y presupuesto de viáticos</div>
+      ${esAdmin?`<button onclick="toggleFormViatico()" style="padding:9px 16px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-plus" style="margin-right:5px"></i>Agregar destino</button>`:''}
+    </div>
+    ${esAdmin?`
+    <div id="viatico-form" class="card" style="display:none;margin-bottom:14px;border:2px dashed var(--border)">
+      <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px"><i class="ti ti-plus" style="margin-right:5px"></i>Nuevo destino</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <input type="text" id="via-provincia" placeholder="Provincia *" style="flex:1;min-width:120px;padding:9px 12px;font-size:13px;border:1px solid var(--border);border-radius:8px;outline:none;box-sizing:border-box">
+        <input type="text" id="via-ciudad" placeholder="Cantón o ciudad *" style="flex:1.5;min-width:160px;padding:9px 12px;font-size:13px;border:1px solid var(--border);border-radius:8px;outline:none;box-sizing:border-box">
+        ${VIATICOS_CAMPOS.map(([k,lbl])=>`<input type="number" id="via-${k}" min="0" step="0.5" placeholder="${lbl} $" title="${lbl}" style="width:100px;padding:9px 8px;font-size:12px;border:1px solid var(--border);border-radius:8px;outline:none;box-sizing:border-box">`).join('')}
+        <button onclick="guardarNuevoViatico()" style="padding:9px 16px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-check" style="margin-right:4px"></i>Guardar</button>
+      </div>
+    </div>`:''}
+    ${filas.length===0?`
+    <div class="card" style="text-align:center;padding:40px 20px;color:var(--muted)">
+      <i class="ti ti-cash-off" style="font-size:36px;opacity:0.35"></i>
+      <p style="margin-top:10px;font-size:14px">No hay tarifas registradas</p>
+      ${esAdmin?`<button onclick="cargarViaticosIniciales(this)" style="margin-top:12px;padding:10px 20px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-database-import" style="margin-right:6px"></i>Cargar datos iniciales (${VIATICOS_DATOS_INICIALES.length} destinos)</button>`:''}
+    </div>`:`
+    <div class="card" style="padding:0;overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:820px">
+        <thead>
+          <tr style="border-bottom:1px solid var(--border)">
+            <th style="text-align:left;padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Provincia</th>
+            <th style="text-align:left;padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Cantón o ciudad</th>
+            ${VIATICOS_CAMPOS.map(([k,lbl])=>`<th style="text-align:center;padding:10px 8px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">${lbl}</th>`).join('')}
+            <th style="text-align:center;padding:10px 8px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Total día</th>
+            ${esAdmin?'<th style="width:34px"></th>':''}
+          </tr>
+        </thead>
+        <tbody>
+          ${filas.map((f,fi)=>{
+            const total = VIATICOS_CAMPOS.reduce((a,[k])=>a+(parseFloat(f[k])||0),0);
+            return `
+          <tr style="border-bottom:0.5px solid var(--border);background:${fi%2?'#f6f3ef':'white'}">
+            <td style="padding:9px 14px;font-weight:600">${esAdmin?`<input type="text" value="${esc(f.provincia)}" onchange="guardarCampoViatico(${f.id},'provincia',this.value)" style="width:110px;padding:5px 8px;font-size:12px;border:1px solid var(--border);border-radius:6px;outline:none">`:esc(f.provincia)}</td>
+            <td style="padding:9px 14px">${esAdmin?`<input type="text" value="${esc(f.ciudad)}" onchange="guardarCampoViatico(${f.id},'ciudad',this.value)" style="width:100%;min-width:150px;padding:5px 8px;font-size:12px;border:1px solid var(--border);border-radius:6px;outline:none;box-sizing:border-box">`:esc(f.ciudad)}</td>
+            ${VIATICOS_CAMPOS.map(([k])=>`<td style="padding:9px 8px;text-align:center">${esAdmin?`<input type="number" min="0" step="0.5" value="${parseFloat(f[k])||0}" onchange="guardarCampoViatico(${f.id},'${k}',this.value)" style="width:64px;padding:5px 6px;font-size:12px;border:1px solid var(--border);border-radius:6px;outline:none;text-align:center">`:'$'+(parseFloat(f[k])||0)}</td>`).join('')}
+            <td style="padding:9px 8px;text-align:center;font-weight:700;color:var(--brown)">$${Math.round(total*100)/100}</td>
+            ${esAdmin?`<td style="padding:9px 6px;text-align:center"><button onclick="borrarViatico(${f.id},'${esc(f.ciudad).replace(/'/g,'')}')" title="Eliminar" style="width:26px;height:26px;border:1px solid #fca5a5;background:#fef2f2;border-radius:6px;cursor:pointer"><i class="ti ti-trash" style="font-size:11px;color:#ef4444"></i></button></td>`:''}
+          </tr>`;}).join('')}
+        </tbody>
+      </table>
+    </div>
+    ${esAdmin?'<div style="font-size:11px;color:var(--muted);margin-top:8px">Los cambios en las celdas se guardan automáticamente</div>':''}`}`;
+}
+
+function toggleFormViatico(){
+  const f = document.getElementById('viatico-form');
+  if(!f) return;
+  f.style.display = f.style.display === 'none' ? 'block' : 'none';
+  if(f.style.display === 'block') document.getElementById('via-provincia')?.focus();
+}
+
+async function guardarNuevoViatico(){
+  const b = { provincia: document.getElementById('via-provincia')?.value||'', ciudad: document.getElementById('via-ciudad')?.value||'' };
+  VIATICOS_CAMPOS.forEach(([k])=>{ b[k] = parseFloat(document.getElementById('via-'+k)?.value)||0; });
+  if(!b.provincia.trim() || !b.ciudad.trim()){ alert('Provincia y cantón/ciudad son obligatorios'); return; }
+  try{
+    const r = await fetch('/api/viaticos-tarifas', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(b) });
+    const j = await r.json();
+    if(!j.ok) throw new Error(j.error||'error');
+    renderViaticosTarifas();
+  }catch(e){ alert('Error: '+e.message); }
+}
+
+async function guardarCampoViatico(id, campo, valor){
+  try{
+    const body = {}; body[campo] = valor;
+    const r = await fetch('/api/viaticos-tarifas/'+id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const j = await r.json();
+    if(!j.ok) throw new Error(j.error||'error');
+    if(!['provincia','ciudad'].includes(campo)) renderViaticosTarifas(); // refrescar total
+  }catch(e){ alert('Error al guardar: '+e.message); }
+}
+
+async function borrarViatico(id, ciudad){
+  if(!confirm('¿Eliminar el destino "'+ciudad+'"?')) return;
+  try{
+    await fetch('/api/viaticos-tarifas/'+id, { method:'DELETE' });
+    renderViaticosTarifas();
+  }catch(e){ alert('Error: '+e.message); }
+}
+
+async function cargarViaticosIniciales(btn){
+  btn.disabled = true;
+  btn.innerHTML = '<i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i> Cargando...';
+  try{
+    for(const f of VIATICOS_DATOS_INICIALES){
+      await fetch('/api/viaticos-tarifas', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(f) });
+    }
+    renderViaticosTarifas();
+  }catch(e){ alert('Error: '+e.message); btn.disabled=false; }
 }
 
 // ─── MÓDULO LOTES (caducidades con baja FIFO automática) ─────────────────────
@@ -2699,6 +2818,7 @@ function renderModVisitas(){
   const tab = window._visitaTab || 'realizadas';
   document.getElementById('main').innerHTML = '<div id="visitas-content"></div>';
   if(tab==='realizadas') renderVisitasRealizadas();
+  else if(tab==='viaticos') renderViaticosTarifas();
   else renderPlanificacion();
 }
 
