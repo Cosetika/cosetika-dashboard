@@ -2583,7 +2583,8 @@ const PLAN_CONFIG = {
     tabla: 'giras',
     checkRealizada: true,
     campos: [
-      { key:'fecha', label:'Fecha', type:'date', required:true },
+      { key:'fecha', label:'Fecha de salida', type:'date', required:true },
+      { key:'fecha_fin', label:'Fecha de regreso (si la gira dura varios días)', type:'date' },
       { key:'asesora', label:'Asesora', type:'asesora' },
       { key:'ciudad', label:'Provincia', type:'select', options:['Azuay', 'Bolívar', 'Cañar', 'Carchi', 'Chimborazo', 'Cotopaxi', 'El Oro', 'Esmeraldas', 'Galápagos', 'Guayas', 'Imbabura', 'Loja', 'Los Ríos', 'Manabí', 'Morona Santiago', 'Napo', 'Orellana', 'Pastaza', 'Pichincha', 'Santa Elena', 'Santo Domingo', 'Sucumbíos', 'Tungurahua', 'Zamora Chinchipe'] },
       { key:'ciudad_visita', label:'Ciudad', type:'text', placeholder:'Ej: Portoviejo' },
@@ -2595,6 +2596,7 @@ const PLAN_CONFIG = {
       chips: [
         r.asesora ? { icon:'ti-user', text: r.asesora } : null,
         r.ciudad_visita ? { icon:'ti-map-pin', text: r.ciudad_visita } : null,
+        r.fecha_fin ? { icon:'ti-calendar-due', text: (()=>{ const d1=new Date(String(r.fecha).substring(0,10)+'T12:00:00'); const d2=new Date(String(r.fecha_fin).substring(0,10)+'T12:00:00'); const n=Math.round((d2-d1)/86400000)+1; return n>1 ? n+' días de gira' : '1 día'; })() } : null,
         r.valor_viaticos ? { icon:'ti-currency-dollar', text: `$${parseFloat(r.valor_viaticos).toFixed(2)}` } : null,
         r.coordinada ? { icon:'ti-check', text: 'Coordinada' } : null,
       ].filter(Boolean)
@@ -2677,12 +2679,19 @@ async function renderPlanMes(modulo, anio, mes){
       const fecha = fechaStr2 ? new Date(fechaStr2+'T12:00:00') : null;
       const dia = fecha ? fecha.getDate() : '—';
       const diaSemana = fecha ? ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][fecha.getDay()] : '';
+      // Giras de varios días: mostrar el rango (21–24) y Jul–Ago si cruza de mes
+      const finStr2 = r.fecha_fin ? String(r.fecha_fin).substring(0,10) : '';
+      const fechaFin = finStr2 && finStr2 !== fechaStr2 ? new Date(finStr2+'T12:00:00') : null;
+      const rangoDias = fechaFin ? dia+'–'+fechaFin.getDate() : String(dia);
+      const rangoMes = fechaFin && fechaFin.getMonth() !== (mes-1)
+        ? MESES_NOMBRES[mes-1].substring(0,3)+'–'+MESES_NOMBRES[fechaFin.getMonth()].substring(0,3)
+        : MESES_NOMBRES[mes-1].substring(0,3);
       return `
       <div style="display:flex;gap:16px;margin-bottom:14px;background:white;border-radius:14px;border:1px solid var(--border);overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.04)">
         <div style="background:#1a1108;width:72px;display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0;padding:16px 8px">
           <div style="color:#A0684A;font-size:10px;font-weight:600;letter-spacing:1px;text-transform:uppercase">${diaSemana}</div>
-          <div style="color:white;font-size:28px;font-weight:700;line-height:1">${dia}</div>
-          <div style="color:#7a6a5a;font-size:10px">${MESES_NOMBRES[mes-1].substring(0,3)}</div>
+          <div style="color:white;font-size:${fechaFin?'19px':'28px'};font-weight:700;line-height:1.1;text-align:center">${rangoDias}</div>
+          <div style="color:#7a6a5a;font-size:10px">${rangoMes}</div>
         </div>
         <div style="flex:1;padding:14px 16px;min-width:0">
           <div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:8px">${info.titulo}</div>

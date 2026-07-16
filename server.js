@@ -1917,6 +1917,7 @@ async function initDB() {
       ALTER TABLE giras ADD COLUMN IF NOT EXISTS coordinada BOOLEAN DEFAULT false;
       ALTER TABLE giras ADD COLUMN IF NOT EXISTS realizada BOOLEAN DEFAULT false;
       ALTER TABLE giras ADD COLUMN IF NOT EXISTS ciudad_visita VARCHAR(100);
+      ALTER TABLE giras ADD COLUMN IF NOT EXISTS fecha_fin DATE;
       ALTER TABLE casas_abiertas ADD COLUMN IF NOT EXISTS coordinada BOOLEAN DEFAULT false;
       ALTER TABLE casas_abiertas ADD COLUMN IF NOT EXISTS realizada BOOLEAN DEFAULT false;
       CREATE TABLE IF NOT EXISTS revisiones_lunes (
@@ -2343,8 +2344,12 @@ const server = http.createServer(async (req, res) => {
         if(mes) r = await pool.query(`SELECT *, TO_CHAR(fecha,'YYYY-MM-DD') AS fecha_str FROM ${tabla} WHERE TO_CHAR(fecha,'YYYY-MM')=$1 ORDER BY fecha ASC`,[mes]);
         else if(anio) r = await pool.query(`SELECT *, TO_CHAR(fecha,'YYYY-MM-DD') AS fecha_str FROM ${tabla} WHERE TO_CHAR(fecha,'YYYY')=$1 ORDER BY fecha ASC`,[anio]);
         else r = await pool.query(`SELECT *, TO_CHAR(fecha,'YYYY-MM-DD') AS fecha_str FROM ${tabla} ORDER BY fecha DESC LIMIT 100`);
-        // Normalizar: usar fecha_str como fecha
-        const rows = r.rows.map(row => ({...row, fecha: row.fecha_str||row.fecha}));
+        // Normalizar: usar fecha_str como fecha; fecha_fin (giras multi-día) a YYYY-MM-DD
+        const rows = r.rows.map(row => {
+          const out = {...row, fecha: row.fecha_str||row.fecha};
+          if (out.fecha_fin) out.fecha_fin = new Date(out.fecha_fin).toISOString().substring(0,10);
+          return out;
+        });
         res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(rows));
       }catch(e){
         console.error(`Error GET ${tabla}:`, e.message);
