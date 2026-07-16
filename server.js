@@ -2041,6 +2041,7 @@ async function initDB() {
         taxi NUMERIC(10,2) DEFAULT 0,
         created_at TIMESTAMP DEFAULT NOW()
       );
+      ALTER TABLE viaticos_tarifas ADD COLUMN IF NOT EXISTS dias NUMERIC(6,2) DEFAULT 0;
       CREATE TABLE IF NOT EXISTS lotes (
         id SERIAL PRIMARY KEY,
         producto_id VARCHAR(30) NOT NULL,
@@ -4361,7 +4362,7 @@ const server = http.createServer(async (req, res) => {
   // ─── VIÁTICOS: tarifario por provincia/ciudad (solo admin edita) ────────────
   if (urlPath === '/api/viaticos-tarifas' && req.method === 'GET') {
     try {
-      const r = await pool.query('SELECT id, provincia, ciudad, desayuno, almuerzo, cena, hotel, transporte, taxi FROM viaticos_tarifas ORDER BY provincia, ciudad');
+      const r = await pool.query('SELECT id, provincia, ciudad, dias, desayuno, almuerzo, cena, hotel, transporte, taxi FROM viaticos_tarifas ORDER BY provincia, ciudad');
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.rows));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
     return;
@@ -4374,10 +4375,10 @@ const server = http.createServer(async (req, res) => {
       }
       const n = v => Math.max(0, parseFloat(v) || 0);
       const r = await pool.query(
-        `INSERT INTO viaticos_tarifas(provincia,ciudad,desayuno,almuerzo,cena,hotel,transporte,taxi)
-         VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+        `INSERT INTO viaticos_tarifas(provincia,ciudad,dias,desayuno,almuerzo,cena,hotel,transporte,taxi)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
         [String(b.provincia).trim().substring(0,90), String(b.ciudad).trim().substring(0,190),
-         n(b.desayuno), n(b.almuerzo), n(b.cena), n(b.hotel), n(b.transporte), n(b.taxi)]
+         n(b.dias), n(b.desayuno), n(b.almuerzo), n(b.cena), n(b.hotel), n(b.transporte), n(b.taxi)]
       );
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, id:r.rows[0].id}));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
@@ -4387,7 +4388,7 @@ const server = http.createServer(async (req, res) => {
     try {
       const id = parseInt(urlPath.split('/').pop());
       const b = await bodyJSON(req);
-      const CAMPOS = ['provincia','ciudad','desayuno','almuerzo','cena','hotel','transporte','taxi'];
+      const CAMPOS = ['provincia','ciudad','dias','desayuno','almuerzo','cena','hotel','transporte','taxi'];
       const sets = []; const params = []; let i = 1;
       CAMPOS.forEach(c => {
         if (c in b) {
