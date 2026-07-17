@@ -9663,28 +9663,18 @@ async function renderKpis(){
     <!-- Casa Abierta -->
     <div class="card" style="margin-bottom:12px">
       <div class="card-title" style="margin-bottom:12px"><i class="ti ti-building-store"></i> Casa Abierta</div>
-      <div style="border-radius:10px;padding:14px;border:2px solid ${(casaAbiertaMes||casaKpi)?'#86efac':'#fca5a5'};background:${(casaAbiertaMes||casaKpi)?'#f0fdf4':'#fef2f2'}">
+      <div style="border-radius:10px;padding:14px;border:2px solid ${casaKpi?'#86efac':'#fca5a5'};background:${casaKpi?'#f0fdf4':'#fef2f2'}">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-          <div style="width:28px;height:28px;border-radius:50%;background:${(casaAbiertaMes||casaKpi)?'#22c55e':'#ef4444'};display:flex;align-items:center;justify-content:center;flex-shrink:0">
-            <i class="ti ti-${(casaAbiertaMes||casaKpi)?'check':'x'}" style="color:white;font-size:14px"></i>
+          <div style="width:28px;height:28px;border-radius:50%;background:${casaKpi?'#22c55e':'#ef4444'};display:flex;align-items:center;justify-content:center;flex-shrink:0">
+            <i class="ti ti-${casaKpi?'check':'x'}" style="color:white;font-size:14px"></i>
           </div>
-          <span style="font-size:13px;font-weight:600;color:${(casaAbiertaMes||casaKpi)?'#166534':'#991b1b'}">${MESES_N[mesFiltro]}</span>
+          <span style="font-size:13px;font-weight:600;color:${casaKpi?'#166534':'#991b1b'}">${MESES_N[mesFiltro]}</span>
         </div>
-        ${casaKpi && !casaAbiertaMes
+        ${casaKpi
           ? `<div style="font-size:12px;color:#166534;font-weight:500">✅ ${casaKpi.cliente||'Casa abierta'} — realizada</div>
              <div style="font-size:11px;color:var(--muted);margin-top:2px">${new Date(String(casaKpi.fecha).substring(0,10)+'T12:00:00').toLocaleDateString('es-EC',{day:'2-digit',month:'long'})} · desde Planificación → Casas Abiertas</div>`
-        : casaAbiertaMes
-          ? `<div style="font-size:12px;color:#166534;font-weight:500">✅ ${casaAbiertaMes}</div>
-             ${esMesActual?`<button onclick="editarCasaAbierta('${asesoraKpi}',${anioFiltro},${mesFiltro})" style="margin-top:6px;padding:3px 8px;font-size:10px;border:1px solid #86efac;border-radius:5px;background:white;color:#166534;cursor:pointer">Editar</button>`:''}`
-          : `<div style="font-size:12px;color:#991b1b">Sin registrar</div>
-             ${esMesActual?`<div style="margin-top:8px">
-               <input type="text" id="casa-abierta-input" placeholder="Nombre de la estética..." 
-                 style="width:100%;padding:6px 8px;border:1px solid #fca5a5;border-radius:6px;font-size:12px;outline:none;background:white"/>
-               <button onclick="guardarCasaAbierta('${asesoraKpi}',${anioFiltro},${mesFiltro})"
-                 style="margin-top:6px;width:100%;padding:6px;font-size:12px;background:#ef4444;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:500">
-                 Registrar casa abierta
-               </button>
-             </div>`:''}`
+          : `<div style="font-size:12px;color:#991b1b">Sin casa abierta realizada</div>
+             <div style="font-size:11px;color:var(--muted);margin-top:4px">Se registra en Planificación → Casas Abiertas y se marca "Realizada"</div>`
         }
       </div>
 
@@ -9695,7 +9685,7 @@ async function renderKpis(){
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <div style="font-size:11px;color:var(--muted)">Resumen del mes:</div>
         <span style="font-size:11px;padding:2px 10px;border-radius:20px;background:${(visitaProv||giraKpi)?'#dcfce7':'#fee2e2'};color:${(visitaProv||giraKpi)?'#166534':'#991b1b'};font-weight:500">${(visitaProv||giraKpi)?'✓':'✗'} Visita provincia</span>
-        <span style="font-size:11px;padding:2px 10px;border-radius:20px;background:${(casaAbiertaMes||casaKpi)?'#dcfce7':'#fee2e2'};color:${(casaAbiertaMes||casaKpi)?'#166534':'#991b1b'};font-weight:500">${(casaAbiertaMes||casaKpi)?'✓':'✗'} Casa abierta</span>
+        <span style="font-size:11px;padding:2px 10px;border-radius:20px;background:${casaKpi?'#dcfce7':'#fee2e2'};color:${casaKpi?'#166534':'#991b1b'};font-weight:500">${casaKpi?'✓':'✗'} Casa abierta</span>
         <span style="font-size:11px;padding:2px 10px;border-radius:20px;background:${clientesDif!==null&&clientesDif>=0?'#dcfce7':'#fee2e2'};color:${clientesDif!==null&&clientesDif>=0?'#166534':'#991b1b'};font-weight:500">${clientesDif!==null&&clientesDif>=0?'✓':'✗'} Clientes nuevos</span>
       </div>
     </div>
