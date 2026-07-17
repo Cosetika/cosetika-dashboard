@@ -9263,6 +9263,78 @@ async function marcarRevisionLunes(asesora, semana, revisado){
   } catch(e){ console.error('Error guardando revisión:', e); }
 }
 
+// Configuración de KPIs POR ASESORA: solo la meta de clientes nuevos se edita aquí.
+// Visitas y comisión se muestran como referencia — viven en sus propios módulos.
+async function configurarKpiAsesora(asesora, visitasMeta){
+  let metas = {};
+  try{
+    const r = await fetch('/api/contifico-clientes/metas');
+    const d = await r.json();
+    if(d.ok) metas = d.metas || {};
+  }catch(e){}
+  const claveMeta = (metas[asesora] !== undefined) ? asesora : (resolverNombreReal(asesora, metas) || asesora);
+  const metaCli = metas[claveMeta] ?? 0;
+  // Comisión (solo lectura, desde Reportes → Comisiones)
+  let comTxt = 'Sin configurar';
+  try{
+    const cfgCom = getComisionCfg();
+    const claveCom = resolverNombreReal(asesora, cfgCom.asesoras || {});
+    const cAse = claveCom ? cfgCom.asesoras[claveCom] : null;
+    if(cAse) comTxt = cAse.pct + '% sobre ventas que superen ' + fmt(cAse.minimo);
+  }catch(e){}
+
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:300;display:flex;align-items:center;justify-content:center;padding:20px';
+  overlay.innerHTML = `
+    <div style="background:white;border-radius:14px;width:100%;max-width:420px;box-shadow:0 20px 60px rgba(0,0,0,0.2)">
+      <div style="background:#1a1108;border-radius:14px 14px 0 0;padding:14px 18px;display:flex;align-items:center;justify-content:space-between">
+        <div style="color:white;font-size:14px;font-weight:500"><i class="ti ti-settings" style="color:#A0684A;margin-right:8px"></i>Configurar KPIs — ${nombreCorto(asesora)}</div>
+        <button onclick="this.closest('div[style*=fixed]').remove()" style="background:none;border:none;font-size:18px;color:#9ca3af;cursor:pointer"><i class="ti ti-x"></i></button>
+      </div>
+      <div style="padding:18px">
+        <div style="margin-bottom:16px">
+          <label style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:6px">Meta mensual de clientes nuevos</label>
+          <input type="number" min="0" id="kpi-ase-meta-cli" value="${metaCli}" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;outline:none;box-sizing:border-box">
+        </div>
+        <div style="margin-bottom:12px;padding:10px 12px;background:#faf9f8;border:1px solid var(--border);border-radius:8px">
+          <div style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px">Meta de visitas semanales</div>
+          <div style="font-size:14px;font-weight:700;margin-top:2px">${visitasMeta} visitas/semana</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px"><i class="ti ti-link" style="font-size:10px"></i> Ligada a Visitas → Planificación (botón "Editar" del encabezado)</div>
+        </div>
+        <div style="margin-bottom:16px;padding:10px 12px;background:#faf9f8;border:1px solid var(--border);border-radius:8px">
+          <div style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px">Comisión</div>
+          <div style="font-size:14px;font-weight:700;margin-top:2px">${comTxt}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px"><i class="ti ti-link" style="font-size:10px"></i> Se configura en Reportes → Comisiones (Editar parámetros)</div>
+        </div>
+        <div style="display:flex;gap:10px">
+          <button onclick="this.closest('div[style*=fixed]').remove()" style="flex:1;padding:10px;font-size:13px;border:1px solid var(--border);border-radius:8px;background:white;color:#6b7280;cursor:pointer">Cancelar</button>
+          <button onclick="guardarKpiAsesora('${asesora.replace(/'/g,"\\'")}','${String(claveMeta).replace(/'/g,"\\'")}')" style="flex:1;padding:10px;font-size:13px;border:none;border-radius:8px;background:var(--brown);color:white;cursor:pointer;font-weight:500"><i class="ti ti-device-floppy" style="margin-right:4px"></i>Guardar</button>
+        </div>
+      </div>
+    </div>`;
+  overlay.addEventListener('click', e => { if(e.target === overlay) overlay.remove(); });
+  document.body.appendChild(overlay);
+}
+
+async function guardarKpiAsesora(asesora, claveMeta){
+  const n = Math.max(0, parseInt(document.getElementById('kpi-ase-meta-cli')?.value) || 0);
+  try{
+    const r = await fetch('/api/contifico-clientes/metas');
+    const d = await r.json();
+    const metas = (d.ok && d.metas) ? d.metas : {};
+    metas[claveMeta] = n;
+    const rp = await fetch('/api/contifico-clientes/metas', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(metas)
+    });
+    const jp = await rp.json();
+    if(!jp.ok) throw new Error(jp.error||'error');
+    window._contificoClientesMetasCache = null;
+    document.querySelector('div[style*="z-index:300"]')?.remove();
+    renderKpis();
+  }catch(e){ alert('Error al guardar: '+e.message); }
+}
+
 async function configurarKpiMetas(){
   let metas = {};
   try { const r = await fetch('/api/kpi-metas'); metas = await r.json(); } catch(e){}
@@ -9524,7 +9596,7 @@ async function renderKpis(){
       <div style="display:flex;align-items:center;gap:8px">
         ${selectorAsesora}
         ${(window.usuarioActual||{}).rol==='admin'?`
-        <button onclick="configurarKpiMetas()" style="padding:6px 14px;background:#1a1108;color:white;border:none;border-radius:8px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:5px">
+        <button onclick="configurarKpiAsesora('${asesoraKpi.replace(/'/g,"\\'")}', ${visitasMeta})" style="padding:6px 14px;background:#1a1108;color:white;border:none;border-radius:8px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:5px">
           <i class="ti ti-settings"></i> Configurar
         </button>`:''}
       </div>
