@@ -2549,6 +2549,36 @@ const server = http.createServer(async (req, res) => {
         ...row,
         productos: (() => { try { return JSON.parse(row.productos || '[]'); } catch(e){ return []; } })()
       }));
+      // Enriquecer con la asesora asignada en el directorio (personas). Sin match → cliente nueva
+      try {
+        if (pedidos.length) {
+          const rp = await pool.query("SELECT cedula, ruc, razon_social, vendedor FROM personas WHERE vendedor IS NOT NULL AND vendedor <> ''");
+          const normP = x => String(x||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase().replace(/[^A-Z ]/g,' ').replace(/\s+/g,' ').trim();
+          const porCed = {}; const porNom = [];
+          rp.rows.forEach(pe => {
+            [pe.cedula, pe.ruc].forEach(v => {
+              const d = String(v||'').replace(/\D/g,'');
+              if (d) { porCed[d] = pe.vendedor; if (d.length === 13) porCed[d.substring(0,10)] = pe.vendedor; }
+            });
+            const n = normP(pe.razon_social);
+            if (n) porNom.push({ n, ancla: n.split(' ').slice(0,2).join(' '), v: pe.vendedor });
+          });
+          pedidos.forEach(px => {
+            let ase = null;
+            const d = String(px.cedula_ruc||'').replace(/\D/g,'');
+            if (d) ase = porCed[d] || (d.length === 13 ? porCed[d.substring(0,10)] : null);
+            if (!ase) {
+              const n = normP(px.cliente_nombre);
+              if (n) {
+                const anclaP = n.split(' ').slice(0,2).join(' ');
+                const m = porNom.find(x => x.n === n || (anclaP.length >= 7 && (x.n.startsWith(anclaP) || n.startsWith(x.ancla))));
+                if (m) ase = m.v;
+              }
+            }
+            px.asesora = ase || null;
+          });
+        }
+      } catch(eA) { /* si falla, los pedidos salen sin asesora */ }
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(pedidos));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
     return;

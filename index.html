@@ -4845,7 +4845,12 @@ async function renderPedidosWeb(fechaSel){
       html += '<div style="background:white;border-radius:12px;border:1px solid var(--border);margin-bottom:8px;overflow:hidden">'
         + '<div onclick="togglePedidoDetalle(\'' + prodId + '\')" style="display:flex;align-items:center;gap:12px;padding:13px 16px;cursor:pointer" onmouseover="this.style.background=&quot;#faf9f8&quot;" onmouseout="this.style.background=&quot;white&quot;">'
         + '<div style="font-size:13px;font-weight:600;color:var(--muted);flex-shrink:0;min-width:90px">#'+p.numero_pedido+'</div>'
-        + '<div style="flex:1;font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+( p.cliente_nombre||'—')+'</div>'
+        + '<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+( p.cliente_nombre||'—')+'</div>'
+        + '<div style="font-size:10px;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'
+        + (p.asesora
+            ? '<span style="color:var(--muted)"><i class="ti ti-user" style="font-size:9px"></i> '+String(p.asesora).split(' ').slice(0,2).join(' ')+'</span>'
+            : '<span style="color:#16a34a;font-weight:700"><i class="ti ti-sparkles" style="font-size:9px"></i> Cliente nueva</span>')
+        + '</div></div>'
         + '<div style="font-size:15px;font-weight:700;color:var(--brown);flex-shrink:0;min-width:80px;text-align:right">$'+parseFloat(p.total||0).toFixed(2)+'</div>'
         + '<i class="ti ti-chevron-down" id="chev-'+prodId+'" style="font-size:14px;color:var(--muted);transition:transform 0.2s;flex-shrink:0"></i>'
         + '</div>'
