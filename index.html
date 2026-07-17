@@ -9445,19 +9445,23 @@ async function renderKpis(){
   // Clientes nuevos del mes — ahora se cuenta automáticamente desde el Excel de
   // Personas de Contifico (ver Configuración → Sincronización → Provincias), en vez
   // del sistema manual anterior de "Base mes anterior / Cerrar mes".
-  let clientesMeta = 0, clientesNuevos = null, clientesDif = null, clientesHistorico = [];
+  let clientesMeta = 0, clientesNuevos = null, clientesDif = null, clientesNuevosNombres = [];
   try{
-    const [rMetasCli, rRegCli] = await Promise.all([
+    const [rMetasCli, rNuevosCli] = await Promise.all([
       window._contificoClientesMetasCache ? Promise.resolve({json:()=>Promise.resolve({ok:true,metas:window._contificoClientesMetasCache})}) : fetch('/api/contifico-clientes/metas'),
-      fetch(`/api/contifico-clientes/registros?anio=${anioFiltro}`)
+      fetch(`/api/kpi-clientes-nuevos?anio=${anioFiltro}&mes=${mesFiltro}`)
     ]);
     const dataMetasCli = await rMetasCli.json();
-    const dataRegCli = await rRegCli.json();
+    const dataNuevosCli = await rNuevosCli.json();
     if(dataMetasCli.ok){ window._contificoClientesMetasCache = dataMetasCli.metas; clientesMeta = dataMetasCli.metas[asesoraKpi] || 0; }
-    const registrosAsesoraCli = (dataRegCli.registros||[]).filter(r=>r.asesora===asesoraKpi).sort((a,b)=>a.mes-b.mes);
-    clientesHistorico = registrosAsesoraCli; // [{mes, acumulado, nuevos, dif}, ...] todo el año
-    const registroDelMesCli = registrosAsesoraCli.find(r=>r.mes===mesFiltro);
-    if(registroDelMesCli){ clientesNuevos = registroDelMesCli.nuevos; clientesDif = registroDelMesCli.dif; }
+    if(dataNuevosCli.ok){
+      // Cruzar el nombre de la asesora del KPI con la vendedora de Contifico
+      const claveVend = resolverNombreReal(asesoraKpi, dataNuevosCli.asesoras || {});
+      const infoNuevos = claveVend ? dataNuevosCli.asesoras[claveVend] : null;
+      clientesNuevos = infoNuevos ? infoNuevos.cantidad : 0;
+      clientesNuevosNombres = infoNuevos ? infoNuevos.nombres : [];
+      clientesDif = clientesNuevos - clientesMeta;
+    }
   }catch(e){ /* silencioso: si falla, el bloque simplemente no muestra datos */ }
 
   // Meses disponibles para historial — solo 2026 en adelante (los KPIs manuales de
@@ -9547,7 +9551,7 @@ async function renderKpis(){
     <div class="card" style="margin-bottom:12px">
       <div class="card-title" style="margin-bottom:12px"><i class="ti ti-user-plus"></i> Clientes nuevos</div>
       ${clientesNuevos===null ? `
-        <p style="font-size:12px;color:var(--muted)">Todavía no se ha contado el acumulado de clientes de este mes (o falta el del mes anterior para poder calcular cuántos son nuevos). Se actualiza automáticamente al subir el Excel de Personas en Configuración → Sincronización.</p>
+        <p style="font-size:12px;color:var(--muted)">No se pudo calcular. El conteo es automático: compara las clientas que facturan en Contifico contra el directorio de Personas — sin subir Excels mensuales.</p>
       ` : `
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
           <div style="background:#faf9f8;border-radius:10px;padding:12px;text-align:center;border:1px solid var(--border)">
@@ -9566,6 +9570,13 @@ async function renderKpis(){
             <div style="font-size:10px;color:var(--muted)">${clientesDif>=0?'✅ meta cumplida':'⚠️ por debajo de la meta'}</div>
           </div>
         </div>
+        ${clientesNuevosNombres.length ? `
+        <div style="margin-top:12px">
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Clientas nuevas del mes</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px">
+            ${clientesNuevosNombres.map(n=>`<span style="font-size:11px;padding:3px 10px;border-radius:12px;background:#f0fdf4;color:#166534;border:1px solid #86efac;font-weight:500">${String(n).replace(/</g,'&lt;')}</span>`).join('')}
+          </div>
+        </div>`:''}
       `}
       
     </div>

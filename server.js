@@ -943,7 +943,7 @@ async function sincronizarInstitutos(){
       if (r.rowCount > 0) { actualizadas += r.rowCount; hecho = true; }
     }
     if (!hecho) {
-      await pool.query('INSERT INTO personas(cedula,ruc,razon_social,instituto) VALUES($1,$2,$3,$4)',
+      await pool.query("INSERT INTO personas(cedula,ruc,razon_social,instituto,origen) VALUES($1,$2,$3,$4,'institutos')",
         [a.cedula || null, a.ruc || null, a.nombre || '—', a.valor]);
       insertadas++;
     }
@@ -2018,6 +2018,9 @@ async function initDB() {
       ALTER TABLE personas ALTER COLUMN telefono TYPE VARCHAR(200);
       ALTER TABLE personas ALTER COLUMN cedula TYPE VARCHAR(50);
       ALTER TABLE personas ADD COLUMN IF NOT EXISTS instituto VARCHAR(200);
+      ALTER TABLE personas ADD COLUMN IF NOT EXISTS origen VARCHAR(20);
+      UPDATE personas SET origen='institutos' WHERE origen IS NULL AND instituto IS NOT NULL
+        AND (vendedor IS NULL OR vendedor='') AND (telefono IS NULL OR telefono='') AND (email IS NULL OR email='');
       ALTER TABLE facturas_detalle ADD COLUMN IF NOT EXISTS cedula_ruc VARCHAR(50);
       CREATE TABLE IF NOT EXISTS stock_bodegas (
         id SERIAL PRIMARY KEY,
@@ -3873,6 +3876,7 @@ const server = http.createServer(async (req, res) => {
         );
         insertados += lote.length;
       }
+      await pool.query("UPDATE personas SET origen='excel' WHERE origen IS NULL");
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, insertados}));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
@@ -4666,6 +4670,58 @@ const server = http.createServer(async (req, res) => {
       await setConfigApp('instituto_campo', campo);
       const resultado = await sincronizarInstitutos();
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, ...resultado}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
+  // ─── KPI CLIENTES NUEVOS (automático, sin Excel mensual) ────────────────────
+  // Línea base = tabla personas (último Excel; las alumnas insertadas por el sync de
+  // institutos NO cuentan como base — deben contar como nuevas para su asesora).
+  // Nueva = cliente en ventas de Contifico cuya cédula/RUC no está en la base, contada
+  // en el mes de su PRIMERA factura para la vendedora de esa primera factura.
+  if (urlPath === '/api/kpi-clientes-nuevos' && req.method === 'GET') {
+    try {
+      const anio = parseInt(urlObj.searchParams.get('anio')) || new Date().getFullYear();
+      const mes = parseInt(urlObj.searchParams.get('mes')) || (new Date().getMonth() + 1);
+      const rp = await pool.query("SELECT cedula, ruc, razon_social FROM personas WHERE origen IS DISTINCT FROM 'institutos'");
+      const normK = x => String(x||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase().replace(/[^A-Z ]/g,' ').replace(/\s+/g,' ').trim();
+      const baseCed = new Set(); const baseNom = new Set();
+      rp.rows.forEach(pr => {
+        [pr.cedula, pr.ruc].forEach(v => {
+          const d = String(v||'').replace(/\D/g,'');
+          if (d) { baseCed.add(d); if (d.length === 13) baseCed.add(d.substring(0,10)); }
+        });
+        const n = normK(pr.razon_social); if (n) baseNom.add(n);
+      });
+      // Primera compra global por cliente en TODO el histórico de DATA
+      const porCliente = {};
+      Object.entries(DATA_CACHE || {}).forEach(([vend, clientes]) => {
+        (clientes || []).forEach(c => {
+          const ced = String(c.ruc||'').replace(/\D/g,'');
+          const key = ced || ('nom:' + normK(c.nombre));
+          (c.frecuencia || []).forEach(f => {
+            if (!f.anio || !f.mes || !((f.compras||0) > 0 || (f.total||0) > 0)) return;
+            const cur = porCliente[key];
+            if (!cur || f.anio < cur.anio || (f.anio === cur.anio && f.mes < cur.mes)) {
+              porCliente[key] = { anio: f.anio, mes: f.mes, vend, nombre: c.nombre, ced };
+            }
+          });
+        });
+      });
+      const asesoras = {}; let total = 0;
+      Object.values(porCliente).forEach(pc => {
+        if (pc.anio !== anio || pc.mes !== mes) return;
+        if (pc.ced) {
+          if (baseCed.has(pc.ced) || (pc.ced.length === 13 && baseCed.has(pc.ced.substring(0,10)))) return;
+        } else if (baseNom.has(normK(pc.nombre))) return;
+        if (!asesoras[pc.vend]) asesoras[pc.vend] = { cantidad: 0, nombres: [] };
+        asesoras[pc.vend].cantidad++;
+        asesoras[pc.vend].nombres.push(pc.nombre);
+        total++;
+      });
+      Object.values(asesoras).forEach(a => a.nombres.sort());
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:true, anio, mes, asesoras, total }));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
   }
