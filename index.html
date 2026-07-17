@@ -3009,30 +3009,19 @@ async function renderConfig(){
         </div>
         <div id="sync-status" style="margin-top:12px;font-size:12px;color:var(--muted)"></div>
       </div>
-      <!-- Directorio de clientes (Personas.xls de Contifico) -->
+      <!-- Directorio de clientes (Personas.xls de Contifico) — una sola subida para todo -->
       <div class="card" style="margin-top:12px">
         <div class="card-title"><i class="ti ti-users"></i> Directorio de clientes (Personas)</div>
-        <p style="font-size:13px;color:var(--muted);margin-bottom:12px">Sube el archivo <strong>Personas.xls</strong> exportado de Contifico mensualmente. Actualiza el teléfono, dirección y email de todos los clientes — estos datos aparecen en el botón "Info" al ver el detalle de cada cliente.</p>
-        <div style="display:flex;align-items:center;gap:10px">
-          <input type="file" id="personas-file-input" accept=".xls,.xlsx" style="display:none" onchange="subirPersonas(event)">
-          <button onclick="document.getElementById('personas-file-input').click()"
-            style="padding:8px 18px;background:white;color:var(--brown);border:1px solid var(--brown);border-radius:8px;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:6px">
+        <p style="font-size:13px;color:var(--muted);margin-bottom:4px">Sube el archivo <strong>Personas.xls</strong> exportado de Contifico. Con una sola subida se actualiza todo: teléfono, dirección y email de los clientes (botón "Info"), las provincias de quienes aparecen "Sin provincia", y la línea base del KPI "Clientes nuevos".</p>
+        <p id="provincias-estado-actual" style="font-size:12px;color:var(--muted);margin-bottom:12px"></p>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <input type="file" id="personas-file-input" accept=".xls,.xlsx" style="display:none" onchange="subirPersonasCompleto(event)">
+          <button onclick="document.getElementById('personas-file-input').click()" style="padding:8px 18px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500">
             <i class="ti ti-upload"></i> Subir Personas.xls
           </button>
           <span id="personas-status" style="font-size:12px;color:var(--muted)"></span>
         </div>
-      </div>
-      <div class="card" style="margin-top:12px">
-        <div class="card-title"><i class="ti ti-map-pin"></i> Provincias por cliente y Clientes nuevos (KPI)</div>
-        <p style="font-size:13px;color:var(--muted);margin-bottom:4px">Sube el Excel de "Personas" exportado de Contifico al final de cada mes. Actualiza las provincias de los clientes que aparecen como "Sin provincia", Y ADEMÁS cuenta automáticamente cuántos clientes tiene asignados cada asesora — ese conteo alimenta el KPI "Clientes nuevos" en la pestaña KPIs.</p>
-        <p id="provincias-estado-actual" style="font-size:12px;color:var(--muted);margin-bottom:12px"></p>
-        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-          <input type="file" id="prov-file-input" accept=".xls,.xlsx" style="display:none" onchange="subirExcelProvincias(event)">
-          <button onclick="document.getElementById('prov-file-input').click()" style="padding:8px 18px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500">
-            <i class="ti ti-upload"></i> Subir Excel de provincias
-          </button>
-        </div>
-        <div id="provincias-upload-status" style="margin-top:12px;font-size:12px;color:var(--muted)"></div>
+        <div id="provincias-upload-status" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
         <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)" id="contifico-clientes-metas-cont">
           <div class="loader" style="padding:10px"><i class="ti ti-loader"></i></div>
         </div>
@@ -7326,6 +7315,37 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 });
 
+async function subirPersonasCompleto(event){
+  const file = event.target.files[0];
+  event.target.value = '';
+  if(!file) return;
+  const st1 = document.getElementById('personas-status');
+  const st2 = document.getElementById('provincias-upload-status');
+  if(st1) st1.innerHTML = '<i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i> Subiendo directorio...';
+  if(st2) st2.textContent = '';
+  try{
+    // 1) Directorio (teléfono/dirección/email + línea base del KPI)
+    const f1 = new FormData(); f1.append('file', file, file.name);
+    const r1 = await fetch('/api/personas/subir', { method:'POST', body:f1 });
+    const d1 = await r1.json();
+    if(!d1.ok) throw new Error(d1.error||'error en directorio');
+    if(st1) st1.innerHTML = `<span style="color:#16a34a">✓ ${d1.insertados} clientes en el directorio</span>`;
+    // 2) Provincias (mismo archivo)
+    if(st2) st2.innerHTML = '<i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i> Actualizando provincias...';
+    const f2 = new FormData(); f2.append('file', file, file.name);
+    const r2 = await fetch('/api/provincias/subir', { method:'POST', body:f2 });
+    const d2 = await r2.json();
+    if(d2.ok){
+      if(st2) st2.innerHTML = `<span style="color:#16a34a">✓ Provincias actualizadas${d2.actualizados!==undefined?' ('+d2.actualizados+' clientes)':''}</span>`;
+    } else {
+      if(st2) st2.innerHTML = `<span style="color:#dc2626">Provincias: ${d2.error||'error'}</span>`;
+    }
+    cargarEstadoProvincias?.();
+  }catch(e){
+    if(st1) st1.innerHTML = `<span style="color:#ef4444">Error: ${e.message}</span>`;
+  }
+}
+
 async function subirPersonas(event){
   const file = event.target.files[0];
   if(!file) return;
@@ -9604,33 +9624,6 @@ async function renderKpis(){
           </div>
         </div>
       `}
-    </div>
-
-    <!-- Ingreso de clientes a Mercately -->
-    <div class="card" style="margin-bottom:12px">
-      <div class="card-title" style="margin-bottom:12px"><i class="ti ti-message-circle"></i> Ingreso a Mercately</div>
-      ${mercatelyNuevos===null ? `
-        <p style="font-size:12px;color:var(--muted)">Todavía no se ha registrado el acumulado de Mercately de este mes (o falta el del mes anterior para poder calcular cuántos son nuevos). Se ingresa manualmente desde Configuración → Sincronización.</p>
-      ` : `
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
-          <div style="background:#faf9f8;border-radius:10px;padding:12px;text-align:center;border:1px solid var(--border)">
-            <div style="font-size:10px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">Ingresados</div>
-            <div style="font-size:20px;font-weight:700;color:var(--text)">${mercatelyNuevos}</div>
-            <div style="font-size:10px;color:var(--muted)">este mes</div>
-          </div>
-          <div style="background:#fefce8;border-radius:10px;padding:12px;text-align:center;border:1px solid #fde047">
-            <div style="font-size:10px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">Meta</div>
-            <div style="font-size:20px;font-weight:700;color:var(--text)">${mercatelyMeta}</div>
-            <div style="font-size:10px;color:var(--muted)">mensual</div>
-          </div>
-          <div style="background:${mercatelyDif>=0?'#f0fdf4':'#fef2f2'};border-radius:10px;padding:12px;text-align:center;border:1px solid ${mercatelyDif>=0?'#86efac':'#fca5a5'}">
-            <div style="font-size:10px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">Diferencia</div>
-            <div style="font-size:26px;font-weight:800;color:${mercatelyDif>=0?'#166534':'#991b1b'}">${mercatelyDif>=0?'+':''}${mercatelyDif}</div>
-            <div style="font-size:10px;color:var(--muted)">${mercatelyDif>=0?'✅ meta cumplida':'⚠️ por debajo de la meta'}</div>
-          </div>
-        </div>
-      `}
-      
     </div>
 
     <!-- Visita a Provincia -->
