@@ -9515,12 +9515,19 @@ async function renderKpis(){
   const esMesActual = (mesFiltro===mesActual && anioFiltro===anioActual);
 
   document.getElementById('main').innerHTML=`
-    <!-- Cabecera con filtros -->
-    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 14px;background:white;border-radius:10px;border:1px solid var(--border);margin-bottom:14px">
-      <i class="ti ti-trending-up" style="color:var(--brown);font-size:16px"></i>
-      <span style="font-size:13px;font-weight:600">KPIs</span>
-      <span style="color:var(--border)">|</span>
-      ${selectorAsesora}
+    <!-- Cabecera con filtros (mismo layout que la vista de la jefa: selector y Configurar a la derecha) -->
+    <div class="breadcrumb" style="margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <i class="ti ti-chart-bar" style="color:var(--brown);font-size:12px"></i>
+        <span style="font-weight:500">KPIs — ${nombreCorto(asesoraKpi)}</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        ${selectorAsesora}
+        ${(window.usuarioActual||{}).rol==='admin'?`
+        <button onclick="configurarKpiMetas()" style="padding:6px 14px;background:#1a1108;color:white;border:none;border-radius:8px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:5px">
+          <i class="ti ti-settings"></i> Configurar
+        </button>`:''}
+      </div>
     </div>
 
     <!-- Navegación de mes -->
