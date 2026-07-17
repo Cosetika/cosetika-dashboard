@@ -4705,6 +4705,38 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // ─── META DE VENTAS por asesora (monto, mes objetivo y leyenda de recompensa) ──
+  if (urlPath === '/api/meta-ventas' && req.method === 'GET') {
+    try {
+      const raw = await getConfigApp('meta_ventas', null);
+      const porDefecto = {
+        metas: {
+          'Daniela Villegas Chamorro': 13500,
+          'Giovanna Portilla': 17600,
+          'Karen Rebeca Mora Cedeño': 8100,
+          'Liseth Gavilanes': 14800,
+          'Nicole Yanira Leon Marquez': 4949,
+          'María Caridad': 3000
+        },
+        mes_meta: 9,
+        leyenda: 'Recompensa: Zapatos OnCloud y $200 de bono'
+      };
+      let config = porDefecto;
+      if (raw) { try { config = JSON.parse(raw); } catch(e) {} }
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ ok:true, config }));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+  if (urlPath === '/api/meta-ventas' && req.method === 'POST') {
+    try {
+      const { config } = await bodyJSON(req);
+      if (!config || typeof config !== 'object') { res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'Config inválida'})); return; }
+      await setConfigApp('meta_ventas', JSON.stringify(config));
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
   // ─── KPI CLIENTES NUEVOS (automático, sin Excel mensual) ────────────────────
   // Línea base = tabla personas (último Excel; las alumnas insertadas por el sync de
   // institutos NO cuentan como base — deben contar como nuevas para su asesora).

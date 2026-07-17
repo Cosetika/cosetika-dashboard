@@ -9018,7 +9018,139 @@ async function eliminarEquipo(id, nombre){
 }
 
 // ══════════ KPIs GIOVANNA (jefa de ventas) ══════════
+// Ventas mensuales sin IVA de una vendedora (global — lo usan asesoras y jefa)
+function ventasMesDeVendedora(nombreVend, mes, anio){
+  const clientes = DATA[nombreVend] || [];
+  let sinIva = 0;
+  clientes.forEach(c=>{
+    const f = c.frecuencia.find(x=>x.mes===mes && (!anio || !x.anio || x.anio===anio));
+    if(f) sinIva += f.subtotal || (f.total/1.15) || 0;
+  });
+  return sinIva;
+}
+
+// Par de tarjetas: "Ventas durante el año" + "Meta de ventas" (lado a lado)
+function cardsVentasYMeta(nombreVend, anioRef){
+  const hoyC = new Date();
+  const mesMax = (anioRef === hoyC.getFullYear()) ? (hoyC.getMonth()+1) : 12;
+  const serie = Array.from({length: mesMax}, (_,i)=>({ mes:i+1, sinIva: ventasMesDeVendedora(nombreVend, i+1, anioRef) }));
+  const MESES_C = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const color = getVendColor(nombreVend);
+  const cfgM = window._metaVentasCfg || { metas:{}, mes_meta:9, leyenda:'' };
+  const claveM = resolverNombreReal(nombreVend, cfgM.metas||{});
+  const metaMonto = claveM ? (parseFloat(cfgM.metas[claveM])||0) : 0;
+  const maxSerie = Math.max(...serie.map(v=>v.sinIva), 1);
+  const maxConMeta = Math.max(maxSerie, metaMonto, 1);
+  const esAdminM = (window.usuarioActual||{}).rol === 'admin';
+
+  const barra = (v, escala) => {
+    const h = Math.max(Math.round(v.sinIva/escala*80), v.sinIva>0?3:0);
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;min-width:0">
+      <span style="font-size:9px;color:var(--text);font-weight:600;white-space:nowrap">${v.sinIva?fmt(v.sinIva):''}</span>
+      <div style="width:100%;display:flex;align-items:flex-end;height:80px">
+        <div style="width:100%;background:${color};border-radius:4px 4px 0 0;height:${h}px;transition:height 0.3s"></div>
+      </div>
+      <span style="font-size:10px;color:var(--muted)">${MESES_C[v.mes]}</span>
+    </div>`;
+  };
+
+  const cardVentas = `
+    <div class="card" style="flex:1.4;min-width:320px;margin-bottom:0">
+      <div class="card-title" style="margin-bottom:12px"><i class="ti ti-chart-bar"></i> Ventas durante el año</div>
+      <div style="display:flex;gap:6px;align-items:flex-end">
+        ${serie.map(v=>barra(v, maxSerie)).join('')}
+      </div>
+    </div>`;
+
+  const hMeta = Math.max(Math.round(metaMonto/maxConMeta*80), metaMonto>0?6:0);
+  const cardMeta = `
+    <div class="card" style="flex:1;min-width:280px;margin-bottom:0">
+      <div class="card-title" style="margin-bottom:12px;display:flex;align-items:center;justify-content:space-between">
+        <span><i class="ti ti-target-arrow"></i> Meta de ventas</span>
+        ${esAdminM?`<button onclick="configurarMetaVentas('${nombreVend.replace(/'/g,"\\'")}')" title="Configurar meta" style="width:24px;height:24px;border:1px solid var(--border);background:white;border-radius:6px;cursor:pointer"><i class="ti ti-settings" style="font-size:12px;color:var(--muted)"></i></button>`:''}
+      </div>
+      ${metaMonto<=0 ? '<p style="font-size:12px;color:var(--muted)">Sin meta configurada'+(esAdminM?' — usa el engranaje para definirla':'')+'</p>' : `
+      <div style="display:flex;gap:6px;align-items:flex-end">
+        ${serie.map(v=>barra(v, maxConMeta)).join('')}
+        <div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1.2;min-width:0">
+          <span style="font-size:10px;color:#b45309;font-weight:800;white-space:nowrap">${fmt(metaMonto)}</span>
+          <div style="width:100%;display:flex;align-items:flex-end;height:80px">
+            <div style="width:100%;background:linear-gradient(180deg,#d97706,#b45309);border-radius:4px 4px 0 0;height:${hMeta}px;border:1px solid #92400e"></div>
+          </div>
+          <span style="font-size:10px;color:white;background:#1a1108;border-radius:8px;padding:1px 8px;font-weight:700">${MESES_C[cfgM.mes_meta||9]}</span>
+        </div>
+      </div>
+      ${cfgM.leyenda?`<div style="margin-top:12px;padding:8px 12px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:12px;color:#92400e;font-weight:600">🎁 ${String(cfgM.leyenda).replace(/</g,'&lt;')}</div>`:''}
+      `}
+    </div>`;
+
+  return `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">${cardVentas}${cardMeta}</div>`;
+}
+
+async function configurarMetaVentas(nombreVend){
+  const cfgM = window._metaVentasCfg || { metas:{}, mes_meta:9, leyenda:'' };
+  const clave = resolverNombreReal(nombreVend, cfgM.metas||{}) || nombreVend;
+  const MESES_C = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:300;display:flex;align-items:center;justify-content:center;padding:20px';
+  overlay.innerHTML = `
+    <div style="background:white;border-radius:14px;width:100%;max-width:420px;box-shadow:0 20px 60px rgba(0,0,0,0.2)">
+      <div style="background:#1a1108;border-radius:14px 14px 0 0;padding:14px 18px;display:flex;align-items:center;justify-content:space-between">
+        <div style="color:white;font-size:14px;font-weight:500"><i class="ti ti-target-arrow" style="color:#A0684A;margin-right:8px"></i>Meta de ventas — ${nombreCorto(nombreVend)}</div>
+        <button onclick="this.closest('div[style*=fixed]').remove()" style="background:none;border:none;font-size:18px;color:#9ca3af;cursor:pointer"><i class="ti ti-x"></i></button>
+      </div>
+      <div style="padding:18px">
+        <div style="margin-bottom:14px">
+          <label style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:6px">Meta mensual de ventas ($ sin IVA)</label>
+          <input type="number" min="0" id="meta-ventas-monto" value="${parseFloat(cfgM.metas[clave])||0}" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;outline:none;box-sizing:border-box">
+        </div>
+        <div style="margin-bottom:14px">
+          <label style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:6px">Mes meta (fecha límite — aplica a todas)</label>
+          <select id="meta-ventas-mes" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;outline:none;background:white">
+            ${MESES_C.map((m,i)=>i?`<option value="${i}" ${i===(cfgM.mes_meta||9)?'selected':''}>${m}</option>`:'').join('')}
+          </select>
+        </div>
+        <div style="margin-bottom:16px">
+          <label style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:6px">Leyenda de recompensa (aplica a todas)</label>
+          <input type="text" id="meta-ventas-leyenda" value="${String(cfgM.leyenda||'').replace(/"/g,'&quot;')}" placeholder="Ej: Recompensa: Zapatos OnCloud y $200 de bono" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;outline:none;box-sizing:border-box">
+        </div>
+        <div style="display:flex;gap:10px">
+          <button onclick="this.closest('div[style*=fixed]').remove()" style="flex:1;padding:10px;font-size:13px;border:1px solid var(--border);border-radius:8px;background:white;color:#6b7280;cursor:pointer">Cancelar</button>
+          <button onclick="guardarMetaVentas('${String(clave).replace(/'/g,"\\'")}')" style="flex:1;padding:10px;font-size:13px;border:none;border-radius:8px;background:var(--brown);color:white;cursor:pointer;font-weight:500"><i class="ti ti-device-floppy" style="margin-right:4px"></i>Guardar</button>
+        </div>
+      </div>
+    </div>`;
+  overlay.addEventListener('click', e => { if(e.target === overlay) overlay.remove(); });
+  document.body.appendChild(overlay);
+}
+
+async function guardarMetaVentas(clave){
+  const cfgM = window._metaVentasCfg || { metas:{}, mes_meta:9, leyenda:'' };
+  cfgM.metas = cfgM.metas || {};
+  cfgM.metas[clave] = Math.max(0, parseFloat(document.getElementById('meta-ventas-monto')?.value)||0);
+  cfgM.mes_meta = parseInt(document.getElementById('meta-ventas-mes')?.value)||9;
+  cfgM.leyenda = (document.getElementById('meta-ventas-leyenda')?.value||'').trim();
+  try{
+    const r = await fetch('/api/meta-ventas', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ config: cfgM }) });
+    const j = await r.json();
+    if(!j.ok) throw new Error(j.error||'error');
+    window._metaVentasCfg = cfgM;
+    document.querySelector('div[style*="z-index:300"]')?.remove();
+    renderKpis();
+  }catch(e){ alert('Error al guardar: '+e.message); }
+}
+
+async function cargarMetaVentasCfg(){
+  if(window._metaVentasCfg) return;
+  try{
+    const r = await fetch('/api/meta-ventas');
+    const d = await r.json();
+    if(d.ok) window._metaVentasCfg = d.config;
+  }catch(e){}
+}
+
 async function renderKpisGiovanna(asesoraKpi, asesoras, puedeVerTodas, rol){
+  await cargarMetaVentasCfg();
   const now = new Date();
   // Mes navegable (por defecto el actual)
   if(window._kpiGioAnio === undefined){ window._kpiGioAnio = now.getFullYear(); window._kpiGioMes = now.getMonth()+1; }
@@ -9163,6 +9295,9 @@ async function renderKpisGiovanna(asesoraKpi, asesoras, puedeVerTodas, rol){
       </div>
       <button onclick="kpiGioMesNav(1)" ${esMesActual?'disabled':''} style="width:34px;height:34px;border:1px solid var(--border);border-radius:50%;background:${esMesActual?'#f5f3f0':'white'};cursor:${esMesActual?'default':'pointer'};display:flex;align-items:center;justify-content:center;font-size:14px;color:${esMesActual?'#ccc':'var(--brown)'}"><i class="ti ti-chevron-right"></i></button>
     </div>
+
+    <!-- Ventas durante el año + Meta de ventas de Giovanna -->
+    ${cardsVentasYMeta(asesoraKpi, anio)}
 
     <!-- KPIs mensuales -->
     <div class="kpi-row" style="margin-bottom:8px">
@@ -9585,6 +9720,8 @@ async function renderKpis(){
   const ventasPorMes = mesesTranscurridos.map(m => ({ mes:m, sinIva: ventasMesKpi(asesoraKpi, m, anioFiltro).sinIva }));
   const maxVentaMes = Math.max(...ventasPorMes.map(v=>v.sinIva), 1);
 
+  await cargarMetaVentasCfg();
+
   // Selectores
   const selectorAsesora = puedeVerTodas ? `
     <select id="kpi-asesora-sel" onchange="window._kpiAsesora=this.value;renderKpis()"
@@ -9620,22 +9757,8 @@ async function renderKpis(){
       <button onclick="kpiAsesoraMesNav(1)" ${esMesActualKpi?'disabled':''} style="width:34px;height:34px;border:1px solid var(--border);border-radius:50%;background:${esMesActualKpi?'#f5f3f0':'white'};cursor:${esMesActualKpi?'default':'pointer'};display:flex;align-items:center;justify-content:center;font-size:14px;color:${esMesActualKpi?'#ccc':'var(--brown)'}"><i class="ti ti-chevron-right"></i></button>
     </div>
 
-    <!-- Ventas durante el año -->
-    <div class="card" style="margin-bottom:12px">
-      <div class="card-title" style="margin-bottom:12px"><i class="ti ti-chart-bar"></i> Ventas durante el año</div>
-      <div style="display:flex;gap:6px;align-items:flex-end;height:100px">
-        ${ventasPorMes.map(v=>{
-          const h = Math.max(Math.round(v.sinIva/maxVentaMes*80), v.sinIva>0?3:0);
-          return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;min-width:0">
-            <span style="font-size:9px;color:var(--text);font-weight:600;white-space:nowrap">${v.sinIva?fmt(v.sinIva):''}</span>
-            <div style="width:100%;display:flex;align-items:flex-end;height:80px">
-              <div style="width:100%;background:${getVendColor(asesoraKpi)};border-radius:4px 4px 0 0;height:${h}px;transition:height 0.3s"></div>
-            </div>
-            <span style="font-size:10px;color:var(--muted)">${MESES_CORTAS[v.mes]}</span>
-          </div>`;
-        }).join('')}
-      </div>
-    </div>
+    <!-- Ventas durante el año + Meta de ventas (lado a lado) -->
+    ${cardsVentasYMeta(asesoraKpi, anioFiltro)}
 
     <!-- Comisiones del mes -->
     <div class="card" style="margin-bottom:12px">
