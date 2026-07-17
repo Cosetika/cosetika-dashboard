@@ -1171,6 +1171,7 @@ async function renderViaticosTarifas(){
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <input type="text" id="via-provincia" placeholder="Provincia *" style="flex:1;min-width:120px;padding:9px 12px;font-size:13px;border:1px solid var(--border);border-radius:8px;outline:none;box-sizing:border-box">
         <input type="text" id="via-ciudad" placeholder="Cantón o ciudad *" style="flex:1.5;min-width:160px;padding:9px 12px;font-size:13px;border:1px solid var(--border);border-radius:8px;outline:none;box-sizing:border-box">
+        <input type="number" id="via-googlemaps" min="0" step="0.1" placeholder="GoogleMaps" title="GoogleMaps" style="width:100px;padding:9px 8px;font-size:12px;border:1px solid var(--border);border-radius:8px;outline:none;box-sizing:border-box">
         <input type="number" id="via-dias" min="0" step="0.5" placeholder="Días autorizados" title="Días autorizados" style="width:110px;padding:9px 8px;font-size:12px;border:1px solid var(--border);border-radius:8px;outline:none;box-sizing:border-box">
         ${VIATICOS_CAMPOS.map(([k,lbl])=>`<input type="number" id="via-${k}" min="0" step="0.5" placeholder="${lbl} $" title="${lbl}" style="width:100px;padding:9px 8px;font-size:12px;border:1px solid var(--border);border-radius:8px;outline:none;box-sizing:border-box">`).join('')}
         <button onclick="guardarNuevoViatico()" style="padding:9px 16px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-check" style="margin-right:4px"></i>Guardar</button>
@@ -1193,6 +1194,7 @@ async function renderViaticosTarifas(){
             <tr style="border-bottom:1px solid var(--border)">
               <th style="text-align:left;padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Provincia</th>
               <th style="text-align:left;padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Cantón o ciudad</th>
+              <th style="text-align:center;padding:10px 8px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">GoogleMaps</th>
               <th style="text-align:center;padding:10px 8px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Días<br>autorizados</th>
               ${VIATICOS_CAMPOS.map(([k,lbl])=>{
                 const DOS_LINEAS = {hotel:'Hotel x<br>noche', transporte:'Transporte<br>ida y vuelta', taxi:'Taxi<br>x día'};
@@ -1208,6 +1210,7 @@ async function renderViaticosTarifas(){
             <tr style="border-bottom:0.5px solid var(--border);background:${enEdicion?'#f7f0ea':(fi%2?'#f6f3ef':'white')}">
               <td style="padding:9px 14px;font-weight:600">${enEdicion?`<input type="text" value="${esc(f.provincia)}" onchange="guardarCampoViatico(${f.id},'provincia',this.value)" style="width:110px;padding:5px 8px;font-size:12px;border:1px solid var(--border);border-radius:6px;outline:none">`:esc(f.provincia)}</td>
               <td style="padding:9px 14px">${enEdicion?`<input type="text" value="${esc(f.ciudad)}" onchange="guardarCampoViatico(${f.id},'ciudad',this.value)" style="width:100%;min-width:150px;padding:5px 8px;font-size:12px;border:1px solid var(--border);border-radius:6px;outline:none;box-sizing:border-box">`:esc(f.ciudad)}</td>
+              <td style="padding:9px 8px;text-align:center">${enEdicion?`<input type="number" min="0" step="0.1" value="${parseFloat(f.googlemaps)||0}" onchange="guardarCampoViatico(${f.id},'googlemaps',this.value)" style="width:70px;padding:5px 6px;font-size:12px;border:1px solid var(--border);border-radius:6px;outline:none;text-align:center">`:(parseFloat(f.googlemaps)||0)}</td>
               <td style="padding:9px 8px;text-align:center;font-weight:600">${enEdicion?`<input type="number" min="0" step="0.5" value="${parseFloat(f.dias)||0}" onchange="guardarCampoViatico(${f.id},'dias',this.value)" style="width:64px;padding:5px 6px;font-size:12px;border:1px solid var(--border);border-radius:6px;outline:none;text-align:center">`:(parseFloat(f.dias)||0)}</td>
               ${VIATICOS_CAMPOS.map(([k])=>`<td style="padding:9px 8px;text-align:center">${enEdicion?`<input type="number" min="0" step="0.5" value="${parseFloat(f[k])||0}" onchange="guardarCampoViatico(${f.id},'${k}',this.value)" style="width:64px;padding:5px 6px;font-size:12px;border:1px solid var(--border);border-radius:6px;outline:none;text-align:center">`:'$'+(parseFloat(f[k])||0)}</td>`).join('')}
               ${esAdmin?`<td style="padding:9px 6px;text-align:center;white-space:nowrap">
@@ -1235,7 +1238,7 @@ function toggleFormViatico(){
 }
 
 async function guardarNuevoViatico(){
-  const b = { provincia: document.getElementById('via-provincia')?.value||'', ciudad: document.getElementById('via-ciudad')?.value||'', dias: parseFloat(document.getElementById('via-dias')?.value)||0 };
+  const b = { provincia: document.getElementById('via-provincia')?.value||'', ciudad: document.getElementById('via-ciudad')?.value||'', googlemaps: parseFloat(document.getElementById('via-googlemaps')?.value)||0, dias: parseFloat(document.getElementById('via-dias')?.value)||0 };
   VIATICOS_CAMPOS.forEach(([k])=>{ b[k] = parseFloat(document.getElementById('via-'+k)?.value)||0; });
   if(!b.provincia.trim() || !b.ciudad.trim()){ alert('Provincia y cantón/ciudad son obligatorios'); return; }
   try{
