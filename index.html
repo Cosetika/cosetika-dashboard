@@ -9040,7 +9040,6 @@ function cardsVentasYMeta(nombreVend, anioRef){
   const claveM = resolverNombreReal(nombreVend, cfgM.metas||{});
   const metaMonto = claveM ? (parseFloat(cfgM.metas[claveM])||0) : 0;
   const maxSerie = Math.max(...serie.map(v=>v.sinIva), 1);
-  const maxConMeta = Math.max(maxSerie, metaMonto, 1);
   const esAdminM = (window.usuarioActual||{}).rol === 'admin';
 
   const barra = (v, escala) => {
@@ -9062,23 +9061,19 @@ function cardsVentasYMeta(nombreVend, anioRef){
       </div>
     </div>`;
 
-  const hMeta = Math.max(Math.round(metaMonto/maxConMeta*80), metaMonto>0?6:0);
   const cardMeta = `
-    <div class="card" style="flex:1;min-width:280px;margin-bottom:0">
+    <div class="card" style="flex:0.6;min-width:220px;margin-bottom:0">
       <div class="card-title" style="margin-bottom:12px;display:flex;align-items:center;justify-content:space-between">
         <span><i class="ti ti-target-arrow"></i> Meta de ventas</span>
         ${esAdminM?`<button onclick="configurarMetaVentas('${nombreVend.replace(/'/g,"\\'")}')" title="Configurar meta" style="width:24px;height:24px;border:1px solid var(--border);background:white;border-radius:6px;cursor:pointer"><i class="ti ti-settings" style="font-size:12px;color:var(--muted)"></i></button>`:''}
       </div>
       ${metaMonto<=0 ? '<p style="font-size:12px;color:var(--muted)">Sin meta configurada'+(esAdminM?' — usa el engranaje para definirla':'')+'</p>' : `
-      <div style="display:flex;gap:6px;align-items:flex-end">
-        ${serie.map(v=>barra(v, maxConMeta)).join('')}
-        <div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1.2;min-width:0">
-          <span style="font-size:10px;color:#b45309;font-weight:800;white-space:nowrap">${fmt(metaMonto)}</span>
-          <div style="width:100%;display:flex;align-items:flex-end;height:80px">
-            <div style="width:100%;background:linear-gradient(180deg,#d97706,#b45309);border-radius:4px 4px 0 0;height:${hMeta}px;border:1px solid #92400e"></div>
-          </div>
-          <span style="font-size:10px;color:white;background:#1a1108;border-radius:8px;padding:1px 8px;font-weight:700">${MESES_C[cfgM.mes_meta||9]}</span>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
+        <span style="font-size:15px;color:#166534;font-weight:800">${fmt(metaMonto)}</span>
+        <div style="width:90px;display:flex;align-items:flex-end;height:80px">
+          <div style="width:100%;background:linear-gradient(180deg,#22c55e,#15803d);border-radius:6px 6px 0 0;height:80px;border:1px solid #166534"></div>
         </div>
+        <span style="font-size:11px;color:white;background:#15803d;border-radius:8px;padding:2px 12px;font-weight:700">${MESES_C[cfgM.mes_meta||9]}</span>
       </div>
       ${cfgM.leyenda?`<div style="margin-top:12px;padding:8px 12px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:12px;color:#92400e;font-weight:600">🎁 ${String(cfgM.leyenda).replace(/</g,'&lt;')}</div>`:''}
       `}
@@ -9120,6 +9115,7 @@ async function configurarMetaVentas(nombreVend){
         </div>
       </div>
     </div>`;
+  overlay.id = 'meta-ventas-overlay';
   overlay.addEventListener('click', e => { if(e.target === overlay) overlay.remove(); });
   document.body.appendChild(overlay);
 }
@@ -9135,7 +9131,7 @@ async function guardarMetaVentas(clave){
     const j = await r.json();
     if(!j.ok) throw new Error(j.error||'error');
     window._metaVentasCfg = cfgM;
-    document.querySelector('div[style*="z-index:300"]')?.remove();
+    document.getElementById('meta-ventas-overlay')?.remove();
     renderKpis();
   }catch(e){ alert('Error al guardar: '+e.message); }
 }
@@ -9455,6 +9451,7 @@ async function configurarKpiAsesora(asesora, visitasMeta){
         </div>
       </div>
     </div>`;
+  overlay.id = 'kpi-asesora-overlay';
   overlay.addEventListener('click', e => { if(e.target === overlay) overlay.remove(); });
   document.body.appendChild(overlay);
 }
@@ -9473,7 +9470,7 @@ async function guardarKpiAsesora(asesora, claveMeta){
     const jp = await rp.json();
     if(!jp.ok) throw new Error(jp.error||'error');
     window._contificoClientesMetasCache = null;
-    document.querySelector('div[style*="z-index:300"]')?.remove();
+    document.getElementById('kpi-asesora-overlay')?.remove();
     renderKpis();
   }catch(e){ alert('Error al guardar: '+e.message); }
 }
