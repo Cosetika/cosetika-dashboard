@@ -40,6 +40,11 @@
 
     /* Sub-items del sidebar */
     .nav-sub-item{display:flex;align-items:center;gap:8px;padding:7px 10px 7px 32px;margin:1px 6px;border-radius:6px;cursor:pointer;color:#6a5a4a;font-size:11px;transition:all 0.15s}
+@media (max-width: 768px){
+  .kpi-ventas-meta{flex-direction:column}
+  .kpi-ventas-meta .kvm-meta{order:-1;flex:1 1 100%;min-width:100%;box-sizing:border-box}
+  .kpi-ventas-meta .kvm-ventas{flex:1 1 100%;min-width:100%;box-sizing:border-box}
+}
     .nav-sub-item:hover{background:rgba(160,104,74,0.08);color:#c9a07a}
     .nav-sub-item.active{color:#A0684A;font-weight:500;background:rgba(160,104,74,0.1)}
 
@@ -1015,7 +1020,7 @@ async function renderBodegas(){
         : 'Última actualización: '+ult+' · se sincroniza automáticamente una vez al día'}
     </div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
-      ${marcas.map(m=>`<button onclick="window._bodMarcaSel='${m.replace(/'/g,"\\'")}';pintarBodegas(document.getElementById('bod-buscar')?.value||'')" style="padding:5px 12px;font-size:11px;border-radius:20px;cursor:pointer;border:1px solid ${m===window._bodMarcaSel?'var(--brown)':'var(--border)'};background:${m===window._bodMarcaSel?'#f7f0ea':'white'};font-weight:${m===window._bodMarcaSel?'600':'400'}">${m}</button>`).join('')}
+      ${marcas.map(m=>`<button class="bod-marca-chip" data-m="${m}" onclick="seleccionarMarcaBodegas(this.dataset.m)" style="padding:5px 12px;font-size:11px;border-radius:20px;cursor:pointer;border:1px solid ${m===window._bodMarcaSel?'var(--brown)':'var(--border)'};background:${m===window._bodMarcaSel?'#f7f0ea':'white'};font-weight:${m===window._bodMarcaSel?'600':'400'}">${m}</button>`).join('')}
     </div>
     <div style="position:relative;margin-bottom:14px">
       <i class="ti ti-search" style="position:absolute;left:11px;top:50%;transform:translateY(-50%);font-size:14px;color:var(--muted)"></i>
@@ -1027,6 +1032,17 @@ async function renderBodegas(){
     <div id="bod-lista"></div>`;
   pintarBodegas('');
   if(data.sync && data.sync.enCurso) iniciarPollBodegas();
+}
+
+function seleccionarMarcaBodegas(m){
+  window._bodMarcaSel = m;
+  document.querySelectorAll('.bod-marca-chip').forEach(b=>{
+    const activo = b.dataset.m === m;
+    b.style.border = '1px solid ' + (activo?'var(--brown)':'var(--border)');
+    b.style.background = activo ? '#f7f0ea' : 'white';
+    b.style.fontWeight = activo ? '600' : '400';
+  });
+  pintarBodegas(document.getElementById('bod-buscar')?.value||'');
 }
 
 function pintarBodegas(filtro){
@@ -1323,7 +1339,7 @@ async function renderLotes(){
     </div>
     <div id="lot-status" style="font-size:12px;color:var(--muted);margin-bottom:10px"></div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
-      ${marcas.map(m=>`<button onclick="window._lotMarcaSel='${m}';pintarLotes(document.getElementById('lot-buscar')?.value||'')" style="padding:5px 12px;font-size:11px;border-radius:20px;cursor:pointer;border:1px solid ${m===window._lotMarcaSel?'var(--brown)':'var(--border)'};background:${m===window._lotMarcaSel?'#f7f0ea':'white'};font-weight:${m===window._lotMarcaSel?'600':'400'}">${m}</button>`).join('')}
+      ${marcas.map(m=>`<button class="lot-marca-chip" data-m="${m}" onclick="seleccionarMarcaLotes('${m}')" style="padding:5px 12px;font-size:11px;border-radius:20px;cursor:pointer;border:1px solid ${m===window._lotMarcaSel?'var(--brown)':'var(--border)'};background:${m===window._lotMarcaSel?'#f7f0ea':'white'};font-weight:${m===window._lotMarcaSel?'600':'400'}">${m}</button>`).join('')}
     </div>
     <div style="position:relative;margin-bottom:14px">
       <i class="ti ti-search" style="position:absolute;left:11px;top:50%;transform:translateY(-50%);font-size:14px;color:var(--muted)"></i>
@@ -1445,6 +1461,17 @@ function pintarLotes(filtro){
     </table>
   </div>
   <div style="font-size:11px;color:var(--muted);margin-top:8px">${productos.length} producto${productos.length!==1?'s':''} · clic en una fila para ver el detalle de sus lotes · baja FIFO automática contra el stock real de Bodegas · <b>límite de venta = caducidad − 4 meses (margen comercial)</b>: el semáforo compara los meses para agotar contra ese límite</div>`;
+}
+
+function seleccionarMarcaLotes(m){
+  window._lotMarcaSel = m;
+  document.querySelectorAll('.lot-marca-chip').forEach(b=>{
+    const activo = b.dataset.m === m;
+    b.style.border = '1px solid ' + (activo?'var(--brown)':'var(--border)');
+    b.style.background = activo ? '#f7f0ea' : 'white';
+    b.style.fontWeight = activo ? '600' : '400';
+  });
+  pintarLotes(document.getElementById('lot-buscar')?.value||'');
 }
 
 function toggleDetalleLotes(pid){
@@ -9054,7 +9081,7 @@ function cardsVentasYMeta(nombreVend, anioRef){
   };
 
   const cardVentas = `
-    <div class="card" style="flex:1.4;min-width:320px;margin-bottom:0">
+    <div class="card kvm-ventas" style="flex:1.4;min-width:320px;margin-bottom:0">
       <div class="card-title" style="margin-bottom:12px"><i class="ti ti-chart-bar"></i> Ventas durante el año</div>
       <div style="display:flex;gap:6px;align-items:flex-end">
         ${serie.map(v=>barra(v, maxSerie)).join('')}
@@ -9062,7 +9089,7 @@ function cardsVentasYMeta(nombreVend, anioRef){
     </div>`;
 
   const cardMeta = `
-    <div class="card" style="flex:0.6;min-width:220px;margin-bottom:0">
+    <div class="card kvm-meta" style="flex:0.6;min-width:220px;margin-bottom:0">
       <div class="card-title" style="margin-bottom:12px;display:flex;align-items:center;justify-content:space-between">
         <span><i class="ti ti-target-arrow"></i> Meta de ventas</span>
         ${esAdminM?`<button onclick="configurarMetaVentas('${nombreVend.replace(/'/g,"\\'")}')" title="Configurar meta" style="width:24px;height:24px;border:1px solid var(--border);background:white;border-radius:6px;cursor:pointer"><i class="ti ti-settings" style="font-size:12px;color:var(--muted)"></i></button>`:''}
@@ -9079,7 +9106,7 @@ function cardsVentasYMeta(nombreVend, anioRef){
       `}
     </div>`;
 
-  return `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">${cardVentas}${cardMeta}</div>`;
+  return `<div class="kpi-ventas-meta" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">${cardVentas}${cardMeta}</div>`;
 }
 
 async function configurarMetaVentas(nombreVend){
