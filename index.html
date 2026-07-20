@@ -42,8 +42,10 @@
     .nav-sub-item{display:flex;align-items:center;gap:8px;padding:7px 10px 7px 32px;margin:1px 6px;border-radius:6px;cursor:pointer;color:#6a5a4a;font-size:11px;transition:all 0.15s}
 @media (max-width: 768px){
   .kpi-ventas-meta{flex-direction:column}
-  .kpi-ventas-meta .kvm-meta{order:-1;flex:1 1 100%;min-width:100%;box-sizing:border-box}
-  .kpi-ventas-meta .kvm-ventas{flex:1 1 100%;min-width:100%;box-sizing:border-box}
+  /* !important: los estilos inline (flex:0.6 / min-width:220px) ganarían sin esto
+     y en dirección columna colapsan la altura de la tarjeta (se veía cortada) */
+  .kpi-ventas-meta .kvm-meta{order:-1;flex:none !important;width:100%;min-width:100% !important;box-sizing:border-box}
+  .kpi-ventas-meta .kvm-ventas{flex:none !important;width:100%;min-width:100% !important;box-sizing:border-box}
 }
     .nav-sub-item:hover{background:rgba(160,104,74,0.08);color:#c9a07a}
     .nav-sub-item.active{color:#A0684A;font-weight:500;background:rgba(160,104,74,0.1)}
