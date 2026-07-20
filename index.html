@@ -5247,14 +5247,14 @@ function renderMarcasPanel(){
     let t=0;
     vendedoras.forEach(v=>DATA[v].forEach(c=>{
       if(c.marcas_mes && c.marcas_mes.length){
-        const reg = c.marcas_mes.find(x=>x.marca===marca&&x.mes===mes&&x.anio===ventasFiltroAnio);
+        const reg = c.marcas_mes.find(x=>x.marca===marca&&x.mes===mes&&(!x.anio||x.anio===ventasFiltroAnio));
         if(reg) t += reg.total;
       } else {
         // Fallback (datos antiguos sin desglose): aproximación por ratio
         const mCli = c.marcas.find(m=>m.marca===marca);
         if(!mCli || !c.total) return;
         const ratio = mCli.total/c.total;
-        const totMes = (c.frecuencia.find(f=>f.mes===mes&&f.anio===ventasFiltroAnio)||{total:0}).total;
+        const totMes = (c.frecuencia.find(f=>f.mes===mes&&(!f.anio||f.anio===ventasFiltroAnio))||{total:0}).total;
         t += totMes * ratio;
       }
     }));
@@ -5265,12 +5265,12 @@ function renderMarcasPanel(){
   const todasMarcasData = {};
   vendedoras.forEach(v=>DATA[v].forEach(c=>{
     if(c.marcas_anio && c.marcas_anio.length){
-      c.marcas_anio.filter(x=>x.anio===ventasFiltroAnio).forEach(x=>{
+      c.marcas_anio.filter(x=>!x.anio||x.anio===ventasFiltroAnio).forEach(x=>{
         todasMarcasData[x.marca]=(todasMarcasData[x.marca]||0)+x.total;
       });
     } else {
       // Fallback (datos antiguos sin desglose): aproximación por ratio
-      const totAnio = c.frecuencia.filter(f=>f.anio===ventasFiltroAnio).reduce((a,f)=>a+f.total,0);
+      const totAnio = c.frecuencia.filter(f=>!f.anio||f.anio===ventasFiltroAnio).reduce((a,f)=>a+f.total,0);
       if(totAnio===0 || !c.total) return;
       const ratio = totAnio/c.total;
       c.marcas.forEach(m=>{
@@ -5284,7 +5284,7 @@ function renderMarcasPanel(){
   // Meses con datos del año seleccionado
   const mesesDisp=[];
   for(let m=1;m<=12;m++){
-    if(vendedoras.some(v=>DATA[v].some(c=>c.frecuencia.some(f=>f.mes===m&&f.anio===ventasFiltroAnio&&f.total>0)))) mesesDisp.push(m);
+    if(vendedoras.some(v=>DATA[v].some(c=>c.frecuencia.some(f=>f.mes===m&&(!f.anio||f.anio===ventasFiltroAnio)&&f.total>0)))) mesesDisp.push(m);
   }
 
 
