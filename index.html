@@ -9654,6 +9654,12 @@ async function renderKpis(){
   }
 
   const vAsesora = ventasMesKpi(asesoraKpi, mesFiltro, anioFiltro);
+  // Nº de facturas del mes y ticket promedio (con IVA, igual que en Ventas)
+  const facturasMesKpi = (DATA[asesoraKpi]||[]).reduce((a,c)=>{
+    const f = c.frecuencia.find(x=>x.mes===mesFiltro && (!anioFiltro||!x.anio||x.anio===anioFiltro));
+    return a + (f ? (f.compras||0) : 0);
+  }, 0);
+  const ticketPromKpi = facturasMesKpi > 0 ? vAsesora.conIva / facturasMesKpi : 0;
   let comision = 0;
   let ventasDisplay = { sinIva: vAsesora.sinIva, conIva: vAsesora.conIva };
   const cfgAse = cfg.asesoras[asesoraKpi];
@@ -9788,8 +9794,18 @@ async function renderKpis(){
 
     <!-- Comisiones del mes -->
     <div class="card" style="margin-bottom:12px">
-      <div class="card-title" style="margin-bottom:12px"><i class="ti ti-coin"></i> Comisión generada</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="card-title" style="margin-bottom:12px"><i class="ti ti-chart-dots"></i> KPIS</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">
+        <div style="background:#faf9f8;border-radius:10px;padding:14px;text-align:center;border:1px solid var(--border)">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">N° de facturas</div>
+          <div style="font-size:22px;font-weight:700;color:var(--text)">${facturasMesKpi}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">al mes</div>
+        </div>
+        <div style="background:#faf9f8;border-radius:10px;padding:14px;text-align:center;border:1px solid var(--border)">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">Ticket promedio</div>
+          <div style="font-size:22px;font-weight:700;color:var(--text)">${facturasMesKpi>0?fmt(ticketPromKpi):'—'}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">con IVA, por factura</div>
+        </div>
         <div style="background:#faf9f8;border-radius:10px;padding:14px;text-align:center;border:1px solid var(--border)">
           <div style="font-size:11px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">Ventas sin IVA</div>
           <div style="font-size:22px;font-weight:700;color:var(--brown)">${fmt(ventasDisplay.sinIva)}</div>
