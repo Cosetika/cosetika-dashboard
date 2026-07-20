@@ -9293,7 +9293,30 @@ async function renderKpisGiovanna(asesoraKpi, asesoras, puedeVerTodas, rol){
       </div>`;
   }
 
-  document.getElementById('main').innerHTML = `
+    // ── KPIS de la jefa: facturas, ticket y comisión de equipo (misma fórmula que Reportes → Comisiones) ──
+  let gioConIva = 0, gioSinIva = 0, gioFacturas = 0;
+  (DATA[asesoraKpi]||[]).forEach(c=>{
+    const f = c.frecuencia.find(x=>x.mes===mes && (!x.anio||x.anio===anio));
+    if(f){ gioConIva += f.total||0; gioSinIva += f.subtotal||(f.total/1.15)||0; gioFacturas += f.compras||0; }
+  });
+  const gioTicket = gioFacturas > 0 ? gioConIva/gioFacturas : 0;
+  const cfgComJefa = getComisionCfg();
+  const jefaCfgKpi = getJefaCfg(cfgComJefa, asesoraKpi);
+  const nrmJ = x=>String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().trim();
+  const mismoJ = (a,b)=>{ const A=nrmJ(a),B=nrmJ(b); if(!A||!B) return false; return A===B || A.startsWith(B.split(' ').slice(0,2).join(' ')) || B.startsWith(A.split(' ').slice(0,2).join(' ')); };
+  const eqDeJefa = (equipos||[]).find(e=>mismoJ(e.lider, asesoraKpi));
+  // Base: sus propias ventas s/IVA + las de asesoras de su equipo marcadas "contribuye"
+  let baseJefaKpi = gioSinIva;
+  ((eqDeJefa&&eqDeJefa.miembros)||[]).forEach(m=>{
+    if(mismoJ(m, asesoraKpi)) return;
+    const cA = getAsesoraCfg(cfgComJefa, m);
+    if(cA.contribuye === false) return;
+    const claveD = resolverNombreReal(m, DATA) || m;
+    baseJefaKpi += ventasMesDeVendedora(claveD, mes, anio);
+  });
+  const comisionJefaKpi = baseJefaKpi * ((jefaCfgKpi.pct_equipo||1.7)/100);
+
+document.getElementById('main').innerHTML = `
     <div class="breadcrumb" style="margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
       <div style="display:flex;align-items:center;gap:8px">
         <i class="ti ti-chart-bar" style="color:var(--brown);font-size:12px"></i>
@@ -9323,6 +9346,33 @@ async function renderKpisGiovanna(asesoraKpi, asesoras, puedeVerTodas, rol){
 
     <!-- Ventas durante el año + Meta de ventas de Giovanna -->
     ${cardsVentasYMeta(asesoraKpi, anio)}
+
+    <!-- KPIS (facturas, ticket, ventas y comisión de equipo) -->
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-title" style="margin-bottom:12px"><i class="ti ti-chart-dots"></i> KPIS</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">
+        <div style="background:#faf9f8;border-radius:10px;padding:14px;text-align:center;border:1px solid var(--border)">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">N° de facturas</div>
+          <div style="font-size:22px;font-weight:700;color:var(--text)">${gioFacturas}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">al mes</div>
+        </div>
+        <div style="background:#faf9f8;border-radius:10px;padding:14px;text-align:center;border:1px solid var(--border)">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">Ticket promedio</div>
+          <div style="font-size:22px;font-weight:700;color:var(--text)">${gioFacturas>0?fmt(gioTicket):'—'}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">con IVA, por factura</div>
+        </div>
+        <div style="background:#faf9f8;border-radius:10px;padding:14px;text-align:center;border:1px solid var(--border)">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">Ventas sin IVA</div>
+          <div style="font-size:22px;font-weight:700;color:var(--brown)">${fmt(gioSinIva)}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">Con IVA: ${fmt(gioConIva)}</div>
+        </div>
+        <div style="background:${comisionJefaKpi>0?'#f0fdf4':'#faf9f8'};border-radius:10px;padding:14px;text-align:center;border:1px solid ${comisionJefaKpi>0?'#86efac':'var(--border)'}">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">Comisión generada</div>
+          <div style="font-size:22px;font-weight:700;color:${comisionJefaKpi>0?'#166534':'var(--muted)'}">${fmt(comisionJefaKpi)}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">${jefaCfgKpi.pct_equipo||1.7}% s/ base ${fmt(baseJefaKpi)} (sus ventas + equipo, sin mínimo)</div>
+        </div>
+      </div>
+    </div>
 
     <!-- KPIs mensuales -->
     <div class="kpi-row" style="margin-bottom:8px">
