@@ -9396,26 +9396,41 @@ document.getElementById('main').innerHTML = `
     <div class="card" style="margin-bottom:12px">
       <div class="card-title"><i class="ti ti-map-pin"></i> Cumplimiento de visitas por asesora</div>
       <div style="overflow-x:auto">
-        <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:560px">
           <thead><tr style="border-bottom:1px solid var(--border)">
             <th style="text-align:left;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Asesora</th>
             <th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Meta</th>
-            <th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Semana</th>
-            <th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Mes</th>
-            <th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Estado</th>
+            ${lunesDelMes.map(l=>`<th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase;white-space:nowrap">Sem ${l.getDate()}/${l.getMonth()+1}</th>`).join('')}
+            <th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Total mes</th>
           </tr></thead>
           <tbody>
-            ${(cumplimiento.detalle||[]).map(d=>`
+            ${(cumplimiento.detalle||[]).map(d=>{
+              // Visitas de esta asesora por cada semana (lunes) del mes
+              const nrmV = x=>String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().trim();
+              const anclaD = nrmV(d.asesora).split(' ').slice(0,2).join(' ');
+              const misSemanas = (cumplimiento.semanas||[]).filter(x=>{
+                const nx = nrmV(x.asesora);
+                return nx === nrmV(d.asesora) || nx.startsWith(anclaD) || nrmV(d.asesora).startsWith(nx.split(' ').slice(0,2).join(' '));
+              });
+              const celdas = lunesDelMes.map(l=>{
+                const key = `${l.getFullYear()}-${String(l.getMonth()+1).padStart(2,'0')}-${String(l.getDate()).padStart(2,'0')}`;
+                const reg = misSemanas.find(x=>String(x.semana).substring(0,10)===key);
+                const v = reg ? reg.visitadas : 0;
+                return `<td style="padding:8px 10px;text-align:center;font-weight:700;color:${v>=d.meta?'#16a34a':(v>0?'#d97706':'#dc2626')}">${v}</td>`;
+              }).join('');
+              const totalMes = misSemanas.reduce((a,x)=>a+(x.visitadas||0),0);
+              return `
               <tr style="border-bottom:0.5px solid #f0ede9">
                 <td style="padding:8px 10px;font-weight:500">${d.asesora.split(' ')[0]} ${(d.asesora.split(' ')[1]||'')}</td>
-                <td style="padding:8px 10px;text-align:center">${d.meta}</td>
-                <td style="padding:8px 10px;text-align:center;font-weight:700;color:${d.cumple_semana?'#16a34a':'#dc2626'}">${d.visitadas_semana}</td>
-                <td style="padding:8px 10px;text-align:center">${d.visitadas_mes}</td>
-                <td style="padding:8px 10px;text-align:center">${d.cumple_semana?'<i class="ti ti-circle-check" style="color:#16a34a;font-size:16px"></i>':'<i class="ti ti-alert-circle" style="color:#dc2626;font-size:16px"></i>'}</td>
-              </tr>`).join('')}
+                <td style="padding:8px 10px;text-align:center;color:var(--muted)">${d.meta}/sem</td>
+                ${celdas}
+                <td style="padding:8px 10px;text-align:center;font-weight:800;color:var(--brown)">${totalMes}</td>
+              </tr>`;
+            }).join('')}
           </tbody>
         </table>
       </div>
+      <div style="font-size:10px;color:var(--muted);margin-top:6px"><span style="color:#16a34a">verde</span> = cumplió la meta semanal · <span style="color:#d97706">ámbar</span> = avance parcial · <span style="color:#dc2626">rojo</span> = sin visitas</div>
     </div>
 
     <!-- Revisiones de lunes -->
