@@ -1011,7 +1011,13 @@ async function renderBodegas(){
   main.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
       <div style="font-size:16px;font-weight:600"><i class="ti ti-building-warehouse" style="margin-right:8px;color:var(--brown)"></i>Bodegas</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        ${(window.usuarioActual||{}).rol==='admin'?`
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);font-weight:600"><i class="ti ti-settings"></i> Provisión:
+          <select onchange="cambiarProvisionBodegas(this.value)" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;outline:none;background:white;cursor:pointer;font-weight:400">
+            ${[15,10,5].map(dd=>`<option value="${dd}" ${dd===(data.dias_provision||15)?'selected':''}>${dd} días</option>`).join('')}
+          </select>
+        </label>`:`<span style="font-size:12px;color:var(--muted)">Provisión: ${data.dias_provision||15} días</span>`}
         <button id="bod-bajo-btn" onclick="window._bodSoloBajo=!window._bodSoloBajo;pintarBodegas(document.getElementById('bod-buscar')?.value||'');this.style.background=window._bodSoloBajo?'#fef2f2':'white';this.style.color=window._bodSoloBajo?'#dc2626':'var(--text)';this.style.borderColor=window._bodSoloBajo?'#fca5a5':'var(--border)'" style="padding:9px 14px;background:${window._bodSoloBajo?'#fef2f2':'white'};color:${window._bodSoloBajo?'#dc2626':'var(--text)'};border:1px solid ${window._bodSoloBajo?'#fca5a5':'var(--border)'};border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-alert-triangle" style="margin-right:5px"></i>Stock bajo</button>
         <button onclick="window.open('/api/bodegas-excel?marca='+encodeURIComponent(window._bodMarcaSel||'TODAS'),'_blank')" style="padding:9px 14px;background:white;color:var(--text);border:1px solid var(--border);border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-download" style="margin-right:5px"></i>Descargar Excel</button>
         <button id="bod-sync-btn" onclick="actualizarBodegasAhora()" ${data.sync&&data.sync.enCurso?'disabled':''} style="padding:9px 16px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-refresh" style="margin-right:5px"></i>Actualizar ahora</button>
@@ -1082,7 +1088,8 @@ function pintarBodegas(filtro){
       <thead>
         <tr style="border-bottom:1px solid var(--border)">
           <th style="text-align:left;padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Producto</th>
-          <th style="text-align:center;padding:10px 10px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;width:80px">Mínimo</th>
+          <th style="text-align:center;padding:10px 10px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;white-space:nowrap">Rotación /mes</th>
+          <th style="text-align:center;padding:10px 10px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;white-space:nowrap">Mínimo (${(window._bodData||{}).dias_provision||15}d)</th>
           <th style="text-align:left;padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Marca</th>
           <th style="text-align:center;padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;white-space:nowrap">Bodega POS</th>
           <th style="text-align:center;padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;white-space:nowrap">Bodega Casa</th>
@@ -1095,10 +1102,8 @@ function pintarBodegas(filtro){
             <div style="font-weight:500">${esc(p.nombre)}</div>
             ${p.codigo?'<div style="font-size:10px;color:var(--muted);font-family:monospace">'+esc(p.codigo)+'</div>':''}
           </td>
-          <td style="padding:9px 10px;text-align:center">
-            <input type="number" min="0" value="${p.minimo||''}" placeholder="—" onchange="guardarMinimoBodega('${p.producto_id}', this.value)"
-              style="width:60px;padding:5px 6px;font-size:12px;border:1px solid var(--border);border-radius:6px;outline:none;text-align:center;box-sizing:border-box">
-          </td>
+          <td style="padding:9px 10px;text-align:center;color:${p.rotacion>0?'var(--text)':'#ccc'}">${p.rotacion>0?p.rotacion:'—'}</td>
+          <td style="padding:9px 10px;text-align:center;font-weight:600;color:${p.minimo>0?'var(--text)':'#ccc'}">${p.minimo>0?p.minimo:'—'}</td>
           <td style="padding:9px 14px;font-size:11px;color:var(--muted)">${esc(p.marca)||'—'}</td>
           <td style="padding:9px 14px;text-align:center">${celda(p.pos, p.minimo||0)}</td>
           <td style="padding:9px 14px;text-align:center">${celda(p.casa, p.minimo||0)}</td>
@@ -1106,7 +1111,19 @@ function pintarBodegas(filtro){
       </tbody>
     </table>
   </div>
-  <div style="font-size:11px;color:var(--muted);margin-top:8px">${productosFinal.length} producto${productosFinal.length!==1?'s':''}${window._bodSoloBajo?' con stock bajo':''} · <span style="color:#dc2626">rojo</span> = agotado o bajo el mínimo · <span style="color:#d97706">ámbar</span> = 3 o menos (sin mínimo definido)</div>`;
+  <div style="font-size:11px;color:var(--muted);margin-top:8px">${productosFinal.length} producto${productosFinal.length!==1?'s':''}${window._bodSoloBajo?' con stock bajo':''} · <span style="color:#dc2626">rojo</span> = agotado o bajo el mínimo · mínimo automático = rotación mensual × ${(window._bodData||{}).dias_provision||15} días ÷ 30, por bodega</div>`;
+}
+
+async function cambiarProvisionBodegas(dias){
+  try{
+    const r = await fetch('/api/bodegas/config', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ dias: parseInt(dias) })
+    });
+    const j = await r.json();
+    if(!j.ok) throw new Error(j.error||'error');
+    renderBodegas();
+  }catch(e){ alert('Error: '+e.message); }
 }
 
 async function guardarMinimoBodega(productoId, valor){

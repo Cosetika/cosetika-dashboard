@@ -4330,15 +4330,33 @@ const server = http.createServer(async (req, res) => {
         else if (/casa/i.test(row.bodega)) p.casa = parseFloat(row.cantidad);
       });
       const productosFiltrados = filtrarProductosBodega(Object.values(porProducto));
-      // Adjuntar el mínimo configurado por producto
-      const rm = await pool.query('SELECT producto_id, minimo FROM stock_minimos');
-      const minimos = {};
-      rm.rows.forEach(x => { minimos[x.producto_id] = parseFloat(x.minimo) || 0; });
-      productosFiltrados.forEach(pr => { pr.minimo = minimos[pr.producto_id] || 0; });
+      // Mínimo AUTOMÁTICO: rotación mensual × (días de provisión ÷ 30) para cada bodega
+      const diasProv = parseInt(await getConfigApp('bodegas_dias_provision', '15')) || 15;
+      let rotBod = {};
+      try {
+        const fcB = (INVENTARIO_CACHE && INVENTARIO_CACHE.fecha_corte) || new Date().toLocaleDateString('en-CA',{timeZone:'America/Guayaquil'});
+        rotBod = calcularRotacionMensual(fcB);
+      } catch(e) {}
+      productosFiltrados.forEach(pr => {
+        const rot = rotBod[pr.producto_id] || 0;
+        pr.rotacion = Math.round(rot*100)/100;
+        pr.minimo = rot > 0 ? Math.ceil(rot * diasProv / 30) : 0;
+      });
       const ultima = await getConfigApp('bodegas_ultima_sync', null);
       res.writeHead(200,{'Content-Type':'application/json'});
-      res.end(JSON.stringify({ productos: productosFiltrados, ultima_sync: ultima, sync: BODEGAS_SYNC }));
+      res.end(JSON.stringify({ productos: productosFiltrados, ultima_sync: ultima, sync: BODEGAS_SYNC, dias_provision: diasProv }));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+  // POST /api/bodegas/config → días de provisión para el mínimo automático (5/10/15)
+  if (urlPath === '/api/bodegas/config' && req.method === 'POST') {
+    try {
+      const { dias } = await bodyJSON(req);
+      const d = parseInt(dias);
+      if (![5,10,15].includes(d)) { res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'Días inválidos (5, 10 o 15)'})); return; }
+      await setConfigApp('bodegas_dias_provision', String(d));
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, dias:d}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
   }
   // PUT /api/bodegas/minimo → guardar el mínimo de un producto
@@ -4386,13 +4404,20 @@ const server = http.createServer(async (req, res) => {
       if (marcaSel !== 'TODAS') {
         lista = lista.filter(pr => String(pr.marca||'').toUpperCase() === marcaSel || String(pr.marca||'').toUpperCase().replace(/\s+/g,'') === marcaSel.replace(/\s+/g,''));
       }
-      const rmx = await pool.query('SELECT producto_id, minimo FROM stock_minimos');
-      const minimosX = {};
-      rmx.rows.forEach(x => { minimosX[x.producto_id] = parseFloat(x.minimo) || 0; });
-      const filas = [['Código','Producto','Marca','Mínimo','Bodega POS','Bodega Casa']];
-      lista.forEach(pr => filas.push([pr.codigo||'', pr.nombre||'', pr.marca||'', minimosX[pr.producto_id]||'', pr.pos!=null?pr.pos:'', pr.casa!=null?pr.casa:'']));
+      const diasProvX = parseInt(await getConfigApp('bodegas_dias_provision', '15')) || 15;
+      let rotX = {};
+      try {
+        const fcX = (INVENTARIO_CACHE && INVENTARIO_CACHE.fecha_corte) || new Date().toLocaleDateString('en-CA',{timeZone:'America/Guayaquil'});
+        rotX = calcularRotacionMensual(fcX);
+      } catch(e) {}
+      const filas = [['Código','Producto','Marca','Rotación /mes',`Mínimo (${diasProvX}d)`,'Bodega POS','Bodega Casa']];
+      lista.forEach(pr => {
+        const rot = rotX[pr.producto_id] || 0;
+        const minA = rot > 0 ? Math.ceil(rot * diasProvX / 30) : 0;
+        filas.push([pr.codigo||'', pr.nombre||'', pr.marca||'', Math.round(rot*100)/100, minA, pr.pos!=null?pr.pos:'', pr.casa!=null?pr.casa:'']);
+      });
       const ws = XLSX.utils.aoa_to_sheet(filas);
-      ws['!cols'] = [{wch:12},{wch:55},{wch:14},{wch:10},{wch:12},{wch:12}];
+      ws['!cols'] = [{wch:12},{wch:55},{wch:14},{wch:12},{wch:12},{wch:12},{wch:12}];
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Stock');
       const buf = XLSX.write(wb, { type:'buffer', bookType:'xlsx' });
