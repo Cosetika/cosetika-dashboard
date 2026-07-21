@@ -3236,16 +3236,13 @@ async function renderConfig(){
         </button>
         <div id="sku-marca-status" style="margin-top:10px;font-size:12px;color:var(--muted)"></div>
       </div>
-      <div class="card" style="margin-top:12px" id="card-mercately">
-        <div class="card-title"><i class="ti ti-message-circle"></i> Ingreso de clientes a Mercately</div>
-        <div id="mercately-cfg-content"><div class="loader" style="padding:20px"><i class="ti ti-loader"></i></div></div>
-      </div>
+
     </div>`;
   // Mostrar la tab que corresponde según lo que se navegó desde el sidebar
   const tabActiva = window._configTabActiva || 'credenciales';
   showConfigTab(tabActiva);
   cargarEstadoProvincias();
-  renderMercatelyConfig();
+
   actualizarEstadoBotonBackup();
 }
 
