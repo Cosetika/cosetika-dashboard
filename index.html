@@ -711,6 +711,7 @@ async function cargarListaDocumentos(){
           <div style="font-size:11px;color:var(--muted);margin-top:1px">${d.subido_el||''}${d.subido_por?' · '+d.subido_por:''} · ${fmtTam(d.tamano)}</div>
         </div>
         <button onclick="window.open('/api/documentos/${d.id}/archivo','_blank')" title="Ver" style="width:28px;height:28px;border:1px solid var(--border);background:white;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-eye" style="font-size:13px;color:var(--muted)"></i></button>
+        <button onclick="window.open('/api/documentos/${d.id}/archivo?descargar=1','_blank')" title="Descargar" style="width:28px;height:28px;border:1px solid var(--brown);background:#f7f0ea;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-download" style="font-size:13px;color:var(--brown)"></i></button>
         ${esAdmin?`<button onclick="borrarDocumento(${d.id},'${nomSeguro}')" title="Eliminar" style="width:28px;height:28px;border:1px solid #fca5a5;background:#fef2f2;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-trash" style="font-size:13px;color:#ef4444"></i></button>`:''}
       </div>`;
     }).join('');

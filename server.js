@@ -4117,9 +4117,10 @@ const server = http.createServer(async (req, res) => {
       const r = await pool.query('SELECT nombre, archivo FROM documentos WHERE id=$1', [id]);
       if (!r.rows.length) { res.writeHead(404,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:'No existe'})); return; }
       const nombreAscii = String(r.rows[0].nombre||'documento.pdf').replace(/[^\x20-\x7E]/g,'_').replace(/["\\]/g,'');
+      const forzarDescarga = urlObj.searchParams.get('descargar') === '1';
       res.writeHead(200,{
         'Content-Type':'application/pdf',
-        'Content-Disposition':'inline; filename="'+nombreAscii+'"',
+        'Content-Disposition':(forzarDescarga?'attachment':'inline')+'; filename="'+nombreAscii+'"',
         'Cache-Control':'no-cache'
       });
       res.end(r.rows[0].archivo);
