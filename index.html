@@ -240,6 +240,7 @@
     <div id="nav-kpis-subs" style="max-height:0;overflow:hidden;transition:max-height 0.25s ease">
       <div class="nav-sub-item" id="navsub-kpis-asesoras" onclick="navGoKpis('asesoras')"><i class="ti ti-users" style="font-size:13px"></i>KPIs Asesoras</div>
       <div class="nav-sub-item" id="navsub-kpis-provincias" onclick="navGoKpis('provincias')"><i class="ti ti-map-search" style="font-size:13px"></i>KPIs Provincias</div>
+      <div class="nav-sub-item" id="navsub-kpis-control" onclick="navGoKpis('control')"><i class="ti ti-checklist" style="font-size:13px"></i>KPIs Control</div>
     </div>
     <div class="nav-item" id="nav-inventario" onclick="navToggleGroup('nav-inventario-subs','nav-inventario-chevron','inventario')">
       <i class="ti ti-package"></i>Inventario
@@ -9392,7 +9393,97 @@ document.getElementById('main').innerHTML = `
       </div>
     </div>
 
-    <!-- Detalle cumplimiento visitas por asesora -->
+  `;
+}
+
+function kpiAsesoraMesNav(delta){
+  let m = (window._kpiNavMes||new Date().getMonth()+1) + delta;
+  let a = window._kpiNavAnio||new Date().getFullYear();
+  if(m < 1){ m = 12; a--; }
+  if(m > 12){ m = 1; a++; }
+  const now = new Date();
+  if(a > now.getFullYear() || (a === now.getFullYear() && m > now.getMonth()+1)) return;
+  window._kpiNavMes = m;
+  window._kpiNavAnio = a;
+  renderKpis();
+}
+
+function kpiGioMesNav(delta){
+  let m = (window._kpiGioMes||new Date().getMonth()+1) + delta;
+  let a = window._kpiGioAnio||new Date().getFullYear();
+  if(m < 1){ m = 12; a--; }
+  if(m > 12){ m = 1; a++; }
+  const now = new Date();
+  // No permitir ir más allá del mes actual
+  if(a > now.getFullYear() || (a === now.getFullYear() && m > now.getMonth()+1)) return;
+  window._kpiGioMes = m;
+  window._kpiGioAnio = a;
+  renderKpis();
+}
+
+// ─── KPIs CONTROL: cumplimiento de visitas + revisión de planificaciones ─────
+async function renderKpisControl(){
+  const usuario = window.usuarioActual || {};
+  const rol = usuario.rol || '';
+  document.querySelectorAll('.nav-sub-item').forEach(x=>x.classList.remove('active'));
+  document.getElementById('navsub-kpis-control')?.classList.add('active');
+  if(rol !== 'admin' && rol !== 'jefa_ventas'){
+    document.getElementById('main').innerHTML = `<div class="coming"><i class="ti ti-lock"></i><p>Acceso restringido</p></div>`;
+    return;
+  }
+  const now = new Date();
+  if(window._kpiCtrlAnio === undefined){ window._kpiCtrlAnio = now.getFullYear(); window._kpiCtrlMes = now.getMonth()+1; }
+  const anio = window._kpiCtrlAnio, mes = window._kpiCtrlMes;
+  const esMesActual = (anio === now.getFullYear() && mes === now.getMonth()+1);
+  const mesKey = `${anio}-${String(mes).padStart(2,'0')}`;
+  const MESES_N = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+
+  const lunesDelMes = [];
+  const dC = new Date(anio, mes-1, 1);
+  while(dC.getMonth() === mes-1){ if(dC.getDay() === 1) lunesDelMes.push(new Date(dC)); dC.setDate(dC.getDate()+1); }
+
+  document.getElementById('main').innerHTML = '<div style="display:flex;justify-content:center;padding:40px;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:24px"></i></div>';
+
+  let cumplimiento = {detalle:[], semanas:[]}, revisiones = [], usuarios = [], equipos = [];
+  try{
+    const [rCu, rRev, rU, rEq] = await Promise.all([
+      fetch(`/api/kpi-cumplimiento-visitas?mes=${mesKey}`),
+      fetch(`/api/revisiones-lunes?mes=${mesKey}`),
+      fetch('/api/usuarios'),
+      fetch('/api/equipos')
+    ]);
+    if(rCu.ok) cumplimiento = await rCu.json();
+    if(rRev.ok){ const d = await rRev.json(); if(Array.isArray(d)) revisiones = d; }
+    if(rU.ok){ const d = await rU.json(); if(Array.isArray(d)) usuarios = d; }
+    if(rEq.ok){ const d = await rEq.json(); if(Array.isArray(d)) equipos = d; }
+  }catch(e){}
+
+  // Asesoras a mostrar: todas (admin) o las del equipo de la jefa
+  let asesorasCtrl = usuarios.filter(u=>u.rol==='asesora' && u.activo).map(u=>u.nombre);
+  if(rol === 'jefa_ventas'){
+    const nrmC = x=>String(x||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase().trim();
+    const eqMio = equipos.find(e=>{ const A=nrmC(e.lider),B=nrmC(usuario.nombre); return A&&B&&(A===B||A.startsWith(B.split(' ').slice(0,2).join(' '))||B.startsWith(A.split(' ').slice(0,2).join(' '))); });
+    if(eqMio && (eqMio.miembros||[]).length){
+      const miembrosN = (eqMio.miembros||[]).map(nrmC);
+      asesorasCtrl = asesorasCtrl.filter(a => miembrosN.some(m => m===nrmC(a) || m.startsWith(nrmC(a).split(' ').slice(0,2).join(' ')) || nrmC(a).startsWith(m.split(' ').slice(0,2).join(' '))));
+    }
+  }
+  const revMap = {};
+  revisiones.forEach(r=>{ if(r.revisado) revMap[r.asesora+'|'+String(r.semana).substring(0,10)] = true; });
+
+  document.getElementById('main').innerHTML = `
+    <div class="breadcrumb" style="margin-bottom:12px"><i class="ti ti-checklist" style="color:var(--brown);font-size:12px"></i><span style="font-weight:500">KPIs — Control</span></div>
+
+    <div style="display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:14px">
+      <button onclick="kpiCtrlMesNav(-1)" style="width:34px;height:34px;border:1px solid var(--border);border-radius:50%;background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;color:var(--brown)"><i class="ti ti-chevron-left"></i></button>
+      <div style="text-align:center;min-width:160px">
+        <div style="font-size:18px;font-weight:700">${MESES_N[mes]} ${anio}</div>
+        <div style="font-size:10px;color:var(--muted)">${esMesActual?'Mes actual':''}</div>
+      </div>
+      <button onclick="kpiCtrlMesNav(1)" ${esMesActual?'disabled':''} style="width:34px;height:34px;border:1px solid var(--border);border-radius:50%;background:${esMesActual?'#f5f3f0':'white'};cursor:${esMesActual?'default':'pointer'};display:flex;align-items:center;justify-content:center;font-size:14px;color:${esMesActual?'#ccc':'var(--brown)'}"><i class="ti ti-chevron-right"></i></button>
+    </div>
+
+    <!-- Cumplimiento de visitas por asesora -->
     <div class="card" style="margin-bottom:12px">
       <div class="card-title"><i class="ti ti-map-pin"></i> Cumplimiento de visitas por asesora</div>
       <div style="overflow-x:auto">
@@ -9405,8 +9496,7 @@ document.getElementById('main').innerHTML = `
           </tr></thead>
           <tbody>
             ${(cumplimiento.detalle||[]).map(d=>{
-              // Visitas de esta asesora por cada semana (lunes) del mes
-              const nrmV = x=>String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().trim();
+              const nrmV = x=>String(x||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase().trim();
               const anclaD = nrmV(d.asesora).split(' ').slice(0,2).join(' ');
               const misSemanas = (cumplimiento.semanas||[]).filter(x=>{
                 const nx = nrmV(x.asesora);
@@ -9433,7 +9523,7 @@ document.getElementById('main').innerHTML = `
       <div style="font-size:10px;color:var(--muted);margin-top:6px"><span style="color:#16a34a">verde</span> = cumplió la meta semanal · <span style="color:#d97706">ámbar</span> = avance parcial · <span style="color:#dc2626">rojo</span> = sin visitas</div>
     </div>
 
-    <!-- Revisiones de lunes -->
+    <!-- Revisión de planificaciones -->
     <div class="card">
       <div class="card-title"><i class="ti ti-checklist"></i> Revisión de planificaciones — lunes de ${MESES_N[mes]}</div>
       <div style="overflow-x:auto">
@@ -9443,16 +9533,16 @@ document.getElementById('main').innerHTML = `
             ${lunesDelMes.map(l=>`<th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted)">Lun ${l.getDate()}</th>`).join('')}
           </tr></thead>
           <tbody>
-            ${asesorasEquipo.map(a=>`
+            ${asesorasCtrl.map(a=>`
               <tr style="border-bottom:0.5px solid #f0ede9">
                 <td style="padding:8px 10px;font-weight:500">${a.split(' ')[0]}</td>
                 ${lunesDelMes.map(l=>{
                   const lk = l.toISOString().split('T')[0];
                   const marcado = revMap[a+'|'+lk];
                   return `<td style="padding:8px 10px;text-align:center">
-                    <input type="checkbox" ${marcado?'checked':''} ${puedeMarcarRev?'':'disabled'}
+                    <input type="checkbox" ${marcado?'checked':''}
                       onchange="marcarRevisionLunes('${a.replace(/'/g,"\\'")}','${lk}',this.checked)"
-                      style="accent-color:#A0684A;width:16px;height:16px;cursor:${puedeMarcarRev?'pointer':'default'}"/>
+                      style="accent-color:#A0684A;width:16px;height:16px;cursor:pointer"/>
                   </td>`;
                 }).join('')}
               </tr>`).join('')}
@@ -9462,29 +9552,16 @@ document.getElementById('main').innerHTML = `
     </div>`;
 }
 
-function kpiAsesoraMesNav(delta){
-  let m = (window._kpiNavMes||new Date().getMonth()+1) + delta;
-  let a = window._kpiNavAnio||new Date().getFullYear();
+function kpiCtrlMesNav(delta){
+  let m = (window._kpiCtrlMes||new Date().getMonth()+1) + delta;
+  let a = window._kpiCtrlAnio||new Date().getFullYear();
   if(m < 1){ m = 12; a--; }
   if(m > 12){ m = 1; a++; }
   const now = new Date();
   if(a > now.getFullYear() || (a === now.getFullYear() && m > now.getMonth()+1)) return;
-  window._kpiNavMes = m;
-  window._kpiNavAnio = a;
-  renderKpis();
-}
-
-function kpiGioMesNav(delta){
-  let m = (window._kpiGioMes||new Date().getMonth()+1) + delta;
-  let a = window._kpiGioAnio||new Date().getFullYear();
-  if(m < 1){ m = 12; a--; }
-  if(m > 12){ m = 1; a++; }
-  const now = new Date();
-  // No permitir ir más allá del mes actual
-  if(a > now.getFullYear() || (a === now.getFullYear() && m > now.getMonth()+1)) return;
-  window._kpiGioMes = m;
-  window._kpiGioAnio = a;
-  renderKpis();
+  window._kpiCtrlMes = m;
+  window._kpiCtrlAnio = a;
+  renderKpisControl();
 }
 
 async function marcarRevisionLunes(asesora, semana, revisado){
@@ -9617,6 +9694,10 @@ async function guardarKpiMetas(){
 }
 
 async function renderKpis(){
+  // Sub-módulo: KPIs Control (cumplimiento de visitas + revisión de lunes)
+  if(window._kpisTab === 'control'){
+    return renderKpisControl();
+  }
   // Sub-módulo: KPIs Provincias
   if(window._kpisTab === 'provincias'){
     document.getElementById('main').innerHTML = `
