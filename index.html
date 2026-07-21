@@ -9470,9 +9470,10 @@ async function renderKpisControl(){
   try{ const rN = await fetch(`/api/kpis-control-notas?mes=${mesKey}`); const dN = await rN.json(); if(dN.ok) notasCtrl = dN.notas||{}; }catch(e){}
   const esAdminCtrl = rol === 'admin';
   window._kpiCtrlMesKey = mesKey;
-  const notaPanel = panel => esAdminCtrl
-    ? `<textarea rows="2" placeholder="Nota del mes para este panel..." onchange="guardarNotaKpisControl('${panel}', this.value)" style="width:100%;margin-top:10px;padding:8px 10px;font-size:12px;border:1px dashed var(--border);border-radius:8px;outline:none;box-sizing:border-box;resize:vertical;font-family:inherit;color:var(--text);background:#fffdf9">${String(notasCtrl[panel]||'').replace(/</g,'&lt;')}</textarea>`
-    : (notasCtrl[panel] ? `<div style="margin-top:10px;padding:8px 10px;font-size:12px;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:8px">📝 ${String(notasCtrl[panel]).replace(/</g,'&lt;')}</div>` : '');
+  const editandoNotas = !!window._kpiCtrlEditNotas && esAdminCtrl;
+  const notaPanel = panel => editandoNotas
+    ? `<textarea id="nota-panel-${panel}" rows="2" placeholder="Escribe la nota del mes para este panel..." style="width:100%;margin:4px 0 10px;padding:8px 10px;font-size:12px;border:2px dashed var(--brown);border-radius:8px;outline:none;box-sizing:border-box;resize:vertical;font-family:inherit;color:var(--text);background:#fffdf9">${String(notasCtrl[panel]||'').replace(/</g,'&lt;')}</textarea>`
+    : (notasCtrl[panel] ? `<div style="margin:4px 0 10px;padding:8px 10px;font-size:12px;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:8px">📝 ${String(notasCtrl[panel]).replace(/</g,'&lt;')}</div>` : '');
 
   // Asesoras a mostrar: todas (admin) o las del equipo de la jefa
   let asesorasCtrl = usuarios.filter(u=>u.rol==='asesora' && u.activo).map(u=>u.nombre);
@@ -9518,7 +9519,12 @@ async function renderKpisControl(){
   });
 
   document.getElementById('main').innerHTML = `
-    <div class="breadcrumb" style="margin-bottom:12px"><i class="ti ti-checklist" style="color:var(--brown);font-size:12px"></i><span style="font-weight:500">KPIs — Control</span></div>
+    <div class="breadcrumb" style="margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+      <div style="display:flex;align-items:center;gap:8px"><i class="ti ti-checklist" style="color:var(--brown);font-size:12px"></i><span style="font-weight:500">KPIs — Control</span></div>
+      ${esAdminCtrl?`<button onclick="${editandoNotas?'guardarNotasKpisControl()':'window._kpiCtrlEditNotas=true;renderKpisControl()'}" style="padding:6px 14px;background:${editandoNotas?'#16a34a':'#1a1108'};color:white;border:none;border-radius:8px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:5px">
+        <i class="ti ${editandoNotas?'ti-device-floppy':'ti-pencil'}"></i> ${editandoNotas?'Guardar notas':'Editar notas'}
+      </button>`:''}
+    </div>
 
     <div style="display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:14px">
       <button onclick="kpiCtrlMesNav(-1)" style="width:34px;height:34px;border:1px solid var(--border);border-radius:50%;background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;color:var(--brown)"><i class="ti ti-chevron-left"></i></button>
@@ -9532,6 +9538,7 @@ async function renderKpisControl(){
     <!-- Cumplimiento de visitas por asesora -->
     <div class="card" style="margin-bottom:12px">
       <div class="card-title"><i class="ti ti-map-pin"></i> Cumplimiento de visitas por asesora</div>
+      ${notaPanel('visitas')}
       <div style="overflow-x:auto">
         <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:560px">
           <thead><tr style="border-bottom:1px solid var(--border)">
@@ -9575,12 +9582,12 @@ async function renderKpisControl(){
         </table>
       </div>
       <div style="font-size:10px;color:var(--muted);margin-top:6px"><span style="color:#16a34a">verde</span> = cumplió la meta semanal · <span style="color:#d97706">ámbar</span> = avance parcial · <span style="color:#dc2626">rojo</span> = sin visitas</div>
-      ${notaPanel('visitas')}
     </div>
 
     <!-- Visitas a Provincia por asesora -->
     <div class="card" style="margin-bottom:12px">
       <div class="card-title"><i class="ti ti-road"></i> Visitas a Provincia por asesora · Meta 1/mes</div>
+      ${notaPanel('provincia')}
       <div style="overflow-x:auto">
         <table style="width:100%;border-collapse:collapse;font-size:12px">
           <thead><tr style="border-bottom:1px solid var(--border)">
@@ -9603,12 +9610,12 @@ async function renderKpisControl(){
           </tbody>
         </table>
       </div>
-      ${notaPanel('provincia')}
     </div>
 
     <!-- Casas Abiertas por asesora -->
     <div class="card" style="margin-bottom:12px">
       <div class="card-title"><i class="ti ti-building-store"></i> Casas Abiertas por asesora · Meta 1/mes</div>
+      ${notaPanel('casa')}
       <div style="overflow-x:auto">
         <table style="width:100%;border-collapse:collapse;font-size:12px">
           <thead><tr style="border-bottom:1px solid var(--border)">
@@ -9631,12 +9638,12 @@ async function renderKpisControl(){
           </tbody>
         </table>
       </div>
-      ${notaPanel('casa')}
     </div>
 
     <!-- Clientes Nuevos por asesora -->
     <div class="card" style="margin-bottom:12px">
       <div class="card-title"><i class="ti ti-user-plus"></i> Clientes Nuevos por asesora</div>
+      ${notaPanel('nuevos')}
       <div style="overflow-x:auto">
         <table style="width:100%;border-collapse:collapse;font-size:12px">
           <thead><tr style="border-bottom:1px solid var(--border)">
@@ -9656,41 +9663,12 @@ async function renderKpisControl(){
           </tbody>
         </table>
       </div>
-      ${notaPanel('nuevos')}
-    </div>
-
-    <!-- Revisión de planificaciones -->
-    <div class="card">
-      <div class="card-title"><i class="ti ti-checklist"></i> Revisión de planificaciones — lunes de ${MESES_N[mes]}</div>
-      <div style="overflow-x:auto">
-        <table style="width:100%;border-collapse:collapse;font-size:12px">
-          <thead><tr style="border-bottom:1px solid var(--border)">
-            <th style="text-align:left;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Asesora</th>
-            ${lunesDelMes.map(l=>`<th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted)">Lun ${l.getDate()}</th>`).join('')}
-          </tr></thead>
-          <tbody>
-            ${asesorasCtrl.map(a=>`
-              <tr style="border-bottom:0.5px solid #f0ede9">
-                <td style="padding:8px 10px;font-weight:500">${a.split(' ')[0]}</td>
-                ${lunesDelMes.map(l=>{
-                  const lk = l.toISOString().split('T')[0];
-                  const marcado = revMap[a+'|'+lk];
-                  return `<td style="padding:8px 10px;text-align:center">
-                    <input type="checkbox" ${marcado?'checked':''}
-                      onchange="marcarRevisionLunes('${a.replace(/'/g,"\\'")}','${lk}',this.checked)"
-                      style="accent-color:#A0684A;width:16px;height:16px;cursor:pointer"/>
-                  </td>`;
-                }).join('')}
-              </tr>`).join('')}
-          </tbody>
-        </table>
-      </div>
-      ${notaPanel('revision')}
     </div>
 
     <!-- RESUMEN DEL MES: matriz de cumplimiento -->
     <div class="card" style="margin-top:12px;border:2px solid #1a1108">
       <div class="card-title"><i class="ti ti-trophy"></i> Resumen del mes — cumplimiento de KPIs</div>
+      ${notaPanel('resumen')}
       <div style="overflow-x:auto">
         <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:560px">
           <thead><tr style="border-bottom:1px solid var(--border)">
@@ -9719,17 +9697,52 @@ async function renderKpisControl(){
           </tbody>
         </table>
       </div>
-      ${notaPanel('resumen')}
+    </div>
+
+    <!-- Revisión de planificaciones -->
+    <div class="card" style="margin-top:12px">
+      <div class="card-title"><i class="ti ti-checklist"></i> Revisión de planificaciones — lunes de ${MESES_N[mes]}</div>
+      ${notaPanel('revision')}
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead><tr style="border-bottom:1px solid var(--border)">
+            <th style="text-align:left;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Asesora</th>
+            ${lunesDelMes.map(l=>`<th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted)">Lun ${l.getDate()}</th>`).join('')}
+          </tr></thead>
+          <tbody>
+            ${asesorasCtrl.map(a=>`
+              <tr style="border-bottom:0.5px solid #f0ede9">
+                <td style="padding:8px 10px;font-weight:500">${a.split(' ')[0]}</td>
+                ${lunesDelMes.map(l=>{
+                  const lk = l.toISOString().split('T')[0];
+                  const marcado = revMap[a+'|'+lk];
+                  return `<td style="padding:8px 10px;text-align:center">
+                    <input type="checkbox" ${marcado?'checked':''}
+                      onchange="marcarRevisionLunes('${a.replace(/'/g,"\\'")}','${lk}',this.checked)"
+                      style="accent-color:#A0684A;width:16px;height:16px;cursor:pointer"/>
+                  </td>`;
+                }).join('')}
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
     </div>`;
 }
 
-async function guardarNotaKpisControl(panel, texto){
+async function guardarNotasKpisControl(){
+  const paneles = ['visitas','provincia','casa','nuevos','revision','resumen'];
   try{
-    await fetch('/api/kpis-control-notas', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ mes: window._kpiCtrlMesKey, panel, texto })
-    });
-  }catch(e){ alert('Error guardando la nota: '+e.message); }
+    await Promise.all(paneles.map(panel=>{
+      const el = document.getElementById('nota-panel-'+panel);
+      if(!el) return Promise.resolve();
+      return fetch('/api/kpis-control-notas', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ mes: window._kpiCtrlMesKey, panel, texto: el.value })
+      });
+    }));
+    window._kpiCtrlEditNotas = false;
+    renderKpisControl();
+  }catch(e){ alert('Error guardando las notas: '+e.message); }
 }
 
 function kpiCtrlMesNav(delta){
