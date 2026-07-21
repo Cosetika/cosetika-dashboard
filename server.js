@@ -2055,6 +2055,17 @@ async function initDB() {
       );
       ALTER TABLE viaticos_tarifas ADD COLUMN IF NOT EXISTS dias NUMERIC(6,2) DEFAULT 0;
       ALTER TABLE viaticos_tarifas ADD COLUMN IF NOT EXISTS googlemaps NUMERIC(10,2) DEFAULT 0;
+      CREATE TABLE IF NOT EXISTS testers_asesoras (
+        id SERIAL PRIMARY KEY,
+        producto_id VARCHAR(30) NOT NULL,
+        codigo VARCHAR(100),
+        nombre VARCHAR(500),
+        marca VARCHAR(100),
+        asesora VARCHAR(255) NOT NULL,
+        entregado_at DATE NOT NULL DEFAULT CURRENT_DATE,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_testers_ase_prod ON testers_asesoras(producto_id, asesora);
       CREATE TABLE IF NOT EXISTS lotes (
         id SERIAL PRIMARY KEY,
         producto_id VARCHAR(30) NOT NULL,
@@ -4506,6 +4517,43 @@ const server = http.createServer(async (req, res) => {
     try {
       const id = parseInt(urlPath.split('/').pop());
       await pool.query('DELETE FROM viaticos_tarifas WHERE id=$1', [id]);
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
+  // ─── TESTERS ENTREGADOS A ASESORAS (con histórico) ──────────────────────────
+  if (urlPath === '/api/testers-asesoras' && req.method === 'GET') {
+    try {
+      const r = await pool.query(
+        `SELECT id, producto_id, asesora, TO_CHAR(entregado_at,'YYYY-MM-DD') AS fecha
+         FROM testers_asesoras ORDER BY entregado_at ASC, id ASC`);
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.rows));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+  if (urlPath === '/api/testers-asesoras' && req.method === 'POST') {
+    try {
+      const { producto_id, asesora } = await bodyJSON(req);
+      if (!producto_id || !String(asesora||'').trim()) {
+        res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'Faltan datos'})); return;
+      }
+      const info = catalogoProductos[producto_id] || {};
+      const hoyE = new Date().toLocaleDateString('en-CA',{timeZone:'America/Guayaquil'});
+      const r = await pool.query(
+        `INSERT INTO testers_asesoras(producto_id, codigo, nombre, marca, asesora, entregado_at)
+         VALUES($1,$2,$3,$4,$5,$6) RETURNING id, TO_CHAR(entregado_at,'YYYY-MM-DD') AS fecha`,
+        [String(producto_id).substring(0,29), info.codigo||'', info.nombre||'', info.marca||'',
+         String(asesora).trim().substring(0,250), hoyE]
+      );
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, id:r.rows[0].id, fecha:r.rows[0].fecha}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+  if (/^\/api\/testers-asesoras\/\d+$/.test(urlPath) && req.method === 'DELETE') {
+    try {
+      const id = parseInt(urlPath.split('/').pop());
+      await pool.query('DELETE FROM testers_asesoras WHERE id=$1', [id]);
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;

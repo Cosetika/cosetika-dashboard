@@ -250,6 +250,7 @@
       <div class="nav-sub-item" id="navsub-inv-bodegas" onclick="navGoInventario('bodegas')"><i class="ti ti-building-warehouse" style="font-size:13px"></i>Bodegas</div>
       <div class="nav-sub-item" id="navsub-inv-lotes" onclick="navGoInventario('lotes')"><i class="ti ti-calendar-x" style="font-size:13px"></i>Caducidad</div>
       <div class="nav-sub-item" id="navsub-inv-proyeccion" onclick="navGoInventario('proyeccion')"><i class="ti ti-chart-dots" style="font-size:13px"></i>Proyección</div>
+      <div class="nav-sub-item" id="navsub-inv-testers" onclick="navGoInventario('testers')"><i class="ti ti-flask" style="font-size:13px"></i>Testers</div>
     </div>
     <div class="nav-item" id="nav-documentos" onclick="navToggleGroup('nav-documentos-subs','nav-documentos-chevron','documentos')">
       <i class="ti ti-files"></i>Documentos
@@ -598,7 +599,7 @@ function navSetMod(mod){
 
 const MOD_LABELS = {
   ventas:'Inicio', visitas:'Visitas', kpis:'KPIs',
-  inventario:'Inventario', reportes:'Reportes', config:'Configuración', documentos:'Documentos', nsos:'NSOs', referidos:'Referidos', institutos_cli:'Institutos', bodegas:'Bodegas', lotes:'Caducidad',
+  inventario:'Inventario', reportes:'Reportes', config:'Configuración', documentos:'Documentos', nsos:'NSOs', referidos:'Referidos', institutos_cli:'Institutos', bodegas:'Bodegas', lotes:'Caducidad', testers_inv:'Testers',
   capacitaciones:'Capacitaciones', institutos:'Institutos',
   giras:'Visitas a Provincias', casas_abiertas:'Casas Abiertas',
   'visitas-plan':'Planificación Visitas'
@@ -660,6 +661,8 @@ function setMod(mod){
     renderBodegas();
   } else if(mod==='lotes'){
     renderLotes();
+  } else if(mod==='testers_inv'){
+    renderTestersInv();
   } else {
     document.getElementById('main').innerHTML=`
       <div class="coming">
@@ -1312,6 +1315,147 @@ async function cargarViaticosIniciales(btn){
     }
     renderViaticosTarifas();
   }catch(e){ alert('Error: '+e.message); btn.disabled=false; }
+}
+
+// ─── TESTERS ENTREGADOS A ASESORAS (matriz producto × asesora, con histórico) ─
+async function renderTestersInv(){
+  const main = document.getElementById('main');
+  const uT = window.usuarioActual || {};
+  const modsT = uT.modulos ? uT.modulos.split(',') : [];
+  const puedeMarcarT = uT.rol === 'admin' || modsT.includes('inventario');
+  if(!puedeMarcarT){
+    main.innerHTML = `<div class="coming"><i class="ti ti-lock"></i><p>Acceso restringido</p></div>`;
+    return;
+  }
+  main.innerHTML = '<div style="padding:30px;text-align:center;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:22px"></i></div>';
+  let registros = [], usuarios = [];
+  try{
+    const [rR, rU] = await Promise.all([fetch('/api/testers-asesoras'), fetch('/api/usuarios')]);
+    if(rR.ok){ const d = await rR.json(); if(Array.isArray(d)) registros = d; }
+    if(rU.ok){ const d = await rU.json(); if(Array.isArray(d)) usuarios = d; }
+  }catch(e){}
+  window._testersInvRegs = registros;
+  window._testersInvAsesoras = usuarios.filter(u=>(u.rol==='asesora'||u.rol==='jefa_ventas') && u.activo).map(u=>u.nombre);
+  if(window._tinvMarcaSel === undefined) window._tinvMarcaSel = 'TODAS';
+  const marcas = ['TODAS','BIOSKIN','ERAYBA','ZIAJA','ZIAJA PRO'];
+
+  main.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+      <div style="font-size:16px;font-weight:600"><i class="ti ti-flask" style="margin-right:8px;color:var(--brown)"></i>Testers entregados a asesoras</div>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+      ${marcas.map(m=>`<button class="tinv-marca-chip" data-m="${m}" onclick="seleccionarMarcaTestersInv(this.dataset.m)" style="padding:5px 12px;font-size:11px;border-radius:20px;cursor:pointer;border:1px solid ${m===window._tinvMarcaSel?'var(--brown)':'var(--border)'};background:${m===window._tinvMarcaSel?'#f7f0ea':'white'};font-weight:${m===window._tinvMarcaSel?'600':'400'}">${m}</button>`).join('')}
+    </div>
+    <div style="position:relative;margin-bottom:14px">
+      <i class="ti ti-search" style="position:absolute;left:11px;top:50%;transform:translateY(-50%);font-size:14px;color:var(--muted)"></i>
+      <input type="text" id="tinv-buscar" placeholder="Buscar producto..."
+        oninput="pintarTestersInv(this.value)"
+        style="width:100%;padding:9px 12px 9px 34px;font-size:13px;border:1px solid var(--border);border-radius:10px;outline:none;box-sizing:border-box"
+        onfocus="this.style.borderColor='var(--brown)'" onblur="this.style.borderColor='var(--border)'">
+    </div>
+    <div id="tinv-lista"></div>`;
+  pintarTestersInv('');
+}
+
+function pintarTestersInv(filtro){
+  const cont = document.getElementById('tinv-lista');
+  if(!cont) return;
+  const q = (filtro||'').toUpperCase().trim();
+  const marcaSel = window._tinvMarcaSel || 'TODAS';
+  const MARCAS_OK = ['BIOSKIN','ERAYBA','ZIAJA','ZIAJAPRO'];
+  // Catálogo de productos (mismo filtro que Bodegas: 4 marcas, sin combos)
+  let productos = Object.entries(window.CATALOGO_POR_ID||{})
+    .map(([id,p])=>({id, nombre:p.nombre||'', codigo:p.codigo||'', marca:p.marca||''}))
+    .filter(p=>{
+      const mN = p.marca.toUpperCase().replace(/\s+/g,'');
+      if(!MARCAS_OK.includes(mN)) return false;
+      const nN = p.nombre.normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase();
+      if(nN.includes('PROMO') || nN.startsWith('LINEA') || nN.includes('KIT BASICO')) return false;
+      if(marcaSel!=='TODAS' && p.marca.toUpperCase().replace(/\s+/g,'')!==marcaSel.replace(/\s+/g,'')) return false;
+      return !q || nN.includes(q) || p.codigo.toUpperCase().includes(q);
+    })
+    .sort((a,b)=>a.marca.localeCompare(b.marca) || a.nombre.localeCompare(b.nombre));
+  const asesoras = window._testersInvAsesoras || [];
+  if(productos.length === 0){
+    cont.innerHTML = '<div class="card" style="text-align:center;padding:40px 20px;color:var(--muted)"><i class="ti ti-flask-off" style="font-size:36px;opacity:0.35"></i><p style="margin-top:10px;font-size:14px">Sin resultados (si el catálogo aún carga, espera unos segundos y busca de nuevo)</p></div>';
+    return;
+  }
+  // Registros por producto+asesora
+  const porCelda = {};
+  (window._testersInvRegs||[]).forEach(r=>{
+    (porCelda[r.producto_id+'|'+r.asesora] = porCelda[r.producto_id+'|'+r.asesora] || []).push(r);
+  });
+  const esc = v => String(v||'').replace(/</g,'&lt;');
+  const MES_C = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const fmtMA = f => { const p=String(f||'').substring(0,10).split('-'); return MES_C[parseInt(p[1])]+' '+String(p[0]).substring(2); };
+  cont.innerHTML = `
+  <div class="card" style="padding:0;overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:${340+asesoras.length*95}px">
+      <thead>
+        <tr style="border-bottom:1px solid var(--border)">
+          <th style="text-align:left;padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;position:sticky;left:0;background:white;z-index:1">Producto</th>
+          ${asesoras.map(a=>`<th style="text-align:center;padding:10px 6px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;white-space:nowrap">${a.split(' ')[0]}</th>`).join('')}
+        </tr>
+      </thead>
+      <tbody>
+        ${productos.map((p,pi)=>`
+        <tr style="border-bottom:0.5px solid var(--border);background:${pi%2?'#f6f3ef':'white'}">
+          <td style="padding:8px 14px;position:sticky;left:0;background:${pi%2?'#f6f3ef':'white'};z-index:1">
+            <div style="font-weight:500;font-size:12px">${esc(p.nombre)}</div>
+            <div style="font-size:9px;color:var(--muted)">${esc(p.marca)}${p.codigo?' · '+esc(p.codigo):''}</div>
+          </td>
+          ${asesoras.map(a=>{
+            const regs = porCelda[p.id+'|'+a] || [];
+            const ultimo = regs.length ? regs[regs.length-1] : null;
+            return `<td style="padding:6px 4px;text-align:center;vertical-align:middle">
+              ${regs.length ? `
+                <div style="font-size:11px;font-weight:800;color:#16a34a">✓${regs.length>1?' ×'+regs.length:''}</div>
+                <div style="font-size:9px;color:var(--muted)">${fmtMA(ultimo.fecha)}</div>
+                <div style="display:flex;gap:3px;justify-content:center;margin-top:2px">
+                  <button onclick="registrarTesterAse('${p.id}','${a.replace(/'/g,"\\'")}')" title="Registrar otra entrega" style="width:18px;height:18px;border:1px solid #86efac;background:#f0fdf4;border-radius:4px;cursor:pointer;font-size:10px;line-height:1;color:#16a34a;padding:0">+</button>
+                  <button onclick="quitarTesterAse(${ultimo.id},'${esc(p.nombre).replace(/'/g,'')}','${a.replace(/'/g,"\\'")}')" title="Quitar última entrega" style="width:18px;height:18px;border:1px solid #fca5a5;background:#fef2f2;border-radius:4px;cursor:pointer;font-size:10px;line-height:1;color:#ef4444;padding:0">−</button>
+                </div>`
+              : `<input type="checkbox" onclick="this.disabled=true;registrarTesterAse('${p.id}','${a.replace(/'/g,"\\'")}')" style="accent-color:#16a34a;width:16px;height:16px;cursor:pointer">`}
+            </td>`;
+          }).join('')}
+        </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>
+  <div style="font-size:11px;color:var(--muted);margin-top:8px">${productos.length} producto${productos.length!==1?'s':''} · marca el check al entregar un tester (queda mes y año) · "+" registra otra entrega del mismo producto (histórico) · "−" quita la última</div>`;
+}
+
+function seleccionarMarcaTestersInv(m){
+  window._tinvMarcaSel = m;
+  document.querySelectorAll('.tinv-marca-chip').forEach(b=>{
+    const activo = b.dataset.m === m;
+    b.style.border = '1px solid ' + (activo?'var(--brown)':'var(--border)');
+    b.style.background = activo ? '#f7f0ea' : 'white';
+    b.style.fontWeight = activo ? '600' : '400';
+  });
+  pintarTestersInv(document.getElementById('tinv-buscar')?.value||'');
+}
+
+async function registrarTesterAse(productoId, asesora){
+  try{
+    const r = await fetch('/api/testers-asesoras', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ producto_id: productoId, asesora })
+    });
+    const j = await r.json();
+    if(!j.ok) throw new Error(j.error||'error');
+    (window._testersInvRegs = window._testersInvRegs||[]).push({ id:j.id, producto_id:productoId, asesora, fecha:j.fecha });
+    pintarTestersInv(document.getElementById('tinv-buscar')?.value||'');
+  }catch(e){ alert('Error: '+e.message); pintarTestersInv(document.getElementById('tinv-buscar')?.value||''); }
+}
+
+async function quitarTesterAse(id, producto, asesora){
+  if(!confirm('¿Quitar la última entrega de "'+producto+'" a '+asesora.split(' ')[0]+'?')) return;
+  try{
+    await fetch('/api/testers-asesoras/'+id, { method:'DELETE' });
+    window._testersInvRegs = (window._testersInvRegs||[]).filter(x=>x.id!==id);
+    pintarTestersInv(document.getElementById('tinv-buscar')?.value||'');
+  }catch(e){ alert('Error: '+e.message); }
 }
 
 // ─── MÓDULO LOTES (caducidades con baja FIFO automática) ─────────────────────
@@ -7697,10 +7841,10 @@ function navGoInstitutosCli(){
 }
 
 function navGoInventario(tab){
-  navSetMod(tab === 'bodegas' ? 'bodegas' : tab === 'lotes' ? 'lotes' : 'inventario');
+  navSetMod(tab === 'bodegas' ? 'bodegas' : tab === 'lotes' ? 'lotes' : tab === 'testers' ? 'testers_inv' : 'inventario');
   setTimeout(()=>{
     document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
-    document.getElementById('navsub-inv-'+(tab==='bodegas'?'bodegas':tab==='lotes'?'lotes':'proyeccion'))?.classList.add('active');
+    document.getElementById('navsub-inv-'+(tab==='bodegas'?'bodegas':tab==='lotes'?'lotes':tab==='testers'?'testers':'proyeccion'))?.classList.add('active');
     const subs = document.getElementById('nav-inventario-subs');
     const chev = document.getElementById('nav-inventario-chevron');
     if(subs) subs.style.maxHeight = '300px';
