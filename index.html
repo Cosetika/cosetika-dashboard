@@ -9445,17 +9445,26 @@ async function renderKpisControl(){
   document.getElementById('main').innerHTML = '<div style="display:flex;justify-content:center;padding:40px;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:24px"></i></div>';
 
   let cumplimiento = {detalle:[], semanas:[]}, revisiones = [], usuarios = [], equipos = [];
+  let girasCtrl = [], casasCtrl = [], nuevosCtrl = {asesoras:{}}, metasCliCtrl = {};
   try{
-    const [rCu, rRev, rU, rEq] = await Promise.all([
+    const [rCu, rRev, rU, rEq, rGi, rCa, rNu, rMc] = await Promise.all([
       fetch(`/api/kpi-cumplimiento-visitas?mes=${mesKey}`),
       fetch(`/api/revisiones-lunes?mes=${mesKey}`),
       fetch('/api/usuarios'),
-      fetch('/api/equipos')
+      fetch('/api/equipos'),
+      fetch(`/api/giras?mes=${mesKey}`),
+      fetch(`/api/casas_abiertas?mes=${mesKey}`),
+      fetch(`/api/kpi-clientes-nuevos?anio=${anio}&mes=${mes}`),
+      fetch('/api/contifico-clientes/metas')
     ]);
     if(rCu.ok) cumplimiento = await rCu.json();
     if(rRev.ok){ const d = await rRev.json(); if(Array.isArray(d)) revisiones = d; }
     if(rU.ok){ const d = await rU.json(); if(Array.isArray(d)) usuarios = d; }
     if(rEq.ok){ const d = await rEq.json(); if(Array.isArray(d)) equipos = d; }
+    if(rGi.ok){ const d = await rGi.json(); if(Array.isArray(d)) girasCtrl = d; }
+    if(rCa.ok){ const d = await rCa.json(); if(Array.isArray(d)) casasCtrl = d; }
+    if(rNu.ok){ const d = await rNu.json(); if(d.ok) nuevosCtrl = d; }
+    if(rMc.ok){ const d = await rMc.json(); if(d.ok) metasCliCtrl = d.metas||{}; }
   }catch(e){}
 
   // Asesoras a mostrar: todas (admin) o las del equipo de la jefa
@@ -9470,6 +9479,16 @@ async function renderKpisControl(){
   }
   const revMap = {};
   revisiones.forEach(r=>{ if(r.revisado) revMap[r.asesora+'|'+String(r.semana).substring(0,10)] = true; });
+
+  // Helpers compartidos por los paneles
+  const nrmP = x=>String(x||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase().trim();
+  const mismoP = (a,b)=>{ const A=nrmP(a),B=nrmP(b); if(!A||!B) return false; return A===B || A.startsWith(B.split(' ').slice(0,2).join(' ')) || B.startsWith(A.split(' ').slice(0,2).join(' ')); };
+  const chipControl = ok => ok
+    ? '<i class="ti ti-circle-check" style="color:#16a34a;font-size:18px"></i>'
+    : '<i class="ti ti-circle-x" style="color:#dc2626;font-size:18px"></i>';
+  // Lunes ya transcurridos del mes visualizado (para el control de visitas)
+  const hoyCtrl = new Date(new Date().toLocaleString('en-US',{timeZone:'America/Guayaquil'}));
+  const lunesTranscurridos = lunesDelMes.filter(l => l <= hoyCtrl);
 
   document.getElementById('main').innerHTML = `
     <div class="breadcrumb" style="margin-bottom:12px"><i class="ti ti-checklist" style="color:var(--brown);font-size:12px"></i><span style="font-weight:500">KPIs — Control</span></div>
@@ -9493,6 +9512,7 @@ async function renderKpisControl(){
             <th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Meta</th>
             ${lunesDelMes.map(l=>`<th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase;white-space:nowrap">Sem ${l.getDate()}/${l.getMonth()+1}</th>`).join('')}
             <th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Total mes</th>
+            <th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Control</th>
           </tr></thead>
           <tbody>
             ${(cumplimiento.detalle||[]).map(d=>{
@@ -9509,18 +9529,115 @@ async function renderKpisControl(){
                 return `<td style="padding:8px 10px;text-align:center;font-weight:700;color:${v>=d.meta?'#16a34a':(v>0?'#d97706':'#dc2626')}">${v}</td>`;
               }).join('');
               const totalMes = misSemanas.reduce((a,x)=>a+(x.visitadas||0),0);
+              // Control: cumplió si todas las semanas transcurridas alcanzaron la meta
+              const cumpleVis = lunesTranscurridos.length > 0 && lunesTranscurridos.every(l=>{
+                const key = `${l.getFullYear()}-${String(l.getMonth()+1).padStart(2,'0')}-${String(l.getDate()).padStart(2,'0')}`;
+                const reg = misSemanas.find(x=>String(x.semana).substring(0,10)===key);
+                return (reg ? reg.visitadas : 0) >= d.meta;
+              });
               return `
               <tr style="border-bottom:0.5px solid #f0ede9">
                 <td style="padding:8px 10px;font-weight:500">${d.asesora.split(' ')[0]} ${(d.asesora.split(' ')[1]||'')}</td>
                 <td style="padding:8px 10px;text-align:center;color:var(--muted)">${d.meta}/sem</td>
                 ${celdas}
                 <td style="padding:8px 10px;text-align:center;font-weight:800;color:var(--brown)">${totalMes}</td>
+                <td style="padding:8px 10px;text-align:center">${chipControl(cumpleVis)}</td>
               </tr>`;
             }).join('')}
           </tbody>
         </table>
       </div>
       <div style="font-size:10px;color:var(--muted);margin-top:6px"><span style="color:#16a34a">verde</span> = cumplió la meta semanal · <span style="color:#d97706">ámbar</span> = avance parcial · <span style="color:#dc2626">rojo</span> = sin visitas</div>
+    </div>
+
+    <!-- Visitas a Provincia por asesora -->
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-title"><i class="ti ti-road"></i> Visitas a Provincia por asesora · Meta 1/mes</div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead><tr style="border-bottom:1px solid var(--border)">
+            <th style="text-align:left;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Asesora</th>
+            <th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Realizadas</th>
+            <th style="text-align:left;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Provincias</th>
+            <th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Control</th>
+          </tr></thead>
+          <tbody>
+            ${asesorasCtrl.map(a=>{
+              const mias = girasCtrl.filter(g=>g.realizada && mismoP(g.asesora, a));
+              const provs = [...new Set(mias.map(g=>g.ciudad).filter(Boolean))].join(', ');
+              return `
+              <tr style="border-bottom:0.5px solid #f0ede9">
+                <td style="padding:8px 10px;font-weight:500">${a.split(' ')[0]} ${(a.split(' ')[1]||'')}</td>
+                <td style="padding:8px 10px;text-align:center;font-weight:800;color:${mias.length?'#16a34a':'#dc2626'}">${mias.length}</td>
+                <td style="padding:8px 10px;color:var(--muted)">${provs||'—'}</td>
+                <td style="padding:8px 10px;text-align:center">${chipControl(mias.length >= 1)}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Casas Abiertas por asesora -->
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-title"><i class="ti ti-building-store"></i> Casas Abiertas por asesora · Meta 1/mes</div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead><tr style="border-bottom:1px solid var(--border)">
+            <th style="text-align:left;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Asesora</th>
+            <th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Realizadas</th>
+            <th style="text-align:left;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Cliente</th>
+            <th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Control</th>
+          </tr></thead>
+          <tbody>
+            ${asesorasCtrl.map(a=>{
+              const mias = casasCtrl.filter(c=>c.realizada && mismoP(c.asesora, a));
+              const clientes = [...new Set(mias.map(c=>c.cliente).filter(Boolean))].join(', ');
+              return `
+              <tr style="border-bottom:0.5px solid #f0ede9">
+                <td style="padding:8px 10px;font-weight:500">${a.split(' ')[0]} ${(a.split(' ')[1]||'')}</td>
+                <td style="padding:8px 10px;text-align:center;font-weight:800;color:${mias.length?'#16a34a':'#dc2626'}">${mias.length}</td>
+                <td style="padding:8px 10px;color:var(--muted)">${clientes||'—'}</td>
+                <td style="padding:8px 10px;text-align:center">${chipControl(mias.length >= 1)}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Clientes Nuevos por asesora -->
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-title"><i class="ti ti-user-plus"></i> Clientes Nuevos por asesora</div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead><tr style="border-bottom:1px solid var(--border)">
+            <th style="text-align:left;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Asesora</th>
+            <th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Meta</th>
+            <th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Ingresadas</th>
+            <th style="text-align:left;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Clientas</th>
+            <th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Control</th>
+          </tr></thead>
+          <tbody>
+            ${asesorasCtrl.map(a=>{
+              const claveN = Object.keys(nuevosCtrl.asesoras||{}).find(k=>mismoP(k, a));
+              const info = claveN ? nuevosCtrl.asesoras[claveN] : null;
+              const n = info ? info.cantidad : 0;
+              const claveM = Object.keys(metasCliCtrl||{}).find(k=>mismoP(k, a));
+              const metaN = claveM ? (parseInt(metasCliCtrl[claveM])||0) : 0;
+              const nombres = info ? info.nombres.join(', ') : '';
+              return `
+              <tr style="border-bottom:0.5px solid #f0ede9">
+                <td style="padding:8px 10px;font-weight:500">${a.split(' ')[0]} ${(a.split(' ')[1]||'')}</td>
+                <td style="padding:8px 10px;text-align:center;color:var(--muted)">${metaN||'—'}</td>
+                <td style="padding:8px 10px;text-align:center;font-weight:800;color:${n>=metaN&&n>0?'#16a34a':(n>0?'#d97706':'#dc2626')}">${n}</td>
+                <td style="padding:8px 10px;color:var(--muted);font-size:11px">${String(nombres).replace(/</g,'&lt;')||'—'}</td>
+                <td style="padding:8px 10px;text-align:center">${chipControl(metaN>0 ? n>=metaN : n>0)}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
     </div>
 
     <!-- Revisión de planificaciones -->
