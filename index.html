@@ -9466,6 +9466,13 @@ async function renderKpisControl(){
     if(rNu.ok){ const d = await rNu.json(); if(d.ok) nuevosCtrl = d; }
     if(rMc.ok){ const d = await rMc.json(); if(d.ok) metasCliCtrl = d.metas||{}; }
   }catch(e){}
+  let notasCtrl = {};
+  try{ const rN = await fetch(`/api/kpis-control-notas?mes=${mesKey}`); const dN = await rN.json(); if(dN.ok) notasCtrl = dN.notas||{}; }catch(e){}
+  const esAdminCtrl = rol === 'admin';
+  window._kpiCtrlMesKey = mesKey;
+  const notaPanel = panel => esAdminCtrl
+    ? `<textarea rows="2" placeholder="Nota del mes para este panel..." onchange="guardarNotaKpisControl('${panel}', this.value)" style="width:100%;margin-top:10px;padding:8px 10px;font-size:12px;border:1px dashed var(--border);border-radius:8px;outline:none;box-sizing:border-box;resize:vertical;font-family:inherit;color:var(--text);background:#fffdf9">${String(notasCtrl[panel]||'').replace(/</g,'&lt;')}</textarea>`
+    : (notasCtrl[panel] ? `<div style="margin-top:10px;padding:8px 10px;font-size:12px;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:8px">📝 ${String(notasCtrl[panel]).replace(/</g,'&lt;')}</div>` : '');
 
   // Asesoras a mostrar: todas (admin) o las del equipo de la jefa
   let asesorasCtrl = usuarios.filter(u=>u.rol==='asesora' && u.activo).map(u=>u.nombre);
@@ -9489,6 +9496,26 @@ async function renderKpisControl(){
   // Lunes ya transcurridos del mes visualizado (para el control de visitas)
   const hoyCtrl = new Date(new Date().toLocaleString('en-US',{timeZone:'America/Guayaquil'}));
   const lunesTranscurridos = lunesDelMes.filter(l => l <= hoyCtrl);
+
+  // Resumen por asesora: todos sus KPIs del mes con cumplimiento
+  const resumenCtrl = asesorasCtrl.map(a=>{
+    const det = (cumplimiento.detalle||[]).find(d=>mismoP(d.asesora, a));
+    const misSem = (cumplimiento.semanas||[]).filter(x=>mismoP(x.asesora, a));
+    const cumpleVis = !!det && lunesTranscurridos.length > 0 && lunesTranscurridos.every(l=>{
+      const key = `${l.getFullYear()}-${String(l.getMonth()+1).padStart(2,'0')}-${String(l.getDate()).padStart(2,'0')}`;
+      const reg = misSem.find(x=>String(x.semana).substring(0,10)===key);
+      return (reg ? reg.visitadas : 0) >= det.meta;
+    });
+    const giras = girasCtrl.filter(g=>g.realizada && mismoP(g.asesora, a));
+    const casas = casasCtrl.filter(c=>c.realizada && mismoP(c.asesora, a));
+    const claveN = Object.keys(nuevosCtrl.asesoras||{}).find(k=>mismoP(k, a));
+    const nNuevos = claveN ? nuevosCtrl.asesoras[claveN].cantidad : 0;
+    const claveM = Object.keys(metasCliCtrl||{}).find(k=>mismoP(k, a));
+    const metaN = claveM ? (parseInt(metasCliCtrl[claveM])||0) : 0;
+    const cumpleNuevos = metaN > 0 ? nNuevos >= metaN : nNuevos > 0;
+    return { a, cumpleVis, giras, casas, nNuevos, metaN, cumpleNuevos,
+             cumpleProv: giras.length >= 1, cumpleCasa: casas.length >= 1 };
+  });
 
   document.getElementById('main').innerHTML = `
     <div class="breadcrumb" style="margin-bottom:12px"><i class="ti ti-checklist" style="color:var(--brown);font-size:12px"></i><span style="font-weight:500">KPIs — Control</span></div>
@@ -9548,6 +9575,7 @@ async function renderKpisControl(){
         </table>
       </div>
       <div style="font-size:10px;color:var(--muted);margin-top:6px"><span style="color:#16a34a">verde</span> = cumplió la meta semanal · <span style="color:#d97706">ámbar</span> = avance parcial · <span style="color:#dc2626">rojo</span> = sin visitas</div>
+      ${notaPanel('visitas')}
     </div>
 
     <!-- Visitas a Provincia por asesora -->
@@ -9562,20 +9590,20 @@ async function renderKpisControl(){
             <th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Control</th>
           </tr></thead>
           <tbody>
-            ${asesorasCtrl.map(a=>{
-              const mias = girasCtrl.filter(g=>g.realizada && mismoP(g.asesora, a));
-              const provs = [...new Set(mias.map(g=>g.ciudad).filter(Boolean))].join(', ');
+            ${resumenCtrl.map(r=>{
+              const provs = [...new Set(r.giras.map(g=>g.ciudad).filter(Boolean))].join(', ');
               return `
               <tr style="border-bottom:0.5px solid #f0ede9">
-                <td style="padding:8px 10px;font-weight:500">${a.split(' ')[0]} ${(a.split(' ')[1]||'')}</td>
-                <td style="padding:8px 10px;text-align:center;font-weight:800;color:${mias.length?'#16a34a':'#dc2626'}">${mias.length}</td>
+                <td style="padding:8px 10px;font-weight:500">${r.a.split(' ')[0]} ${(r.a.split(' ')[1]||'')}</td>
+                <td style="padding:8px 10px;text-align:center;font-weight:800;color:${r.giras.length?'#16a34a':'#dc2626'}">${r.giras.length}</td>
                 <td style="padding:8px 10px;color:var(--muted)">${provs||'—'}</td>
-                <td style="padding:8px 10px;text-align:center">${chipControl(mias.length >= 1)}</td>
+                <td style="padding:8px 10px;text-align:center">${chipControl(r.cumpleProv)}</td>
               </tr>`;
             }).join('')}
           </tbody>
         </table>
       </div>
+      ${notaPanel('provincia')}
     </div>
 
     <!-- Casas Abiertas por asesora -->
@@ -9590,20 +9618,20 @@ async function renderKpisControl(){
             <th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Control</th>
           </tr></thead>
           <tbody>
-            ${asesorasCtrl.map(a=>{
-              const mias = casasCtrl.filter(c=>c.realizada && mismoP(c.asesora, a));
-              const clientes = [...new Set(mias.map(c=>c.cliente).filter(Boolean))].join(', ');
+            ${resumenCtrl.map(r=>{
+              const clientes = [...new Set(r.casas.map(c=>c.cliente).filter(Boolean))].join(', ');
               return `
               <tr style="border-bottom:0.5px solid #f0ede9">
-                <td style="padding:8px 10px;font-weight:500">${a.split(' ')[0]} ${(a.split(' ')[1]||'')}</td>
-                <td style="padding:8px 10px;text-align:center;font-weight:800;color:${mias.length?'#16a34a':'#dc2626'}">${mias.length}</td>
+                <td style="padding:8px 10px;font-weight:500">${r.a.split(' ')[0]} ${(r.a.split(' ')[1]||'')}</td>
+                <td style="padding:8px 10px;text-align:center;font-weight:800;color:${r.casas.length?'#16a34a':'#dc2626'}">${r.casas.length}</td>
                 <td style="padding:8px 10px;color:var(--muted)">${clientes||'—'}</td>
-                <td style="padding:8px 10px;text-align:center">${chipControl(mias.length >= 1)}</td>
+                <td style="padding:8px 10px;text-align:center">${chipControl(r.cumpleCasa)}</td>
               </tr>`;
             }).join('')}
           </tbody>
         </table>
       </div>
+      ${notaPanel('casa')}
     </div>
 
     <!-- Clientes Nuevos por asesora -->
@@ -9614,30 +9642,21 @@ async function renderKpisControl(){
           <thead><tr style="border-bottom:1px solid var(--border)">
             <th style="text-align:left;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Asesora</th>
             <th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Meta</th>
-            <th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Ingresadas</th>
-            <th style="text-align:left;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Clientas</th>
+            <th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Clientes aperturadas</th>
             <th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Control</th>
           </tr></thead>
           <tbody>
-            ${asesorasCtrl.map(a=>{
-              const claveN = Object.keys(nuevosCtrl.asesoras||{}).find(k=>mismoP(k, a));
-              const info = claveN ? nuevosCtrl.asesoras[claveN] : null;
-              const n = info ? info.cantidad : 0;
-              const claveM = Object.keys(metasCliCtrl||{}).find(k=>mismoP(k, a));
-              const metaN = claveM ? (parseInt(metasCliCtrl[claveM])||0) : 0;
-              const nombres = info ? info.nombres.join(', ') : '';
-              return `
+            ${resumenCtrl.map(r=>`
               <tr style="border-bottom:0.5px solid #f0ede9">
-                <td style="padding:8px 10px;font-weight:500">${a.split(' ')[0]} ${(a.split(' ')[1]||'')}</td>
-                <td style="padding:8px 10px;text-align:center;color:var(--muted)">${metaN||'—'}</td>
-                <td style="padding:8px 10px;text-align:center;font-weight:800;color:${n>=metaN&&n>0?'#16a34a':(n>0?'#d97706':'#dc2626')}">${n}</td>
-                <td style="padding:8px 10px;color:var(--muted);font-size:11px">${String(nombres).replace(/</g,'&lt;')||'—'}</td>
-                <td style="padding:8px 10px;text-align:center">${chipControl(metaN>0 ? n>=metaN : n>0)}</td>
-              </tr>`;
-            }).join('')}
+                <td style="padding:8px 10px;font-weight:500">${r.a.split(' ')[0]} ${(r.a.split(' ')[1]||'')}</td>
+                <td style="padding:8px 10px;text-align:center;color:var(--muted)">${r.metaN||'—'}</td>
+                <td style="padding:8px 10px;text-align:center;font-weight:800;color:${r.cumpleNuevos?'#16a34a':(r.nNuevos>0?'#d97706':'#dc2626')}">${r.nNuevos}</td>
+                <td style="padding:8px 10px;text-align:center">${chipControl(r.cumpleNuevos)}</td>
+              </tr>`).join('')}
           </tbody>
         </table>
       </div>
+      ${notaPanel('nuevos')}
     </div>
 
     <!-- Revisión de planificaciones -->
@@ -9666,7 +9685,51 @@ async function renderKpisControl(){
           </tbody>
         </table>
       </div>
+      ${notaPanel('revision')}
+    </div>
+
+    <!-- RESUMEN DEL MES: matriz de cumplimiento -->
+    <div class="card" style="margin-top:12px;border:2px solid #1a1108">
+      <div class="card-title"><i class="ti ti-trophy"></i> Resumen del mes — cumplimiento de KPIs</div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:560px">
+          <thead><tr style="border-bottom:1px solid var(--border)">
+            <th style="text-align:left;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Asesora</th>
+            <th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Visitas</th>
+            <th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Visita Provincia</th>
+            <th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Casa Abierta</th>
+            <th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Clientes Nuevos</th>
+            <th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Estado final</th>
+          </tr></thead>
+          <tbody>
+            ${resumenCtrl.map(r=>{
+              const todos = r.cumpleVis && r.cumpleProv && r.cumpleCasa && r.cumpleNuevos;
+              return `
+              <tr style="border-bottom:0.5px solid #f0ede9;background:${todos?'#f0fdf4':'white'}">
+                <td style="padding:8px 10px;font-weight:600">${r.a.split(' ')[0]} ${(r.a.split(' ')[1]||'')}</td>
+                <td style="padding:8px 10px;text-align:center">${chipControl(r.cumpleVis)}</td>
+                <td style="padding:8px 10px;text-align:center">${chipControl(r.cumpleProv)}</td>
+                <td style="padding:8px 10px;text-align:center">${chipControl(r.cumpleCasa)}</td>
+                <td style="padding:8px 10px;text-align:center">${chipControl(r.cumpleNuevos)}</td>
+                <td style="padding:8px 10px;text-align:center">${todos
+                  ? '<span style="font-size:11px;padding:3px 12px;border-radius:12px;background:#16a34a;color:white;font-weight:700">CUMPLIÓ</span>'
+                  : '<span style="font-size:11px;padding:3px 12px;border-radius:12px;background:#fef2f2;color:#dc2626;border:1px solid #fca5a5;font-weight:700">PENDIENTE</span>'}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+      ${notaPanel('resumen')}
     </div>`;
+}
+
+async function guardarNotaKpisControl(panel, texto){
+  try{
+    await fetch('/api/kpis-control-notas', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ mes: window._kpiCtrlMesKey, panel, texto })
+    });
+  }catch(e){ alert('Error guardando la nota: '+e.message); }
 }
 
 function kpiCtrlMesNav(delta){
