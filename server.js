@@ -2033,6 +2033,14 @@ async function initDB() {
         actualizado_at TIMESTAMP DEFAULT NOW(),
         UNIQUE(producto_id, bodega)
       );
+      CREATE TABLE IF NOT EXISTS kpis_control_notas (
+        id SERIAL PRIMARY KEY,
+        mes_key VARCHAR(7) NOT NULL,
+        panel VARCHAR(30) NOT NULL,
+        texto TEXT,
+        actualizado_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(mes_key, panel)
+      );
       CREATE TABLE IF NOT EXISTS viaticos_tarifas (
         id SERIAL PRIMARY KEY,
         provincia VARCHAR(100) NOT NULL,
@@ -4396,6 +4404,31 @@ const server = http.createServer(async (req, res) => {
       });
       res.end(buf);
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+
+  // ─── NOTAS DE KPIs CONTROL (una por panel y por mes) ────────────────────────
+  if (urlPath === '/api/kpis-control-notas' && req.method === 'GET') {
+    try {
+      const mesK = urlObj.searchParams.get('mes') || '';
+      const r = await pool.query('SELECT panel, texto FROM kpis_control_notas WHERE mes_key=$1', [mesK]);
+      const notas = {};
+      r.rows.forEach(x => { notas[x.panel] = x.texto || ''; });
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ ok:true, notas }));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+  if (urlPath === '/api/kpis-control-notas' && req.method === 'POST') {
+    try {
+      const { mes, panel, texto } = await bodyJSON(req);
+      if (!mes || !panel) { res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'Faltan datos'})); return; }
+      await pool.query(
+        `INSERT INTO kpis_control_notas(mes_key, panel, texto, actualizado_at) VALUES($1,$2,$3,NOW())
+         ON CONFLICT (mes_key, panel) DO UPDATE SET texto=$3, actualizado_at=NOW()`,
+        [String(mes).substring(0,7), String(panel).substring(0,29), String(texto||'').substring(0,2000)]
+      );
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
   }
 
