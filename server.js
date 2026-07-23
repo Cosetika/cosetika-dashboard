@@ -1690,6 +1690,24 @@ async function regenerarDataAutomatico() {
   regenerandoEnProceso = false;
 }
 // Programar para correr a las 2:00 AM hora Ecuador (UTC-5) cada día
+// SEGURO: si un deploy/reinicio se comió la regeneración de las 2 AM, el data.json
+// amanece sin el día anterior. Al arrancar (y cada 2 horas) se verifica la frescura:
+// si la última regeneración tiene más de 26 horas, se regenera automáticamente.
+async function verificarFrescuraData(){
+  try {
+    if (regenerandoEnProceso) return;
+    const r = await pool.query("SELECT actualizado_at FROM ventas_data WHERE id_unico='principal'");
+    const ts = r.rows.length ? new Date(r.rows[0].actualizado_at).getTime() : 0;
+    const horas = (Date.now() - ts) / 3600000;
+    if (horas > 26) {
+      console.log(`⚠️ data.json desactualizado (última regeneración hace ${Math.round(horas)}h) — regenerando ahora...`);
+      regenerarDataAutomatico();
+    }
+  } catch(e) { console.error('Error verificando frescura de data:', e.message); }
+}
+setTimeout(verificarFrescuraData, 4 * 60 * 1000);       // al arrancar (tras cargar el catálogo)
+setInterval(verificarFrescuraData, 2 * 60 * 60 * 1000); // y cada 2 horas como respaldo
+
 function programarRegeneracionDiaria() {
   const ahora = new Date();
   const proxima = new Date(ahora);
