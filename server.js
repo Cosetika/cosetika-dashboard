@@ -150,7 +150,7 @@ async function generarDataJson(fi, ff) {
     const docs = (data.results || []).filter(d => {
       if (d.tipo_registro !== 'CLI') return false;  // solo clientes
       if (d.anulado) return false;                   // excluir anulados
-      if (d.tipo_documento === 'NC') return false;   // excluir notas de crédito
+      // Las notas de crédito (NC) SÍ pasan: se restan del total (neteo, igual que Contifico)
       if (d.tipo_documento === 'COT') return false;  // excluir cotizaciones (no son ventas reales)
       if (d.tipo_documento === 'PRO') return false;  // excluir proformas
       // Si no hay objeto vendedor pero hay identificación, lo incluimos como "Sin asignar"
@@ -177,8 +177,10 @@ async function generarDataJson(fi, ff) {
       // sincronizado de Contifico (por persona_id) > inferencia por dirección.
       const cliProv = resolverProvinciaCliente(cliRuc, cliId, doc.cliente?.direccion || '');
       const mes = parseInt((doc.fecha_emision || '').split('/')[1]) || 0;
-      const totalDoc = parseFloat(doc.total || 0);
-      const subDoc = parseFloat(doc.subtotal || doc.subtotal_12 || 0);
+      // Notas de crédito restan (neteo contra la factura original, igual que Contifico)
+      const signoDoc = doc.tipo_documento === 'NC' ? -1 : 1;
+      const totalDoc = signoDoc * parseFloat(doc.total || 0);
+      const subDoc = signoDoc * parseFloat(doc.subtotal || doc.subtotal_12 || 0);
       if (!cliId || totalDoc === 0) return;
       if (!vendedores[vendId]) vendedores[vendId] = { nombre: vendNom, clientes: {} };
       vendedores[vendId].nombre = vendNom;
@@ -195,11 +197,11 @@ async function generarDataJson(fi, ff) {
       // momento, y de lo contrario un cliente que ya tenía un valor (aunque fuera "Sin
       // provincia" o uno inferido incorrectamente) nunca reflejaría la corrección.
       if(cliProv) cli.provincia = cliProv;
-      cli.total += totalDoc; cli.subtotal += subDoc; cli.num_compras++;
+      cli.total += totalDoc; cli.subtotal += subDoc; if (signoDoc > 0) cli.num_compras++;
       const anioDoc = parseInt((doc.fecha_emision || '').split('/')[2]) || new Date().getFullYear();
       const freqKey = `${anioDoc}-${String(mes).padStart(2,'0')}`;
       if (!cli.frecuencia[freqKey]) cli.frecuencia[freqKey] = { anio: anioDoc, mes, total: 0, subtotal: 0, compras: 0 };
-      cli.frecuencia[freqKey].total += totalDoc; cli.frecuencia[freqKey].subtotal += subDoc; cli.frecuencia[freqKey].compras++;
+      cli.frecuencia[freqKey].total += totalDoc; cli.frecuencia[freqKey].subtotal += subDoc; if (signoDoc > 0) cli.frecuencia[freqKey].compras++;
       // Desglose exacto por día — para el gráfico "ventas del mes por día" (instantáneo, sin pegarle a Contifico en vivo)
       const diaDoc = parseInt((doc.fecha_emision || '').split('/')[0]) || 0;
       if (diaDoc) {
@@ -208,12 +210,12 @@ async function generarDataJson(fi, ff) {
         if (!cli.frecuenciaPorDia[diaKey]) cli.frecuenciaPorDia[diaKey] = { anio: anioDoc, mes, dia: diaDoc, total: 0, subtotal: 0, compras: 0 };
         cli.frecuenciaPorDia[diaKey].total += totalDoc;
         cli.frecuenciaPorDia[diaKey].subtotal += subDoc;
-        cli.frecuenciaPorDia[diaKey].compras++;
+        if (signoDoc > 0) cli.frecuenciaPorDia[diaKey].compras++;
       }
       (doc.detalles || []).forEach(det => {
         const prodId = det.producto_id || '';
-        const cantidad = parseFloat(det.cantidad || 0);
-        const base = parseFloat(det.base_gravable || det.base_cero || 0);
+        const cantidad = signoDoc * parseFloat(det.cantidad || 0);
+        const base = signoDoc * parseFloat(det.base_gravable || det.base_cero || 0);
         // Solo se descarta si no hay producto identificable o si la cantidad es cero.
         // base===0 es válido (regalos, cortesías, descuento 100%): se cuenta la unidad
         // vendida/entregada, simplemente no aporta nada al total en $.
