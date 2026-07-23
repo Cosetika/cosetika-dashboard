@@ -3645,6 +3645,31 @@ function mergearVentasHoy(docs){
     freqMes.total = Math.round((freqMes.total + total)*100)/100;
     freqMes.subtotal = Math.round(((freqMes.subtotal||0) + subtotal)*100)/100;
     freqMes.compras += 1;
+
+    // Desglose por marca y producto (gráficos y rankings de Marcas al día)
+    (doc.detalles||[]).forEach(det => {
+      const base = parseFloat(det.base_gravable || det.base_cero || 0);
+      const cantidad = parseFloat(det.cantidad || 0);
+      const pid = det.producto_id || '';
+      if(!pid || !cantidad) return;
+      const cat = (window.CATALOGO_POR_ID||{})[pid] || {};
+      const marca = cat.marca || '';
+      if(marca){
+        if(!cli.marcas_mes) cli.marcas_mes = [];
+        let mm = cli.marcas_mes.find(x=>x.marca===marca && x.mes===mes && (!x.anio||x.anio===anioHoy));
+        if(!mm){ mm = {anio:anioHoy, mes, marca, total:0}; cli.marcas_mes.push(mm); }
+        mm.total = Math.round((mm.total + base)*100)/100;
+        if(!cli.marcas_anio) cli.marcas_anio = [];
+        let ma = cli.marcas_anio.find(x=>x.marca===marca && (!x.anio||x.anio===anioHoy));
+        if(!ma){ ma = {anio:anioHoy, marca, total:0}; cli.marcas_anio.push(ma); }
+        ma.total = Math.round((ma.total + base)*100)/100;
+      }
+      if(!cli.productos_mes) cli.productos_mes = [];
+      let pm = cli.productos_mes.find(x=>x.id===pid && x.mes===mes && (!x.anio||x.anio===anioHoy));
+      if(!pm){ pm = {anio:anioHoy, mes, id:pid, nombre:cat.nombre||det.producto_nombre||'', marca, cantidad:0, total:0}; cli.productos_mes.push(pm); }
+      pm.cantidad = Math.round((pm.cantidad + cantidad)*100)/100;
+      pm.total = Math.round((pm.total + base)*100)/100;
+    });
   });
 
   // Re-ordenar clientes por total

@@ -3085,6 +3085,23 @@ const server = http.createServer(async (req, res) => {
           });
         });
       });
+      // Sumar las facturas de HOY desde el caché en vivo (la regeneración del data.json
+      // llega solo hasta ayer, así que aquí nunca se duplica)
+      if (anio === ahora.getFullYear() && mes === (ahora.getMonth() + 1)) {
+        const diaHoy = ahora.getDate();
+        let tHoy = 0, sHoy = 0;
+        (cache.documentos || []).forEach(d => {
+          if (String(d.cliente?.ruc || d.cliente?.cedula || '').trim() === '1793143660001') return;
+          const tot = parseFloat(d.total || 0);
+          tHoy += tot;
+          sHoy += parseFloat(d.subtotal || (tot/1.15) || 0);
+        });
+        if (tHoy > 0) {
+          if (!porDia[diaHoy]) porDia[diaHoy] = { total: 0, subtotal: 0 };
+          porDia[diaHoy].total += tHoy;
+          porDia[diaHoy].subtotal += sHoy;
+        }
+      }
       const diasArr = Object.keys(porDia).map(d=>parseInt(d)).sort((a,b)=>a-b).map(d=>({
         dia: d,
         total: Math.round(porDia[d].total*100)/100,
