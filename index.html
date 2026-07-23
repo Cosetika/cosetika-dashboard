@@ -5412,6 +5412,9 @@ function dibujarGraficoDiario(canvasId, series, dias){
       const x=xPos(i),y=yPos(v);
       ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(x,y,3,0,Math.PI*2); ctx.fill();
       ctx.strokeStyle=s.color; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(x,y,3,0,Math.PI*2); ctx.stroke();
+      // Valor sobre cada punto, mismo formato que el gráfico mensual ($3.1K)
+      ctx.fillStyle=s.color; ctx.font='bold 9px system-ui'; ctx.textAlign='center';
+      ctx.fillText(v>=1000?'$'+(v/1000).toFixed(1)+'K':'$'+Math.round(v), x, y-8);
     });
   });
 }
