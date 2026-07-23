@@ -3611,31 +3611,39 @@ async function mostrarVentasHoy(){
 }
 
 function mergearVentasHoy(docs){
-  // Agrupar facturas de hoy por vendedor
-  const hoy = new Date();
+  // Suma las facturas de HOY (caché en vivo de Contifico) al DATA del año, para que
+  // gráficos y KPIs estén al día sin esperar la regeneración nocturna.
+  // OJO: la regeneración del data.json llega solo hasta AYER — así nunca se duplica.
+  const hoy = new Date(new Date().toLocaleString('en-US',{timeZone:'America/Guayaquil'}));
   const mes = hoy.getMonth() + 1;
-  const fecha = `${String(hoy.getDate()).padStart(2,'0')}/${String(mes).padStart(2,'0')}/${String(hoy.getFullYear()).slice(-2)}`;
+  const anioHoy = hoy.getFullYear();
 
   docs.forEach(doc => {
-    const vendedor = doc.vendedor_nombre || doc.vendedor || '';
-    const cliente = doc.persona_nombre || doc.persona || '';
+    const vendedor = doc.vendedor?.razon_social || doc.vendedor?.nombre || '';
+    const cliente = doc.cliente_nombre || doc.cliente?.razon_social || doc.cliente?.nombre_comercial || '';
     const total = parseFloat(doc.total || 0);
+    const subtotal = parseFloat(doc.subtotal || (total/1.15) || 0);
     if(!vendedor || !cliente || !total) return;
-    if(EXCLUIR.includes(vendedor)) return;
+    if(typeof EXCLUIR !== 'undefined' && EXCLUIR.includes(vendedor)) return;
+    // Excluir autoconsumo (mismo criterio que la regeneración)
+    if(String(doc.cliente?.ruc || doc.cliente?.cedula || '').trim() === '1793143660001') return;
 
     if(!DATA[vendedor]) DATA[vendedor] = [];
     let cli = DATA[vendedor].find(c => c.nombre === cliente);
     if(!cli){
-      cli = {nombre:cliente, total:0, num_compras:0, provincia:'', productos:[], marcas:[], frecuencia:[]};
+      cli = {nombre:cliente, ruc:(doc.cliente?.ruc||doc.cliente?.cedula||''), total:0, subtotal:0, num_compras:0, provincia:'', productos:[], marcas:[], frecuencia:[]};
       DATA[vendedor].push(cli);
     }
     cli.total = Math.round((cli.total + total)*100)/100;
+    cli.subtotal = Math.round(((cli.subtotal||0) + subtotal)*100)/100;
     cli.num_compras += 1;
 
-    // Actualizar frecuencia del mes actual
-    let freqMes = cli.frecuencia.find(f => f.mes === mes);
-    if(!freqMes){ freqMes = {mes, total:0, compras:0}; cli.frecuencia.push(freqMes); }
+    // Frecuencia del mes actual — con año y subtotal para que TODOS los cálculos lo tomen
+    let freqMes = cli.frecuencia.find(f => f.mes === mes && (!f.anio || f.anio === anioHoy));
+    if(!freqMes){ freqMes = {mes, anio: anioHoy, total:0, subtotal:0, compras:0}; cli.frecuencia.push(freqMes); }
+    if(!freqMes.anio) freqMes.anio = anioHoy;
     freqMes.total = Math.round((freqMes.total + total)*100)/100;
+    freqMes.subtotal = Math.round(((freqMes.subtotal||0) + subtotal)*100)/100;
     freqMes.compras += 1;
   });
 
@@ -5919,7 +5927,7 @@ function dibujarGraficoLineas(canvasId, series, meses){
       ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(x,y,4,0,Math.PI*2); ctx.fill();
       ctx.strokeStyle=s.color; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(x,y,4,0,Math.PI*2); ctx.stroke();
       ctx.fillStyle=s.color; ctx.font='bold 9px system-ui'; ctx.textAlign='center';
-      ctx.fillText(v>=1000?'$'+(v/1000).toFixed(0)+'K':'$'+Math.round(v),x,y-9);
+      ctx.fillText(v>=1000?'$'+(v/1000).toFixed(1)+'K':'$'+Math.round(v),x,y-9);
     });
   });
 }
@@ -7574,9 +7582,12 @@ async function regenerarData(){
     // directamente la URL /api/regenerar-data?desde=01/01/AAAA&hasta=... en el navegador.
     const hoy = new Date();
     const desde = `01/01/${hoy.getFullYear()}`;
-    const dd = String(hoy.getDate()).padStart(2,'0');
-    const mm = String(hoy.getMonth()+1).padStart(2,'0');
-    const hasta = `${dd}/${mm}/${hoy.getFullYear()}`;
+    // Hasta AYER: las facturas de hoy viven en el caché en vivo y se suman aparte
+    // (mergearVentasHoy) — así jamás se cuentan dos veces
+    const ayer = new Date(hoy); ayer.setDate(hoy.getDate()-1);
+    const dd = String(ayer.getDate()).padStart(2,'0');
+    const mm = String(ayer.getMonth()+1).padStart(2,'0');
+    const hasta = `${dd}/${mm}/${ayer.getFullYear()}`;
     const r = await fetch(`/api/regenerar-data?desde=${desde}&hasta=${hasta}`);
     const d = await r.json();
     if(st) st.innerHTML='<span style="color:#166534">✓ '+d.msg+'</span>';

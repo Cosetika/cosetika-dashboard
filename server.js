@@ -1670,7 +1670,9 @@ async function regenerarDataAutomatico() {
     const hoy = nowEC();
     const anioActual = hoy.getFullYear();
     const fi = `01/01/${anioActual}`;
-    const ff = fmtDateEC(hoy);
+    // Hasta AYER: lo de hoy vive en el caché en vivo y el frontend lo suma aparte
+    const ayerR = new Date(hoy); ayerR.setDate(hoy.getDate()-1);
+    const ff = fmtDateEC(ayerR);
     console.log(`⏰ Regeneración automática diaria: ${fi} al ${ff}`);
     const dataAnio = await generarDataJson(fi, ff);
     if (!DATA_CACHE || Object.keys(DATA_CACHE).length === 0) {
