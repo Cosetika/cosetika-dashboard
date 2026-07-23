@@ -1200,6 +1200,7 @@ async function renderViaticosTarifas(){
   cont.innerHTML = '<div style="padding:30px;text-align:center;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:22px"></i></div>';
   let filas = [];
   try{ const r = await fetch('/api/viaticos-tarifas'); filas = await r.json(); if(!Array.isArray(filas)) filas = []; }catch(e){}
+  window._viaticosFilas = filas;
   const esAdmin = (window.usuarioActual||{}).rol === 'admin';
   const esc = v => String(v||'').replace(/</g,'&lt;');
   const editId = window._viaEditId || null;
@@ -1250,7 +1251,7 @@ async function renderViaticosTarifas(){
             <tr style="border-bottom:0.5px solid var(--border);background:${enEdicion?'#f7f0ea':(fi%2?'#f6f3ef':'white')}">
               <td style="padding:9px 14px;font-weight:600">${enEdicion?`<input type="text" value="${esc(f.provincia)}" onchange="guardarCampoViatico(${f.id},'provincia',this.value)" style="width:110px;padding:5px 8px;font-size:12px;border:1px solid var(--border);border-radius:6px;outline:none">`:esc(f.provincia)}</td>
               <td style="padding:9px 14px">${enEdicion?`<input type="text" value="${esc(f.ciudad)}" onchange="guardarCampoViatico(${f.id},'ciudad',this.value)" style="width:100%;min-width:150px;padding:5px 8px;font-size:12px;border:1px solid var(--border);border-radius:6px;outline:none;box-sizing:border-box">`:esc(f.ciudad)}</td>
-              <td style="padding:9px 8px;text-align:center">${enEdicion?`<input type="number" min="0" step="0.1" value="${parseFloat(f.googlemaps)||0}" onchange="guardarCampoViatico(${f.id},'googlemaps',this.value)" style="width:70px;padding:5px 6px;font-size:12px;border:1px solid var(--border);border-radius:6px;outline:none;text-align:center">`:(parseFloat(f.googlemaps)||0)}</td>
+              <td style="padding:9px 8px;text-align:center">${enEdicion?`<input type="number" min="0" step="0.1" value="${parseFloat(f.googlemaps)||0}" onchange="guardarCampoViatico(${f.id},'googlemaps',this.value)" style="width:70px;padding:5px 6px;font-size:12px;border:1px solid var(--border);border-radius:6px;outline:none;text-align:center">`:`<span onclick="abrirHistorialGmaps(${f.id})" title="Ver historial" style="cursor:pointer;color:#2563eb;font-weight:600;border-bottom:1px dotted #93c5fd;padding-bottom:1px">${parseFloat(f.googlemaps)||0}</span>`}</td>
               <td style="padding:9px 8px;text-align:center;font-weight:600">${enEdicion?`<input type="number" min="0" step="0.5" value="${parseFloat(f.dias)||0}" onchange="guardarCampoViatico(${f.id},'dias',this.value)" style="width:64px;padding:5px 6px;font-size:12px;border:1px solid var(--border);border-radius:6px;outline:none;text-align:center">`:(parseFloat(f.dias)||0)}</td>
               ${VIATICOS_CAMPOS.map(([k])=>`<td style="padding:9px 8px;text-align:center">${enEdicion?`<input type="number" min="0" step="0.5" value="${parseFloat(f[k])||0}" onchange="guardarCampoViatico(${f.id},'${k}',this.value)" style="width:64px;padding:5px 6px;font-size:12px;border:1px solid var(--border);border-radius:6px;outline:none;text-align:center">`:'$'+(parseFloat(f[k])||0)}</td>`).join('')}
               ${esAdmin?`<td style="padding:9px 6px;text-align:center;white-space:nowrap">
@@ -1304,6 +1305,125 @@ async function borrarViatico(id, ciudad){
     await fetch('/api/viaticos-tarifas/'+id, { method:'DELETE' });
     renderViaticosTarifas();
   }catch(e){ alert('Error: '+e.message); }
+}
+
+// ─── Historial GoogleMaps por destino ───────────────────────────────
+async function abrirHistorialGmaps(id){
+  const f = (window._viaticosFilas||[]).find(x=>x.id===id);
+  if(!f) return;
+  document.getElementById('gmaps-hist-overlay')?.remove();
+  const esAdmin = (window.usuarioActual||{}).rol === 'admin';
+  const esc = v => String(v||'').replace(/</g,'&lt;');
+  const ov = document.createElement('div');
+  ov.id = 'gmaps-hist-overlay';
+  ov.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.45);z-index:300;display:flex;align-items:center;justify-content:center;padding:16px';
+  ov.onclick = e => { if(e.target===ov) ov.remove(); };
+  ov.innerHTML = `<div style="background:white;border-radius:14px;max-width:440px;width:100%;max-height:85vh;overflow-y:auto;padding:20px;box-sizing:border-box">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:2px">
+      <div>
+        <div style="font-size:15px;font-weight:700;color:var(--text)">${esc(f.provincia)} — ${esc(f.ciudad)}</div>
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-top:2px">Historial GoogleMaps</div>
+      </div>
+      <button onclick="document.getElementById('gmaps-hist-overlay').remove()" style="background:none;border:none;cursor:pointer;font-size:18px;color:var(--muted);padding:2px 6px">×</button>
+    </div>
+    <div style="font-size:30px;font-weight:700;color:#2563eb;margin:8px 0 4px" id="gmaps-hist-actual">${parseFloat(f.googlemaps)||0}</div>
+    ${esAdmin?`<div style="display:flex;gap:8px;margin:10px 0 4px">
+      <input type="number" id="gmaps-nuevo-valor" min="0" step="1" placeholder="Nuevo valor" style="flex:1;padding:9px 12px;font-size:13px;border:1px solid var(--border);border-radius:8px;outline:none;box-sizing:border-box">
+      <button onclick="guardarNuevoGmaps(${id})" style="padding:9px 16px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-check" style="margin-right:4px"></i>Guardar</button>
+    </div>`:''}
+    <canvas id="gmaps-hist-chart" style="width:100%;height:140px;display:none;margin-top:10px"></canvas>
+    <div id="gmaps-hist-lista" style="margin-top:12px;font-size:12px;color:var(--muted)">Cargando historial...</div>
+  </div>`;
+  document.body.appendChild(ov);
+  await cargarHistorialGmaps(id);
+}
+
+async function cargarHistorialGmaps(id){
+  let hist = [];
+  try{ const r = await fetch('/api/googlemaps-historial/'+id); hist = await r.json(); if(!Array.isArray(hist)) hist = []; }catch(e){}
+  const lista = document.getElementById('gmaps-hist-lista');
+  if(!lista) return;
+  if(hist.length === 0){ lista.innerHTML = '<div style="text-align:center;padding:14px;color:var(--muted)">Sin registros todavía</div>'; return; }
+  // Gráfico (cronológico)
+  const canvas = document.getElementById('gmaps-hist-chart');
+  if(canvas && hist.length >= 2){ canvas.style.display = 'block'; dibujarChartGmaps(canvas, hist); }
+  // Lista (más reciente primero, con variación vs registro anterior)
+  const filasHtml = hist.map((h, i) => {
+    const v = parseFloat(h.valor)||0;
+    let variacion = '';
+    if(i > 0){
+      const prev = parseFloat(hist[i-1].valor)||0;
+      const dif = v - prev;
+      const pct = prev !== 0 ? Math.round(dif/prev*100) : 0;
+      const col = dif > 0 ? '#16a34a' : (dif < 0 ? '#dc2626' : 'var(--muted)');
+      const signo = dif > 0 ? '+' : '';
+      variacion = `<span style="color:${col};font-weight:600;font-size:11px">${signo}${Math.round(dif*10)/10}${prev!==0?` (${signo}${pct}%)`:''}</span>`;
+    } else {
+      variacion = '<span style="font-size:11px;color:var(--muted)">registro inicial</span>';
+    }
+    return {v, fecha: h.fecha, variacion};
+  }).reverse();
+  lista.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:12px">
+    <thead><tr style="border-bottom:1px solid var(--border)">
+      <th style="text-align:left;padding:6px 4px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Fecha</th>
+      <th style="text-align:center;padding:6px 4px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Valor</th>
+      <th style="text-align:right;padding:6px 4px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Variación</th>
+    </tr></thead>
+    <tbody>${filasHtml.map((h,i)=>`<tr style="border-bottom:0.5px solid var(--border);background:${i%2?'#f6f3ef':'white'}">
+      <td style="padding:7px 4px;color:var(--text)">${h.fecha}</td>
+      <td style="padding:7px 4px;text-align:center;font-weight:700;color:#2563eb">${h.v}</td>
+      <td style="padding:7px 4px;text-align:right">${h.variacion}</td>
+    </tr>`).join('')}</tbody>
+  </table>`;
+}
+
+function dibujarChartGmaps(canvas, hist){
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.offsetWidth || 380, H = 140;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+  const vals = hist.map(h => parseFloat(h.valor)||0);
+  const min = Math.min(...vals), max = Math.max(...vals);
+  const rango = (max - min) || 1;
+  const padL = 14, padR = 14, padT = 22, padB = 22;
+  const n = vals.length;
+  const xDe = i => n === 1 ? W/2 : padL + i * (W - padL - padR) / (n - 1);
+  const yDe = v => padT + (1 - (v - min) / rango) * (H - padT - padB);
+  // Línea
+  ctx.beginPath();
+  vals.forEach((v, i) => { const x = xDe(i), y = yDe(v); i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y); });
+  ctx.strokeStyle = '#2563eb'; ctx.lineWidth = 2; ctx.stroke();
+  // Puntos + etiquetas
+  vals.forEach((v, i) => {
+    const x = xDe(i), y = yDe(v);
+    ctx.beginPath(); ctx.arc(x, y, 3.5, 0, Math.PI*2);
+    ctx.fillStyle = 'white'; ctx.fill();
+    ctx.strokeStyle = '#2563eb'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = '#1e40af'; ctx.font = '600 10px Inter, sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(Math.round(v*10)/10, x, y - 8);
+    ctx.fillStyle = '#9ca3af'; ctx.font = '9px Inter, sans-serif';
+    ctx.fillText(hist[i].fecha_corta || '', x, H - 6);
+  });
+}
+
+async function guardarNuevoGmaps(id){
+  const inp = document.getElementById('gmaps-nuevo-valor');
+  const v = parseFloat(inp?.value);
+  if(isNaN(v) || v < 0){ alert('Ingresa un valor válido'); return; }
+  try{
+    const r = await fetch('/api/viaticos-tarifas/'+id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({googlemaps: v}) });
+    const j = await r.json();
+    if(!j.ok) throw new Error(j.error||'error');
+    if(inp) inp.value = '';
+    const f = (window._viaticosFilas||[]).find(x=>x.id===id);
+    if(f) f.googlemaps = v;
+    const act = document.getElementById('gmaps-hist-actual');
+    if(act) act.textContent = v;
+    await cargarHistorialGmaps(id);
+    renderViaticosTarifas();
+  }catch(e){ alert('Error al guardar: '+e.message); }
 }
 
 async function cargarViaticosIniciales(btn){

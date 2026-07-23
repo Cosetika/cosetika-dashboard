@@ -2078,6 +2078,15 @@ async function initDB() {
       );
       ALTER TABLE viaticos_tarifas ADD COLUMN IF NOT EXISTS dias NUMERIC(6,2) DEFAULT 0;
       ALTER TABLE viaticos_tarifas ADD COLUMN IF NOT EXISTS googlemaps NUMERIC(10,2) DEFAULT 0;
+      CREATE TABLE IF NOT EXISTS googlemaps_historial (
+        id SERIAL PRIMARY KEY,
+        tarifa_id INTEGER NOT NULL,
+        valor NUMERIC(10,2) DEFAULT 0,
+        fecha TIMESTAMPTZ DEFAULT NOW()
+      );
+      INSERT INTO googlemaps_historial(tarifa_id, valor)
+      SELECT v.id, v.googlemaps FROM viaticos_tarifas v
+      WHERE v.googlemaps > 0 AND NOT EXISTS (SELECT 1 FROM googlemaps_historial h WHERE h.tarifa_id = v.id);
       CREATE TABLE IF NOT EXISTS testers_asesoras (
         id SERIAL PRIMARY KEY,
         producto_id VARCHAR(30) NOT NULL,
@@ -4530,6 +4539,7 @@ const server = http.createServer(async (req, res) => {
         [String(b.provincia).trim().substring(0,90), String(b.ciudad).trim().substring(0,190),
          n(b.googlemaps), n(b.dias), n(b.desayuno), n(b.almuerzo), n(b.cena), n(b.hotel), n(b.transporte), n(b.taxi)]
       );
+      if (n(b.googlemaps) > 0) await pool.query('INSERT INTO googlemaps_historial(tarifa_id,valor) VALUES($1,$2)', [r.rows[0].id, n(b.googlemaps)]);
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, id:r.rows[0].id}));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
@@ -4547,10 +4557,29 @@ const server = http.createServer(async (req, res) => {
         }
       });
       if (sets.length === 0) { res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'Sin campos'})); return; }
+      // Historial GoogleMaps: registrar solo si el valor cambia
+      let gmapsNuevo = null;
+      if ('googlemaps' in b) {
+        const nv = Math.max(0, parseFloat(b.googlemaps) || 0);
+        const cur = await pool.query('SELECT googlemaps FROM viaticos_tarifas WHERE id=$1', [id]);
+        if (cur.rows.length && parseFloat(cur.rows[0].googlemaps || 0) !== nv) gmapsNuevo = nv;
+      }
       params.push(id);
       await pool.query('UPDATE viaticos_tarifas SET '+sets.join(', ')+' WHERE id=$'+i, params);
+      if (gmapsNuevo !== null) await pool.query('INSERT INTO googlemaps_historial(tarifa_id,valor) VALUES($1,$2)', [id, gmapsNuevo]);
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+  if (/^\/api\/googlemaps-historial\/\d+$/.test(urlPath) && req.method === 'GET') {
+    try {
+      const id = parseInt(urlPath.split('/').pop());
+      const r = await pool.query(
+        "SELECT valor, TO_CHAR(fecha AT TIME ZONE 'America/Guayaquil','DD/MM/YYYY HH24:MI') AS fecha, TO_CHAR(fecha AT TIME ZONE 'America/Guayaquil','DD/MM') AS fecha_corta FROM googlemaps_historial WHERE tarifa_id=$1 ORDER BY id ASC",
+        [id]
+      );
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.rows));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
     return;
   }
   if (/^\/api\/viaticos-tarifas\/\d+$/.test(urlPath) && req.method === 'DELETE') {
