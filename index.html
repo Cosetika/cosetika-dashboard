@@ -6929,12 +6929,13 @@ async function renderPlanificacion(){
       coordinado: !!r.coordinado,
       visitado_at: r.visitado_at||'',
       primera_compra_at: r.primera_compra_at||'',
-      recompra_at: r.recompra_at||''
+      recompra_at: r.recompra_at||'',
+      observaciones: r.observaciones||''
     }));
     // Rellenar hasta 20 filas
-    while(planRows.length < 30) planRows.push({dia:'',sector:'',cliente:'',coordinado:false,visitado_at:'',primera_compra_at:'',recompra_at:''});
+    while(planRows.length < 30) planRows.push({dia:'',sector:'',cliente:'',coordinado:false,visitado_at:'',primera_compra_at:'',recompra_at:'',observaciones:''});
   } else {
-    planRows = Array.from({length:30}, ()=>({dia:'',sector:'',cliente:'',coordinado:false,visitado_at:'',primera_compra_at:'',recompra_at:''}));
+    planRows = Array.from({length:30}, ()=>({dia:'',sector:'',cliente:'',coordinado:false,visitado_at:'',primera_compra_at:'',recompra_at:'',observaciones:''}));
   }
 
   // Si admin o jefa, mostrar selector de asesora
@@ -7022,6 +7023,7 @@ async function renderPlanificacion(){
               <th style="padding:8px 10px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;width:130px">Día</th>
               <th style="padding:8px 10px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Sector</th>
               <th style="padding:8px 10px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;min-width:160px">Nombre del cliente</th>
+              <th style="padding:8px 10px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;width:160px;min-width:160px">Observaciones</th>
               <th style="padding:8px 10px;text-align:center;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;width:70px">Visitado</th>
               <th style="padding:8px 10px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;width:130px">Fecha visita</th>
               <th style="padding:8px 6px;text-align:center;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;width:76px">1era compra</th>
@@ -7075,6 +7077,10 @@ function renderPlanRow(row, i, weekDayNames){
     <td style="padding:5px 8px">
       <input type="text" value="${row.cliente||''}" oninput="planRows[${i}].cliente=this.value" placeholder="Nombre del cliente"
         style="width:100%;padding:5px 8px;border:0.5px solid var(--border);border-radius:5px;font-size:12px;outline:none"/>
+    </td>
+    <td style="padding:5px 8px">
+      <input type="text" value="${(row.observaciones||'').replace(/"/g,'&quot;')}" oninput="planRows[${i}].observaciones=this.value" onchange="autoGuardarPlanificacion()" placeholder="Observaciones"
+        style="width:100%;min-width:150px;padding:5px 8px;border:0.5px solid var(--border);border-radius:5px;font-size:12px;outline:none"/>
     </td>
     <td style="padding:5px 8px;text-align:center">
       <input type="checkbox" ${row.coordinado?'checked':''} onchange="marcarVisitado(${i},this.checked)"
@@ -7150,7 +7156,7 @@ async function marcarVisitado(i, checked){
   // Actualizar celda de fecha
   const row = document.getElementById('plan-row-'+i);
   if(row){
-    const td = row.querySelectorAll('td')[5];
+    const td = row.querySelectorAll('td')[6];
     if(td) td.innerHTML = planRows[i].visitado_at
       ? `<span style='color:#085041;font-weight:500;font-size:10px'>${planRows[i].visitado_at}</span>`
       : '';
@@ -7167,8 +7173,8 @@ async function marcarCompraPlan(i, campo, checked){
     : '';
   const row = document.getElementById('plan-row-'+i);
   if(row){
-    // TD 6 = 1era compra, TD 7 = recompra (0=#,1=día,2=sector,3=cliente,4=visitado,5=fecha,8=eliminar)
-    const td = row.querySelectorAll('td')[campo==='primera_compra_at' ? 6 : 7];
+    // TD 7 = 1era compra, TD 8 = recompra (0=#,1=día,2=sector,3=cliente,4=observaciones,5=visitado,6=fecha,9=eliminar)
+    const td = row.querySelectorAll('td')[campo==='primera_compra_at' ? 7 : 8];
     const div = td ? td.querySelector('div') : null;
     if(div) div.textContent = planRows[i][campo];
   }
@@ -7185,11 +7191,12 @@ async function autoGuardarPlanificacion(){
     const dia = tds[1].querySelector('select')?.value || '';
     const sector = tds[2].querySelector('input[type="text"]')?.value || '';
     const cliente = tds[3].querySelector('input[type="text"]')?.value || '';
-    const coordinado = tds[4].querySelector('input[type="checkbox"]')?.checked || false;
+    const observaciones = tds[4].querySelector('input[type="text"]')?.value || '';
+    const coordinado = tds[5].querySelector('input[type="checkbox"]')?.checked || false;
     const visitado_at = (planRows[idx]?.visitado_at) || '';
     const primera_compra_at = (planRows[idx]?.primera_compra_at) || '';
     const recompra_at = (planRows[idx]?.recompra_at) || '';
-    if(dia || sector || cliente || coordinado || primera_compra_at || recompra_at) rows.push({ dia, sector, cliente, coordinado, visitado_at, primera_compra_at, recompra_at });
+    if(dia || sector || cliente || coordinado || primera_compra_at || recompra_at || observaciones) rows.push({ dia, sector, cliente, coordinado, visitado_at, primera_compra_at, recompra_at, observaciones });
   });
   console.log('AutoGuardar:', window._planAsesoraActual, window._planSemanaActual, rows.length, 'filas');
   if(rows.length === 0){ console.warn('Sin filas para guardar'); return; }
@@ -7210,7 +7217,7 @@ async function autoGuardarPlanificacion(){
 function agregarFilaPlan(){
   const weekDates = getWeekDates(planWeekOffset);
   const weekDayNames = weekDates.map(d=>`${getDayName(d)} ${d.getDate()}`);
-  planRows.push({dia:'',sector:'',cliente:'',coordinado:false,visitado_at:'',primera_compra_at:'',recompra_at:''});
+  planRows.push({dia:'',sector:'',cliente:'',coordinado:false,visitado_at:'',primera_compra_at:'',recompra_at:'',observaciones:''});
   const tbody = document.getElementById('plan-tbody');
   if(tbody){
     const i = planRows.length-1;
@@ -7249,12 +7256,13 @@ async function guardarPlanificacion(asesora, semanaKey){
     const dia = tds[1].querySelector('select')?.value || '';
     const sector = tds[2].querySelector('input[type="text"]')?.value || '';
     const cliente = tds[3].querySelector('input[type="text"]')?.value || '';
-    const coordinado = tds[4].querySelector('input[type="checkbox"]')?.checked || false;
+    const observaciones = tds[4].querySelector('input[type="text"]')?.value || '';
+    const coordinado = tds[5].querySelector('input[type="checkbox"]')?.checked || false;
     const visitado_at = (planRows[i] && planRows[i].visitado_at) || '';
     const primera_compra_at = (planRows[i] && planRows[i].primera_compra_at) || '';
     const recompra_at = (planRows[i] && planRows[i].recompra_at) || '';
-    if(dia || sector || cliente || coordinado || primera_compra_at || recompra_at){
-      rows.push({ dia, sector, cliente, coordinado, visitado_at, primera_compra_at, recompra_at });
+    if(dia || sector || cliente || coordinado || primera_compra_at || recompra_at || observaciones){
+      rows.push({ dia, sector, cliente, coordinado, visitado_at, primera_compra_at, recompra_at, observaciones });
     }
   });
 

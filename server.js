@@ -1816,6 +1816,7 @@ async function initDB() {
       ALTER TABLE planificacion ADD COLUMN IF NOT EXISTS visitado_at VARCHAR(20);
       ALTER TABLE planificacion ADD COLUMN IF NOT EXISTS primera_compra_at VARCHAR(20);
       ALTER TABLE planificacion ADD COLUMN IF NOT EXISTS recompra_at VARCHAR(20);
+      ALTER TABLE planificacion ADD COLUMN IF NOT EXISTS observaciones TEXT;
       ALTER TABLE pedidos_web ADD COLUMN IF NOT EXISTS facturado_ayer BOOLEAN DEFAULT false;
       ALTER TABLE pedidos_web ADD COLUMN IF NOT EXISTS fecha_control DATE;
       -- Migración única: pedidos movidos antes (cambiaban fecha) → restaurar fecha original
@@ -2951,8 +2952,8 @@ const server = http.createServer(async (req, res) => {
       if (!asesora||!semana||!filas) throw new Error('Faltan datos');
       await pool.query('DELETE FROM planificacion WHERE asesora=$1 AND semana=$2',[asesora,semana]);
       for (const fila of filas) {
-        await pool.query('INSERT INTO planificacion(asesora,semana,dia,sector,cliente,coordinado,visitado_at,primera_compra_at,recompra_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',
-          [asesora,semana,fila.dia||'',fila.sector||'',fila.cliente||'',fila.coordinado||false,fila.visitado_at||null,fila.primera_compra_at||null,fila.recompra_at||null]);
+        await pool.query('INSERT INTO planificacion(asesora,semana,dia,sector,cliente,coordinado,visitado_at,primera_compra_at,recompra_at,observaciones) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
+          [asesora,semana,fila.dia||'',fila.sector||'',fila.cliente||'',fila.coordinado||false,fila.visitado_at||null,fila.primera_compra_at||null,fila.recompra_at||null,fila.observaciones||'']);
       }
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true,filas:filas.length}));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
