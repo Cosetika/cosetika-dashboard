@@ -5592,7 +5592,7 @@ function dibujarGraficoMarcas(series, meses){
         ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(x,y,5,0,Math.PI*2); ctx.fill();
         ctx.strokeStyle=s.color; ctx.lineWidth=2.5; ctx.beginPath(); ctx.arc(x,y,5,0,Math.PI*2); ctx.stroke();
         ctx.fillStyle=s.color; ctx.font='bold 11px system-ui'; ctx.textAlign='center';
-        ctx.fillText(v>=1000?'$'+(v/1000).toFixed(0)+'K':'$'+Math.round(v),x,y-11);
+        ctx.fillText(v>=1000?'$'+(v/1000).toFixed(1)+'K':'$'+Math.round(v),x,y-11);
       });
     }
   });
@@ -5903,7 +5903,7 @@ function dibujarGraficoVendedoras(series, meses){
         ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(x,y,5,0,Math.PI*2); ctx.fill();
         ctx.strokeStyle=s.color; ctx.lineWidth=2.5; ctx.beginPath(); ctx.arc(x,y,5,0,Math.PI*2); ctx.stroke();
         ctx.fillStyle=s.color; ctx.font='bold 11px system-ui'; ctx.textAlign='center';
-        ctx.fillText(v>=1000?'$'+(v/1000).toFixed(0)+'K':'$'+Math.round(v),x,y-11);
+        ctx.fillText(v>=1000?'$'+(v/1000).toFixed(1)+'K':'$'+Math.round(v),x,y-11);
       });
     }
   });
