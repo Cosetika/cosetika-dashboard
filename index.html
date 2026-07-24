@@ -9772,6 +9772,9 @@ async function renderKpisControl(){
 
   let cumplimiento = {detalle:[], semanas:[]}, revisiones = [], usuarios = [], equipos = [];
   let girasCtrl = [], casasCtrl = [], nuevosCtrl = {asesoras:{}}, metasCliCtrl = {};
+  let pesosKpi = { visitas: 33.33, provincia: 33.33, casa: 33.33, nuevos: 0 };
+  try{ const rP = await fetch('/api/kpis-pesos'); const jP = await rP.json(); if(jP.ok && jP.pesos) pesosKpi = jP.pesos; }catch(e){}
+  window._kpisPesosActual = pesosKpi;
   try{
     const [rCu, rRev, rU, rEq, rGi, rCa, rNu, rMc] = await Promise.all([
       fetch(`/api/kpi-cumplimiento-visitas?mes=${mesKey}`),
@@ -9994,20 +9997,40 @@ async function renderKpisControl(){
     <!-- RESUMEN DEL MES: matriz de cumplimiento -->
     <div class="card" style="margin-top:12px;border:2px solid #1a1108">
       <div class="card-title"><i class="ti ti-trophy"></i> Resumen del mes — cumplimiento de KPIs</div>
+      ${(()=>{
+        const p = pesosKpi;
+        const fmtP = v => (Math.round(v*100)/100).toString();
+        const conPeso = [['Visitas',p.visitas],['Visitas a Provincia',p.provincia],['Casas Abiertas',p.casa],['Clientes Nuevos',p.nuevos]].filter(x=>x[1]>0);
+        const listaP = conPeso.map(x=>`${x[0]} ${fmtP(x[1])}%`).join(', ');
+        const ejemplo = conPeso.length >= 2
+          ? ` Ejemplo: si cumples ${conPeso[0][0]} y ${conPeso[2]?conPeso[2][0]:conPeso[1][0]} pero no ${conPeso[1][0]}, recibes el ${fmtP((conPeso[0][1]+(conPeso[2]?conPeso[2][1]:0))/(conPeso.reduce((a,x)=>a+x[1],0))*100)}% de tu comisión.`
+          : '';
+        return `<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:12px 16px;margin-bottom:12px;font-size:13px;color:#1e40af;line-height:1.5">
+          <b>¿Cómo se paga la comisión del mes?</b> Cada KPI tiene un peso: ${listaP}. La comisión se paga según el porcentaje total que alcances en el mes.${ejemplo} Cumpliendo todos los KPIs recibes el <b>100%</b> de tu comisión.
+        </div>`;
+      })()}
       ${notaPanel('resumen')}
       <div style="overflow-x:auto">
-        <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:560px">
+        <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:640px">
           <thead><tr style="border-bottom:1px solid var(--border)">
             <th style="text-align:left;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Asesora</th>
-            <th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Visitas</th>
-            <th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Visita Provincia</th>
-            <th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Casa Abierta</th>
-            <th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Clientes Nuevos</th>
+            ${[['visitas','Visitas'],['provincia','Visita Provincia'],['casa','Casa Abierta'],['nuevos','Clientes Nuevos']].map(([k,lbl])=>`
+            <th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">${lbl}<br>
+              ${rol==='admin'
+                ? `<input type="number" min="0" max="100" step="0.01" value="${pesosKpi[k]}" onchange="guardarPesoKpi('${k}',this.value)" style="width:58px;margin-top:3px;padding:2px 4px;font-size:10px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;color:#2563eb;font-weight:700">`
+                : `<span style="color:#2563eb;font-weight:700;font-size:10px">${pesosKpi[k]}%</span>`}
+            </th>`).join('')}
+            <th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">% Comisión</th>
             <th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Estado final</th>
           </tr></thead>
           <tbody>
             ${resumenCtrl.map(r=>{
-              const todos = r.cumpleVis && r.cumpleProv && r.cumpleCasa && r.cumpleNuevos;
+              const p = pesosKpi;
+              const totalPesos = (p.visitas||0)+(p.provincia||0)+(p.casa||0)+(p.nuevos||0);
+              const logrado = (r.cumpleVis?p.visitas:0)+(r.cumpleProv?p.provincia:0)+(r.cumpleCasa?p.casa:0)+(r.cumpleNuevos?p.nuevos:0);
+              const pct = totalPesos > 0 ? Math.round(logrado/totalPesos*1000)/10 : 0;
+              const todos = pct >= 100;
+              const colPct = todos ? '#16a34a' : (pct > 0 ? '#d97706' : '#dc2626');
               return `
               <tr style="border-bottom:0.5px solid #f0ede9;background:${todos?'#f0fdf4':'white'}">
                 <td style="padding:8px 10px;font-weight:600">${r.a.split(' ')[0]} ${(r.a.split(' ')[1]||'')}</td>
@@ -10015,6 +10038,7 @@ async function renderKpisControl(){
                 <td style="padding:8px 10px;text-align:center">${chipControl(r.cumpleProv)}</td>
                 <td style="padding:8px 10px;text-align:center">${chipControl(r.cumpleCasa)}</td>
                 <td style="padding:8px 10px;text-align:center">${chipControl(r.cumpleNuevos)}</td>
+                <td style="padding:8px 10px;text-align:center;font-weight:700;font-size:14px;color:${colPct}">${pct}%</td>
                 <td style="padding:8px 10px;text-align:center">${todos
                   ? '<span style="font-size:11px;padding:3px 12px;border-radius:12px;background:#16a34a;color:white;font-weight:700">CUMPLIÓ</span>'
                   : '<span style="font-size:11px;padding:3px 12px;border-radius:12px;background:#fef2f2;color:#dc2626;border:1px solid #fca5a5;font-weight:700">PENDIENTE</span>'}</td>
@@ -10053,6 +10077,18 @@ async function renderKpisControl(){
         </table>
       </div>
     </div>`;
+}
+
+async function guardarPesoKpi(kpi, valor){
+  const pesos = Object.assign({ visitas:33.33, provincia:33.33, casa:33.33, nuevos:0 }, window._kpisPesosActual||{});
+  pesos[kpi] = Math.max(0, Math.min(100, parseFloat(valor)||0));
+  try{
+    const r = await fetch('/api/kpis-pesos', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ pesos }) });
+    const j = await r.json();
+    if(!j.ok) throw new Error(j.error||'error');
+    window._kpisPesosActual = pesos;
+    renderKpisControl();
+  }catch(e){ alert('Error al guardar el peso: '+e.message); }
 }
 
 async function guardarNotasKpisControl(){

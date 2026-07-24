@@ -4881,6 +4881,28 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // ─── PESOS DE KPIS para el pago de comisiones (Resumen del mes) ──
+  if (urlPath === '/api/kpis-pesos' && req.method === 'GET') {
+    try {
+      const raw = await getConfigApp('kpis_pesos', null);
+      let pesos = { visitas: 33.33, provincia: 33.33, casa: 33.33, nuevos: 0 };
+      if (raw) { try { pesos = Object.assign(pesos, JSON.parse(raw)); } catch(e) {} }
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ ok:true, pesos }));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+  if (urlPath === '/api/kpis-pesos' && req.method === 'POST') {
+    try {
+      const { pesos } = await bodyJSON(req);
+      if (!pesos || typeof pesos !== 'object') { res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'Pesos inválidos'})); return; }
+      const limpio = {};
+      ['visitas','provincia','casa','nuevos'].forEach(k => { limpio[k] = Math.max(0, Math.min(100, parseFloat(pesos[k]) || 0)); });
+      await setConfigApp('kpis_pesos', JSON.stringify(limpio));
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
   // ─── META DE VENTAS por asesora (monto, mes objetivo y leyenda de recompensa) ──
   if (urlPath === '/api/meta-ventas' && req.method === 'GET') {
     try {
