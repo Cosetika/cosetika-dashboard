@@ -1449,11 +1449,19 @@ async function renderTestersInv(){
   }
   main.innerHTML = '<div style="padding:30px;text-align:center;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:22px"></i></div>';
   let registros = [], usuarios = [];
+  const MARCAS_PROY = ['BIOSKIN','ERAYBA','ZIAJA','ZIAJA PRO'];
+  let invPorMarca = [];
   try{
-    const [rR, rU] = await Promise.all([fetch('/api/testers-asesoras'), fetch('/api/usuarios')]);
+    const proms = [fetch('/api/testers-asesoras'), fetch('/api/usuarios'), ...MARCAS_PROY.map(m=>fetch('/api/inventario?marca='+encodeURIComponent(m)))];
+    const [rR, rU, ...rInv] = await Promise.all(proms);
     if(rR.ok){ const d = await rR.json(); if(Array.isArray(d)) registros = d; }
     if(rU.ok){ const d = await rU.json(); if(Array.isArray(d)) usuarios = d; }
+    invPorMarca = await Promise.all(rInv.map(r=>r.ok?r.json():{productos:[]}));
   }catch(e){}
+  // Semáforo de Proyección (bodegas unidas): solo los productos en VERDE se pueden escoger
+  const semaforoT = {};
+  invPorMarca.forEach(d=>{ ((d&&d.productos)||[]).forEach(p=>{ semaforoT[p.id] = p.semaforo; }); });
+  window._testersSemaforo = semaforoT;
   window._testersInvRegs = registros;
   window._testersInvAsesoras = usuarios.filter(u=>(u.rol==='asesora'||u.rol==='jefa_ventas') && u.activo).map(u=>u.nombre);
   if(window._tinvMarcaSel === undefined) window._tinvMarcaSel = 'TODAS';
@@ -1518,10 +1526,16 @@ function pintarTestersInv(filtro){
         </tr>
       </thead>
       <tbody>
-        ${productos.map((p,pi)=>`
-        <tr style="border-bottom:0.5px solid var(--border);background:${pi%2?'#f6f3ef':'white'}">
+        ${productos.map((p,pi)=>{
+          const semT = (window._testersSemaforo||{})[p.id] || null;
+          const rojo = semT !== null && semT !== 'verde';
+          const tagT = semT==='rojo'
+            ? ' <span style="font-size:9px;color:#dc2626;font-weight:700;border:1px solid #fca5a5;border-radius:4px;padding:1px 5px;margin-left:4px;white-space:nowrap">SIN STOCK</span>'
+            : (semT==='amarillo' ? ' <span style="font-size:9px;color:#d97706;font-weight:700;border:1px solid #fcd34d;border-radius:4px;padding:1px 5px;margin-left:4px;white-space:nowrap">STOCK BAJO</span>' : '');
+          return `
+        <tr style="border-bottom:0.5px solid var(--border);background:${pi%2?'#f6f3ef':'white'};${rojo?'opacity:0.45':''}" ${rojo?'title="Sin stock suficiente (semáforo de Proyección) — no disponible para tester"':''}>
           <td style="padding:8px 14px;position:sticky;left:0;background:${pi%2?'#f6f3ef':'white'};z-index:1">
-            <div style="font-weight:500;font-size:12px">${esc(p.nombre)}</div>
+            <div style="font-weight:500;font-size:12px;${rojo?'color:var(--muted)':''}">${esc(p.nombre)}${rojo?tagT:''}</div>
             <div style="font-size:9px;color:var(--muted)">${esc(p.marca)}${p.codigo?' · '+esc(p.codigo):''}</div>
           </td>
           ${asesoras.map(a=>{
@@ -1531,14 +1545,16 @@ function pintarTestersInv(filtro){
               ${regs.length ? `
                 <div style="font-size:11px;font-weight:800;color:#16a34a">✓${regs.length>1?' ×'+regs.length:''}</div>
                 <div style="font-size:9px;color:var(--muted)">${fmtMA(ultimo.fecha)}</div>
-                <div style="display:flex;gap:3px;justify-content:center;margin-top:2px">
+                ${rojo?'':`<div style="display:flex;gap:3px;justify-content:center;margin-top:2px">
                   <button onclick="registrarTesterAse('${p.id}','${a.replace(/'/g,"\\'")}')" title="Registrar otra entrega" style="width:18px;height:18px;border:1px solid #86efac;background:#f0fdf4;border-radius:4px;cursor:pointer;font-size:10px;line-height:1;color:#16a34a;padding:0">+</button>
                   <button onclick="quitarTesterAse(${ultimo.id},'${esc(p.nombre).replace(/'/g,'')}','${a.replace(/'/g,"\\'")}')" title="Quitar última entrega" style="width:18px;height:18px;border:1px solid #fca5a5;background:#fef2f2;border-radius:4px;cursor:pointer;font-size:10px;line-height:1;color:#ef4444;padding:0">−</button>
-                </div>`
-              : `<input type="checkbox" onclick="this.disabled=true;registrarTesterAse('${p.id}','${a.replace(/'/g,"\\'")}')" style="accent-color:#16a34a;width:16px;height:16px;cursor:pointer">`}
+                </div>`}`
+              : (rojo
+                ? `<input type="checkbox" disabled style="width:16px;height:16px;cursor:not-allowed;opacity:0.4">`
+                : `<input type="checkbox" onclick="this.disabled=true;registrarTesterAse('${p.id}','${a.replace(/'/g,"\\'")}')" style="accent-color:#16a34a;width:16px;height:16px;cursor:pointer">`)}
             </td>`;
           }).join('')}
-        </tr>`).join('')}
+        </tr>`;}).join('')}
       </tbody>
     </table>
   </div>
