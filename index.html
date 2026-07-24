@@ -8124,6 +8124,30 @@ const CATALOGO_TESTERS = [
   {codigo:'BSK88',categoria:'BIOSKIN',nombre:'BSK88 LOCION NEUTRALIZANTE'},
 ];
 
+async function cargarSemaforoProyeccion(){
+  if(window._semProyPorId) return;
+  const MARCAS_P = ['BIOSKIN','ERAYBA','ZIAJA','ZIAJA PRO'];
+  const porId = {}, porNombre = {};
+  try{
+    const rs = await Promise.all(MARCAS_P.map(m=>fetch('/api/inventario?marca='+encodeURIComponent(m))));
+    const ds = await Promise.all(rs.map(r=>r.ok?r.json():{productos:[]}));
+    ds.forEach(d=>{ ((d&&d.productos)||[]).forEach(p=>{
+      porId[p.id] = p.semaforo;
+      porNombre[String(p.nombre||'').toUpperCase().replace(/\s+/g,' ').trim()] = p.semaforo;
+    }); });
+  }catch(e){}
+  window._semProyPorId = porId;
+  window._semProyPorNombre = porNombre;
+}
+
+function semaforoProducto(id, nombre){
+  const porId = window._semProyPorId || {};
+  const porNombre = window._semProyPorNombre || {};
+  if(id && porId[id]) return porId[id];
+  const k = String(nombre||'').toUpperCase().replace(/\s+/g,' ').trim();
+  return porNombre[k] || null;
+}
+
 function buscarEnCatalogo(q){
   if(!q || q.length < 2) return [];
   const norm = q.toUpperCase().replace(/\s+/g,' ').trim();
@@ -8134,12 +8158,12 @@ function buscarEnCatalogo(q){
     const k = p.nombre.toUpperCase();
     if(!vistos.has(k)){ vistos.add(k); todos.push(p); }
   });
-  Object.values(window.CATALOGO_POR_ID || {}).forEach(p => {
+  Object.entries(window.CATALOGO_POR_ID || {}).forEach(([pid, p]) => {
     if(!p || !p.nombre) return;
     const k = String(p.nombre).toUpperCase();
     if(!vistos.has(k)){
       vistos.add(k);
-      todos.push({ codigo: p.codigo||null, categoria: p.marca||'CATÁLOGO', nombre: p.nombre });
+      todos.push({ id: pid, codigo: p.codigo||null, categoria: p.marca||'CATÁLOGO', nombre: p.nombre });
     }
   });
   return todos.filter(p =>
@@ -8382,7 +8406,7 @@ async function renderTestersDetalle(clienteId, clienteNombre, clienteCedula){
     ? '/api/testers?cedula=' + encodeURIComponent(cedula)
     : '/api/testers?clienteId=' + encodeURIComponent(clienteId) + '&nombre=' + encodeURIComponent(clienteNombre||'');
   let testers = [];
-  try{ const r = await fetch(url); testers = await r.json(); } catch(e){}
+  try{ const [r] = await Promise.all([fetch(url), cargarSemaforoProyeccion()]); testers = await r.json(); } catch(e){}
 
   const porMarca = {};
   function extraerMarca(producto, categoria){
@@ -8491,13 +8515,28 @@ function mostrarSugerenciasProducto(q){
     return;
   }
   sug.style.display = 'block';
-  sug.innerHTML = resultados.map(p=>`
+  sug.innerHTML = resultados.map(p=>{
+    const sem = semaforoProducto(p.id, p.nombre);
+    const bloqueado = sem !== null && sem !== 'verde';
+    const tag = sem === 'rojo'
+      ? '<span style="font-size:9px;color:#dc2626;font-weight:700;border:1px solid #fca5a5;border-radius:4px;padding:1px 5px;margin-left:6px;white-space:nowrap">SIN STOCK</span>'
+      : (sem === 'amarillo' ? '<span style="font-size:9px;color:#d97706;font-weight:700;border:1px solid #fcd34d;border-radius:4px;padding:1px 5px;margin-left:6px;white-space:nowrap">STOCK BAJO</span>'
+      : (sem === 'verde' ? '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#16a34a;margin-left:6px;vertical-align:middle"></span>' : ''));
+    if(bloqueado){
+      return `<div title="No disponible para tester — semáforo de Proyección en ${sem}"
+        style="padding:9px 12px;cursor:not-allowed;border-bottom:0.5px solid var(--border);opacity:0.45">
+        <span style="font-size:12px;font-weight:500;color:var(--muted)">${p.nombre}</span>${tag}
+        <span style="font-size:10px;color:var(--muted);margin-left:8px">${p.codigo?'<span style="font-weight:600">'+p.codigo+'</span> · ':''} ${p.categoria}</span>
+      </div>`;
+    }
+    return `
     <div onclick="seleccionarProductoTester('${p.nombre.replace(/'/g,"\\'")}','${p.categoria.replace(/'/g,"\\'")}','${(p.codigo||'').replace(/'/g,"\\'")}')"
       style="padding:9px 12px;cursor:pointer;border-bottom:0.5px solid var(--border);transition:background 0.1s"
       onmouseover="this.style.background=&quot;#faf9f8&quot;" onmouseout="this.style.background=&quot;white&quot;">
-      <span style="font-size:12px;font-weight:500;color:var(--text)">${p.nombre}</span>
+      <span style="font-size:12px;font-weight:500;color:var(--text)">${p.nombre}</span>${tag}
       <span style="font-size:10px;color:var(--muted);margin-left:8px">${p.codigo?'<span style="color:var(--brown);font-weight:600">'+p.codigo+'</span> · ':''} ${p.categoria}</span>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 let _enlaceMatchData = null;
