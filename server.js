@@ -2234,6 +2234,53 @@ const server = http.createServer(async (req, res) => {
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
     return;
   }
+  // Renombrar usuaria propagando el nombre a todas las tablas (reemplazo de personal)
+  if (/^\/api\/usuarios\/\d+\/renombrar$/.test(urlPath) && req.method === 'POST') {
+    try {
+      const id = parseInt(urlPath.split('/')[3]);
+      const { nuevo_nombre } = await bodyJSON(req);
+      const nuevo = String(nuevo_nombre||'').trim().substring(0,250);
+      if (!nuevo) throw new Error('El nombre nuevo está vacío');
+      const rU = await pool.query('SELECT nombre FROM usuarios WHERE id=$1',[id]);
+      if (!rU.rows.length) throw new Error('Usuario no encontrado');
+      const viejo = rU.rows[0].nombre;
+      if (viejo === nuevo) { res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, sin_cambios:true})); return; }
+      await pool.query('UPDATE usuarios SET nombre=$1 WHERE id=$2',[nuevo,id]);
+      const TABLAS_NOMBRE = [
+        ['visitas','asesora'], ['planificacion','asesora'], ['giras','asesora'],
+        ['casas_abiertas','asesora'], ['asesor_zonas','asesora'], ['asesor_provincias','asesora'],
+        ['metas_visitas','asesora'], ['revisiones_lunes','asesora'], ['testers_asesoras','asesora'],
+        ['mercately_registros','asesora'], ['contifico_clientes_registros','asesora'],
+        ['casa_abierta_registros','asesora'], ['equipo_miembros','usuario_nombre'],
+        ['push_subscriptions','usuario_nombre'], ['pedidos_web','asesora']
+      ];
+      const detalle = {};
+      for (const [t, c] of TABLAS_NOMBRE) {
+        try {
+          const r = await pool.query(`UPDATE ${t} SET ${c}=$1 WHERE ${c}=$2`, [nuevo, viejo]);
+          if (r.rowCount > 0) detalle[t] = r.rowCount;
+        } catch(e) { console.log(`Renombrar: no se pudo actualizar ${t}: ${e.message}`); }
+      }
+      // Configs JSON con el nombre como clave
+      try {
+        const raw = await getConfigApp('meta_ventas', null);
+        if (raw) {
+          const cfg = JSON.parse(raw);
+          if (cfg.metas && (viejo in cfg.metas)) { cfg.metas[nuevo] = cfg.metas[viejo]; delete cfg.metas[viejo]; await setConfigApp('meta_ventas', JSON.stringify(cfg)); detalle.meta_ventas = 1; }
+        }
+      } catch(e) {}
+      try {
+        const rM = await pool.query("SELECT datos FROM contifico_clientes_metas WHERE id_unico='principal'");
+        if (rM.rows.length) {
+          const d = JSON.parse(rM.rows[0].datos);
+          if (d && typeof d === 'object' && (viejo in d)) { d[nuevo] = d[viejo]; delete d[viejo]; await pool.query("UPDATE contifico_clientes_metas SET datos=$1, actualizado_at=NOW() WHERE id_unico='principal'", [JSON.stringify(d)]); detalle.metas_clientes = 1; }
+        }
+      } catch(e) {}
+      console.log(`👤 Usuaria renombrada: "${viejo}" → "${nuevo}"`, detalle);
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, viejo, nuevo, detalle}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
   if (urlPath.startsWith('/api/usuarios/') && req.method === 'PUT') {
     try {
       const id = urlPath.split('/').pop();

@@ -3234,7 +3234,9 @@ async function renderConfig(){
           <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:0.5px solid var(--border)">
             <div style="width:34px;height:34px;border-radius:50%;background:rgba(160,104,74,0.15);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:var(--brown);flex-shrink:0">${u.nombre.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase()}</div>
             <div style="flex:1">
-              <div style="font-size:13px;font-weight:500">${u.nombre}</div>
+              <div style="font-size:13px;font-weight:500">${u.nombre}
+                <button onclick="renombrarUsuario(${u.id},'${u.nombre.replace(/'/g,"\\'")}')" title="Cambiar nombre (reemplazo de personal)" style="width:22px;height:22px;border:1px solid var(--border);background:white;border-radius:5px;cursor:pointer;margin-left:6px;vertical-align:middle;padding:0"><i class="ti ti-pencil" style="font-size:11px;color:var(--muted)"></i></button>
+              </div>
               <div style="font-size:11px;color:var(--muted)">@${u.usuario}</div>
             </div>
             ${u.id!==usuario.id?`
@@ -3501,6 +3503,21 @@ async function cambiarRol(id, nuevoRol){
     if(data.ok) renderConfig(); // refresca para que la fila de permisos refleje el nuevo rol
     else alert('Error al cambiar el rol');
   }catch(e){ alert('Error al cambiar el rol: '+e.message); }
+}
+
+async function renombrarUsuario(id, actual){
+  const nuevo = prompt('Nuevo nombre para reemplazar a "'+actual+'":\n\nSe actualizará en toda la app (planificación, giras, casas abiertas, metas, testers, equipos, permisos...). El usuario de acceso y la contraseña no cambian.', actual);
+  if(nuevo === null) return;
+  const limpio = nuevo.trim();
+  if(!limpio || limpio === actual) return;
+  if(!confirm('¿Cambiar "'+actual+'" por "'+limpio+'" en toda la app?')) return;
+  try{
+    const r = await fetch('/api/usuarios/'+id+'/renombrar', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ nuevo_nombre: limpio }) });
+    const j = await r.json();
+    if(!j.ok) throw new Error(j.error||'error');
+    alert('Listo — "'+actual+'" ahora es "'+limpio+'" en toda la app.');
+    renderConfig();
+  }catch(e){ alert('Error al renombrar: '+e.message); }
 }
 
 async function crearUsuario(){
