@@ -8133,7 +8133,7 @@ async function cargarSemaforoProyeccion(){
     const ds = await Promise.all(rs.map(r=>r.ok?r.json():{productos:[]}));
     ds.forEach(d=>{ ((d&&d.productos)||[]).forEach(p=>{
       porId[p.id] = p.semaforo;
-      porNombre[String(p.nombre||'').toUpperCase().replace(/\s+/g,' ').trim()] = p.semaforo;
+      porNombre[String(p.nombre||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/[^A-Z0-9]/g,'')] = p.semaforo;
     }); });
   }catch(e){}
   window._semProyPorId = porId;
@@ -8144,7 +8144,7 @@ function semaforoProducto(id, nombre){
   const porId = window._semProyPorId || {};
   const porNombre = window._semProyPorNombre || {};
   if(id && porId[id]) return porId[id];
-  const k = String(nombre||'').toUpperCase().replace(/\s+/g,' ').trim();
+  const k = String(nombre||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/[^A-Z0-9]/g,'');
   return porNombre[k] || null;
 }
 
@@ -8509,7 +8509,17 @@ let _testerProdSelData = null;
 function mostrarSugerenciasProducto(q){
   const sug = document.getElementById('tester-sugerencias');
   if(!sug) return;
-  const resultados = buscarEnCatalogo(q);
+  let resultados = buscarEnCatalogo(q);
+  // Solo productos activos con stock en Proyección (fuera promos, posters, inactivos)
+  resultados = resultados.filter(p => semaforoProducto(p.id, p.nombre) !== null);
+  // Quitar duplicados por nombre normalizado (preferir la entrada del catálogo Contifico, que tiene id)
+  const normD = v => String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+  const porNorm = {};
+  resultados.forEach(p => {
+    const k = normD(p.nombre);
+    if(!porNorm[k] || (p.id && !porNorm[k].id)) porNorm[k] = p;
+  });
+  resultados = Object.values(porNorm);
   if(resultados.length === 0 || !q || q.length < 2){
     sug.style.display = 'none';
     return;
