@@ -9997,18 +9997,6 @@ async function renderKpisControl(){
     <!-- RESUMEN DEL MES: matriz de cumplimiento -->
     <div class="card" style="margin-top:12px;border:2px solid #1a1108">
       <div class="card-title"><i class="ti ti-trophy"></i> Resumen del mes — cumplimiento de KPIs</div>
-      ${(()=>{
-        const p = pesosKpi;
-        const fmtP = v => (Math.round(v*100)/100).toString();
-        const conPeso = [['Visitas',p.visitas],['Visitas a Provincia',p.provincia],['Casas Abiertas',p.casa],['Clientes Nuevos',p.nuevos]].filter(x=>x[1]>0);
-        const listaP = conPeso.map(x=>`${x[0]} ${fmtP(x[1])}%`).join(', ');
-        const ejemplo = conPeso.length >= 2
-          ? ` Ejemplo: si cumples ${conPeso[0][0]} y ${conPeso[2]?conPeso[2][0]:conPeso[1][0]} pero no ${conPeso[1][0]}, recibes el ${fmtP((conPeso[0][1]+(conPeso[2]?conPeso[2][1]:0))/(conPeso.reduce((a,x)=>a+x[1],0))*100)}% de tu comisión.`
-          : '';
-        return `<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:12px 16px;margin-bottom:12px;font-size:13px;color:#1e40af;line-height:1.5">
-          <b>¿Cómo se paga la comisión del mes?</b> Cada KPI tiene un peso: ${listaP}. La comisión se paga según el porcentaje total que alcances en el mes.${ejemplo} Cumpliendo todos los KPIs recibes el <b>100%</b> de tu comisión.
-        </div>`;
-      })()}
       ${notaPanel('resumen')}
       <div style="overflow-x:auto">
         <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:640px">
