@@ -125,7 +125,7 @@
     .crumb:hover{text-decoration:underline}
     .cli-header{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--bl);border:1px solid rgba(160,104,74,0.25);border-radius:8px;overflow:hidden}
     .cli-avatar{width:36px;height:36px;border-radius:50%;background:rgba(160,104,74,0.2);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;color:var(--brown);flex-shrink:0}
-    .cli-name{font-size:14px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .cli-name{font-size:14px;font-weight:600;color:var(--text);white-space:normal;word-break:break-word;line-height:1.3}
     .cli-sub{font-size:11px;color:var(--muted)}
     .back-btn{margin-left:auto;background:none;border:1px solid var(--brown);color:var(--brown);font-size:11px;padding:5px 12px;border-radius:20px;cursor:pointer;display:flex;align-items:center;gap:4px;flex-shrink:0}
     .back-btn:hover{background:var(--bl)}
@@ -3784,11 +3784,12 @@ function mergearVentasHoy(docs){
     if(!DATA[vendedor]) DATA[vendedor] = [];
     let cli = DATA[vendedor].find(c => c.nombre === cliente);
     if(!cli){
-      cli = {nombre:cliente, ruc:(doc.cliente?.ruc||doc.cliente?.cedula||''), total:0, subtotal:0, num_compras:0, provincia:'', productos:[], marcas:[], frecuencia:[]};
+      cli = {nombre:cliente, ruc:(doc.cliente?.ruc||doc.cliente?.cedula||''), total:0, subtotal:0, saldo:0, num_compras:0, provincia:'', productos:[], marcas:[], frecuencia:[]};
       DATA[vendedor].push(cli);
     }
     cli.total = Math.round((cli.total + total)*100)/100;
     cli.subtotal = Math.round(((cli.subtotal||0) + subtotal)*100)/100;
+    cli.saldo = Math.round(((cli.saldo||0) + (parseFloat(doc.saldo)||0))*100)/100;
     cli.num_compras += 1;
 
     // Frecuencia del mes actual — con año y subtotal para que TODOS los cálculos lo tomen
@@ -6371,10 +6372,10 @@ function selCliente(nombre){
       <span style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${nombre}</span>
     </div>
     <div class="cli-header">
-      <div class="cli-avatar">${iniciales}</div>
       <div style="flex:1;min-width:0">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <div class="cli-name" title="${nombre}">${nombre}</div>
+          ${(parseFloat(c.saldo)||0) > 0.009 ? `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;font-size:11px;font-weight:700;border-radius:12px;background:#fef2f2;color:#dc2626;border:1px solid #fca5a5;white-space:nowrap"><i class="ti ti-alert-circle" style="font-size:12px"></i>Saldo: $${(Math.round((parseFloat(c.saldo)||0)*100)/100).toFixed(2)}</span>` : ''}
           <button onclick="toggleInfoCliente('info-${c.id}','${(c.nombre||'')}','${(c.ruc||c.cedula||'')}')" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;font-size:11px;border:1px solid var(--border);border-radius:12px;background:white;cursor:pointer;color:var(--muted)"><i class="ti ti-info-circle" style="font-size:12px"></i> Info</button>
         </div>
         <div class="cli-sub">Total: <strong style="color:var(--brown)">${fmt(c.total)}</strong> · ${c.num_compras} facturas · ${vendActual}</div>
@@ -6713,10 +6714,10 @@ function selClienteProvincia(nombre, provincia){
       <span style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${nombre}</span>
     </div>
     <div class="cli-header">
-      <div class="cli-avatar">${iniciales}</div>
       <div style="flex:1;min-width:0">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <div class="cli-name" title="${nombre}">${nombre}</div>
+          ${(parseFloat(c.saldo)||0) > 0.009 ? `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;font-size:11px;font-weight:700;border-radius:12px;background:#fef2f2;color:#dc2626;border:1px solid #fca5a5;white-space:nowrap"><i class="ti ti-alert-circle" style="font-size:12px"></i>Saldo: $${(Math.round((parseFloat(c.saldo)||0)*100)/100).toFixed(2)}</span>` : ''}
           <button onclick="toggleInfoCliente('info-p-${c.id}','${(c.nombre||"")}','${(c.ruc||c.cedula||"")}')" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;font-size:11px;border:1px solid var(--border);border-radius:12px;background:white;cursor:pointer;color:var(--muted)"><i class="ti ti-info-circle" style="font-size:12px"></i> Info</button>
         </div>
         <div class="cli-sub">Total: <strong style="color:var(--brown)">${fmt(c.total)}</strong> · ${c.num_compras} facturas · ${vendNombre}</div>

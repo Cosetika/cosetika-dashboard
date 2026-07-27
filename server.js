@@ -185,7 +185,7 @@ async function generarDataJson(fi, ff) {
       if (!vendedores[vendId]) vendedores[vendId] = { nombre: vendNom, clientes: {} };
       vendedores[vendId].nombre = vendNom;
       const vObj = vendedores[vendId].clientes;
-      if (!vObj[cliId]) vObj[cliId] = { id: cliId, nombre: cliNom, ruc: cliRuc, total: 0, subtotal: 0, num_compras: 0, provincia: cliProv, marcas: {}, marcasPorAnio: {}, marcasPorMes: {}, productos: {}, frecuencia: {}, telefono: '', direccion: '' };
+      if (!vObj[cliId]) vObj[cliId] = { id: cliId, nombre: cliNom, ruc: cliRuc, total: 0, subtotal: 0, saldo: 0, num_compras: 0, provincia: cliProv, marcas: {}, marcasPorAnio: {}, marcasPorMes: {}, productos: {}, frecuencia: {}, telefono: '', direccion: '' };
       const cli = vObj[cliId];
       cli.nombre = cliNom; cli.ruc = cliRuc;
       // Teléfono y dirección: se actualiza cada vez que aparece en una factura nueva
@@ -197,7 +197,7 @@ async function generarDataJson(fi, ff) {
       // momento, y de lo contrario un cliente que ya tenía un valor (aunque fuera "Sin
       // provincia" o uno inferido incorrectamente) nunca reflejaría la corrección.
       if(cliProv) cli.provincia = cliProv;
-      cli.total += totalDoc; cli.subtotal += subDoc; if (signoDoc > 0) cli.num_compras++;
+      cli.total += totalDoc; cli.subtotal += subDoc; if (signoDoc > 0) { cli.num_compras++; cli.saldo += parseFloat(doc.saldo || 0); }
       const anioDoc = parseInt((doc.fecha_emision || '').split('/')[2]) || new Date().getFullYear();
       const freqKey = `${anioDoc}-${String(mes).padStart(2,'0')}`;
       if (!cli.frecuencia[freqKey]) cli.frecuencia[freqKey] = { anio: anioDoc, mes, total: 0, subtotal: 0, compras: 0 };
@@ -258,6 +258,7 @@ async function generarDataJson(fi, ff) {
       direccion: cli.direccion || '',
       total: Math.round(cli.total * 100) / 100,
       subtotal: Math.round(cli.subtotal * 100) / 100,
+      saldo: Math.round((cli.saldo || 0) * 100) / 100,
       num_compras: cli.num_compras, provincia: cli.provincia,
       marcas: Object.entries(cli.marcas).map(([m,t]) => ({ marca: m, total: Math.round(t*100)/100 })).sort((a,b) => b.total-a.total),
       marcas_anio: Object.values(cli.marcasPorAnio||{}).map(x => ({ anio: x.anio, marca: x.marca, total: Math.round(x.total*100)/100 })),
