@@ -1148,6 +1148,7 @@ async function fusionarAnioActualEnCache(anioActual, dataAnio) {
       cli.marcas_anio = (cli.marcas_anio||[]).filter(ma => ma.anio!==anioActual);
       cli.marcas_mes = (cli.marcas_mes||[]).filter(x => x.anio!==anioActual);
       cli.productos_mes = (cli.productos_mes||[]).filter(x => x.anio!==anioActual);
+      cli.saldo = 0; // se recalcula abajo con los datos frescos del año
     });
   });
 
@@ -1169,6 +1170,7 @@ async function fusionarAnioActualEnCache(anioActual, dataAnio) {
       if(cliAnio.provincia) cli.provincia = cliAnio.provincia;
       if(cliAnio.telefono) cli.telefono = cliAnio.telefono;
       if(cliAnio.direccion) cli.direccion = cliAnio.direccion;
+      cli.saldo = Math.round((parseFloat(cliAnio.saldo)||0)*100)/100;
       cli.frecuencia = (cli.frecuencia||[]).concat(cliAnio.frecuencia);
       cli.frecuencia_dia = (cli.frecuencia_dia||[]).concat(cliAnio.frecuencia_dia||[]);
       cli.marcas_anio = (cli.marcas_anio||[]).concat(cliAnio.marcas_anio);
