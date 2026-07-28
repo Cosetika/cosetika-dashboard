@@ -266,6 +266,7 @@
       <i class="ti ti-chevron-right" id="nav-reportes-chevron" style="margin-left:auto;font-size:12px;transition:transform 0.2s"></i>
     </div>
     <div id="nav-reportes-subs" style="max-height:0;overflow:hidden;transition:max-height 0.25s ease">
+      <div class="nav-sub-item" id="navsub-rep-presupuesto" onclick="navGoReportes('presupuesto')"><i class="ti ti-target-arrow" style="font-size:13px"></i>Presupuesto</div>
       <div class="nav-sub-item" id="navsub-rep-comisiones" onclick="navGoReportes('comisiones')"><i class="ti ti-coin" style="font-size:13px"></i>Comisiones</div>
       <div class="nav-sub-item" id="navsub-rep-inversiones" onclick="navGoReportes('inversiones')"><i class="ti ti-receipt" style="font-size:13px"></i>Inversiones / Viáticos</div>
     </div>
@@ -7993,10 +7994,234 @@ function renderReportes(){
   document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
   document.getElementById('navsub-rep-'+tab)?.classList.add('active');
   document.getElementById('main').innerHTML=`
-    <div class="breadcrumb" style="margin-bottom:12px"><i class="ti ti-file-analytics" style="color:var(--brown);font-size:12px"></i><span style="font-weight:500">Reportes — ${tab==='inversiones'?'Inversiones / Viáticos':'Comisiones'}</span></div>
+    <div class="breadcrumb" style="margin-bottom:12px"><i class="ti ti-file-analytics" style="color:var(--brown);font-size:12px"></i><span style="font-weight:500">Reportes — ${tab==='inversiones'?'Inversiones / Viáticos':tab==='presupuesto'?'Presupuesto de ventas':'Comisiones'}</span></div>
     <div id="reportes-content"></div>`;
   if(tab==='inversiones') renderInversiones();
+  else if(tab==='presupuesto') renderPresupuestoVentas();
   else renderComisiones();
+}
+
+// ─── PRESUPUESTO DE VENTAS: proyección rodante 6 meses por asesora (sin IVA) ──
+const MESES_PPTO = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+function pptoNorm(v){ return String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/\s+/g,' ').trim(); }
+function pptoAncla(v){ return pptoNorm(v).split(' ').slice(0,2).join(' '); }
+
+async function renderPresupuestoVentas(){
+  const cont = document.getElementById('reportes-content');
+  if(!cont) return;
+  cont.innerHTML = '<div style="padding:30px;text-align:center;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:22px"></i></div>';
+
+  let cfg = { pct:{}, overrides:{}, snapshots:{} };
+  let usuarios = [];
+  try{
+    const [rC, rU] = await Promise.all([fetch('/api/presupuesto-config'), fetch('/api/usuarios')]);
+    const jC = await rC.json(); if(jC.ok && jC.config) cfg = Object.assign({pct:{},overrides:{},snapshots:{}}, jC.config);
+    const dU = await rU.json(); if(Array.isArray(dU)) usuarios = dU;
+  }catch(e){}
+  window._pptoCfg = cfg;
+
+  // Asesoras activas + Giovanna (referencia) + nombres solo-override (ej: Mayra antes de crear su usuario)
+  const asesoras = usuarios.filter(u=>(u.rol==='asesora'||u.rol==='jefa_ventas') && u.activo).map(u=>({nombre:u.nombre, rol:u.rol}));
+  Object.keys(cfg.overrides||{}).forEach(nom=>{
+    if(!asesoras.some(a=>pptoAncla(a.nombre)===pptoAncla(nom))) asesoras.push({nombre:nom, rol:'asesora', sinUsuario:true});
+  });
+
+  // Ventas sin IVA por asesora y mes (desde DATA, que ya incluye hoy vía merge)
+  const hoyP = new Date(new Date().toLocaleString('en-US',{timeZone:'America/Guayaquil'}));
+  const anioAct = hoyP.getFullYear(), mesAct = hoyP.getMonth()+1;
+  const ventasMes = {}; // ancla → {'YYYY-MM': subtotal}
+  const eraybaMes = {}; // 'YYYY-MM' → total ERAYBA global
+  const eraybaAse = {}; // ancla → total ERAYBA 2026
+  const eraybaProds = new Set();
+  Object.entries(window.DATA||{}).forEach(([vend, clientes])=>{
+    const k = pptoAncla(vend);
+    if(!ventasMes[k]) ventasMes[k] = {};
+    (clientes||[]).forEach(cli=>{
+      (cli.frecuencia||[]).forEach(f=>{
+        const a = f.anio || anioAct;
+        const mk = a+'-'+String(f.mes).padStart(2,'0');
+        ventasMes[k][mk] = (ventasMes[k][mk]||0) + (f.subtotal||0);
+      });
+      (cli.marcas_mes||[]).forEach(x=>{
+        if(pptoNorm(x.marca).replace(/\s+/g,'')!=='ERAYBA') return;
+        const a = x.anio || anioAct;
+        if(a !== anioAct) return;
+        const mk = a+'-'+String(x.mes).padStart(2,'0');
+        eraybaMes[mk] = (eraybaMes[mk]||0) + (x.total||0);
+        eraybaAse[k] = (eraybaAse[k]||0) + (x.total||0);
+      });
+      (cli.productos_mes||[]).forEach(p=>{
+        if(pptoNorm(p.marca||'').replace(/\s+/g,'')==='ERAYBA' && (p.anio||anioAct)===anioAct) eraybaProds.add(p.id||p.nombre);
+      });
+    });
+  });
+
+  // Meses: últimos cerrados (para base/tendencia) y ventana rodante de 6 (mes actual + 5)
+  const mkDe = (a,m)=>a+'-'+String(m).padStart(2,'0');
+  const mesesCerrados = [];
+  { let a=anioAct, m=mesAct; for(let i=0;i<4;i++){ m--; if(m===0){m=12;a--;} mesesCerrados.unshift(mkDe(a,m)); } }
+  const ventana = [];
+  { let a=anioAct, m=mesAct; for(let i=0;i<6;i++){ ventana.push({key:mkDe(a,m), anio:a, mes:m}); m++; if(m>12){m=1;a++;} } }
+
+  // Uplift ERAYBA octubre: aporte mensual promedio por producto ERAYBA × 11 productos × factor prudente 0.8
+  const mesesConErayba = Object.keys(eraybaMes).length || 1;
+  const eraybaPromMes = Object.values(eraybaMes).reduce((x,y)=>x+y,0) / mesesConErayba;
+  const nProdErayba = Math.max(1, eraybaProds.size);
+  const upliftTotal = Math.round((eraybaPromMes / nProdErayba) * 11 * 0.8);
+  const eraybaTotal = Object.values(eraybaAse).reduce((x,y)=>x+y,0) || 1;
+
+  // Cálculo por asesora
+  const filas = asesoras.map(a=>{
+    const k = pptoAncla(a.nombre);
+    const vm = ventasMes[k] || {};
+    const ult3 = mesesCerrados.slice(-3).map(mk=>vm[mk]||0);
+    const base = Math.round(ult3.reduce((x,y)=>x+y,0) / 3);
+    // % sugerido: mediana del crecimiento mes a mes de los últimos 4 cerrados
+    const crecs = [];
+    for(let i=1;i<mesesCerrados.length;i++){
+      const prev = vm[mesesCerrados[i-1]]||0, cur = vm[mesesCerrados[i]]||0;
+      if(prev > 100) crecs.push((cur-prev)/prev*100);
+    }
+    crecs.sort((x,y)=>x-y);
+    let sugerido = crecs.length ? crecs[Math.floor(crecs.length/2)] : 0;
+    sugerido = Math.max(-10, Math.min(20, Math.round(sugerido*10)/10));
+    const pctKey = Object.keys(cfg.pct||{}).find(n=>pptoAncla(n)===k);
+    const pct = pctKey !== undefined ? parseFloat(cfg.pct[pctKey]) : null;
+    const ovKey = Object.keys(cfg.overrides||{}).find(n=>pptoAncla(n)===k);
+    const ov = ovKey !== undefined ? (cfg.overrides[ovKey]||{}) : {};
+    const upliftAse = Math.round(upliftTotal * ((eraybaAse[k]||0) / eraybaTotal));
+    // Metas por mes de la ventana
+    const metas = {};
+    ventana.forEach((v,i)=>{
+      if(ov[v.key] !== undefined && ov[v.key] !== null && ov[v.key] !== ''){ metas[v.key] = {valor: Math.round(parseFloat(ov[v.key])||0), manual:true}; return; }
+      if(pct === null || !base){ metas[v.key] = null; return; }
+      let val = base * Math.pow(1 + pct/100, i+1);
+      if(v.anio === 2026 && v.mes >= 10) val += upliftAse; // empuje ERAYBA desde octubre
+      metas[v.key] = {valor: Math.round(val), manual:false};
+    });
+    const realActual = Math.round(vm[mkDe(anioAct,mesAct)]||0);
+    return { nombre:a.nombre, rol:a.rol, sinUsuario:a.sinUsuario, k, base, sugerido, pct, metas, realActual, uplift:upliftAse };
+  });
+
+  // Snapshot del mes actual (para cumplimiento cuando cierre)
+  const snapAct = {};
+  filas.forEach(f=>{ const m = f.metas[mkDe(anioAct,mesAct)]; if(m) snapAct[f.nombre] = m.valor; });
+  cfg.snapshots = cfg.snapshots || {};
+  if(JSON.stringify(cfg.snapshots[mkDe(anioAct,mesAct)]||{}) !== JSON.stringify(snapAct)){
+    cfg.snapshots[mkDe(anioAct,mesAct)] = snapAct;
+    fetch('/api/presupuesto-config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({config:cfg})}).catch(()=>{});
+  }
+
+  const fmtP = v => '$'+Math.round(v).toLocaleString('en-US');
+  const esc = v => String(v||'').replace(/</g,'&lt;');
+
+  // Cumplimiento de meses cerrados con snapshot
+  const cerradosSnap = Object.keys(cfg.snapshots).filter(mk=>mk < mkDe(anioAct,mesAct)).sort().slice(-6);
+  const cumplHTML = cerradosSnap.length ? `
+    <div class="card" style="margin-top:12px">
+      <div class="card-title"><i class="ti ti-history"></i> Cumplimiento de meses cerrados</div>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="border-bottom:1px solid var(--border)">
+          <th style="text-align:left;padding:7px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Asesora</th>
+          ${cerradosSnap.map(mk=>`<th style="text-align:center;padding:7px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">${MESES_PPTO[parseInt(mk.split('-')[1])]} ${mk.substring(2,4)}</th>`).join('')}
+        </tr></thead>
+        <tbody>${filas.filter(f=>!f.sinUsuario||cerradosSnap.some(mk=>cfg.snapshots[mk][f.nombre])).map((f,fi)=>`
+          <tr style="border-bottom:0.5px solid var(--border);background:${fi%2?'#f6f3ef':'white'}">
+            <td style="padding:7px 10px;font-weight:600">${esc(f.nombre.split(' ').slice(0,2).join(' '))}</td>
+            ${cerradosSnap.map(mk=>{
+              const meta = (cfg.snapshots[mk]||{})[f.nombre];
+              if(!meta) return '<td style="padding:7px 10px;text-align:center;color:#ccc">—</td>';
+              const real = Math.round((ventasMes[f.k]||{})[mk]||0);
+              const ok = real >= meta;
+              return `<td style="padding:7px 10px;text-align:center"><div style="font-weight:700;color:${ok?'#16a34a':'#dc2626'}">${fmtP(real)}</div><div style="font-size:9px;color:var(--muted)">meta ${fmtP(meta)}</div></td>`;
+            }).join('')}
+          </tr>`).join('')}</tbody>
+      </table></div>
+    </div>` : '';
+
+  cont.innerHTML = `
+    <div class="card" style="background:#eff6ff;border:1px solid #bfdbfe;font-size:12px;color:#1e40af;line-height:1.5;margin-bottom:12px">
+      <b>Cómo se calcula:</b> base = promedio de los últimos 3 meses cerrados (sin IVA) de cada asesora. Meta = base × su % de crecimiento mensual compuesto. El % sugerido sale de su tendencia real. Desde <b>octubre</b> se suma el empuje estimado de los 11 productos ERAYBA nuevos (${fmtP(upliftTotal)}/mes total, repartido según cuánto ERAYBA vende cada una — calculado del aporte real por producto ERAYBA, con factor prudente). Las metas <span style="background:#fef3c7;border-radius:3px;padding:0 4px">en ámbar</span> son manuales: haz clic en cualquier meta para fijarla o quitarla.
+    </div>
+    <div class="card" style="padding:0">
+      <div style="padding:14px 16px 10px;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px"><i class="ti ti-target-arrow" style="margin-right:6px"></i>Presupuesto — próximos 6 meses (sin IVA)</div>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:820px">
+        <thead><tr style="border-bottom:1px solid var(--border)">
+          <th style="text-align:left;padding:8px 12px;font-size:10px;color:var(--muted);text-transform:uppercase">Asesora</th>
+          <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Base<br>(prom. 3m)</th>
+          <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">% mensual</th>
+          ${ventana.map(v=>`<th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">${MESES_PPTO[v.mes]} ${String(v.anio).substring(2)}${v.key===mkDe(anioAct,mesAct)?'<br><span style="color:#16a34a">(en curso)</span>':''}</th>`).join('')}
+        </tr></thead>
+        <tbody>
+          ${filas.map((f,fi)=>`
+          <tr style="border-bottom:0.5px solid var(--border);background:${fi%2?'#f6f3ef':'white'}">
+            <td style="padding:8px 12px;font-weight:600;white-space:nowrap">${esc(f.nombre.split(' ').slice(0,2).join(' '))}${f.rol==='jefa_ventas'?' <span style="font-size:9px;color:var(--muted)">(jefa — referencia)</span>':''}${f.sinUsuario?' <span style="font-size:9px;color:#d97706">(sin usuario aún)</span>':''}</td>
+            <td style="padding:8px 8px;text-align:center;color:var(--muted)">${f.base?fmtP(f.base):'—'}</td>
+            <td style="padding:8px 8px;text-align:center;white-space:nowrap">
+              <input type="number" step="0.5" value="${f.pct!==null?f.pct:''}" placeholder="—" onchange="guardarPctPpto('${f.nombre.replace(/'/g,"\\'")}',this.value)" style="width:52px;padding:3px 4px;font-size:11px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;font-weight:700;color:var(--brown)">%
+              <div style="font-size:9px;color:var(--muted);margin-top:2px;cursor:pointer" onclick="guardarPctPpto('${f.nombre.replace(/'/g,"\\'")}',${f.sugerido})" title="Aplicar sugerido">sug: <span style="color:#2563eb;font-weight:600">${f.sugerido}%</span></div>
+            </td>
+            ${ventana.map(v=>{
+              const m = f.metas[v.key];
+              const esActual = v.key===mkDe(anioAct,mesAct);
+              let inner;
+              if(!m) inner = '<span style="color:#ccc">—</span>';
+              else {
+                inner = `<div style="font-weight:700;${m.manual?'background:#fef3c7;border-radius:5px;padding:1px 5px;display:inline-block':''}">${fmtP(m.valor)}</div>`;
+                if(esActual && m.valor > 0){
+                  const pctAv = Math.round(f.realActual / m.valor * 100);
+                  inner += `<div style="font-size:9px;font-weight:600;color:${pctAv>=100?'#16a34a':(pctAv>=60?'#d97706':'#dc2626')}">${fmtP(f.realActual)} · ${pctAv}%</div>`;
+                }
+              }
+              return `<td style="padding:8px 8px;text-align:center;cursor:pointer;${esActual?'background:rgba(22,163,74,0.05)':''}" onclick="editarMetaPpto('${f.nombre.replace(/'/g,"\\'")}','${v.key}',${m?m.valor:0})">${inner}</td>`;
+            }).join('')}
+          </tr>`).join('')}
+          <tr style="border-top:2px solid var(--border);background:#faf9f8">
+            <td style="padding:9px 12px;font-weight:700">TOTAL</td>
+            <td style="padding:9px 8px;text-align:center;font-weight:700;color:var(--muted)">${fmtP(filas.reduce((x,f)=>x+(f.base||0),0))}</td>
+            <td></td>
+            ${ventana.map(v=>{
+              const tot = filas.reduce((x,f)=>x+((f.metas[v.key]&&f.metas[v.key].valor)||0),0);
+              return `<td style="padding:9px 8px;text-align:center;font-weight:700;color:var(--brown)">${tot?fmtP(tot):'—'}</td>`;
+            }).join('')}
+          </tr>
+        </tbody>
+      </table></div>
+    </div>
+    ${cumplHTML}`;
+}
+
+async function guardarPptoConfig(){
+  try{
+    const r = await fetch('/api/presupuesto-config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({config:window._pptoCfg})});
+    const j = await r.json();
+    if(!j.ok) throw new Error(j.error||'error');
+    renderPresupuestoVentas();
+  }catch(e){ alert('Error al guardar: '+e.message); }
+}
+
+async function guardarPctPpto(nombre, valor){
+  const cfg = window._pptoCfg || {pct:{},overrides:{},snapshots:{}};
+  cfg.pct = cfg.pct || {};
+  const key = Object.keys(cfg.pct).find(n=>pptoAncla(n)===pptoAncla(nombre)) || nombre;
+  if(valor === '' || valor === null) delete cfg.pct[key];
+  else cfg.pct[key] = Math.max(-50, Math.min(100, parseFloat(valor)||0));
+  window._pptoCfg = cfg;
+  await guardarPptoConfig();
+}
+
+async function editarMetaPpto(nombre, mesKey, actual){
+  const nuevo = prompt('Meta manual para '+nombre.split(' ')[0]+' en '+mesKey+' (sin IVA).\nDeja vacío y acepta para volver a la fórmula automática:', actual||'');
+  if(nuevo === null) return;
+  const cfg = window._pptoCfg || {pct:{},overrides:{},snapshots:{}};
+  cfg.overrides = cfg.overrides || {};
+  const key = Object.keys(cfg.overrides).find(n=>pptoAncla(n)===pptoAncla(nombre)) || nombre;
+  cfg.overrides[key] = cfg.overrides[key] || {};
+  const limpio = String(nuevo).trim();
+  if(limpio === '') delete cfg.overrides[key][mesKey];
+  else cfg.overrides[key][mesKey] = Math.max(0, parseFloat(limpio)||0);
+  window._pptoCfg = cfg;
+  await guardarPptoConfig();
 }
 
 function navGoKpis(tab){

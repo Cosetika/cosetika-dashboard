@@ -4931,6 +4931,43 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // ─── PRESUPUESTO DE VENTAS (Reportes → Presupuesto) ──
+  if (urlPath === '/api/presupuesto-config' && req.method === 'GET') {
+    try {
+      const raw = await getConfigApp('presupuesto_ventas', null);
+      let cfg = null;
+      if (raw) { try { cfg = JSON.parse(raw); } catch(e) {} }
+      if (!cfg) {
+        // Defaults iniciales: ultimátum de Nicole (ago 2026) + escalera de Mayra (sep 2026 → sep 2027)
+        const escalera = {};
+        let v = 4000, a = 2026, m = 9;
+        for (let i = 0; i < 13; i++) {
+          escalera[`${a}-${String(m).padStart(2,'0')}`] = v;
+          v += 1000; m++; if (m > 12) { m = 1; a++; }
+        }
+        cfg = {
+          pct: {},
+          overrides: {
+            'Nicole Yanira Leon Marquez': { '2026-08': 4000 },
+            'Mayra Taipe': escalera
+          },
+          snapshots: {}
+        };
+      }
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ ok:true, config: cfg }));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+  if (urlPath === '/api/presupuesto-config' && req.method === 'POST') {
+    try {
+      const { config } = await bodyJSON(req);
+      if (!config || typeof config !== 'object') { res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'Config inválida'})); return; }
+      await setConfigApp('presupuesto_ventas', JSON.stringify(config));
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
   // ─── PESOS DE KPIS para el pago de comisiones (Resumen del mes) ──
   if (urlPath === '/api/kpis-pesos' && req.method === 'GET') {
     try {
