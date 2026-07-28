@@ -8069,7 +8069,7 @@ async function renderPresupuestoVentas(){
   const mesesCerrados = [];
   { let a=anioAct, m=mesAct; for(let i=0;i<4;i++){ m--; if(m===0){m=12;a--;} mesesCerrados.unshift(mkDe(a,m)); } }
   const ventana = [];
-  { let a=anioAct, m=mesAct; for(let i=0;i<6;i++){ ventana.push({key:mkDe(a,m), anio:a, mes:m}); m++; if(m>12){m=1;a++;} } }
+  { let a=anioAct, m=mesAct; for(let i=0;i<4;i++){ ventana.push({key:mkDe(a,m), anio:a, mes:m}); m++; if(m>12){m=1;a++;} } }
 
   // Uplift ERAYBA octubre: aporte mensual promedio por producto ERAYBA × 11 productos × factor prudente 0.8
   const mesesConErayba = Object.keys(eraybaMes).length || 1;
@@ -8116,7 +8116,9 @@ async function renderPresupuestoVentas(){
       const crec = prev > 100 ? Math.round((val-prev)/prev*1000)/10 : null;
       return { mk, val, crec };
     });
-    return { nombre:a.nombre, rol:a.rol, sinUsuario:a.sinUsuario, k, base, sugerido, pct, metas, realActual, uplift:upliftAse, hist };
+    const crecsHist = hist.map(h=>h.crec).filter(c=>c!==null);
+    const crecProm = crecsHist.length ? Math.round(crecsHist.reduce((x,y)=>x+y,0)/crecsHist.length*10)/10 : null;
+    return { nombre:a.nombre, rol:a.rol, sinUsuario:a.sinUsuario, k, base, sugerido, pct, metas, realActual, uplift:upliftAse, hist, crecProm };
   });
 
   // Snapshot del mes actual (para cumplimiento cuando cierre)
@@ -8160,11 +8162,12 @@ async function renderPresupuestoVentas(){
       <b>Cómo se calcula:</b> base = promedio de los últimos 3 meses cerrados (sin IVA) de cada asesora. Meta = base × su % de crecimiento mensual compuesto. El % sugerido sale de su tendencia real. Desde <b>octubre</b> se suma el empuje estimado de los 11 productos ERAYBA nuevos (${fmtP(upliftTotal)}/mes total, repartido según cuánto ERAYBA vende cada una — calculado del aporte real por producto ERAYBA, con factor prudente). Las metas <span style="background:#fef3c7;border-radius:3px;padding:0 4px">en ámbar</span> son manuales: haz clic en cualquier meta para fijarla o quitarla.
     </div>
     <div class="card" style="padding:0">
-      <div style="padding:14px 16px 10px;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px"><i class="ti ti-target-arrow" style="margin-right:6px"></i>Presupuesto — próximos 6 meses (sin IVA)</div>
+      <div style="padding:14px 16px 10px;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px"><i class="ti ti-target-arrow" style="margin-right:6px"></i>Presupuesto — mes en curso + 3 proyectados (sin IVA)</div>
       <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:820px">
         <thead><tr style="border-bottom:1px solid var(--border)">
           <th style="text-align:left;padding:8px 12px;font-size:10px;color:var(--muted);text-transform:uppercase">Asesora</th>
           ${mesesCerrados.slice(-3).map(mk=>`<th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;background:#f3f0ec">${MESES_PPTO[parseInt(mk.split('-')[1])]} ${mk.substring(2,4)}<br><span style="font-weight:400;letter-spacing:0">histórico</span></th>`).join('')}
+          <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;background:#f3f0ec">Crec.<br>prom. 3m</th>
           <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Base<br>(prom. 3m)</th>
           <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">% mensual</th>
           ${ventana.map(v=>`<th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">${MESES_PPTO[v.mes]} ${String(v.anio).substring(2)}${v.key===mkDe(anioAct,mesAct)?'<br><span style="color:#16a34a">(en curso)</span>':''}</th>`).join('')}
@@ -8176,6 +8179,7 @@ async function renderPresupuestoVentas(){
             ${f.hist.map(h=>`<td style="padding:8px 8px;text-align:center;background:${fi%2?'#efece7':'#f3f0ec'}">
               ${h.val?`<div style="font-weight:600;color:var(--text)">${fmtP(h.val)}</div>${h.crec!==null?`<div style="font-size:9px;font-weight:700;color:${h.crec>=0?'#16a34a':'#dc2626'}">${h.crec>0?'+':''}${h.crec}%</div>`:''}`:'<span style="color:#ccc">—</span>'}
             </td>`).join('')}
+            <td style="padding:8px 8px;text-align:center;background:${fi%2?'#efece7':'#f3f0ec'}">${f.crecProm!==null?`<span style="font-weight:800;font-size:13px;color:${f.crecProm>=0?'#16a34a':'#dc2626'}">${f.crecProm>0?'+':''}${f.crecProm}%</span>`:'<span style="color:#ccc">—</span>'}</td>
             <td style="padding:8px 8px;text-align:center;color:var(--muted)">${f.base?fmtP(f.base):'—'}</td>
             <td style="padding:8px 8px;text-align:center;white-space:nowrap">
               <input type="number" step="0.5" value="${f.pct!==null?f.pct:''}" placeholder="—" onchange="guardarPctPpto('${f.nombre.replace(/'/g,"\\'")}',this.value)" style="width:52px;padding:3px 4px;font-size:11px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;font-weight:700;color:var(--brown)">%
@@ -8202,6 +8206,7 @@ async function renderPresupuestoVentas(){
               const tot = filas.reduce((x,f)=>x+((f.hist[ix]&&f.hist[ix].val)||0),0);
               return `<td style="padding:9px 8px;text-align:center;font-weight:700;color:var(--muted);background:#f3f0ec">${tot?fmtP(tot):'—'}</td>`;
             }).join('')}
+            <td style="background:#f3f0ec"></td>
             <td style="padding:9px 8px;text-align:center;font-weight:700;color:var(--muted)">${fmtP(filas.reduce((x,f)=>x+(f.base||0),0))}</td>
             <td></td>
             ${ventana.map(v=>{
