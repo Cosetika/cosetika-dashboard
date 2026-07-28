@@ -3212,6 +3212,67 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // VENTAS POR DÍA POR MARCA (sin IVA) — agrega detalles del mes directo de Contifico
+  if (urlPath === '/api/ventas-dia-marca' && req.method === 'GET') {
+    try {
+      const ahora = nowEC();
+      const anio = parseInt(urlObj.searchParams.get('anio')) || ahora.getFullYear();
+      const mes = parseInt(urlObj.searchParams.get('mes')) || (ahora.getMonth() + 1);
+      global._vdmCache = global._vdmCache || {};
+      const cacheKey = anio + '-' + mes;
+      const esMesActual = (anio === ahora.getFullYear() && mes === ahora.getMonth() + 1);
+      const ttl = esMesActual ? 10 * 60 * 1000 : 6 * 60 * 60 * 1000;
+      const hit = global._vdmCache[cacheKey];
+      if (hit && (Date.now() - hit.ts) < ttl) {
+        res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(hit.data)); return;
+      }
+      const mm = String(mes).padStart(2,'0');
+      const ultimoDia = new Date(anio, mes, 0).getDate();
+      const fiM = `01/${mm}/${anio}`;
+      const ffM = `${String(ultimoDia).padStart(2,'0')}/${mm}/${anio}`;
+      const MARCAS_VDM = ['ZIAJA','BIOSKIN','ZIAJA PRO','ERAYBA'];
+      const porMarca = {}; MARCAS_VDM.forEach(m => porMarca[m] = {});
+      const vistos = new Set();
+      let nextU = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${fiM}&fecha_final=${ffM}&page_size=100`;
+      let pags = 0;
+      while (nextU && pags < 60) {
+        const resp = await fetch(nextU, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
+        if (!resp.ok) break;
+        const data = await resp.json();
+        (data.results || []).forEach(d => {
+          if (d.tipo_registro !== 'CLI' || d.anulado) return;
+          if (d.tipo_documento === 'COT' || d.tipo_documento === 'PRO') return;
+          if (String(d.cliente?.ruc || d.cliente?.cedula || '').trim() === '1793143660001') return;
+          const dk = d.id || d.documento;
+          if (vistos.has(dk)) return; vistos.add(dk);
+          const signo = d.tipo_documento === 'NC' ? -1 : 1;
+          const dia = parseInt(String(d.fecha_emision||'').split('/')[0]) || 0;
+          if (!dia) return;
+          (d.detalles || []).forEach(det => {
+            const info = catalogoProductos[det.producto_id];
+            if (!info) return;
+            let mN = String(info.marca||'').toUpperCase().trim();
+            if (mN.replace(/\s+/g,'') === 'ZIAJAPRO') mN = 'ZIAJA PRO';
+            if (!porMarca[mN]) return; // solo las 4 marcas
+            const base = signo * parseFloat(det.base_gravable || det.base_cero || 0);
+            porMarca[mN][dia] = (porMarca[mN][dia] || 0) + base;
+          });
+        });
+        nextU = data.next || null;
+        pags++;
+      }
+      const totales = {};
+      MARCAS_VDM.forEach(m => {
+        Object.keys(porMarca[m]).forEach(dv => { porMarca[m][dv] = Math.round(porMarca[m][dv]*100)/100; });
+        totales[m] = Math.round(Object.values(porMarca[m]).reduce((a,b)=>a+b,0)*100)/100;
+      });
+      const out = { ok:true, anio, mes, marcas: porMarca, totales };
+      global._vdmCache[cacheKey] = { ts: Date.now(), data: out };
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(out));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
   // SYNC MANUAL
   if (urlPath === '/api/sync' && req.method === 'GET') {
     sincronizarHoy().catch(e => console.error(e));

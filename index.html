@@ -5673,7 +5673,46 @@ function dibujarComparativoAnual(modo){
   requestAnimationFrame(()=>dibujarGraficoLineas('grafico-comparativo-anual', series, mesesConDatos));
 }
 
+async function cargarYDibujarVentasDiaMarca(){
+  const statusEl = document.getElementById('ventas-dia-marca-status');
+  const legEl = document.getElementById('ventas-dia-marca-leyenda');
+  if(!document.getElementById('grafico-ventas-dia-marca')) return;
+  const anioR = new Date().getFullYear();
+  const mesSel = window._ventasDiaMes || (new Date().getMonth()+1);
+  if(statusEl) statusEl.textContent = 'Cargando desglose por marca...';
+  try{
+    const r = await fetch(`/api/ventas-dia-marca?anio=${anioR}&mes=${mesSel}`);
+    const d = await r.json();
+    if(!d.ok) throw new Error(d.error||'error');
+    const MARCAS_ORD = ['ZIAJA','BIOSKIN','ZIAJA PRO','ERAYBA'];
+    // Eje de días: todos los días con ventas de cualquier marca
+    const diasSet = new Set();
+    MARCAS_ORD.forEach(m=>Object.keys(d.marcas[m]||{}).forEach(dv=>diasSet.add(parseInt(dv))));
+    const ejeDias = [...diasSet].sort((a,b)=>a-b);
+    if(ejeDias.length === 0){
+      if(statusEl) statusEl.textContent = 'Sin ventas este mes';
+      if(legEl) legEl.innerHTML = '';
+      return;
+    }
+    const series = MARCAS_ORD.map(m=>({
+      color: getMarcaColor(m),
+      valores: ejeDias.map(dv=>{ const v = (d.marcas[m]||{})[dv]; return v && v > 0 ? Math.round(v) : null; })
+    }));
+    requestAnimationFrame(()=>dibujarGraficoDiario('grafico-ventas-dia-marca', series, ejeDias));
+    if(legEl) legEl.innerHTML = MARCAS_ORD.map(m=>{
+      const tot = d.totales[m]||0;
+      return `<div style="display:flex;align-items:center;gap:6px">
+        <span style="width:10px;height:10px;border-radius:3px;background:${getMarcaColor(m)};display:inline-block"></span>
+        <span style="font-size:12px;font-weight:600">${m}</span>
+        <span style="font-size:12px;font-weight:700;color:${getMarcaColor(m)}">$${Math.round(tot).toLocaleString('en-US')}</span>
+      </div>`;
+    }).join('');
+    if(statusEl) statusEl.textContent = '';
+  }catch(e){ if(statusEl) statusEl.textContent = 'Error cargando el desglose por marca'; }
+}
+
 async function cargarYDibujarVentasMesDia(){
+  cargarYDibujarVentasDiaMarca();
   const statusEl = document.getElementById('ventas-mes-dia-status');
   if(statusEl) statusEl.textContent = 'Cargando...';
   try{
@@ -6071,6 +6110,16 @@ function renderVentasPanel(){
         <canvas id="grafico-ventas-mes-dia" style="display:block;width:100%;min-width:480px;height:220px"></canvas>
       </div>
       <div id="ventas-mes-dia-status" style="text-align:center;font-size:11px;color:var(--muted);margin-top:6px"></div>
+    </div>
+
+    <!-- Ventas por día por marca -->
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-title"><i class="ti ti-chart-line"></i> Ventas por día por marca (sin IVA)</div>
+      <div style="width:100%;overflow-x:auto">
+        <canvas id="grafico-ventas-dia-marca" style="display:block;width:100%;min-width:480px;height:220px"></canvas>
+      </div>
+      <div id="ventas-dia-marca-leyenda" style="display:flex;gap:14px;flex-wrap:wrap;justify-content:center;margin-top:10px"></div>
+      <div id="ventas-dia-marca-status" style="text-align:center;font-size:11px;color:var(--muted);margin-top:6px"></div>
     </div>
 
     <!-- Gráfico de líneas: evolución mensual por vendedora -->
