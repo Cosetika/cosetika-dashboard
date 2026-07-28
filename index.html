@@ -251,6 +251,7 @@
       <div class="nav-sub-item" id="navsub-inv-lotes" onclick="navGoInventario('lotes')"><i class="ti ti-calendar-x" style="font-size:13px"></i>Caducidad</div>
       <div class="nav-sub-item" id="navsub-inv-proyeccion" onclick="navGoInventario('proyeccion')"><i class="ti ti-chart-dots" style="font-size:13px"></i>Proyección</div>
       <div class="nav-sub-item" id="navsub-inv-testers" onclick="navGoInventario('testers')"><i class="ti ti-flask" style="font-size:13px"></i>Testers</div>
+      <div class="nav-sub-item" id="navsub-inv-articulos" onclick="navGoInventario('articulos')"><i class="ti ti-box-seam" style="font-size:13px"></i>Artículos</div>
     </div>
     <div class="nav-item" id="nav-documentos" onclick="navToggleGroup('nav-documentos-subs','nav-documentos-chevron','documentos')">
       <i class="ti ti-files"></i>Documentos
@@ -664,6 +665,8 @@ function setMod(mod){
     renderLotes();
   } else if(mod==='testers_inv'){
     renderTestersInv();
+  } else if(mod==='articulos'){
+    renderArticulos();
   } else {
     document.getElementById('main').innerHTML=`
       <div class="coming">
@@ -1592,6 +1595,169 @@ async function quitarTesterAse(id, producto, asesora){
     await fetch('/api/testers-asesoras/'+id, { method:'DELETE' });
     window._testersInvRegs = (window._testersInvRegs||[]).filter(x=>x.id!==id);
     pintarTestersInv(document.getElementById('tinv-buscar')?.value||'');
+  }catch(e){ alert('Error: '+e.message); }
+}
+
+// ─── MÓDULO ARTÍCULOS (kardex de suministros de oficina) ─────────────────────
+async function renderArticulos(){
+  const main = document.getElementById('main');
+  const uA = window.usuarioActual || {};
+  const modsA = uA.modulos ? uA.modulos.split(',') : [];
+  if(uA.rol !== 'admin' && !modsA.includes('inventario')){
+    main.innerHTML = `<div class="coming"><i class="ti ti-lock"></i><p>Acceso restringido</p></div>`;
+    return;
+  }
+  main.innerHTML = '<div style="padding:30px;text-align:center;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:22px"></i></div>';
+  let arts = [];
+  try{ const r = await fetch('/api/articulos'); const d = await r.json(); if(Array.isArray(d)) arts = d; }catch(e){}
+  window._articulosLista = arts;
+  const enRevision = !!window._artRevisionModo;
+  const esc = v => String(v||'').replace(/</g,'&lt;');
+
+  main.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+      <div style="font-size:16px;font-weight:600"><i class="ti ti-box-seam" style="margin-right:8px;color:var(--brown)"></i>Artículos y suministros de oficina</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button onclick="window.open('/api/articulos-excel','_blank')" style="padding:9px 14px;background:white;color:var(--text);border:1px solid var(--border);border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-download" style="margin-right:5px"></i>Descargar Excel</button>
+        <button onclick="window._artRevisionModo=${enRevision?'false':'true'};renderArticulos()" style="padding:9px 14px;background:${enRevision?'#fef2f2':'#1a1108'};color:${enRevision?'#dc2626':'white'};border:1px solid ${enRevision?'#fca5a5':'#1a1108'};border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-${enRevision?'x':'clipboard-check'}" style="margin-right:5px"></i>${enRevision?'Cancelar revisión':'Revisión de fin de mes'}</button>
+        <button onclick="toggleFormArticulo()" style="padding:9px 14px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-plus" style="margin-right:5px"></i>Nuevo artículo</button>
+      </div>
+    </div>
+    <div id="articulo-form" class="card" style="display:none;margin-bottom:14px;border:2px dashed var(--border)">
+      <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px"><i class="ti ti-plus" style="margin-right:5px"></i>Nuevo artículo</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <input type="text" id="art-nombre" placeholder="Nombre del artículo *" style="flex:2;min-width:180px;padding:9px 12px;font-size:13px;border:1px solid var(--border);border-radius:8px;outline:none;box-sizing:border-box">
+        <input type="text" id="art-categoria" placeholder="Categoría (ej: Catálogos)" list="art-cats" style="flex:1;min-width:130px;padding:9px 12px;font-size:13px;border:1px solid var(--border);border-radius:8px;outline:none;box-sizing:border-box">
+        <datalist id="art-cats">${[...new Set(arts.map(a=>a.categoria).filter(Boolean))].map(c=>`<option value="${esc(c)}">`).join('')}</datalist>
+        <input type="number" id="art-inicial" min="0" placeholder="Stock inicial" style="width:110px;padding:9px 8px;font-size:13px;border:1px solid var(--border);border-radius:8px;outline:none;box-sizing:border-box">
+        <button onclick="guardarNuevoArticulo()" style="padding:9px 16px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-check" style="margin-right:4px"></i>Guardar</button>
+      </div>
+    </div>
+    ${enRevision?`
+    <div class="card" style="margin-bottom:14px;background:#fffbeb;border:1px solid #fde68a">
+      <div style="font-size:13px;color:#92400e;font-weight:600;margin-bottom:4px"><i class="ti ti-clipboard-check" style="margin-right:5px"></i>Revisión de fin de mes</div>
+      <p style="font-size:12px;color:#92400e;margin:0 0 10px">Cuenta físicamente cada artículo e ingresa la cantidad real. El sistema calculará la diferencia contra el stock teórico y registrará el ajuste con fecha de hoy. Puedes dejar en blanco los que no cuentes.</p>
+      <button onclick="guardarRevisionArticulos()" style="padding:9px 18px;background:#16a34a;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:600"><i class="ti ti-check" style="margin-right:5px"></i>Guardar revisión</button>
+    </div>`:''}
+    ${arts.length===0?`
+    <div class="card" style="text-align:center;padding:40px 20px;color:var(--muted)">
+      <i class="ti ti-box-off" style="font-size:36px;opacity:0.35"></i>
+      <p style="margin-top:10px;font-size:14px">Sin artículos todavía — crea el primero con el botón "Nuevo artículo"</p>
+    </div>`:`
+    <div class="card" style="padding:0">
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:560px">
+        <thead><tr style="border-bottom:1px solid var(--border)">
+          <th style="text-align:left;padding:10px 14px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Artículo</th>
+          <th style="text-align:left;padding:10px 10px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Categoría</th>
+          <th style="text-align:center;padding:10px 10px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Stock</th>
+          <th style="text-align:center;padding:10px 10px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Última<br>revisión</th>
+          ${enRevision?'<th style="text-align:center;padding:10px 10px;font-size:10px;color:#92400e;text-transform:uppercase;letter-spacing:0.5px;background:#fffbeb">Conteo<br>físico</th>':'<th style="width:180px"></th>'}
+        </tr></thead>
+        <tbody>
+          ${arts.map((a,ai)=>{
+            const stock = parseFloat(a.stock)||0;
+            return `
+          <tr style="border-bottom:0.5px solid var(--border);background:${ai%2?'#f6f3ef':'white'}">
+            <td style="padding:9px 14px;font-weight:500">
+              <span onclick="toggleHistArticulo(${a.id})" style="cursor:pointer;border-bottom:1px dotted var(--border)">${esc(a.nombre)}</span>
+              <div id="art-hist-${a.id}" style="display:none;margin-top:8px;font-size:11px;color:var(--muted)"></div>
+            </td>
+            <td style="padding:9px 10px;color:var(--muted)">${esc(a.categoria)||'—'}</td>
+            <td style="padding:9px 10px;text-align:center;font-weight:700;color:${stock<=0?'#dc2626':'var(--text)'}">${Math.round(stock*100)/100}</td>
+            <td style="padding:9px 10px;text-align:center;font-size:11px;color:var(--muted)">${a.ultima_revision||'—'}</td>
+            ${enRevision
+              ? `<td style="padding:9px 10px;text-align:center;background:#fffbeb"><input type="number" min="0" id="art-conteo-${a.id}" placeholder="${Math.round(stock*100)/100}" style="width:80px;padding:6px 8px;font-size:13px;text-align:center;border:1px solid #fde68a;border-radius:6px;outline:none"></td>`
+              : `<td style="padding:9px 10px;text-align:center;white-space:nowrap">
+                  <button onclick="registrarEntradaArticulo(${a.id},'${esc(a.nombre).replace(/'/g,'')}')" style="padding:5px 10px;background:#f0fdf4;color:#16a34a;border:1px solid #86efac;border-radius:6px;font-size:11px;cursor:pointer;font-weight:600;margin-right:4px"><i class="ti ti-plus" style="font-size:10px"></i> Entrada</button>
+                  ${uA.rol==='admin'?`<button onclick="borrarArticulo(${a.id},'${esc(a.nombre).replace(/'/g,'')}')" title="Eliminar" style="width:26px;height:26px;border:1px solid #fca5a5;background:#fef2f2;border-radius:6px;cursor:pointer"><i class="ti ti-trash" style="font-size:11px;color:#ef4444"></i></button>`:''}
+                </td>`}
+          </tr>`;}).join('')}
+        </tbody>
+      </table></div>
+      <div style="font-size:11px;color:var(--muted);padding:8px 16px 12px">${arts.length} artículo${arts.length!==1?'s':''} · haz clic en el nombre para ver el historial de movimientos</div>
+    </div>`}`;
+}
+
+function toggleFormArticulo(){
+  const f = document.getElementById('articulo-form');
+  if(!f) return;
+  f.style.display = f.style.display === 'none' ? 'block' : 'none';
+  if(f.style.display === 'block') document.getElementById('art-nombre')?.focus();
+}
+
+async function guardarNuevoArticulo(){
+  const nombre = document.getElementById('art-nombre')?.value||'';
+  if(!nombre.trim()){ alert('El nombre es obligatorio'); return; }
+  try{
+    const r = await fetch('/api/articulos', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({
+      nombre, categoria: document.getElementById('art-categoria')?.value||'',
+      stock_inicial: parseFloat(document.getElementById('art-inicial')?.value)||0,
+      usuario: (window.usuarioActual||{}).nombre||''
+    })});
+    const j = await r.json();
+    if(!j.ok) throw new Error(j.error||'error');
+    renderArticulos();
+  }catch(e){ alert('Error: '+e.message); }
+}
+
+async function registrarEntradaArticulo(id, nombre){
+  const cant = prompt('Cantidad que ENTRA de "'+nombre+'":');
+  if(cant === null) return;
+  const n = parseFloat(cant);
+  if(isNaN(n) || n <= 0){ alert('Cantidad inválida'); return; }
+  const nota = prompt('Nota (opcional — ej: compra, llegada de catálogos):') || '';
+  try{
+    const r = await fetch('/api/articulos/'+id+'/movimiento', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ cantidad:n, nota, usuario:(window.usuarioActual||{}).nombre||'' })});
+    const j = await r.json();
+    if(!j.ok) throw new Error(j.error||'error');
+    renderArticulos();
+  }catch(e){ alert('Error: '+e.message); }
+}
+
+async function borrarArticulo(id, nombre){
+  if(!confirm('¿Eliminar el artículo "'+nombre+'"? (su historial se conserva)')) return;
+  try{ await fetch('/api/articulos/'+id, { method:'DELETE' }); renderArticulos(); }catch(e){ alert('Error: '+e.message); }
+}
+
+async function toggleHistArticulo(id){
+  const div = document.getElementById('art-hist-'+id);
+  if(!div) return;
+  if(div.style.display !== 'none'){ div.style.display = 'none'; return; }
+  div.style.display = 'block';
+  div.innerHTML = 'Cargando...';
+  try{
+    const r = await fetch('/api/articulos/'+id+'/movimientos');
+    const movs = await r.json();
+    if(!Array.isArray(movs) || movs.length===0){ div.innerHTML = 'Sin movimientos'; return; }
+    div.innerHTML = movs.map(m=>{
+      const c = parseFloat(m.cantidad)||0;
+      const col = m.tipo==='ajuste' ? (c<0?'#dc2626':'#d97706') : '#16a34a';
+      return `<div style="padding:3px 0;border-bottom:0.5px dotted var(--border)">
+        <span style="color:${col};font-weight:700">${c>0?'+':''}${c}</span>
+        <span style="margin-left:6px">${m.tipo==='ajuste'?'Ajuste por revisión':'Entrada'}</span>
+        <span style="margin-left:6px;color:#aaa">${m.fecha}${m.usuario?' · '+m.usuario.split(' ')[0]:''}</span>
+        ${m.nota?`<div style="color:#999;font-size:10px;margin-left:2px">${String(m.nota).replace(/</g,'&lt;')}</div>`:''}
+      </div>`;
+    }).join('');
+  }catch(e){ div.innerHTML = 'Error cargando historial'; }
+}
+
+async function guardarRevisionArticulos(){
+  const conteos = {};
+  let cuantos = 0;
+  (window._articulosLista||[]).forEach(a=>{
+    const v = document.getElementById('art-conteo-'+a.id)?.value;
+    if(v !== undefined && v !== null && String(v).trim() !== ''){ conteos[a.id] = parseFloat(v); cuantos++; }
+  });
+  if(cuantos === 0){ alert('No ingresaste ningún conteo'); return; }
+  if(!confirm('¿Guardar la revisión de '+cuantos+' artículo'+(cuantos>1?'s':'')+'? Se registrarán los ajustes contra el stock teórico.')) return;
+  try{
+    const r = await fetch('/api/articulos/revision', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ conteos, usuario:(window.usuarioActual||{}).nombre||'' })});
+    const j = await r.json();
+    if(!j.ok) throw new Error(j.error||'error');
+    window._artRevisionModo = false;
+    alert('Revisión guardada — '+j.ajustes+' artículo(s) actualizados');
+    renderArticulos();
   }catch(e){ alert('Error: '+e.message); }
 }
 
@@ -8293,10 +8459,10 @@ function navGoInstitutosCli(){
 }
 
 function navGoInventario(tab){
-  navSetMod(tab === 'bodegas' ? 'bodegas' : tab === 'lotes' ? 'lotes' : tab === 'testers' ? 'testers_inv' : 'inventario');
+  navSetMod(tab === 'bodegas' ? 'bodegas' : tab === 'lotes' ? 'lotes' : tab === 'testers' ? 'testers_inv' : tab === 'articulos' ? 'articulos' : 'inventario');
   setTimeout(()=>{
     document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
-    document.getElementById('navsub-inv-'+(tab==='bodegas'?'bodegas':tab==='lotes'?'lotes':tab==='testers'?'testers':'proyeccion'))?.classList.add('active');
+    document.getElementById('navsub-inv-'+(tab==='bodegas'?'bodegas':tab==='lotes'?'lotes':tab==='testers'?'testers':tab==='articulos'?'articulos':'proyeccion'))?.classList.add('active');
     const subs = document.getElementById('nav-inventario-subs');
     const chev = document.getElementById('nav-inventario-chevron');
     if(subs) subs.style.maxHeight = '300px';

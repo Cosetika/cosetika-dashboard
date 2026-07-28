@@ -2081,6 +2081,22 @@ async function initDB() {
       );
       ALTER TABLE viaticos_tarifas ADD COLUMN IF NOT EXISTS dias NUMERIC(6,2) DEFAULT 0;
       ALTER TABLE viaticos_tarifas ADD COLUMN IF NOT EXISTS googlemaps NUMERIC(10,2) DEFAULT 0;
+      CREATE TABLE IF NOT EXISTS articulos (
+        id SERIAL PRIMARY KEY,
+        nombre VARCHAR(300) NOT NULL,
+        categoria VARCHAR(100) DEFAULT '',
+        activo BOOLEAN DEFAULT true,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS articulos_movimientos (
+        id SERIAL PRIMARY KEY,
+        articulo_id INTEGER NOT NULL,
+        tipo VARCHAR(20) NOT NULL,
+        cantidad NUMERIC(12,2) NOT NULL,
+        nota VARCHAR(500) DEFAULT '',
+        usuario VARCHAR(255) DEFAULT '',
+        fecha TIMESTAMPTZ DEFAULT NOW()
+      );
       CREATE TABLE IF NOT EXISTS googlemaps_historial (
         id SERIAL PRIMARY KEY,
         tarifa_id INTEGER NOT NULL,
@@ -4928,6 +4944,112 @@ const server = http.createServer(async (req, res) => {
       const resultado = await sincronizarInstitutos();
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, ...resultado}));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
+  // ─── ARTÍCULOS Y SUMINISTROS DE OFICINA (kardex simple) ──
+  if (urlPath === '/api/articulos' && req.method === 'GET') {
+    try {
+      const r = await pool.query(`
+        SELECT a.id, a.nombre, a.categoria,
+          COALESCE(SUM(m.cantidad),0) AS stock,
+          TO_CHAR(MAX(CASE WHEN m.tipo='ajuste' THEN m.fecha END) AT TIME ZONE 'America/Guayaquil','DD/MM/YYYY') AS ultima_revision
+        FROM articulos a
+        LEFT JOIN articulos_movimientos m ON m.articulo_id = a.id
+        WHERE a.activo = true
+        GROUP BY a.id, a.nombre, a.categoria
+        ORDER BY a.categoria, a.nombre`);
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.rows));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+  if (urlPath === '/api/articulos' && req.method === 'POST') {
+    try {
+      const b = await bodyJSON(req);
+      const nombre = String(b.nombre||'').trim().substring(0,290);
+      if (!nombre) throw new Error('El nombre es obligatorio');
+      const r = await pool.query('INSERT INTO articulos(nombre, categoria) VALUES($1,$2) RETURNING id',
+        [nombre, String(b.categoria||'').trim().substring(0,90)]);
+      const inicial = parseFloat(b.stock_inicial);
+      if (!isNaN(inicial) && inicial > 0) {
+        await pool.query("INSERT INTO articulos_movimientos(articulo_id,tipo,cantidad,nota,usuario) VALUES($1,'entrada',$2,'Stock inicial',$3)",
+          [r.rows[0].id, inicial, String(b.usuario||'').substring(0,250)]);
+      }
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, id:r.rows[0].id}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+  if (/^\/api\/articulos\/\d+$/.test(urlPath) && req.method === 'DELETE') {
+    try {
+      const id = parseInt(urlPath.split('/').pop());
+      await pool.query('UPDATE articulos SET activo=false WHERE id=$1', [id]);
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+  if (/^\/api\/articulos\/\d+\/movimientos$/.test(urlPath) && req.method === 'GET') {
+    try {
+      const id = parseInt(urlPath.split('/')[3]);
+      const r = await pool.query(
+        "SELECT tipo, cantidad, nota, usuario, TO_CHAR(fecha AT TIME ZONE 'America/Guayaquil','DD/MM/YYYY HH24:MI') AS fecha FROM articulos_movimientos WHERE articulo_id=$1 ORDER BY id DESC LIMIT 100", [id]);
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.rows));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+  if (/^\/api\/articulos\/\d+\/movimiento$/.test(urlPath) && req.method === 'POST') {
+    try {
+      const id = parseInt(urlPath.split('/')[3]);
+      const b = await bodyJSON(req);
+      const cant = parseFloat(b.cantidad);
+      if (isNaN(cant) || cant <= 0) throw new Error('Cantidad inválida');
+      await pool.query("INSERT INTO articulos_movimientos(articulo_id,tipo,cantidad,nota,usuario) VALUES($1,'entrada',$2,$3,$4)",
+        [id, cant, String(b.nota||'').substring(0,490), String(b.usuario||'').substring(0,250)]);
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+  if (urlPath === '/api/articulos/revision' && req.method === 'POST') {
+    try {
+      const b = await bodyJSON(req);
+      const conteos = b.conteos || {};
+      const usuario = String(b.usuario||'').substring(0,250);
+      let ajustes = 0;
+      for (const [idStr, cantStr] of Object.entries(conteos)) {
+        const id = parseInt(idStr);
+        const conteo = parseFloat(cantStr);
+        if (isNaN(id) || isNaN(conteo) || conteo < 0) continue;
+        const rs = await pool.query('SELECT COALESCE(SUM(cantidad),0) AS stock FROM articulos_movimientos WHERE articulo_id=$1', [id]);
+        const stock = parseFloat(rs.rows[0].stock) || 0;
+        const dif = Math.round((conteo - stock) * 100) / 100;
+        await pool.query("INSERT INTO articulos_movimientos(articulo_id,tipo,cantidad,nota,usuario) VALUES($1,'ajuste',$2,$3,$4)",
+          [id, dif, `Revisión física: contado ${conteo}, teórico ${stock}` + (dif !== 0 ? ` (diferencia ${dif > 0 ? '+' : ''}${dif})` : ' (sin diferencia)'), usuario]);
+        ajustes++;
+      }
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, ajustes}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+  if (urlPath === '/api/articulos-excel' && req.method === 'GET') {
+    try {
+      const r = await pool.query(`
+        SELECT a.nombre, a.categoria, COALESCE(SUM(m.cantidad),0) AS stock,
+          TO_CHAR(MAX(CASE WHEN m.tipo='ajuste' THEN m.fecha END) AT TIME ZONE 'America/Guayaquil','DD/MM/YYYY') AS ultima_revision
+        FROM articulos a LEFT JOIN articulos_movimientos m ON m.articulo_id = a.id
+        WHERE a.activo = true GROUP BY a.id, a.nombre, a.categoria ORDER BY a.categoria, a.nombre`);
+      const filas = [['Artículo','Categoría','Stock actual','Última revisión','Conteo físico']];
+      r.rows.forEach(x => filas.push([x.nombre, x.categoria||'', parseFloat(x.stock), x.ultima_revision||'', '']));
+      const ws = XLSX.utils.aoa_to_sheet(filas);
+      ws['!cols'] = [{wch:45},{wch:18},{wch:12},{wch:14},{wch:14}];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Articulos');
+      const buf = XLSX.write(wb, { type:'buffer', bookType:'xlsx' });
+      res.writeHead(200,{
+        'Content-Type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition':'attachment; filename="ARTICULOS_OFICINA.xlsx"',
+        'Cache-Control':'no-cache'
+      });
+      res.end(buf);
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
     return;
   }
 
