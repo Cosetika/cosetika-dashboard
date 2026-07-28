@@ -5683,6 +5683,19 @@ async function cargarYDibujarVentasDiaMarca(){
   try{
     const r = await fetch(`/api/ventas-dia-marca?anio=${anioR}&mes=${mesSel}`);
     const d = await r.json();
+    if(d.pending){
+      // El server lo está calculando en segundo plano — reintentar hasta 6 veces
+      window._vdmIntentos = (window._vdmIntentos||0) + 1;
+      if(window._vdmIntentos <= 6){
+        if(statusEl) statusEl.textContent = 'Preparando el desglose por marca (unos segundos)...';
+        setTimeout(cargarYDibujarVentasDiaMarca, 6000);
+      } else {
+        if(statusEl) statusEl.textContent = 'El desglose tarda más de lo normal — recarga en un momento';
+        window._vdmIntentos = 0;
+      }
+      return;
+    }
+    window._vdmIntentos = 0;
     if(!d.ok) throw new Error(d.error||'error');
     const MARCAS_ORD = ['ZIAJA','BIOSKIN','ZIAJA PRO','ERAYBA'];
     // Eje de días: todos los días con ventas de cualquier marca
