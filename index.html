@@ -8033,7 +8033,8 @@ async function renderPresupuestoVentas(){
   const eraybaMes = {}; // 'YYYY-MM' → total ERAYBA global
   const eraybaAse = {}; // ancla → total ERAYBA 2026
   const eraybaProds = new Set();
-  Object.entries(window.DATA||{}).forEach(([vend, clientes])=>{
+  const DATA_P = (typeof DATA !== 'undefined' && DATA) ? DATA : (window.DATA || {});
+  Object.entries(DATA_P).forEach(([vend, clientes])=>{
     const k = pptoAncla(vend);
     if(!ventasMes[k]) ventasMes[k] = {};
     (clientes||[]).forEach(cli=>{
