@@ -8259,6 +8259,7 @@ async function renderPresupuestoVentas(){
   try{
     const [rC, rU] = await Promise.all([fetch('/api/presupuesto-config'), fetch('/api/usuarios')]);
     const jC = await rC.json(); if(jC.ok && jC.config) cfg = Object.assign({pct:{},overrides:{},snapshots:{}}, jC.config);
+    cfg.incentivo = Object.assign({ pct_minimo: 90, bono: 50 }, cfg.incentivo || {});
     const dU = await rU.json(); if(Array.isArray(dU)) usuarios = dU;
   }catch(e){}
   window._pptoCfg = cfg;
@@ -8459,7 +8460,71 @@ async function renderPresupuestoVentas(){
         </tbody>
       </table></div>
     </div>
+    ${(()=>{
+      const inc = cfg.incentivo;
+      const PISO = 4000;
+      const mesActKey = mkDe(anioAct, mesAct);
+      const filasCom = filas.filter(f => !/giovanna/i.test(f.nombre) && f.metas[mesActKey] && f.metas[mesActKey].valor > 0);
+      if(filasCom.length === 0) return '';
+      const calcCom = (ventas, meta) => {
+        const minimo = Math.max(meta * inc.pct_minimo / 100, PISO);
+        if(ventas <= PISO) return { minimo, nivel: 0, comision: 0 };
+        if(ventas < minimo) return { minimo, nivel: 1, comision: 0.02 * (ventas - PISO) };
+        if(ventas < meta) return { minimo, nivel: 2, comision: 0.03 * (ventas - PISO) };
+        return { minimo, nivel: 3, comision: 0.03 * Math.max(0, meta - PISO) + inc.bono + 0.05 * (ventas - meta) };
+      };
+      const fmtC = v => '$' + (Math.round(v*100)/100).toFixed(2);
+      const NIVELES = ['Sin comisión (bajo $4.000)','2% — bajo el mínimo','3% — mínimo cumplido','META + bono + 5%'];
+      const NIVEL_COLOR = ['#9ca3af','#d97706','#2563eb','#16a34a'];
+      return `
+    <div class="card" style="margin-top:12px;padding:0">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding:14px 16px 10px">
+        <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px"><i class="ti ti-coin" style="margin-right:6px"></i>Comisiones proyectadas — ${MESES_PPTO[mesAct]} (escalera de incentivos)</div>
+        <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:12px">
+          <span>Mínimo: <input type="number" min="0" max="100" value="${inc.pct_minimo}" onchange="guardarIncentivoPpto('pct_minimo',this.value)" style="width:52px;padding:3px 5px;font-size:12px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;font-weight:700;color:var(--brown)">% de la meta</span>
+          <span>Bono: $<input type="number" min="0" value="${inc.bono}" onchange="guardarIncentivoPpto('bono',this.value)" style="width:56px;padding:3px 5px;font-size:12px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;font-weight:700;color:var(--brown)"></span>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--muted);padding:0 16px 10px;line-height:1.5">Piso $4.000 (debajo no hay comisión). Bajo el mínimo: <b>2%</b> del excedente de $4.000 · alcanzando el mínimo: <b>3%</b> · superando la meta: 3% hasta la meta + <b>bono $${inc.bono}</b> + <b>5%</b> de todo lo que exceda la meta.</div>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:700px">
+        <thead><tr style="border-bottom:1px solid var(--border)">
+          <th style="text-align:left;padding:8px 12px;font-size:10px;color:var(--muted);text-transform:uppercase">Asesora</th>
+          <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Ventas del mes</th>
+          <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Mínimo (${inc.pct_minimo}%)</th>
+          <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Meta</th>
+          <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Nivel actual</th>
+          <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Comisión hoy</th>
+          <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Si cumple la meta</th>
+        </tr></thead>
+        <tbody>
+          ${filasCom.map((f,fi)=>{
+            const meta = f.metas[mesActKey].valor;
+            const r = calcCom(f.realActual, meta);
+            const siMeta = 0.03 * Math.max(0, meta - PISO) + inc.bono;
+            return `
+          <tr style="border-bottom:0.5px solid var(--border);background:${fi%2?'#f6f3ef':'white'}">
+            <td style="padding:8px 12px;font-weight:600">${esc(f.nombre.split(' ').slice(0,2).join(' '))}</td>
+            <td style="padding:8px 8px;text-align:center;font-weight:700">${fmtP(f.realActual)}</td>
+            <td style="padding:8px 8px;text-align:center;color:var(--muted)">${fmtP(r.minimo)}</td>
+            <td style="padding:8px 8px;text-align:center;color:var(--muted)">${fmtP(meta)}</td>
+            <td style="padding:8px 8px;text-align:center"><span style="font-size:10px;font-weight:700;color:${NIVEL_COLOR[r.nivel]};border:1px solid ${NIVEL_COLOR[r.nivel]};border-radius:10px;padding:2px 8px;white-space:nowrap">${NIVELES[r.nivel]}</span></td>
+            <td style="padding:8px 8px;text-align:center;font-weight:800;font-size:13px;color:${r.comision>0?'#16a34a':'#9ca3af'}">${fmtC(r.comision)}</td>
+            <td style="padding:8px 8px;text-align:center;color:var(--brown);font-weight:600">${fmtC(siMeta)}<div style="font-size:9px;color:var(--muted);font-weight:400">+5% del exceso</div></td>
+          </tr>`;
+          }).join('')}
+        </tbody>
+      </table></div>
+    </div>`;
+    })()}
     ${cumplHTML}`;
+}
+
+async function guardarIncentivoPpto(campo, valor){
+  const cfg = window._pptoCfg || {pct:{},overrides:{},snapshots:{}};
+  cfg.incentivo = Object.assign({ pct_minimo: 90, bono: 50 }, cfg.incentivo || {});
+  cfg.incentivo[campo] = Math.max(0, parseFloat(valor) || 0);
+  window._pptoCfg = cfg;
+  await guardarPptoConfig();
 }
 
 async function guardarPptoConfig(){
