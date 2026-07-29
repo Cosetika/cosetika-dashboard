@@ -8331,12 +8331,20 @@ async function renderPresupuestoVentas(){
     const upliftAse = Math.round(upliftTotal * ((eraybaAse[k]||0) / eraybaTotal));
     // Metas por mes de la ventana
     const metas = {};
+    // Una meta manual se vuelve la NUEVA BASE: los meses siguientes crecen con el % desde ahí
+    let refCrec = base || 0;
     ventana.forEach((v,i)=>{
-      if(ov[v.key] !== undefined && ov[v.key] !== null && ov[v.key] !== ''){ metas[v.key] = {valor: Math.round(parseFloat(ov[v.key])||0), manual:true}; return; }
-      if(pct === null || !base){ metas[v.key] = null; return; }
-      let val = base * Math.pow(1 + pct/100, i+1);
-      if(v.anio === 2026 && v.mes >= 10) val += upliftAse; // empuje ERAYBA desde octubre
-      metas[v.key] = {valor: Math.round(val), manual:false};
+      if(ov[v.key] !== undefined && ov[v.key] !== null && ov[v.key] !== ''){
+        const valM = Math.round(parseFloat(ov[v.key])||0);
+        metas[v.key] = {valor: valM, manual:true};
+        refCrec = valM;
+        return;
+      }
+      if(pct === null || !refCrec){ metas[v.key] = null; return; }
+      refCrec = refCrec * (1 + pct/100);
+      let mostrar = refCrec;
+      if(v.anio === 2026 && v.mes >= 10) mostrar += upliftAse; // empuje ERAYBA desde octubre
+      metas[v.key] = {valor: Math.round(mostrar), manual:false};
     });
     const realActual = Math.round(vm[mkDe(anioAct,mesAct)]||0);
     // Histórico: últimos 3 meses cerrados con % de crecimiento vs el mes anterior
