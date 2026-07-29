@@ -1502,7 +1502,7 @@ function pintarTestersInv(filtro){
       const mN = p.marca.toUpperCase().replace(/\s+/g,'');
       if(!MARCAS_OK.includes(mN)) return false;
       const nN = p.nombre.normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase();
-      if(nN.includes('PROMO') || nN.startsWith('LINEA') || nN.includes('KIT BASICO')) return false;
+      if(nN.includes('PROMO') || nN.startsWith('LINEA') || /\bKITS?\b/.test(nN)) return false;
       if(marcaSel!=='TODAS' && p.marca.toUpperCase().replace(/\s+/g,'')!==marcaSel.replace(/\s+/g,'')) return false;
       return !q || nN.includes(q) || p.codigo.toUpperCase().includes(q);
     })

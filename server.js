@@ -445,7 +445,8 @@ function construirInventarioPorMarca(marcaFiltro) {
   const productosDelCatalogo = Object.entries(catalogoProductos)
     .filter(([id, info]) => (info.marca||'').toUpperCase() === marcaFiltro)
     .filter(([id, info]) => !(info.nombre||'').trim().toUpperCase().startsWith('PROMO'))
-    .filter(([id, info]) => !(info.nombre||'').trim().toUpperCase().startsWith('LÍNEA') && !(info.nombre||'').trim().toUpperCase().startsWith('LINEA'));
+    .filter(([id, info]) => !(info.nombre||'').trim().toUpperCase().startsWith('LÍNEA') && !(info.nombre||'').trim().toUpperCase().startsWith('LINEA'))
+    .filter(([id, info]) => !/\bKITS?\b/.test((info.nombre||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase()));
 
   const lista = productosDelCatalogo.map(([id, info]) => {
     const inv = INVENTARIO_CACHE.productos[id];
@@ -968,7 +969,7 @@ function filtrarProductosBodega(lista){
     const nombreN = String(pr.nombre||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase().trim();
     if (nombreN.includes('PROMO')) return false;       // Promo Kit / Promo Línea Completa (todas las marcas)
     if (nombreN.startsWith('LINEA ')) return false;    // Línea Acai Berry, Línea Completa Curls, etc. (combos)
-    if (nombreN.includes('KIT BASICO')) return false;  // Kit Básico Ziaja Pro
+    if (/\bKITS?\b/.test(nombreN)) return false;      // Kits (Ziaja Pro, Bioskin, etc.) — no son productos en sí
     return true;
   });
 }
