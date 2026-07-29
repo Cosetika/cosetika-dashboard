@@ -2351,6 +2351,21 @@ const server = http.createServer(async (req, res) => {
           if (d && typeof d === 'object' && (viejo in d)) { d[nuevo] = d[viejo]; delete d[viejo]; await pool.query("UPDATE contifico_clientes_metas SET datos=$1, actualizado_at=NOW() WHERE id_unico='principal'", [JSON.stringify(d)]); detalle.metas_clientes = 1; }
         }
       } catch(e) {}
+      // Presupuesto de ventas: renombrar claves (pct, overrides y snapshots)
+      try {
+        const rawP = await getConfigApp('presupuesto_ventas', null);
+        if (rawP) {
+          const cfgP = JSON.parse(rawP);
+          let cambioP = false;
+          ['pct','overrides'].forEach(sec => {
+            if (cfgP[sec] && (viejo in cfgP[sec])) { cfgP[sec][nuevo] = cfgP[sec][viejo]; delete cfgP[sec][viejo]; cambioP = true; }
+          });
+          Object.values(cfgP.snapshots || {}).forEach(sn => {
+            if (sn && (viejo in sn)) { sn[nuevo] = sn[viejo]; delete sn[viejo]; cambioP = true; }
+          });
+          if (cambioP) { await setConfigApp('presupuesto_ventas', JSON.stringify(cfgP)); detalle.presupuesto = 1; }
+        }
+      } catch(e) {}
       console.log(`👤 Usuaria renombrada: "${viejo}" → "${nuevo}"`, detalle);
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, viejo, nuevo, detalle}));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
@@ -5136,6 +5151,14 @@ const server = http.createServer(async (req, res) => {
       const raw = await getConfigApp('presupuesto_ventas', null);
       let cfg = null;
       if (raw) { try { cfg = JSON.parse(raw); } catch(e) {} }
+      // Migración: la escalera de la nueva asesora ERAYBA vive bajo 'Nueva Asesora'
+      // (el nombre real se pondrá renombrando a la usuaria cuando entre)
+      if (cfg && cfg.overrides && cfg.overrides['Mayra Taipe']) {
+        cfg.overrides['Nueva Asesora'] = Object.assign({}, cfg.overrides['Mayra Taipe'], cfg.overrides['Nueva Asesora'] || {});
+        delete cfg.overrides['Mayra Taipe'];
+        if (cfg.pct && 'Mayra Taipe' in cfg.pct) { delete cfg.pct['Mayra Taipe']; }
+        await setConfigApp('presupuesto_ventas', JSON.stringify(cfg));
+      }
       if (!cfg) {
         // Defaults iniciales: ultimátum de Nicole (ago 2026) + escalera de Mayra (sep 2026 → sep 2027)
         const escalera = {};
@@ -5148,7 +5171,7 @@ const server = http.createServer(async (req, res) => {
           pct: {},
           overrides: {
             'Nicole Yanira Leon Marquez': { '2026-08': 4000 },
-            'Mayra Taipe': escalera
+            'Nueva Asesora': escalera
           },
           snapshots: {}
         };

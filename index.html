@@ -8389,9 +8389,7 @@ async function renderPresupuestoVentas(){
     </div>` : '';
 
   cont.innerHTML = `
-    <div class="card" style="background:#eff6ff;border:1px solid #bfdbfe;font-size:12px;color:#1e40af;line-height:1.5;margin-bottom:12px">
-      <b>Cómo se calcula:</b> base = promedio de los últimos 3 meses cerrados (sin IVA) de cada asesora. Meta = base × su % de crecimiento mensual compuesto. El % sugerido sale de su tendencia real. Desde <b>octubre</b> se suma el empuje estimado de los 11 productos ERAYBA nuevos (${fmtP(upliftTotal)}/mes total, repartido según cuánto ERAYBA vende cada una — calculado del aporte real por producto ERAYBA, con factor prudente). Las metas <span style="background:#fef3c7;border-radius:3px;padding:0 4px">en ámbar</span> son manuales: haz clic en cualquier meta para fijarla o quitarla.
-    </div>
+
     <div class="card" style="padding:0">
       <div style="padding:14px 16px 10px;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px"><i class="ti ti-target-arrow" style="margin-right:6px"></i>Presupuesto — mes en curso + 3 proyectados (sin IVA)</div>
       <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:820px">
