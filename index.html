@@ -229,6 +229,7 @@
     <div id="nav-visitas-subs" style="max-height:0;overflow:hidden;transition:max-height 0.25s ease">
       <div class="nav-sub-item" id="navsub-visitas-plan" onclick="navGoVisitas('planificacion')"><i class="ti ti-calendar" style="font-size:13px"></i>Planificación</div>
       <div class="nav-sub-item" id="navsub-visitas-real" onclick="navGoVisitas('realizadas')"><i class="ti ti-map-2" style="font-size:13px"></i>Provincias y Sectores</div>
+      <div class="nav-sub-item" id="navsub-visitas-asignacion" onclick="navGoVisitas('asignacion')"><i class="ti ti-map-pins" style="font-size:13px"></i>Asignación</div>
       <div class="nav-sub-item" id="navsub-visitas-viaticos" onclick="navGoVisitas('viaticos')"><i class="ti ti-cash" style="font-size:13px"></i>Viáticos</div>
     </div>
 
@@ -537,9 +538,9 @@ function navSetDocTab(tab){
 function navGoVisitas(tab){
   closeSidebar();
   window._visitaTab = tab;
-  document.getElementById('mobile-mod-title').textContent = tab==='planificacion'?'Plan. Visitas':tab==='viaticos'?'Viáticos':'Provincias y Sectores';
+  document.getElementById('mobile-mod-title').textContent = tab==='planificacion'?'Plan. Visitas':tab==='viaticos'?'Viáticos':tab==='asignacion'?'Asignación':'Provincias y Sectores';
   document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
-  document.getElementById(tab==='planificacion'?'navsub-visitas-plan':tab==='viaticos'?'navsub-visitas-viaticos':'navsub-visitas-real')?.classList.add('active');
+  document.getElementById(tab==='planificacion'?'navsub-visitas-plan':tab==='viaticos'?'navsub-visitas-viaticos':tab==='asignacion'?'navsub-visitas-asignacion':'navsub-visitas-real')?.classList.add('active');
   if(modActual !== 'visitas') setMod('visitas');
   else renderModVisitas();
 }
@@ -3351,7 +3352,106 @@ function renderModVisitas(){
   document.getElementById('main').innerHTML = '<div id="visitas-content"></div>';
   if(tab==='realizadas') renderVisitasRealizadas();
   else if(tab==='viaticos') renderViaticosTarifas();
+  else if(tab==='asignacion') renderAsignacionGiras();
   else renderPlanificacion();
+}
+
+// ─── ASIGNACIÓN DE PROVINCIAS (GIRAS): columna por asesora, editable admin/jefa ──
+const PROVINCIAS_EC = ['Azuay','Bolívar','Cañar','Carchi','Chimborazo','Cotopaxi','El Oro','Esmeraldas','Galápagos','Guayas','Cantones de Guayas','Babahoyo','Imbabura','Loja','Los Ríos','Manabí','Morona Santiago','Napo','Orellana','Pastaza','Pichincha','Santa Elena','Santo Domingo','Sucumbíos','Tungurahua','Zamora Chinchipe'];
+
+async function renderAsignacionGiras(){
+  const cont = document.getElementById('visitas-content');
+  if(!cont) return;
+  cont.innerHTML = '<div style="padding:30px;text-align:center;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:22px"></i></div>';
+  const uAs = window.usuarioActual || {};
+  const puedeEditarAsig = uAs.rol === 'admin' || uAs.rol === 'jefa_ventas';
+  let asig = {}, usuarios = [];
+  try{
+    const [rA, rU] = await Promise.all([fetch('/api/asignacion-giras'), fetch('/api/usuarios')]);
+    const jA = await rA.json(); if(jA.ok && jA.asignacion) asig = jA.asignacion;
+    const dU = await rU.json(); if(Array.isArray(dU)) usuarios = dU;
+  }catch(e){}
+  window._asigGiras = asig;
+
+  // Columnas: asesoras activas (rol asesora) + claves de la asignación que no calcen (tolerante por ancla)
+  const anclaA = v => String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().split(/\s+/).slice(0,2).join(' ');
+  const columnas = usuarios.filter(u=>u.rol==='asesora' && u.activo).map(u=>u.nombre);
+  Object.keys(asig).forEach(k=>{ if(!columnas.some(c=>anclaA(c)===anclaA(k))) columnas.push(k); });
+  const provsDe = (nombre) => {
+    const k = Object.keys(asig).find(x=>anclaA(x)===anclaA(nombre));
+    return k ? (asig[k]||[]) : [];
+  };
+  const esc = v => String(v||'').replace(/</g,'&lt;');
+
+  cont.innerHTML = `
+    <div class="card" style="padding:0;overflow:hidden">
+      <div style="background:#1a1108;padding:16px 20px;text-align:center">
+        <div style="font-size:15px;font-weight:700;color:white;letter-spacing:1.5px;text-transform:uppercase"><i class="ti ti-map-pins" style="margin-right:8px"></i>Asignación de Provincias (Giras)</div>
+      </div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:${columnas.length*180}px">
+          <thead><tr>
+            ${columnas.map(c=>`<th style="background:#e8c98a;color:#1a1108;padding:12px 10px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;border:1px solid #d4b06a;text-align:center">${esc(c.split(' ').slice(0,2).join(' '))}</th>`).join('')}
+          </tr></thead>
+          <tbody><tr>
+            ${columnas.map(c=>{
+              const provs = provsDe(c);
+              return `<td style="vertical-align:top;border:1px solid var(--border);padding:10px 8px;background:white">
+                ${provs.map((p,pi)=>`
+                  <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;padding:8px 10px;margin-bottom:6px;background:#f7f5f1;border-radius:8px">
+                    <span style="font-size:12px;font-weight:600;text-transform:uppercase">${esc(p)}</span>
+                    ${puedeEditarAsig?`<button onclick="quitarProvAsig('${c.replace(/'/g,"\\'")}',${pi})" title="Quitar" style="background:none;border:none;cursor:pointer;color:#ccc;font-size:13px;padding:0 2px;line-height:1">×</button>`:''}
+                  </div>`).join('')}
+                ${provs.length===0?'<div style="text-align:center;color:var(--muted);font-size:11px;padding:10px 0">Sin provincias</div>':''}
+                ${puedeEditarAsig?`
+                <div style="display:flex;gap:5px;margin-top:8px">
+                  <input type="text" id="asig-nueva-${columnas.indexOf(c)}" list="asig-provincias-dl" placeholder="+ Provincia"
+                    onkeydown="if(event.key==='Enter')agregarProvAsig('${c.replace(/'/g,"\\'")}','asig-nueva-${columnas.indexOf(c)}')"
+                    style="flex:1;min-width:0;padding:6px 8px;font-size:11px;border:1px dashed var(--border);border-radius:7px;outline:none;box-sizing:border-box">
+                  <button onclick="agregarProvAsig('${c.replace(/'/g,"\\'")}','asig-nueva-${columnas.indexOf(c)}')" style="width:26px;height:26px;border:1px solid var(--border);background:white;border-radius:7px;cursor:pointer;color:var(--brown);font-weight:700;flex-shrink:0">+</button>
+                </div>`:''}
+              </td>`;
+            }).join('')}
+          </tr></tbody>
+        </table>
+      </div>
+      ${puedeEditarAsig?'<div style="font-size:11px;color:var(--muted);padding:10px 16px">Escribe la provincia (o cantón) y pulsa + o Enter · la × quita la asignación · los cambios se guardan automáticamente</div>':''}
+    </div>
+    <datalist id="asig-provincias-dl">${PROVINCIAS_EC.map(p=>`<option value="${p}">`).join('')}</datalist>`;
+}
+
+async function guardarAsigGiras(){
+  try{
+    const r = await fetch('/api/asignacion-giras', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ asignacion: window._asigGiras||{} }) });
+    const j = await r.json();
+    if(!j.ok) throw new Error(j.error||'error');
+    renderAsignacionGiras();
+  }catch(e){ alert('Error al guardar: '+e.message); }
+}
+
+async function agregarProvAsig(asesora, inputId){
+  const inp = document.getElementById(inputId);
+  const prov = (inp?.value||'').trim();
+  if(!prov) return;
+  const asig = window._asigGiras || {};
+  const anclaA = v => String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().split(/\s+/).slice(0,2).join(' ');
+  const key = Object.keys(asig).find(x=>anclaA(x)===anclaA(asesora)) || asesora;
+  asig[key] = asig[key] || [];
+  if(asig[key].some(p=>p.toUpperCase()===prov.toUpperCase())){ alert('Esa provincia ya está asignada a '+asesora.split(' ')[0]); return; }
+  asig[key].push(prov);
+  window._asigGiras = asig;
+  await guardarAsigGiras();
+}
+
+async function quitarProvAsig(asesora, idx){
+  const asig = window._asigGiras || {};
+  const anclaA = v => String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().split(/\s+/).slice(0,2).join(' ');
+  const key = Object.keys(asig).find(x=>anclaA(x)===anclaA(asesora));
+  if(!key || !asig[key] || !asig[key][idx]) return;
+  if(!confirm('¿Quitar '+asig[key][idx]+' de '+asesora.split(' ')[0]+'?')) return;
+  asig[key].splice(idx, 1);
+  window._asigGiras = asig;
+  await guardarAsigGiras();
 }
 
 function setVisitaTab(tab){

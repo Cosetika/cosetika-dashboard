@@ -5145,6 +5145,34 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // ─── ASIGNACIÓN DE PROVINCIAS PARA GIRAS (Visitas → Asignación) ──
+  if (urlPath === '/api/asignacion-giras' && req.method === 'GET') {
+    try {
+      const raw = await getConfigApp('asignacion_giras', null);
+      let asig = null;
+      if (raw) { try { asig = JSON.parse(raw); } catch(e) {} }
+      if (!asig) {
+        asig = {
+          'Liseth Gavilanes': ['Imbabura','Santo Domingo','Manabí'],
+          'Daniela Villegas': ['Tungurahua','Chimborazo','Cotopaxi','Manabí'],
+          'Karen Mora': ['Cantones de Guayas','Babahoyo'],
+          'Nicole León': ['Azuay','El Oro','Santa Elena','Los Ríos']
+        };
+      }
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ ok:true, asignacion: asig }));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+  if (urlPath === '/api/asignacion-giras' && req.method === 'POST') {
+    try {
+      const { asignacion } = await bodyJSON(req);
+      if (!asignacion || typeof asignacion !== 'object') { res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'Datos inválidos'})); return; }
+      await setConfigApp('asignacion_giras', JSON.stringify(asignacion));
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
   // ─── PRESUPUESTO DE VENTAS (Reportes → Presupuesto) ──
   if (urlPath === '/api/presupuesto-config' && req.method === 'GET') {
     try {
