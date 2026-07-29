@@ -7270,7 +7270,7 @@ function weekLabel(offset=0){
   return `${dates[0].toLocaleDateString('es-EC',opts)} – ${dates[5].toLocaleDateString('es-EC',opts)}`;
 }
 
-function isoDate(d){ return d.toISOString().split('T')[0]; }
+function isoDate(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 
 function getDayName(d){
   return ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][d.getDay()];
@@ -9002,7 +9002,7 @@ async function renderTestersDetalle(clienteId, clienteNombre, clienteCedula){
     + '<div id="tester-sugerencias" style="display:none;margin-top:8px;background:white;border:1px solid var(--border);border-radius:8px;max-height:480px;overflow-y:auto"></div></div>'
     + '<div id="tester-producto-sel" style="display:none;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:#166534;align-items:center;gap:8px"><i class="ti ti-check"></i> <span id="tester-producto-sel-text"></span></div>'
     + '<div style="display:flex;gap:8px;align-items:center">'
-    + '<input type="date" id="tester-fecha" value="'+new Date().toISOString().split('T')[0]+'" style="padding:8px 10px;font-size:13px;border:1px solid var(--border);border-radius:8px;outline:none;flex:1">'
+    + '<input type="date" id="tester-fecha" value="'+isoDate(new Date())+'" style="padding:8px 10px;font-size:13px;border:1px solid var(--border);border-radius:8px;outline:none;flex:1">'
     + '<button onclick="guardarNuevoTester(\''+idSafe+'\',\''+nomSafe+'\',\''+cedula+'\')" style="padding:8px 16px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500;white-space:nowrap"><i class="ti ti-check" style="margin-right:4px"></i>Guardar</button>'
     + '</div></div>'
     + (testers.length === 0 ? '<p style="font-size:13px;color:var(--muted)">Sin testers registrados — agrega uno arriba</p>' : marcasHTML);
@@ -9130,7 +9130,7 @@ async function guardarNuevoTester(clienteId, clienteNombre, clienteCedula){
     alert('Selecciona un producto del catálogo primero');
     return;
   }
-  const fecha = document.getElementById('tester-fecha')?.value || new Date().toISOString().split('T')[0];
+  const fecha = document.getElementById('tester-fecha')?.value || isoDate(new Date());
   try{
     const r = await fetch('/api/testers', {
       method: 'POST',
@@ -10110,7 +10110,7 @@ async function renderKpisGiovanna(asesoraKpi, asesoras, puedeVerTodas, rol){
   } else {
     lunesRef = lunesDelMes[lunesDelMes.length-1] || new Date(anio, mes-1, 1);
   }
-  const lunesKey = lunesRef.toISOString().split('T')[0];
+  const lunesKey = isoDate(lunesRef);
 
   document.getElementById('main').innerHTML = '<div style="display:flex;justify-content:center;padding:40px;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:24px"></i></div>';
 
@@ -10178,7 +10178,7 @@ async function renderKpisGiovanna(asesoraKpi, asesoras, puedeVerTodas, rol){
   revisiones.forEach(r=>{ revMap[r.asesora+'|'+r.semana] = r.revisado; });
   // Un lunes cuenta como "revisado" solo cuando TODAS las asesoras del equipo están marcadas
   const lunesCompletos = lunesDelMes.filter(l=>{
-    const lk = l.toISOString().split('T')[0];
+    const lk = isoDate(l);
     return asesorasEquipo.length > 0 && asesorasEquipo.every(a=>revMap[a+'|'+lk]);
   }).length;
   const totalRevEsperadas = lunesDelMes.length;
@@ -10631,7 +10631,7 @@ async function renderKpisControl(){
               <tr style="border-bottom:0.5px solid #f0ede9">
                 <td style="padding:8px 10px;font-weight:500">${a.split(' ')[0]}</td>
                 ${lunesDelMes.map(l=>{
-                  const lk = l.toISOString().split('T')[0];
+                  const lk = isoDate(l);
                   const marcado = revMap[a+'|'+lk];
                   return `<td style="padding:8px 10px;text-align:center">
                     <input type="checkbox" ${marcado?'checked':''}
@@ -10870,7 +10870,7 @@ async function renderKpis(){
   try{
     const hoyEcK = new Date(new Date().toLocaleString('en-US',{timeZone:'America/Guayaquil'}));
     const lunesK = new Date(hoyEcK); lunesK.setDate(hoyEcK.getDate() - ((hoyEcK.getDay()+6)%7));
-    const lunesKeyK = lunesK.toISOString().split('T')[0];
+    const lunesKeyK = isoDate(lunesK);
     const mesKeyK = `${anioFiltro}-${String(mesFiltro).padStart(2,'0')}`;
     const rV = await fetch(`/api/kpi-cumplimiento-visitas?semana=${lunesKeyK}&mes=${mesKeyK}`);
     if(rV.ok){
