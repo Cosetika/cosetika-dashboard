@@ -10407,8 +10407,8 @@ async function renderKpisControl(){
     const misSem = (cumplimiento.semanas||[]).filter(x=>mismoP(x.asesora, a));
     const cumpleVis = !!det && lunesTranscurridos.length > 0 && lunesTranscurridos.every(l=>{
       const key = `${l.getFullYear()}-${String(l.getMonth()+1).padStart(2,'0')}-${String(l.getDate()).padStart(2,'0')}`;
-      const reg = misSem.find(x=>String(x.semana).substring(0,10)===key);
-      return (reg ? reg.visitadas : 0) >= det.meta;
+      const vis = misSem.filter(x=>String(x.semana).substring(0,10)===key).reduce((a,x)=>a+(parseInt(x.visitadas)||0),0);
+      return vis >= det.meta;
     });
     const giras = girasCtrl.filter(g=>g.realizada && mismoP(g.asesora, a));
     const casas = casasCtrl.filter(c=>c.realizada && mismoP(c.asesora, a));
@@ -10461,7 +10461,7 @@ async function renderKpisControl(){
               });
               const celdas = lunesDelMes.map(l=>{
                 const key = `${l.getFullYear()}-${String(l.getMonth()+1).padStart(2,'0')}-${String(l.getDate()).padStart(2,'0')}`;
-                const reg = misSemanas.find(x=>String(x.semana).substring(0,10)===key);
+                const reg = { visitadas: misSemanas.filter(x=>String(x.semana).substring(0,10)===key).reduce((a,x)=>a+(parseInt(x.visitadas)||0),0) };
                 const v = reg ? reg.visitadas : 0;
                 return `<td style="padding:8px 10px;text-align:center;font-weight:700;color:${v>=d.meta?'#16a34a':(v>0?'#d97706':'#dc2626')}">${v}</td>`;
               }).join('');
@@ -10469,7 +10469,7 @@ async function renderKpisControl(){
               // Control: cumplió si todas las semanas transcurridas alcanzaron la meta
               const cumpleVis = lunesTranscurridos.length > 0 && lunesTranscurridos.every(l=>{
                 const key = `${l.getFullYear()}-${String(l.getMonth()+1).padStart(2,'0')}-${String(l.getDate()).padStart(2,'0')}`;
-                const reg = misSemanas.find(x=>String(x.semana).substring(0,10)===key);
+                const reg = { visitadas: misSemanas.filter(x=>String(x.semana).substring(0,10)===key).reduce((a,x)=>a+(parseInt(x.visitadas)||0),0) };
                 return (reg ? reg.visitadas : 0) >= d.meta;
               });
               return `
@@ -10874,7 +10874,14 @@ async function renderKpis(){
       const matchA = (n) => n.toLowerCase().startsWith(p1) || asesoraKpi.toLowerCase().startsWith(n.split(' ')[0].toLowerCase());
       const fila = (dV.detalle||[]).find(d => matchA(d.asesora));
       if(fila){ visitasSemana = fila.visitadas_semana; visitasMeta = fila.meta; visitasMesTotal = fila.visitadas_mes; }
-      visitasSemanasMes = (dV.semanas||[]).filter(s => matchA(s.asesora));
+      // Fusionar por fecha de semana: la planificación puede existir bajo dos variantes
+      // del nombre de la asesora (ej. con y sin segundo apellido) y duplicaba tarjetas
+      const porSemK = {};
+      (dV.semanas||[]).filter(s => matchA(s.asesora)).forEach(s => {
+        const k = String(s.semana).substring(0,10);
+        porSemK[k] = (porSemK[k]||0) + (parseInt(s.visitadas)||0);
+      });
+      visitasSemanasMes = Object.keys(porSemK).sort().map(k => ({ semana: k, visitadas: porSemK[k] }));
     }
   }catch(e){}
 
