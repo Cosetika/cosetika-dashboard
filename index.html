@@ -7307,11 +7307,14 @@ async function renderPlanificacion(){
 
   // Cargar planificación de esta semana
   let saved = [];
+  let planDebug = '';
   try {
-    const r = await fetch(`/api/planificacion?asesora=${encodeURIComponent(asesoraConsulta)}&semana=${semanaKey}`);
+    const r = await fetch(`/api/planificacion?asesora=${encodeURIComponent(asesoraConsulta)}&semana=${semanaKey}`, { cache: 'no-store' });
     const data = await r.json();
     if(Array.isArray(data)) saved = data;
-  } catch(e) { saved = []; }
+    else planDebug = 'respuesta no válida: ' + JSON.stringify(data).substring(0,120);
+  } catch(e) { saved = []; planDebug = 'error: ' + e.message; }
+  window._planDebugInfo = `${saved.length} filas · ${asesoraConsulta} · ${semanaKey}${planDebug ? ' · ' + planDebug : ''}`;
 
   // Inicializar filas — preservar visitado_at
   if(saved.length > 0){
@@ -7365,6 +7368,7 @@ async function renderPlanificacion(){
 
   window._planAsesoraActual = asesoraConsulta;
   window._planSemanaActual = semanaKey;
+  setTimeout(()=>{ const dbgEl = document.getElementById('plan-debug-info'); if(dbgEl) dbgEl.textContent = window._planDebugInfo || ''; }, 80);
   window._metaVisitasActual = metaVisitas;
   setTimeout(() => actualizarKpisPlan(), 50);
 
@@ -7408,6 +7412,7 @@ async function renderPlanificacion(){
           `}
         </div>
       </div>
+      <div id="plan-debug-info" style="font-size:10px;color:#b8b0a4;padding:0 14px 4px"></div>
       <div style="overflow-x:auto">
         <table style="width:100%;border-collapse:collapse;font-size:12px" id="plan-table">
           <thead>
