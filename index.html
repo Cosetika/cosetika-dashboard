@@ -8359,7 +8359,7 @@ async function renderPresupuestoVentas(){
   try{
     const [rC, rU] = await Promise.all([fetch('/api/presupuesto-config'), fetch('/api/usuarios')]);
     const jC = await rC.json(); if(jC.ok && jC.config) cfg = Object.assign({pct:{},overrides:{},snapshots:{}}, jC.config);
-    cfg.incentivo = Object.assign({ pct_minimo: 90, bono: 50 }, cfg.incentivo || {});
+    cfg.incentivo = Object.assign({ pct_minimo: 90, bono: 50, pct_exceso: 5 }, cfg.incentivo || {});
     const dU = await rU.json(); if(Array.isArray(dU)) usuarios = dU;
   }catch(e){}
   window._pptoCfg = cfg;
@@ -8571,10 +8571,10 @@ async function renderPresupuestoVentas(){
         if(ventas <= PISO) return { minimo, nivel: 0, comision: 0 };
         if(ventas < minimo) return { minimo, nivel: 1, comision: 0.02 * (ventas - PISO) };
         if(ventas < meta) return { minimo, nivel: 2, comision: 0.03 * (ventas - PISO) };
-        return { minimo, nivel: 3, comision: 0.03 * Math.max(0, meta - PISO) + inc.bono + 0.05 * (ventas - meta) };
+        return { minimo, nivel: 3, comision: 0.03 * Math.max(0, meta - PISO) + inc.bono + (inc.pct_exceso/100) * (ventas - meta) };
       };
       const fmtC = v => '$' + (Math.round(v*100)/100).toFixed(2);
-      const NIVELES = ['Sin comisión (bajo $4.000)','2% — bajo el mínimo','3% — mínimo cumplido','META + bono + 5%'];
+      const NIVELES = ['Sin comisión (bajo $4.000)','2% — bajo el mínimo','3% — mínimo cumplido','META + bono + '+inc.pct_exceso+'%'];
       const NIVEL_COLOR = ['#9ca3af','#d97706','#2563eb','#16a34a'];
       return `
     <div class="card" style="margin-top:12px;padding:0">
@@ -8583,9 +8583,10 @@ async function renderPresupuestoVentas(){
         <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:12px">
           <span>Mínimo: <input type="number" min="0" max="100" value="${inc.pct_minimo}" onchange="guardarIncentivoPpto('pct_minimo',this.value)" style="width:52px;padding:3px 5px;font-size:12px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;font-weight:700;color:var(--brown)">% de la meta</span>
           <span>Bono: $<input type="number" min="0" value="${inc.bono}" onchange="guardarIncentivoPpto('bono',this.value)" style="width:56px;padding:3px 5px;font-size:12px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;font-weight:700;color:var(--brown)"></span>
+          <span>Exceso de meta: <input type="number" min="0" max="100" step="0.5" value="${inc.pct_exceso}" onchange="guardarIncentivoPpto('pct_exceso',this.value)" style="width:52px;padding:3px 5px;font-size:12px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;font-weight:700;color:var(--brown)">%</span>
         </div>
       </div>
-      <div style="font-size:11px;color:var(--muted);padding:0 16px 10px;line-height:1.5">Piso $4.000 (debajo no hay comisión). Bajo el mínimo: <b>2%</b> del excedente de $4.000 · alcanzando el mínimo: <b>3%</b> · superando la meta: 3% hasta la meta + <b>bono $${inc.bono}</b> + <b>5%</b> de todo lo que exceda la meta.</div>
+      <div style="font-size:11px;color:var(--muted);padding:0 16px 10px;line-height:1.5">Piso $4.000 (debajo no hay comisión). Bajo el mínimo: <b>2%</b> del excedente de $4.000 · alcanzando el mínimo: <b>3%</b> · superando la meta: 3% hasta la meta + <b>bono $${inc.bono}</b> + <b>${inc.pct_exceso}%</b> de todo lo que exceda la meta.</div>
       <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:700px">
         <thead><tr style="border-bottom:1px solid var(--border)">
           <th style="text-align:left;padding:8px 12px;font-size:10px;color:var(--muted);text-transform:uppercase">Asesora</th>
@@ -8609,7 +8610,7 @@ async function renderPresupuestoVentas(){
             <td style="padding:8px 8px;text-align:center;color:var(--muted)">${fmtP(meta)}</td>
             <td style="padding:8px 8px;text-align:center"><span style="font-size:10px;font-weight:700;color:${NIVEL_COLOR[r.nivel]};border:1px solid ${NIVEL_COLOR[r.nivel]};border-radius:10px;padding:2px 8px;white-space:nowrap">${NIVELES[r.nivel]}</span></td>
             <td style="padding:8px 8px;text-align:center;font-weight:800;font-size:13px;color:${r.comision>0?'#16a34a':'#9ca3af'}">${fmtC(r.comision)}</td>
-            <td style="padding:8px 8px;text-align:center;color:var(--brown);font-weight:600">${fmtC(siMeta)}<div style="font-size:9px;color:var(--muted);font-weight:400">+5% del exceso</div></td>
+            <td style="padding:8px 8px;text-align:center;color:var(--brown);font-weight:600">${fmtC(siMeta)}<div style="font-size:9px;color:var(--muted);font-weight:400">+${inc.pct_exceso}% del exceso</div></td>
           </tr>`;
           }).join('')}
         </tbody>
@@ -8621,7 +8622,7 @@ async function renderPresupuestoVentas(){
 
 async function guardarIncentivoPpto(campo, valor){
   const cfg = window._pptoCfg || {pct:{},overrides:{},snapshots:{}};
-  cfg.incentivo = Object.assign({ pct_minimo: 90, bono: 50 }, cfg.incentivo || {});
+  cfg.incentivo = Object.assign({ pct_minimo: 90, bono: 50, pct_exceso: 5 }, cfg.incentivo || {});
   cfg.incentivo[campo] = Math.max(0, parseFloat(valor) || 0);
   window._pptoCfg = cfg;
   await guardarPptoConfig();
