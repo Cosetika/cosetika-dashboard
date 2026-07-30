@@ -1549,7 +1549,7 @@ function pintarTestersInv(filtro){
             return `<td style="padding:6px 4px;text-align:center;vertical-align:middle">
               ${regs.length ? `
                 <div style="font-size:11px;font-weight:800;color:#16a34a">✓${regs.length>1?' ×'+regs.length:''}</div>
-                <div style="font-size:9px;color:var(--muted)">${fmtMA(ultimo.fecha)}</div>
+                ${regs.map(rg=>`<div style="font-size:9px;color:var(--muted);line-height:1.4">${fmtMA(rg.fecha)}</div>`).join('')}
                 ${rojo?'':`<div style="display:flex;gap:3px;justify-content:center;margin-top:2px">
                   <button onclick="registrarTesterAse('${p.id}','${a.replace(/'/g,"\\'")}')" title="Registrar otra entrega" style="width:18px;height:18px;border:1px solid #86efac;background:#f0fdf4;border-radius:4px;cursor:pointer;font-size:10px;line-height:1;color:#16a34a;padding:0">+</button>
                   <button onclick="quitarTesterAse(${ultimo.id},'${esc(p.nombre).replace(/'/g,'')}','${a.replace(/'/g,"\\'")}')" title="Quitar última entrega" style="width:18px;height:18px;border:1px solid #fca5a5;background:#fef2f2;border-radius:4px;cursor:pointer;font-size:10px;line-height:1;color:#ef4444;padding:0">−</button>
