@@ -3091,6 +3091,8 @@ const PLAN_CONFIG = {
       { key:'ciudad', label:'Provincia', type:'select', options:['Azuay', 'Bolívar', 'Cañar', 'Carchi', 'Chimborazo', 'Cotopaxi', 'El Oro', 'Esmeraldas', 'Galápagos', 'Guayas', 'Imbabura', 'Loja', 'Los Ríos', 'Manabí', 'Morona Santiago', 'Napo', 'Orellana', 'Pastaza', 'Pichincha', 'Santa Elena', 'Santo Domingo', 'Sucumbíos', 'Tungurahua', 'Zamora Chinchipe'] },
       { key:'ciudad_visita', label:'Ciudad', type:'text', placeholder:'Ej: Portoviejo' },
       { key:'valor_viaticos', label:'Valor Viáticos ($)', type:'number', placeholder:'0.00' },
+      { key:'valor_hotel', label:'Valor Hotel ($)', type:'number', placeholder:'0.00' },
+      { key:'valor_mercately', label:'Valor Campaña Mercately ($)', type:'number', placeholder:'0.00' },
       { key:'coordinada', label:'Coordinada', type:'checkbox' }
     ],
     tarjeta: (r) => ({
@@ -3099,7 +3101,7 @@ const PLAN_CONFIG = {
         r.asesora ? { icon:'ti-user', text: r.asesora } : null,
         r.ciudad_visita ? { icon:'ti-map-pin', text: r.ciudad_visita } : null,
         r.fecha_fin ? { icon:'ti-calendar-due', text: (()=>{ const d1=new Date(String(r.fecha).substring(0,10)+'T12:00:00'); const d2=new Date(String(r.fecha_fin).substring(0,10)+'T12:00:00'); const n=Math.round((d2-d1)/86400000)+1; return n>1 ? n+' días de gira' : '1 día'; })() } : null,
-        r.valor_viaticos ? { icon:'ti-currency-dollar', text: `$${parseFloat(r.valor_viaticos).toFixed(2)}` } : null,
+        (()=>{ const tG = (parseFloat(r.valor_viaticos)||0)+(parseFloat(r.valor_hotel)||0)+(parseFloat(r.valor_mercately)||0); return tG > 0 ? { icon:'ti-currency-dollar', text: `$${tG.toFixed(2)}` } : null; })(),
         r.coordinada ? { icon:'ti-check', text: 'Coordinada' } : null,
       ].filter(Boolean)
     })
@@ -3233,9 +3235,20 @@ async function renderPlanMes(modulo, anio, mes){
     }).join('')}
     ${modulo==='giras' && rows.length ? (()=>{
       const totV = rows.reduce((a,r)=>a+(parseFloat(r.valor_viaticos)||0),0);
-      return `<div style="margin-top:14px;background:#1a1108;border-radius:14px;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
-        <div style="font-size:12px;font-weight:600;color:rgba(255,255,255,0.7);text-transform:uppercase;letter-spacing:1px"><i class="ti ti-cash" style="margin-right:6px"></i>Total invertido en viáticos — ${MESES_NOMBRES[mes-1]}</div>
-        <div style="font-size:22px;font-weight:700;color:white">$${(Math.round(totV*100)/100).toFixed(2)}</div>
+      const totH = rows.reduce((a,r)=>a+(parseFloat(r.valor_hotel)||0),0);
+      const totM = rows.reduce((a,r)=>a+(parseFloat(r.valor_mercately)||0),0);
+      const totG = totV + totH + totM;
+      const f2 = v => '$'+(Math.round(v*100)/100).toFixed(2);
+      return `<div style="margin-top:14px;background:#1a1108;border-radius:14px;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+        <div>
+          <div style="font-size:12px;font-weight:600;color:rgba(255,255,255,0.7);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px"><i class="ti ti-cash" style="margin-right:6px"></i>Total invertido en giras — ${MESES_NOMBRES[mes-1]}</div>
+          <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:rgba(255,255,255,0.85)">
+            <span>Viáticos: <b>${f2(totV)}</b></span>
+            <span>Hotel: <b>${f2(totH)}</b></span>
+            <span>Campaña Mercately: <b>${f2(totM)}</b></span>
+          </div>
+        </div>
+        <div style="font-size:24px;font-weight:700;color:white">${f2(totG)}</div>
       </div>`;
     })() : ''}
   </div>`;
@@ -9335,14 +9348,14 @@ async function renderInversiones(){
     if(r.ok){ const d = await r.json(); if(Array.isArray(d)) giras = d; }
   } catch(e){ console.error(e); }
 
-  const total = giras.reduce((a,g)=>a+parseFloat(g.valor_viaticos||0),0);
+  const total = giras.reduce((a,g)=>a+((parseFloat(g.valor_viaticos)||0)+(parseFloat(g.valor_hotel)||0)+(parseFloat(g.valor_mercately)||0)),0);
 
   // Acumulado por provincia (campo ciudad = provincia en el formulario de Giras)
   const porProvincia = {};
   giras.forEach(g=>{
     const prov = (g.ciudad||'Sin provincia').trim() || 'Sin provincia';
     if(!porProvincia[prov]) porProvincia[prov] = {total:0, giras:0};
-    porProvincia[prov].total += parseFloat(g.valor_viaticos||0);
+    porProvincia[prov].total += ((parseFloat(g.valor_viaticos)||0)+(parseFloat(g.valor_hotel)||0)+(parseFloat(g.valor_mercately)||0));
     porProvincia[prov].giras += 1;
   });
   const provinciasOrdenadas = Object.entries(porProvincia).sort((a,b)=>b[1].total-a[1].total);
@@ -9353,7 +9366,7 @@ async function renderInversiones(){
   giras.forEach(g=>{
     const ase = (g.asesora||'Sin asesora').trim().split(' ').slice(0,2).join(' ') || 'Sin asesora';
     if(!porAsesora[ase]) porAsesora[ase] = {total:0, giras:0};
-    porAsesora[ase].total += parseFloat(g.valor_viaticos||0);
+    porAsesora[ase].total += ((parseFloat(g.valor_viaticos)||0)+(parseFloat(g.valor_hotel)||0)+(parseFloat(g.valor_mercately)||0));
     porAsesora[ase].giras += 1;
   });
   const asesorasOrdenadas = Object.entries(porAsesora).sort((a,b)=>b[1].total-a[1].total);
@@ -9438,7 +9451,7 @@ async function renderInversiones(){
                 <td style="padding:8px 12px;color:var(--muted);white-space:nowrap">${fLabel}</td>
                 <td style="padding:8px 12px;font-weight:500">${(g.asesora||'—').split(' ').slice(0,2).join(' ')}</td>
                 <td style="padding:8px 12px">${g.ciudad||'—'}</td>
-                <td style="padding:8px 12px;text-align:right;color:var(--brown);font-weight:600">${fmt(parseFloat(g.valor_viaticos||0))}</td>
+                <td style="padding:8px 12px;text-align:right;color:var(--brown);font-weight:600">${fmt(((parseFloat(g.valor_viaticos)||0)+(parseFloat(g.valor_hotel)||0)+(parseFloat(g.valor_mercately)||0)))}</td>
               </tr>`;
             }).join('')}
             <tr style="background:#faf9f8;font-weight:600;border-top:1px solid var(--border)">
@@ -9499,7 +9512,7 @@ async function renderKpisProvincias(){
     if(!nombre) return;
     const key = normProvKpi(nombre);
     if(!provMap[key]) provMap[key] = { nombre, invertido:0, giras:[], fechas:[] };
-    provMap[key].invertido += parseFloat(g.valor_viaticos||0);
+    provMap[key].invertido += ((parseFloat(g.valor_viaticos)||0)+(parseFloat(g.valor_hotel)||0)+(parseFloat(g.valor_mercately)||0));
     provMap[key].giras.push(g);
     const f = String(g.fecha||'').substring(0,10);
     if(f) provMap[key].fechas.push(f);

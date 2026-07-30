@@ -1909,6 +1909,8 @@ async function initDB() {
         created_at TIMESTAMP DEFAULT NOW()
       );
       CREATE INDEX IF NOT EXISTS idx_giras_fecha ON giras(fecha);
+      ALTER TABLE giras ADD COLUMN IF NOT EXISTS valor_hotel NUMERIC(10,2) DEFAULT 0;
+      ALTER TABLE giras ADD COLUMN IF NOT EXISTS valor_mercately NUMERIC(10,2) DEFAULT 0;
       CREATE TABLE IF NOT EXISTS casas_abiertas (
         id SERIAL PRIMARY KEY,
         asesora VARCHAR(255),
