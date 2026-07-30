@@ -3411,7 +3411,7 @@ async function renderAsignacionGiras(){
       <div style="overflow-x:auto">
         <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:${columnas.length*180}px">
           <thead><tr>
-            ${columnas.map(c=>`<th style="background:#e8c98a;color:#1a1108;padding:12px 10px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;border:1px solid #d4b06a;text-align:center">${esc(c.split(' ').slice(0,2).join(' '))}</th>`).join('')}
+            ${columnas.map(c=>`<th style="background:#e8c98a;color:#1a1108;padding:12px 10px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;border:1px solid #d4b06a;text-align:center">${esc((typeof NOMBRE_CORTO!=='undefined'&&NOMBRE_CORTO[c])||c.split(' ').slice(0,2).join(' '))}</th>`).join('')}
           </tr></thead>
           <tbody><tr>
             ${columnas.map(c=>{

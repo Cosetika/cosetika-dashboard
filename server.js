@@ -5161,6 +5161,26 @@ const server = http.createServer(async (req, res) => {
           'Nicole León': ['Azuay','El Oro','Santa Elena','Los Ríos']
         };
       }
+      // Fusionar claves duplicadas ("Karen Mora" vs "Karen Rebeca Mora Cedeño") hacia el nombre del usuario
+      try {
+        const uR = await pool.query("SELECT nombre FROM usuarios WHERE rol IN ('asesora','jefa_ventas') AND activo=true");
+        const nombresU = uR.rows.map(r => r.nombre);
+        const normA = v => String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().trim().split(/\s+/).filter(Boolean);
+        const mismoA = (a,b) => { const wa=normA(a), wb=normA(b); if(!wa.length||!wb.length||wa[0]!==wb[0]) return false; if(wa.length<2||wb.length<2) return true; return wa.slice(1).some(w=>wb.includes(w))||wb.slice(1).some(w=>wa.includes(w)); };
+        const fusion = {}; let cambioA = false;
+        Object.entries(asig).forEach(([k, provs]) => {
+          const u = nombresU.find(n => mismoA(n, k));
+          const destino = u || k;
+          if (destino !== k) cambioA = true;
+          if (!fusion[destino]) fusion[destino] = [];
+          (provs||[]).forEach(p => {
+            if (!fusion[destino].some(x => String(x).toUpperCase() === String(p).toUpperCase())) fusion[destino].push(p);
+            else cambioA = true;
+          });
+        });
+        asig = fusion;
+        if (cambioA) await setConfigApp('asignacion_giras', JSON.stringify(asig));
+      } catch(e) {}
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ ok:true, asignacion: asig }));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
@@ -5170,6 +5190,15 @@ const server = http.createServer(async (req, res) => {
       const { asignacion } = await bodyJSON(req);
       if (!asignacion || typeof asignacion !== 'object') { res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'Datos inválidos'})); return; }
       await setConfigApp('asignacion_giras', JSON.stringify(asignacion));
+      // Sincronizar hacia Visitas → Provincias y Sectores (solo agrega, nunca quita)
+      try {
+        for (const [ase, provs] of Object.entries(asignacion)) {
+          for (const p of (provs||[])) {
+            await pool.query('INSERT INTO asesor_provincias(asesora,provincia) VALUES($1,$2) ON CONFLICT DO NOTHING',
+              [String(ase).trim().substring(0,250), String(p).trim().substring(0,250)]);
+          }
+        }
+      } catch(e) { console.log('Sync asesor_provincias:', e.message); }
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
