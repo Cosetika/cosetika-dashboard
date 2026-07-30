@@ -3370,6 +3370,14 @@ function renderModVisitas(){
 }
 
 // ─── ASIGNACIÓN DE PROVINCIAS (GIRAS): columna por asesora, editable admin/jefa ──
+function mismoNombreAsig(a, b){
+  const norm = v => String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().trim().split(/\s+/).filter(Boolean);
+  const wa = norm(a), wb = norm(b);
+  if(!wa.length || !wb.length || wa[0] !== wb[0]) return false;
+  if(wa.length < 2 || wb.length < 2) return true;
+  return wa.slice(1).some(w=>wb.includes(w)) || wb.slice(1).some(w=>wa.includes(w));
+}
+
 const PROVINCIAS_EC = ['Azuay','Bolívar','Cañar','Carchi','Chimborazo','Cotopaxi','El Oro','Esmeraldas','Galápagos','Guayas','Cantones de Guayas','Babahoyo','Imbabura','Loja','Los Ríos','Manabí','Morona Santiago','Napo','Orellana','Pastaza','Pichincha','Santa Elena','Santo Domingo','Sucumbíos','Tungurahua','Zamora Chinchipe'];
 
 async function renderAsignacionGiras(){
@@ -3387,11 +3395,10 @@ async function renderAsignacionGiras(){
   window._asigGiras = asig;
 
   // Columnas: asesoras activas (rol asesora) + claves de la asignación que no calcen (tolerante por ancla)
-  const anclaA = v => String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().split(/\s+/).slice(0,2).join(' ');
   const columnas = usuarios.filter(u=>u.rol==='asesora' && u.activo).map(u=>u.nombre);
-  Object.keys(asig).forEach(k=>{ if(!columnas.some(c=>anclaA(c)===anclaA(k))) columnas.push(k); });
+  Object.keys(asig).forEach(k=>{ if(!columnas.some(c=>mismoNombreAsig(c, k))) columnas.push(k); });
   const provsDe = (nombre) => {
-    const k = Object.keys(asig).find(x=>anclaA(x)===anclaA(nombre));
+    const k = Object.keys(asig).find(x=>mismoNombreAsig(x, nombre));
     return k ? (asig[k]||[]) : [];
   };
   const esc = v => String(v||'').replace(/</g,'&lt;');
@@ -3447,8 +3454,7 @@ async function agregarProvAsig(asesora, inputId){
   const prov = (inp?.value||'').trim();
   if(!prov) return;
   const asig = window._asigGiras || {};
-  const anclaA = v => String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().split(/\s+/).slice(0,2).join(' ');
-  const key = Object.keys(asig).find(x=>anclaA(x)===anclaA(asesora)) || asesora;
+  const key = Object.keys(asig).find(x=>mismoNombreAsig(x, asesora)) || asesora;
   asig[key] = asig[key] || [];
   if(asig[key].some(p=>p.toUpperCase()===prov.toUpperCase())){ alert('Esa provincia ya está asignada a '+asesora.split(' ')[0]); return; }
   asig[key].push(prov);
@@ -3458,8 +3464,7 @@ async function agregarProvAsig(asesora, inputId){
 
 async function quitarProvAsig(asesora, idx){
   const asig = window._asigGiras || {};
-  const anclaA = v => String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().split(/\s+/).slice(0,2).join(' ');
-  const key = Object.keys(asig).find(x=>anclaA(x)===anclaA(asesora));
+  const key = Object.keys(asig).find(x=>mismoNombreAsig(x, asesora));
   if(!key || !asig[key] || !asig[key][idx]) return;
   if(!confirm('¿Quitar '+asig[key][idx]+' de '+asesora.split(' ')[0]+'?')) return;
   asig[key].splice(idx, 1);
