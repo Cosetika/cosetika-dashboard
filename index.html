@@ -9552,8 +9552,17 @@ async function renderKpisProvincias(){
     else if(incremento > 0){ semaforo='🟡 Creciendo'; semColor='#92400e'; semBg='#fffbeb'; }
     else { semaforo='🔴 Sin retorno'; semColor='#991b1b'; semBg='#fef2f2'; }
 
+    // Inversión por mes (viáticos + hotel + Mercately de cada gira, agrupada por mes de la fecha)
+    const invPorMes = {};
+    (p.giras||[]).forEach(g=>{
+      const fg = String(g.fecha||'').substring(0,10);
+      if(!fg) return;
+      const dg = new Date(fg+'T12:00:00');
+      const mk = `${dg.getFullYear()}-${dg.getMonth()+1}`;
+      invPorMes[mk] = (invPorMes[mk]||0) + ((parseFloat(g.valor_viaticos)||0)+(parseFloat(g.valor_hotel)||0)+(parseFloat(g.valor_mercately)||0));
+    });
     return { key, nombre:p.nombre, invertido:p.invertido, f0, baseline, promPost, variacionPct,
-             incremento, roi, nPost, semaforo, semColor, semBg, mesesInversion: p.fechas.map(f=>{const d=new Date(f+'T12:00:00');return `${d.getFullYear()}-${d.getMonth()+1}`;}) };
+             incremento, roi, nPost, semaforo, semColor, semBg, invPorMes, mesesInversion: p.fechas.map(f=>{const d=new Date(f+'T12:00:00');return `${d.getFullYear()}-${d.getMonth()+1}`;}) };
   }).sort((a,b)=>b.invertido-a.invertido);
 
   if(!window._kpiProvOpen) window._kpiProvOpen = {};
@@ -9579,7 +9588,7 @@ async function renderKpisProvincias(){
         <table style="width:100%;border-collapse:collapse;font-size:12px">
           <thead><tr style="background:#faf9f8;border-bottom:1px solid var(--border)">
             <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase">Provincia</th>
-            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted);text-transform:uppercase">Invertido</th>
+            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted);text-transform:uppercase">Total invertido</th>
             <th style="padding:8px 12px;text-align:center;font-size:10px;color:var(--muted);text-transform:uppercase">1ª inversión</th>
             <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted);text-transform:uppercase">Antes (prom/mes)</th>
             <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted);text-transform:uppercase">Después (prom/mes)</th>
@@ -9613,10 +9622,16 @@ async function renderKpisProvincias(){
                     return vals.map((v,idx)=>{
                       const m = idx+1;
                       const inv = f.mesesInversion.includes(`${anioSel}-${m}`);
+                      const invMonto = (f.invPorMes||{})[`${anioSel}-${m}`] || 0;
                       const h = Math.max(Math.round(v/mx*55), v>0?3:0);
                       return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;min-width:0">
                         <span style="font-size:8px;color:var(--text);font-weight:600;white-space:nowrap">${v?fmt(v):''}</span>
-                        <div style="width:100%;display:flex;align-items:flex-end;height:55px"><div style="width:100%;background:${inv?'#A0684A':'#d6c9bd'};border-radius:3px 3px 0 0;height:${h}px"></div></div>
+                        <div style="width:100%;display:flex;align-items:flex-end;height:55px;position:relative">
+                          <div style="width:100%;background:${inv?'#A0684A':'#d6c9bd'};border-radius:3px 3px 0 0;height:${h}px;display:flex;align-items:flex-end;justify-content:center">
+                            ${inv&&invMonto>0&&h>=16?`<span style="font-size:7px;font-weight:700;color:white;white-space:nowrap;padding-bottom:2px">${fmt(invMonto)}</span>`:''}
+                          </div>
+                          ${inv&&invMonto>0&&h<16?`<span style="position:absolute;bottom:${h+1}px;left:50%;transform:translateX(-50%);font-size:7px;font-weight:700;color:#A0684A;white-space:nowrap">${fmt(invMonto)}</span>`:''}
+                        </div>
                         <span style="font-size:9px;color:var(--muted)">${inv?'📍':''}${MESES_C[m]}</span>
                       </div>`;
                     }).join('');
