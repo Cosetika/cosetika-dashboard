@@ -8444,9 +8444,9 @@ async function renderPresupuestoVentas(){
     if (hoyP.getDate() >= 25) { const sh = mesShiftK2(pa, pm, 1); pa = sh.a; pm = sh.m; }
     ventana.length = 0; ventana.push({ key: mkDe(pa, pm), anio: pa, mes: pm });
   }
-  const mesesHist = compactoP
-    ? [-2, -1].map(d => { const sh = mesShiftK2(ventana[0].anio, ventana[0].mes, d); return mkDe(sh.a, sh.m); })
-    : mesesCerrados.slice(-HIST_N);
+  // Históricos: SIEMPRE meses cerrados (el mes en curso jamás aparece como histórico;
+  // al cambiar de mes, el que cerró entra solo — ej: el 1 de agosto julio pasa al histórico)
+  const mesesHist = mesesCerrados.slice(-HIST_N);
 
   // Uplift ERAYBA octubre: aporte mensual promedio por producto ERAYBA × 11 productos × factor prudente 0.8
   const mesesConErayba = Object.keys(eraybaMes).length || 1;
