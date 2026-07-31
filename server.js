@@ -499,6 +499,8 @@ async function sincronizarHoy() {
       console.log(`Página ${paginas}: ${(data.results||[]).length} docs, total: ${todos.length}`);
     }
     const clientes = todos.filter(d => d.tipo_registro === 'CLI' && !d.anulado && d.tipo_documento !== 'NC' && d.tipo_documento !== 'COT' && d.tipo_documento !== 'PRO');
+    // Notas de crédito del día — se restan en los gráficos (mismo neteo que la regeneración)
+    cache.nc_documentos = todos.filter(d => d.tipo_registro === 'CLI' && !d.anulado && d.tipo_documento === 'NC');
     // Agregar cliente_nombre directo desde el objeto cliente
     clientes.forEach(d => {
       d.cliente_nombre = d.cliente?.razon_social || d.cliente?.nombre_comercial || d.persona_id || '—';
@@ -3111,7 +3113,7 @@ const server = http.createServer(async (req, res) => {
   // VENTAS HOY (caché v2)
   if (urlPath === '/api/ventas-hoy' && req.method === 'GET') {
     res.writeHead(200,{'Content-Type':'application/json'});
-    res.end(JSON.stringify({ total: cache.documentos.length, ultima_sync: cache.ultima_sync, sincronizando: cache.sincronizando, documentos: cache.documentos }));
+    res.end(JSON.stringify({ total: cache.documentos.length, ultima_sync: cache.ultima_sync, sincronizando: cache.sincronizando, documentos: cache.documentos, nc_documentos: cache.nc_documentos || [] }));
     return;
   }
 
@@ -3264,6 +3266,12 @@ const server = http.createServer(async (req, res) => {
           const tot = parseFloat(d.total || 0);
           tHoy += tot;
           sHoy += parseFloat(d.subtotal || (tot/1.15) || 0);
+        });
+        (cache.nc_documentos || []).forEach(d => {
+          if (String(d.cliente?.ruc || d.cliente?.cedula || '').trim() === '1793143660001') return;
+          const tot = parseFloat(d.total || 0);
+          tHoy -= tot;
+          sHoy -= parseFloat(d.subtotal || (tot/1.15) || 0);
         });
         if (tHoy > 0) {
           if (!porDia[diaHoy]) porDia[diaHoy] = { total: 0, subtotal: 0 };

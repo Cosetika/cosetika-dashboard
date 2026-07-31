@@ -3975,7 +3975,7 @@ async function cargarData(){
       const hoy = await fetch('/api/ventas-hoy');
       const dataHoy = await hoy.json();
       if(dataHoy.total > 0) {
-        mergearVentasHoy(dataHoy.documentos || []);
+        mergearVentasHoy(dataHoy.documentos || [], dataHoy.nc_documentos || []);
         console.log('Ventas hoy cargadas:', dataHoy.total);
       }
     } catch(e) { console.log('Sin data de hoy:', e.message); }
@@ -4022,9 +4022,15 @@ async function mostrarVentasHoy(){
         porVend[v].facturas++;
         porVend[v].total += parseFloat(d.total||0);
       });
+      // Restar las notas de crédito del día (mismo neteo que la regeneración)
+      (data.nc_documentos||[]).forEach(d => {
+        const v = d.vendedor_nombre || d.vendedor?.razon_social || d.vendedor || 'Sin vendedor';
+        if(porVend[v]) porVend[v].total -= parseFloat(d.total||0);
+      });
       const totalHoy = Object.values(porVend).reduce((a,v)=>a+v.total,0);
-      // Calcular total real desde documentos
-      const totalHoyReal = (data.documentos||[]).reduce((a,d)=>a+parseFloat(d.total||d.total_con_impuestos||0),0);
+      // Calcular total real desde documentos (menos las NC)
+      const totalHoyReal = (data.documentos||[]).reduce((a,d)=>a+parseFloat(d.total||d.total_con_impuestos||0),0)
+        - (data.nc_documentos||[]).reduce((a,d)=>a+parseFloat(d.total||0),0);
       
       content.innerHTML = `
         <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:12px">
@@ -4059,7 +4065,7 @@ async function mostrarVentasHoy(){
   } catch(e) { console.log('Sin data hoy:', e.message); }
 }
 
-function mergearVentasHoy(docs){
+function mergearVentasHoy(docs, ncs){
   // Suma las facturas de HOY (caché en vivo de Contifico) al DATA del año, para que
   // gráficos y KPIs estén al día sin esperar la regeneración nocturna.
   // OJO: la regeneración del data.json llega solo hasta AYER — así nunca se duplica.
@@ -4067,11 +4073,11 @@ function mergearVentasHoy(docs){
   const mes = hoy.getMonth() + 1;
   const anioHoy = hoy.getFullYear();
 
-  docs.forEach(doc => {
+  [[docs||[], 1], [ncs||[], -1]].forEach(([listaDocs, signoNC]) => listaDocs.forEach(doc => {
     const vendedor = doc.vendedor?.razon_social || doc.vendedor?.nombre || '';
     const cliente = doc.cliente_nombre || doc.cliente?.razon_social || doc.cliente?.nombre_comercial || '';
-    const total = parseFloat(doc.total || 0);
-    const subtotal = parseFloat(doc.subtotal || (total/1.15) || 0);
+    const total = signoNC * parseFloat(doc.total || 0);
+    const subtotal = signoNC * parseFloat(doc.subtotal || (parseFloat(doc.total||0)/1.15) || 0);
     if(!vendedor || !cliente || !total) return;
     if(typeof EXCLUIR !== 'undefined' && EXCLUIR.includes(vendedor)) return;
     // Excluir autoconsumo (mismo criterio que la regeneración)
@@ -4085,8 +4091,8 @@ function mergearVentasHoy(docs){
     }
     cli.total = Math.round((cli.total + total)*100)/100;
     cli.subtotal = Math.round(((cli.subtotal||0) + subtotal)*100)/100;
-    cli.saldo = Math.round(((cli.saldo||0) + (parseFloat(doc.saldo)||0))*100)/100;
-    cli.num_compras += 1;
+    if(signoNC > 0) cli.saldo = Math.round(((cli.saldo||0) + (parseFloat(doc.saldo)||0))*100)/100;
+    if(signoNC > 0) cli.num_compras += 1;
 
     // Frecuencia del mes actual — con año y subtotal para que TODOS los cálculos lo tomen
     let freqMes = cli.frecuencia.find(f => f.mes === mes && (!f.anio || f.anio === anioHoy));
@@ -4094,12 +4100,12 @@ function mergearVentasHoy(docs){
     if(!freqMes.anio) freqMes.anio = anioHoy;
     freqMes.total = Math.round((freqMes.total + total)*100)/100;
     freqMes.subtotal = Math.round(((freqMes.subtotal||0) + subtotal)*100)/100;
-    freqMes.compras += 1;
+    if(signoNC > 0) freqMes.compras += 1;
 
     // Desglose por marca y producto (gráficos y rankings de Marcas al día)
     (doc.detalles||[]).forEach(det => {
-      const base = parseFloat(det.base_gravable || det.base_cero || 0);
-      const cantidad = parseFloat(det.cantidad || 0);
+      const base = signoNC * parseFloat(det.base_gravable || det.base_cero || 0);
+      const cantidad = signoNC * parseFloat(det.cantidad || 0);
       const pid = det.producto_id || '';
       if(!pid || !cantidad) return;
       const cat = (window.CATALOGO_POR_ID||{})[pid] || {};
@@ -4120,7 +4126,7 @@ function mergearVentasHoy(docs){
       pm.cantidad = Math.round((pm.cantidad + cantidad)*100)/100;
       pm.total = Math.round((pm.total + base)*100)/100;
     });
-  });
+  }));
 
   // Re-ordenar clientes por total
   Object.keys(DATA).forEach(v => {
