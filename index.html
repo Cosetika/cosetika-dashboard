@@ -8461,7 +8461,9 @@ async function renderPresupuestoVentas(){
     // Metas por mes de la ventana
     const metas = {};
     // Una meta manual se vuelve la NUEVA BASE: los meses siguientes crecen con el % desde ahí
-    let refCrec = base || 0;
+    // En el panel compacto la base es el ÚLTIMO mes cerrado (vendió 10.000 + 10% → meta 11.000)
+    const baseUltimo = Math.round(vm[mesesCerrados[mesesCerrados.length-1]] || 0);
+    let refCrec = (compactoP ? baseUltimo : base) || 0;
     ventana.forEach((v,i)=>{
       if(ov[v.key] !== undefined && ov[v.key] !== null && ov[v.key] !== ''){
         const valM = Math.round(parseFloat(ov[v.key])||0);
@@ -8534,7 +8536,7 @@ async function renderPresupuestoVentas(){
           <th style="text-align:left;padding:8px 12px;font-size:10px;color:var(--muted);text-transform:uppercase">Asesora</th>
           ${mesesCerrados.slice(-HIST_N).map(mk=>`<th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;background:#f3f0ec">${MESES_PPTO[parseInt(mk.split('-')[1])]} ${mk.substring(2,4)}<br><span style="font-weight:400;letter-spacing:0">histórico</span></th>`).join('')}
           ${compactoP?'':`<th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;background:#f3f0ec">Crec.<br>prom. ${HIST_N}m</th>`}
-          <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Base<br>(prom. 3m)</th>
+          ${compactoP?'':`<th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Base<br>(prom. 3m)</th>`}
           <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">% mensual</th>
           ${ventana.map(v=>`<th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">${MESES_PPTO[v.mes]} ${String(v.anio).substring(2)}${v.key===mkDe(anioAct,mesAct)?'<br><span style="color:#16a34a">(en curso)</span>':''}</th>`).join('')}
         </tr></thead>
@@ -8546,10 +8548,10 @@ async function renderPresupuestoVentas(){
               ${h.val?`<div style="font-weight:600;color:var(--text)">${fmtP(h.val)}</div>${h.crec!==null&&(!compactoP||hi===f.hist.length-1)?`<div style="font-size:9px;font-weight:700;color:${h.crec>=0?'#16a34a':'#dc2626'}">${h.crec>0?'+':''}${h.crec}%</div>`:''}`:'<span style="color:#ccc">—</span>'}
             </td>`).join('')}
             ${compactoP?'':`<td style="padding:8px 8px;text-align:center;background:${fi%2?'#efece7':'#f3f0ec'}">${f.crecProm!==null?`<span style="font-weight:800;font-size:13px;color:${f.crecProm>=0?'#16a34a':'#dc2626'}">${f.crecProm>0?'+':''}${f.crecProm}%</span>`:'<span style="color:#ccc">—</span>'}</td>`}
-            <td style="padding:8px 8px;text-align:center;color:var(--muted)">${f.base?fmtP(f.base):'—'}</td>
+            ${compactoP?'':`<td style="padding:8px 8px;text-align:center;color:var(--muted)">${f.base?fmtP(f.base):'—'}</td>`}
             <td style="padding:8px 8px;text-align:center;white-space:nowrap">
               <input type="number" step="0.5" value="${f.pct!==null?f.pct:''}" placeholder="—" onchange="guardarPctPpto('${f.nombre.replace(/'/g,"\\'")}',this.value)" style="width:52px;padding:3px 4px;font-size:11px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;font-weight:700;color:var(--brown)">%
-              <div style="font-size:9px;color:var(--muted);margin-top:2px;cursor:pointer" onclick="guardarPctPpto('${f.nombre.replace(/'/g,"\\'")}',${f.sugerido})" title="Aplicar sugerido">sug: <span style="color:#2563eb;font-weight:600">${f.sugerido}%</span></div>
+              ${compactoP?'':`<div style="font-size:9px;color:var(--muted);margin-top:2px;cursor:pointer" onclick="guardarPctPpto('${f.nombre.replace(/'/g,"\\'")}',${f.sugerido})" title="Aplicar sugerido">sug: <span style="color:#2563eb;font-weight:600">${f.sugerido}%</span></div>`}
             </td>
             ${ventana.map(v=>{
               const m = f.metas[v.key];
@@ -8573,7 +8575,7 @@ async function renderPresupuestoVentas(){
               return `<td style="padding:9px 8px;text-align:center;font-weight:700;color:var(--muted);background:#f3f0ec">${tot?fmtP(tot):'—'}</td>`;
             }).join('')}
             ${compactoP?'':'<td style="background:#f3f0ec"></td>'}
-            <td style="padding:9px 8px;text-align:center;font-weight:700;color:var(--muted)">${fmtP(filas.reduce((x,f)=>x+(f.base||0),0))}</td>
+            ${compactoP?'':`<td style="padding:9px 8px;text-align:center;font-weight:700;color:var(--muted)">${fmtP(filas.reduce((x,f)=>x+(f.base||0),0))}</td>`}
             <td></td>
             ${ventana.map(v=>{
               const tot = filas.reduce((x,f)=>x+((f.metas[v.key]&&f.metas[v.key].valor)||0),0);
