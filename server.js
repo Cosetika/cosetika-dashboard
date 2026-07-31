@@ -4117,34 +4117,44 @@ const server = http.createServer(async (req, res) => {
       if(iNom === -1){
         res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'No se encontró columna Razón Social'})); return;
       }
-      await pool.query('TRUNCATE TABLE personas RESTART IDENTITY');
-      let insertados = 0;
-      const LOTE = 200;
+      // NO destructivo: la lista SOLO actualiza datos (provincia/dirección/teléfono).
+      // La base histórica del conteo de clientas nuevas NUNCA se toca:
+      //  - clientas ya existentes → se actualizan sus datos (conservan su origen)
+      //  - clientas que no estaban → se insertan como 'excel_nuevo', que NO forma
+      //    parte de la base del conteo (así siguen contando como nuevas)
+      const rEx = await pool.query('SELECT id, cedula, ruc, razon_social FROM personas');
+      const normP = x => String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/[^A-Z ]/g,' ').replace(/\s+/g,' ').trim();
+      const porCedEx = {}; const porNomEx = {};
+      rEx.rows.forEach(p => {
+        [p.cedula, p.ruc].forEach(v => { const d = String(v||'').replace(/\D/g,''); if (d) { porCedEx[d] = p.id; if (d.length === 13) porCedEx[d.substring(0,10)] = p.id; } });
+        const nN = normP(p.razon_social); if (nN && !porNomEx[nN]) porNomEx[nN] = p.id;
+      });
+      let insertados = 0, actualizados = 0;
       const datos = filas.slice(iHdr + 1).filter(r => r && r[iNom]);
-      for (let i = 0; i < datos.length; i += LOTE) {
-        const lote = datos.slice(i, i + LOTE);
-        const vals = []; const params = [];
-        lote.forEach((r, j) => {
-          const b = j * 7;
-          vals.push(`($${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6},$${b+7})`);
-          params.push(
-            String(r[iCed]||'').trim() || null,
-            String(r[iRuc]||'').trim() || null,
-            String(r[iNom]||'').trim(),
-            String(r[iTel]||'').trim() || null,
-            String(r[iDir]||'').trim() || null,
-            String(r[iEmail]||'').trim() || null,
-            String(r[iVend]||'').trim() || null
-          );
-        });
-        await pool.query(
-          `INSERT INTO personas(cedula,ruc,razon_social,telefono,direccion,email,vendedor) VALUES ${vals.join(',')}`,
-          params
-        );
-        insertados += lote.length;
+      for (const r of datos) {
+        const ced = String(r[iCed]||'').trim() || null;
+        const ruc = String(r[iRuc]||'').trim() || null;
+        const nom = String(r[iNom]||'').trim();
+        const tel = String(r[iTel]||'').trim() || null;
+        const dir = String(r[iDir]||'').trim() || null;
+        const email = String(r[iEmail]||'').trim() || null;
+        const vend = String(r[iVend]||'').trim() || null;
+        const dCed = String(ced||'').replace(/\D/g,'');
+        const dRuc = String(ruc||'').replace(/\D/g,'');
+        let idEx = (dCed && porCedEx[dCed]) || (dRuc && porCedEx[dRuc]) || (dRuc.length === 13 && porCedEx[dRuc.substring(0,10)]) || porNomEx[normP(nom)] || null;
+        if (idEx) {
+          await pool.query(
+            'UPDATE personas SET cedula=COALESCE($1,cedula), ruc=COALESCE($2,ruc), razon_social=$3, telefono=COALESCE($4,telefono), direccion=COALESCE($5,direccion), email=COALESCE($6,email), vendedor=COALESCE($7,vendedor) WHERE id=$8',
+            [ced, ruc, nom, tel, dir, email, vend, idEx]);
+          actualizados++;
+        } else {
+          await pool.query(
+            "INSERT INTO personas(cedula,ruc,razon_social,telefono,direccion,email,vendedor,origen) VALUES($1,$2,$3,$4,$5,$6,$7,'excel_nuevo')",
+            [ced, ruc, nom, tel, dir, email, vend]);
+          insertados++;
+        }
       }
-      await pool.query("UPDATE personas SET origen='excel' WHERE origen IS NULL");
-      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, insertados}));
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, insertados, actualizados}));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
   }
@@ -5320,7 +5330,7 @@ const server = http.createServer(async (req, res) => {
     try {
       const anio = parseInt(urlObj.searchParams.get('anio')) || new Date().getFullYear();
       const mes = parseInt(urlObj.searchParams.get('mes')) || (new Date().getMonth() + 1);
-      const rp = await pool.query("SELECT cedula, ruc, razon_social FROM personas WHERE origen IS DISTINCT FROM 'institutos'");
+      const rp = await pool.query("SELECT cedula, ruc, razon_social FROM personas WHERE origen IS DISTINCT FROM 'institutos' AND origen IS DISTINCT FROM 'excel_nuevo'");
       const normK = x => String(x||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase().replace(/[^A-Z ]/g,' ').replace(/\s+/g,' ').trim();
       const baseCed = new Set(); const baseNom = new Set();
       rp.rows.forEach(pr => {
