@@ -3417,6 +3417,74 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // COMPARADOR DE DIAGNÓSTICO: app vs Contifico por vendedora/mes, clienta por clienta
+  if (urlPath === '/api/debug-vendedora-mes' && req.method === 'GET') {
+    try {
+      const vendQ = (urlObj.searchParams.get('vendedora') || 'Liseth').toUpperCase();
+      const anioQ = parseInt(urlObj.searchParams.get('anio')) || nowEC().getFullYear();
+      const mesQ = parseInt(urlObj.searchParams.get('mes')) || (nowEC().getMonth() + 1);
+      const mmQ = String(mesQ).padStart(2,'0');
+      const ultQ = new Date(anioQ, mesQ, 0).getDate();
+      // 1. Lado Contifico: todos los documentos del mes de esa vendedora
+      const liveCli = {}; const docsVend = [];
+      const vistosQ = new Set();
+      let nextQ = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=01/${mmQ}/${anioQ}&fecha_final=${String(ultQ).padStart(2,'0')}/${mmQ}/${anioQ}&page_size=100`;
+      let pagsQ = 0;
+      while (nextQ && pagsQ < 60) {
+        const respQ = await fetch(nextQ, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
+        if (!respQ.ok) break;
+        const dataQ = await respQ.json();
+        (dataQ.results || []).forEach(d => {
+          if (d.tipo_registro !== 'CLI') return;
+          if (d.tipo_documento === 'COT' || d.tipo_documento === 'PRO') return;
+          if (String(d.cliente?.ruc || d.cliente?.cedula || '').trim() === '1793143660001') return;
+          const vN = String(d.vendedor?.razon_social || '').toUpperCase();
+          if (!vN.includes(vendQ)) return;
+          const dk = d.id || d.documento;
+          if (vistosQ.has(dk)) return; vistosQ.add(dk);
+          const signoQ = d.tipo_documento === 'NC' ? -1 : 1;
+          const subQ = signoQ * parseFloat(d.subtotal || 0);
+          const cliN = (d.cliente && (d.cliente.razon_social || d.cliente.nombre_comercial)) || '—';
+          docsVend.push({ doc: d.documento, tipo: d.tipo_documento, fecha: d.fecha_emision, cliente: cliN, subtotal: Math.round(subQ*100)/100, anulado: !!d.anulado, estado: d.estado });
+          if (d.anulado) return; // los anulados se listan arriba pero no suman
+          if (!liveCli[cliN]) liveCli[cliN] = 0;
+          liveCli[cliN] += subQ;
+        });
+        nextQ = dataQ.next || null;
+        pagsQ++;
+      }
+      // 2. Lado app: DATA_CACHE de esa vendedora, frecuencia del mes (filtro tolerante, igual que los gráficos)
+      const appCli = {};
+      Object.entries(DATA_CACHE || {}).forEach(([vend, clientes]) => {
+        if (!String(vend).toUpperCase().includes(vendQ)) return;
+        (clientes || []).forEach(c => {
+          (c.frecuencia || []).forEach(f => {
+            if (f.mes !== mesQ) return;
+            if (f.anio && f.anio !== anioQ) return;
+            appCli[c.nombre] = (appCli[c.nombre] || 0) + (f.subtotal || 0);
+          });
+        });
+      });
+      // 3. Diferencias por clienta
+      const nombres = new Set([...Object.keys(liveCli), ...Object.keys(appCli)]);
+      const difs = [];
+      nombres.forEach(n => {
+        const lv = Math.round((liveCli[n] || 0)*100)/100;
+        const ap = Math.round((appCli[n] || 0)*100)/100;
+        if (Math.abs(lv - ap) > 0.5) difs.push({ cliente: n, contifico: lv, app: ap, diferencia: Math.round((ap - lv)*100)/100 });
+      });
+      difs.sort((a,b) => Math.abs(b.diferencia) - Math.abs(a.diferencia));
+      const totLive = Math.round(Object.values(liveCli).reduce((a,b)=>a+b,0)*100)/100;
+      const totApp = Math.round(Object.values(appCli).reduce((a,b)=>a+b,0)*100)/100;
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:true, vendedora: vendQ, mes: `${anioQ}-${mmQ}`,
+        total_contifico: totLive, total_app: totApp, diferencia_total: Math.round((totApp-totLive)*100)/100,
+        clientas_con_diferencia: difs,
+        docs_anulados_del_mes: docsVend.filter(d=>d.anulado) }, null, 2));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
   // REGENERAR DATA.JSON
   if (urlPath === '/api/regenerar-data' && req.method === 'GET') {
     const desdeParam = urlObj.searchParams.get('desde');
