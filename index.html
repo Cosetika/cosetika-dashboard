@@ -269,6 +269,7 @@
     </div>
     <div id="nav-reportes-subs" style="max-height:0;overflow:hidden;transition:max-height 0.25s ease">
       <div class="nav-sub-item" id="navsub-rep-presupuesto" onclick="navGoReportes('presupuesto')"><i class="ti ti-target-arrow" style="font-size:13px"></i>Presupuesto</div>
+      <div class="nav-sub-item" id="navsub-rep-presupuesto_ventas" onclick="navGoReportes('presupuesto_ventas')"><i class="ti ti-target" style="font-size:13px"></i>Presupuesto ventas</div>
       <div class="nav-sub-item" id="navsub-rep-comisiones" onclick="navGoReportes('comisiones')"><i class="ti ti-coin" style="font-size:13px"></i>Comisiones</div>
       <div class="nav-sub-item" id="navsub-rep-inversiones" onclick="navGoReportes('inversiones')"><i class="ti ti-receipt" style="font-size:13px"></i>Inversiones / Viáticos</div>
     </div>
@@ -8355,10 +8356,10 @@ function renderReportes(){
   document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
   document.getElementById('navsub-rep-'+tab)?.classList.add('active');
   document.getElementById('main').innerHTML=`
-    <div class="breadcrumb" style="margin-bottom:12px"><i class="ti ti-file-analytics" style="color:var(--brown);font-size:12px"></i><span style="font-weight:500">Reportes — ${tab==='inversiones'?'Inversiones / Viáticos':tab==='presupuesto'?'Presupuesto de ventas':'Comisiones'}</span></div>
+    <div class="breadcrumb" style="margin-bottom:12px"><i class="ti ti-file-analytics" style="color:var(--brown);font-size:12px"></i><span style="font-weight:500">Reportes — ${tab==='inversiones'?'Inversiones / Viáticos':tab==='presupuesto'?'Presupuesto de ventas':tab==='presupuesto_ventas'?'Presupuesto ventas':'Comisiones'}</span></div>
     <div id="reportes-content"></div>`;
   if(tab==='inversiones') renderInversiones();
-  else if(tab==='presupuesto') renderPresupuestoVentas();
+  else if(tab==='presupuesto' || tab==='presupuesto_ventas') renderPresupuestoVentas();
   else renderComisiones();
 }
 
@@ -8370,6 +8371,10 @@ function pptoAncla(v){ return pptoNorm(v).split(' ').slice(0,2).join(' '); }
 async function renderPresupuestoVentas(){
   const cont = document.getElementById('reportes-content');
   if(!cont) return;
+  // Modo compacto (Reportes → Presupuesto ventas): 2 meses históricos + mes en curso + 1 proyectado
+  const compactoP = (window._reportesTab === 'presupuesto_ventas');
+  const HIST_N = compactoP ? 2 : 3;
+  const PROJ_N = compactoP ? 2 : 4;
   cont.innerHTML = '<div style="padding:30px;text-align:center;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:22px"></i></div>';
 
   let cfg = { pct:{}, overrides:{}, snapshots:{} };
@@ -8424,7 +8429,7 @@ async function renderPresupuestoVentas(){
   const mesesCerrados = [];
   { let a=anioAct, m=mesAct; for(let i=0;i<4;i++){ m--; if(m===0){m=12;a--;} mesesCerrados.unshift(mkDe(a,m)); } }
   const ventana = [];
-  { let a=anioAct, m=mesAct; for(let i=0;i<4;i++){ ventana.push({key:mkDe(a,m), anio:a, mes:m}); m++; if(m>12){m=1;a++;} } }
+  { let a=anioAct, m=mesAct; for(let i=0;i<PROJ_N;i++){ ventana.push({key:mkDe(a,m), anio:a, mes:m}); m++; if(m>12){m=1;a++;} } }
 
   // Uplift ERAYBA octubre: aporte mensual promedio por producto ERAYBA × 11 productos × factor prudente 0.8
   const mesesConErayba = Object.keys(eraybaMes).length || 1;
@@ -8472,9 +8477,9 @@ async function renderPresupuestoVentas(){
     });
     const realActual = Math.round(vm[mkDe(anioAct,mesAct)]||0);
     // Histórico: últimos 3 meses cerrados con % de crecimiento vs el mes anterior
-    const hist = mesesCerrados.slice(-3).map((mk,ix)=>{
+    const hist = mesesCerrados.slice(-HIST_N).map((mk,ix)=>{
       const val = Math.round(vm[mk]||0);
-      const prevKey = mesesCerrados[mesesCerrados.length-3+ix-1];
+      const prevKey = mesesCerrados[mesesCerrados.length-HIST_N+ix-1];
       const prev = prevKey ? Math.round(vm[prevKey]||0) : 0;
       const crec = prev > 100 ? Math.round((val-prev)/prev*1000)/10 : null;
       return { mk, val, crec };
@@ -8523,12 +8528,12 @@ async function renderPresupuestoVentas(){
   cont.innerHTML = `
 
     <div class="card" style="padding:0">
-      <div style="padding:14px 16px 10px;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px"><i class="ti ti-target-arrow" style="margin-right:6px"></i>Presupuesto — mes en curso + 3 proyectados (sin IVA)</div>
+      <div style="padding:14px 16px 10px;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px"><i class="ti ti-target-arrow" style="margin-right:6px"></i>${compactoP ? 'Presupuesto ventas — mes en curso + 1 proyectado (sin IVA)' : 'Presupuesto — mes en curso + 3 proyectados (sin IVA)'}</div>
       <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:820px">
         <thead><tr style="border-bottom:1px solid var(--border)">
           <th style="text-align:left;padding:8px 12px;font-size:10px;color:var(--muted);text-transform:uppercase">Asesora</th>
-          ${mesesCerrados.slice(-3).map(mk=>`<th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;background:#f3f0ec">${MESES_PPTO[parseInt(mk.split('-')[1])]} ${mk.substring(2,4)}<br><span style="font-weight:400;letter-spacing:0">histórico</span></th>`).join('')}
-          <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;background:#f3f0ec">Crec.<br>prom. 3m</th>
+          ${mesesCerrados.slice(-HIST_N).map(mk=>`<th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;background:#f3f0ec">${MESES_PPTO[parseInt(mk.split('-')[1])]} ${mk.substring(2,4)}<br><span style="font-weight:400;letter-spacing:0">histórico</span></th>`).join('')}
+          <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;background:#f3f0ec">Crec.<br>prom. ${HIST_N}m</th>
           <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Base<br>(prom. 3m)</th>
           <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">% mensual</th>
           ${ventana.map(v=>`<th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">${MESES_PPTO[v.mes]} ${String(v.anio).substring(2)}${v.key===mkDe(anioAct,mesAct)?'<br><span style="color:#16a34a">(en curso)</span>':''}</th>`).join('')}
@@ -8563,7 +8568,7 @@ async function renderPresupuestoVentas(){
           </tr>`).join('')}
           <tr style="border-top:2px solid var(--border);background:#faf9f8">
             <td style="padding:9px 12px;font-weight:700">TOTAL</td>
-            ${mesesCerrados.slice(-3).map((mk,ix)=>{
+            ${mesesCerrados.slice(-HIST_N).map((mk,ix)=>{
               const tot = filas.reduce((x,f)=>x+((f.hist[ix]&&f.hist[ix].val)||0),0);
               return `<td style="padding:9px 8px;text-align:center;font-weight:700;color:var(--muted);background:#f3f0ec">${tot?fmtP(tot):'—'}</td>`;
             }).join('')}
