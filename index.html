@@ -8382,7 +8382,7 @@ async function renderPresupuestoVentas(){
   try{
     const [rC, rU] = await Promise.all([fetch('/api/presupuesto-config'), fetch('/api/usuarios')]);
     const jC = await rC.json(); if(jC.ok && jC.config) cfg = Object.assign({pct:{},overrides:{},snapshots:{}}, jC.config);
-    cfg.incentivo = Object.assign({ pct_minimo: 90, bono: 50, pct_exceso: 5 }, cfg.incentivo || {});
+    cfg.incentivo = Object.assign({ pct_minimo: 90, bono: 50, pct_exceso: 5, pct_bajo: 2 }, cfg.incentivo || {});
     const dU = await rU.json(); if(Array.isArray(dU)) usuarios = dU;
   }catch(e){}
   window._pptoCfg = cfg;
@@ -8430,6 +8430,17 @@ async function renderPresupuestoVentas(){
   { let a=anioAct, m=mesAct; for(let i=0;i<4;i++){ m--; if(m===0){m=12;a--;} mesesCerrados.unshift(mkDe(a,m)); } }
   const ventana = [];
   { let a=anioAct, m=mesAct; for(let i=0;i<PROJ_N;i++){ ventana.push({key:mkDe(a,m), anio:a, mes:m}); m++; if(m>12){m=1;a++;} } }
+  const mesShiftK2 = (a,m,d)=>{ m+=d; while(m>12){m-=12;a++;} while(m<1){m+=12;a--;} return {a,m}; };
+  if (compactoP) {
+    // Panel compacto: se revisa a principios de mes → proyecta el MES VENIDERO
+    // (desde el día 25 ya apunta al mes siguiente; del 1 al 24, al mes en curso)
+    let pa = anioAct, pm = mesAct;
+    if (hoyP.getDate() >= 25) { const sh = mesShiftK2(pa, pm, 1); pa = sh.a; pm = sh.m; }
+    ventana.length = 0; ventana.push({ key: mkDe(pa, pm), anio: pa, mes: pm });
+  }
+  const mesesHist = compactoP
+    ? [-2, -1].map(d => { const sh = mesShiftK2(ventana[0].anio, ventana[0].mes, d); return mkDe(sh.a, sh.m); })
+    : mesesCerrados.slice(-HIST_N);
 
   // Uplift ERAYBA octubre: aporte mensual promedio por producto ERAYBA × 11 productos × factor prudente 0.8
   const mesesConErayba = Object.keys(eraybaMes).length || 1;
@@ -8462,7 +8473,7 @@ async function renderPresupuestoVentas(){
     const metas = {};
     // Una meta manual se vuelve la NUEVA BASE: los meses siguientes crecen con el % desde ahí
     // En el panel compacto la base es el ÚLTIMO mes cerrado (vendió 10.000 + 10% → meta 11.000)
-    const baseUltimo = Math.round(vm[mesesCerrados[mesesCerrados.length-1]] || 0);
+    const baseUltimo = Math.round(vm[mesesHist[mesesHist.length-1]] || 0);
     let refCrec = (compactoP ? baseUltimo : base) || 0;
     ventana.forEach((v,i)=>{
       if(ov[v.key] !== undefined && ov[v.key] !== null && ov[v.key] !== ''){
@@ -8479,16 +8490,21 @@ async function renderPresupuestoVentas(){
     });
     const realActual = Math.round(vm[mkDe(anioAct,mesAct)]||0);
     // Histórico: últimos 3 meses cerrados con % de crecimiento vs el mes anterior
-    const hist = mesesCerrados.slice(-HIST_N).map((mk,ix)=>{
+    const hist = mesesHist.map((mk,ix)=>{
       const val = Math.round(vm[mk]||0);
-      const prevKey = mesesCerrados[mesesCerrados.length-HIST_N+ix-1];
+      const [pha, phm] = mk.split('-').map(Number);
+      const prevSh = mesShiftK2(pha, phm, -1);
+      const prevKey = ix > 0 ? mesesHist[ix-1] : mkDe(prevSh.a, prevSh.m);
       const prev = prevKey ? Math.round(vm[prevKey]||0) : 0;
       const crec = prev > 100 ? Math.round((val-prev)/prev*1000)/10 : null;
       return { mk, val, crec };
     });
     const crecsHist = hist.map(h=>h.crec).filter(c=>c!==null);
     const crecProm = crecsHist.length ? Math.round(crecsHist.reduce((x,y)=>x+y,0)/crecsHist.length*10)/10 : null;
-    return { nombre:a.nombre, rol:a.rol, sinUsuario:a.sinUsuario, k, base, sugerido, pct, metas, realActual, uplift:upliftAse, hist, crecProm };
+    const shAnt = mesShiftK2(anioAct, mesAct, -1);
+    const ventasMesAnt = Math.round(vm[mkDe(shAnt.a, shAnt.m)] || 0);
+    const ovMesAct = ov[mkDe(anioAct, mesAct)];
+    return { nombre:a.nombre, rol:a.rol, sinUsuario:a.sinUsuario, k, base, sugerido, pct, metas, realActual, uplift:upliftAse, hist, crecProm, ventasMesAnt, ovMesAct };
   });
 
   // Snapshot del mes actual (para cumplimiento cuando cierre)
@@ -8530,15 +8546,15 @@ async function renderPresupuestoVentas(){
   cont.innerHTML = `
 
     <div class="card" style="padding:0">
-      <div style="padding:14px 16px 10px;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px"><i class="ti ti-target-arrow" style="margin-right:6px"></i>${compactoP ? 'Presupuesto ventas — 2 últimos meses + mes en curso (sin IVA)' : 'Presupuesto — mes en curso + 3 proyectados (sin IVA)'}</div>
+      <div style="padding:14px 16px 10px;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px"><i class="ti ti-target-arrow" style="margin-right:6px"></i>${compactoP ? 'Presupuesto ventas — 2 últimos meses + mes proyectado (sin IVA)' : 'Presupuesto — mes en curso + 3 proyectados (sin IVA)'}</div>
       <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:820px">
         <thead><tr style="border-bottom:1px solid var(--border)">
           <th style="text-align:left;padding:8px 12px;font-size:10px;color:var(--muted);text-transform:uppercase">Asesora</th>
-          ${mesesCerrados.slice(-HIST_N).map(mk=>`<th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;background:#f3f0ec">${MESES_PPTO[parseInt(mk.split('-')[1])]} ${mk.substring(2,4)}<br><span style="font-weight:400;letter-spacing:0">histórico</span></th>`).join('')}
+          ${mesesHist.map(mk=>`<th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;background:#f3f0ec">${MESES_PPTO[parseInt(mk.split('-')[1])]} ${mk.substring(2,4)}<br><span style="font-weight:400;letter-spacing:0">histórico</span></th>`).join('')}
           ${compactoP?'':`<th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;background:#f3f0ec">Crec.<br>prom. ${HIST_N}m</th>`}
           ${compactoP?'':`<th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Base<br>(prom. 3m)</th>`}
           <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">% mensual</th>
-          ${ventana.map(v=>`<th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">${MESES_PPTO[v.mes]} ${String(v.anio).substring(2)}${v.key===mkDe(anioAct,mesAct)?'<br><span style="color:#16a34a">(en curso)</span>':''}</th>`).join('')}
+          ${ventana.map(v=>`<th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">${MESES_PPTO[v.mes]} ${String(v.anio).substring(2)}${compactoP?'<br><span style="color:#16a34a">proyectado</span>':(v.key===mkDe(anioAct,mesAct)?'<br><span style="color:#16a34a">(en curso)</span>':'')}</th>`).join('')}
         </tr></thead>
         <tbody>
           ${filas.map((f,fi)=>`
@@ -8560,7 +8576,7 @@ async function renderPresupuestoVentas(){
               if(!m) inner = '<span style="color:#ccc">—</span>';
               else {
                 inner = `<div style="font-weight:700;${m.manual?'background:#fef3c7;border-radius:5px;padding:1px 5px;display:inline-block':''}">${fmtP(m.valor)}</div>`;
-                if(esActual && m.valor > 0){
+                if(esActual && !compactoP && m.valor > 0){
                   const pctAv = Math.round(f.realActual / m.valor * 100);
                   inner += `<div style="font-size:9px;font-weight:600;color:${pctAv>=100?'#16a34a':(pctAv>=60?'#d97706':'#dc2626')}">${fmtP(f.realActual)} · ${pctAv}%</div>`;
                 }
@@ -8570,7 +8586,7 @@ async function renderPresupuestoVentas(){
           </tr>`).join('')}
           <tr style="border-top:2px solid var(--border);background:#faf9f8">
             <td style="padding:9px 12px;font-weight:700">TOTAL</td>
-            ${mesesCerrados.slice(-HIST_N).map((mk,ix)=>{
+            ${mesesHist.map((mk,ix)=>{
               const tot = filas.reduce((x,f)=>x+((f.hist[ix]&&f.hist[ix].val)||0),0);
               return `<td style="padding:9px 8px;text-align:center;font-weight:700;color:var(--muted);background:#f3f0ec">${tot?fmtP(tot):'—'}</td>`;
             }).join('')}
@@ -8589,34 +8605,41 @@ async function renderPresupuestoVentas(){
       const inc = cfg.incentivo;
       const PISO = 4000;
       const mesActKey = mkDe(anioAct, mesAct);
-      const filasCom = filas.filter(f => !/giovanna/i.test(f.nombre) && f.metas[mesActKey] && f.metas[mesActKey].valor > 0);
+      const filasCom = filas.map(f => {
+        if(/giovanna/i.test(f.nombre)) return null;
+        const mAct = f.metas[mesActKey];
+        let metaCom = mAct ? mAct.valor : null;
+        if(metaCom === null && f.ovMesAct !== undefined && f.ovMesAct !== null && f.ovMesAct !== '') metaCom = Math.round(parseFloat(f.ovMesAct)||0);
+        if(metaCom === null && f.pct !== null && f.ventasMesAnt) metaCom = Math.round(f.ventasMesAnt * (1 + f.pct/100));
+        return (metaCom && metaCom > 0) ? Object.assign({}, f, { metaCom }) : null;
+      }).filter(Boolean);
       if(filasCom.length === 0) return '';
-      const calcCom = (ventas, meta) => {
-        const minimo = Math.max(meta * inc.pct_minimo / 100, PISO);
+      const calcCom = (ventas, meta, minAnt) => {
+        const minimo = Math.max(minAnt || 0, PISO); // mínimo = lo vendido el mes anterior (piso $4.000)
         if(ventas <= PISO) return { minimo, nivel: 0, comision: 0 };
-        if(ventas < minimo) return { minimo, nivel: 1, comision: 0.02 * (ventas - PISO) };
+        if(ventas < minimo) return { minimo, nivel: 1, comision: (inc.pct_bajo/100) * (ventas - PISO) };
         if(ventas < meta) return { minimo, nivel: 2, comision: 0.03 * (ventas - PISO) };
         return { minimo, nivel: 3, comision: 0.03 * Math.max(0, meta - PISO) + inc.bono + (inc.pct_exceso/100) * (ventas - meta) };
       };
       const fmtC = v => '$' + (Math.round(v*100)/100).toFixed(2);
-      const NIVELES = ['Sin comisión (bajo $4.000)','2% — bajo el mínimo','3% — mínimo cumplido','META + bono + '+inc.pct_exceso+'%'];
+      const NIVELES = ['Sin comisión (bajo $4.000)',inc.pct_bajo+'% — bajo el mínimo','3% — mínimo cumplido','META + bono + '+inc.pct_exceso+'%'];
       const NIVEL_COLOR = ['#9ca3af','#d97706','#2563eb','#16a34a'];
       return `
     <div class="card" style="margin-top:12px;padding:0">
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding:14px 16px 10px">
         <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px"><i class="ti ti-coin" style="margin-right:6px"></i>Comisiones proyectadas — ${MESES_PPTO[mesAct]} (escalera de incentivos)</div>
         <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:12px">
-          <span>Mínimo: <input type="number" min="0" max="100" value="${inc.pct_minimo}" onchange="guardarIncentivoPpto('pct_minimo',this.value)" style="width:52px;padding:3px 5px;font-size:12px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;font-weight:700;color:var(--brown)">% de la meta</span>
+          <span>Bajo mínimo: <input type="number" min="0" max="100" step="0.5" value="${inc.pct_bajo}" onchange="guardarIncentivoPpto('pct_bajo',this.value)" style="width:52px;padding:3px 5px;font-size:12px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;font-weight:700;color:var(--brown)">%</span>
           <span>Bono: $<input type="number" min="0" value="${inc.bono}" onchange="guardarIncentivoPpto('bono',this.value)" style="width:56px;padding:3px 5px;font-size:12px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;font-weight:700;color:var(--brown)"></span>
           <span>Exceso de meta: <input type="number" min="0" max="100" step="0.5" value="${inc.pct_exceso}" onchange="guardarIncentivoPpto('pct_exceso',this.value)" style="width:52px;padding:3px 5px;font-size:12px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;font-weight:700;color:var(--brown)">%</span>
         </div>
       </div>
-      <div style="font-size:11px;color:var(--muted);padding:0 16px 10px;line-height:1.5">Piso $4.000 (debajo no hay comisión). Bajo el mínimo: <b>2%</b> del excedente de $4.000 · alcanzando el mínimo: <b>3%</b> · superando la meta: 3% hasta la meta + <b>bono $${inc.bono}</b> + <b>${inc.pct_exceso}%</b> de todo lo que exceda la meta.</div>
+      <div style="font-size:11px;color:var(--muted);padding:0 16px 10px;line-height:1.5">Piso $4.000 (debajo no hay comisión). El <b>mínimo</b> de cada asesora es <b>lo que vendió el mes anterior</b>. Bajo el mínimo: <b>${inc.pct_bajo}%</b> del excedente de $4.000 · alcanzando el mínimo: <b>3%</b> · superando la meta: 3% hasta la meta + <b>bono $${inc.bono}</b> + <b>${inc.pct_exceso}%</b> de todo lo que exceda la meta.</div>
       <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:700px">
         <thead><tr style="border-bottom:1px solid var(--border)">
           <th style="text-align:left;padding:8px 12px;font-size:10px;color:var(--muted);text-transform:uppercase">Asesora</th>
           <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Ventas del mes</th>
-          <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Mínimo (${inc.pct_minimo}%)</th>
+          <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Mínimo<br>(mes anterior)</th>
           <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Meta</th>
           <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Nivel actual</th>
           <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Comisión hoy</th>
@@ -8624,8 +8647,8 @@ async function renderPresupuestoVentas(){
         </tr></thead>
         <tbody>
           ${filasCom.map((f,fi)=>{
-            const meta = f.metas[mesActKey].valor;
-            const r = calcCom(f.realActual, meta);
+            const meta = f.metaCom;
+            const r = calcCom(f.realActual, meta, f.ventasMesAnt);
             const siMeta = 0.03 * Math.max(0, meta - PISO) + inc.bono;
             return `
           <tr style="border-bottom:0.5px solid var(--border);background:${fi%2?'#f6f3ef':'white'}">
@@ -8647,7 +8670,7 @@ async function renderPresupuestoVentas(){
 
 async function guardarIncentivoPpto(campo, valor){
   const cfg = window._pptoCfg || {pct:{},overrides:{},snapshots:{}};
-  cfg.incentivo = Object.assign({ pct_minimo: 90, bono: 50, pct_exceso: 5 }, cfg.incentivo || {});
+  cfg.incentivo = Object.assign({ pct_minimo: 90, bono: 50, pct_exceso: 5, pct_bajo: 2 }, cfg.incentivo || {});
   cfg.incentivo[campo] = Math.max(0, parseFloat(valor) || 0);
   window._pptoCfg = cfg;
   await guardarPptoConfig();
