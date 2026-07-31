@@ -8559,11 +8559,11 @@ async function renderPresupuestoVentas(){
       <div style="padding:14px 16px 10px;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px"><i class="ti ti-target-arrow" style="margin-right:6px"></i>${compactoP ? 'Presupuesto ventas — 2 últimos meses + mes proyectado (sin IVA)' : 'Presupuesto — mes en curso + 3 proyectados (sin IVA)'}</div>
       <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:820px">
         <thead><tr style="border-bottom:1px solid var(--border)">
-          <th style="text-align:left;padding:8px 12px;font-size:10px;color:var(--muted);text-transform:uppercase">Asesora</th>
+          <th style="text-align:left;padding:8px 12px;font-size:10px;color:var(--muted);text-transform:uppercase;${compactoP?'width:22%':''}">Asesora</th>
           ${mesesHist.map(mk=>`<th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;background:#f3f0ec">${MESES_PPTO[parseInt(mk.split('-')[1])]} ${mk.substring(2,4)}<br><span style="font-weight:400;letter-spacing:0">histórico</span></th>`).join('')}
           ${compactoP?'':`<th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;background:#f3f0ec">Crec.<br>prom. ${HIST_N}m</th>`}
           ${compactoP?'':`<th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Base<br>(prom. 3m)</th>`}
-          <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">% mensual</th>
+          <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">${compactoP?'% Incremento mensual':'% mensual'}</th>
           ${ventana.map(v=>`<th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">${MESES_PPTO[v.mes]} ${String(v.anio).substring(2)}${compactoP?'<br><span style="color:#16a34a">proyectado</span>':(v.key===mkDe(anioAct,mesAct)?'<br><span style="color:#16a34a">(en curso)</span>':'')}</th>`).join('')}
         </tr></thead>
         <tbody>
@@ -8637,7 +8637,7 @@ async function renderPresupuestoVentas(){
       return `
     <div class="card" style="margin-top:12px;padding:0">
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding:14px 16px 10px">
-        <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px"><i class="ti ti-coin" style="margin-right:6px"></i>Comisiones proyectadas — ${MESES_PPTO[mesAct]} (escalera de incentivos)</div>
+        <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px"><i class="ti ti-coin" style="margin-right:6px"></i>Comisiones proyectadas</div>
         <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:12px">
           <span>Bajo mínimo: <input type="number" min="0" max="100" step="0.5" value="${inc.pct_bajo}" onchange="guardarIncentivoPpto('pct_bajo',this.value)" style="width:52px;padding:3px 5px;font-size:12px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;font-weight:700;color:var(--brown)">%</span>
           <span>Bono: $<input type="number" min="0" value="${inc.bono}" onchange="guardarIncentivoPpto('bono',this.value)" style="width:56px;padding:3px 5px;font-size:12px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;font-weight:700;color:var(--brown)"></span>
@@ -8648,8 +8648,8 @@ async function renderPresupuestoVentas(){
       <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:700px">
         <thead><tr style="border-bottom:1px solid var(--border)">
           <th style="text-align:left;padding:8px 12px;font-size:10px;color:var(--muted);text-transform:uppercase">Asesora</th>
-          <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Ventas del mes</th>
           <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Mínimo<br>(prom. 3 meses)</th>
+          <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Ventas del mes</th>
           <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Meta</th>
           <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Nivel actual</th>
           <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Comisión hoy</th>
@@ -8663,8 +8663,8 @@ async function renderPresupuestoVentas(){
             return `
           <tr style="border-bottom:0.5px solid var(--border);background:${fi%2?'#f6f3ef':'white'}">
             <td style="padding:8px 12px;font-weight:600">${esc(f.nombre.split(' ').slice(0,2).join(' '))}</td>
-            <td style="padding:8px 8px;text-align:center;font-weight:700">${fmtP(f.realActual)}</td>
             <td style="padding:8px 8px;text-align:center;color:var(--muted)">${fmtP(r.minimo)}</td>
+            <td style="padding:8px 8px;text-align:center;font-weight:700">${fmtP(f.realActual)}</td>
             <td style="padding:8px 8px;text-align:center;color:var(--muted)">${fmtP(meta)}</td>
             <td style="padding:8px 8px;text-align:center"><span style="font-size:10px;font-weight:700;color:${NIVEL_COLOR[r.nivel]};border:1px solid ${NIVEL_COLOR[r.nivel]};border-radius:10px;padding:2px 8px;white-space:nowrap">${NIVELES[r.nivel]}</span></td>
             <td style="padding:8px 8px;text-align:center;font-weight:800;font-size:13px;color:${r.comision>0?'#16a34a':'#9ca3af'}">${fmtC(r.comision)}</td>
