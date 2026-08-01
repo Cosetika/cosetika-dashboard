@@ -8510,10 +8510,10 @@ async function renderPresupuestoVentas(){
     const shAnt = mesShiftK2(anioAct, mesAct, -1);
     const ventasMesAnt = Math.round(vm[mkDe(shAnt.a, shAnt.m)] || 0);
     const ovMesAct = ov[mkDe(anioAct, mesAct)];
-    // Mínimo de comisiones: promedio de los 3 meses anteriores al mes actual (absorbe picos)
+    // Mínimo de comisiones: promedio de los 2 meses anteriores al mes actual (absorbe picos)
     let prom3Sum = 0;
-    for(let d3 = 1; d3 <= 3; d3++){ const sh3 = mesShiftK2(anioAct, mesAct, -d3); prom3Sum += vm[mkDe(sh3.a, sh3.m)] || 0; }
-    const minProm3 = Math.round(prom3Sum / 3);
+    for(let d3 = 1; d3 <= 2; d3++){ const sh3 = mesShiftK2(anioAct, mesAct, -d3); prom3Sum += vm[mkDe(sh3.a, sh3.m)] || 0; }
+    const minProm3 = Math.round(prom3Sum / 2);
     return { nombre:a.nombre, rol:a.rol, sinUsuario:a.sinUsuario, k, base, sugerido, pct, metas, realActual, uplift:upliftAse, hist, crecProm, ventasMesAnt, ovMesAct, minProm3 };
   });
 
@@ -8625,7 +8625,7 @@ async function renderPresupuestoVentas(){
       }).filter(Boolean);
       if(filasCom.length === 0) return '';
       const calcCom = (ventas, meta, minAnt) => {
-        const minimo = Math.max(minAnt || 0, PISO); // mínimo = promedio de los últimos 3 meses (piso $4.000)
+        const minimo = Math.max(minAnt || 0, PISO); // mínimo = promedio de los últimos 2 meses (piso $4.000)
         if(ventas <= PISO) return { minimo, nivel: 0, comision: 0 };
         if(ventas < minimo) return { minimo, nivel: 1, comision: (inc.pct_bajo/100) * (ventas - PISO) };
         if(ventas < meta) return { minimo, nivel: 2, comision: 0.03 * (ventas - PISO) };
@@ -8644,11 +8644,11 @@ async function renderPresupuestoVentas(){
           <span>Exceso de meta: <input type="number" min="0" max="100" step="0.5" value="${inc.pct_exceso}" onchange="guardarIncentivoPpto('pct_exceso',this.value)" style="width:52px;padding:3px 5px;font-size:12px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;font-weight:700;color:var(--brown)">%</span>
         </div>
       </div>
-      <div style="font-size:11px;color:var(--muted);padding:0 16px 10px;line-height:1.5">Piso $4.000 (debajo no hay comisión). El <b>mínimo</b> de cada asesora es su <b>promedio de ventas de los últimos 3 meses</b>. Bajo el mínimo: <b>${inc.pct_bajo}%</b> del excedente de $4.000 · alcanzando el mínimo: <b>3%</b> · superando la meta: 3% hasta la meta + <b>bono $${inc.bono}</b> + <b>${inc.pct_exceso}%</b> de todo lo que exceda la meta.</div>
+      <div style="font-size:11px;color:var(--muted);padding:0 16px 10px;line-height:1.5">Piso $4.000 (debajo no hay comisión). El <b>mínimo</b> de cada asesora es su <b>promedio de ventas de los últimos 2 meses</b>. Bajo el mínimo: <b>${inc.pct_bajo}%</b> del excedente de $4.000 · alcanzando el mínimo: <b>3%</b> · superando la meta: 3% hasta la meta + <b>bono $${inc.bono}</b> + <b>${inc.pct_exceso}%</b> de todo lo que exceda la meta.</div>
       <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:700px">
         <thead><tr style="border-bottom:1px solid var(--border)">
           <th style="text-align:left;padding:8px 12px;font-size:10px;color:var(--muted);text-transform:uppercase">Asesora</th>
-          <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Mínimo<br>(prom. 3 meses)</th>
+          <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Mínimo<br>(prom. 2 meses)</th>
           <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Ventas del mes</th>
           <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Meta</th>
           <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Nivel actual</th>
