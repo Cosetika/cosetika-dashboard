@@ -1101,7 +1101,8 @@ function consolidarProductosMes(lista){
 // notas de crédito como si fueran ventas positivas)
 function esNotaCredito(d) {
   const t = String((d && d.tipo_documento) || '').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
-  return t === 'NC' || t === 'NCR' || t === 'N/C' || t.includes('CREDITO');
+  // 'NCT' es el código real que usa Contifico; startsWith cubre NC/NCR/NCT y futuros
+  return t === 'N/C' || t.startsWith('NC') || t.includes('CREDITO');
 }
 
 let regenerandoEnProceso = false;
