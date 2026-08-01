@@ -178,7 +178,7 @@ async function generarDataJson(fi, ff) {
       const cliProv = resolverProvinciaCliente(cliRuc, cliId, doc.cliente?.direccion || '');
       const mes = parseInt((doc.fecha_emision || '').split('/')[1]) || 0;
       // Notas de crédito restan (neteo contra la factura original, igual que Contifico)
-      const signoDoc = doc.tipo_documento === 'NC' ? -1 : 1;
+      const signoDoc = esNotaCredito(doc) ? -1 : 1;
       const totalDoc = signoDoc * parseFloat(doc.total || 0);
       const subDoc = signoDoc * parseFloat(doc.subtotal || doc.subtotal_12 || 0);
       if (!cliId || totalDoc === 0) return;
@@ -498,9 +498,9 @@ async function sincronizarHoy() {
       paginas++;
       console.log(`Página ${paginas}: ${(data.results||[]).length} docs, total: ${todos.length}`);
     }
-    const clientes = todos.filter(d => d.tipo_registro === 'CLI' && !d.anulado && d.tipo_documento !== 'NC' && d.tipo_documento !== 'COT' && d.tipo_documento !== 'PRO');
+    const clientes = todos.filter(d => d.tipo_registro === 'CLI' && !d.anulado && !esNotaCredito(d) && d.tipo_documento !== 'COT' && d.tipo_documento !== 'PRO');
     // Notas de crédito del día — se restan en los gráficos (mismo neteo que la regeneración)
-    cache.nc_documentos = todos.filter(d => d.tipo_registro === 'CLI' && !d.anulado && d.tipo_documento === 'NC');
+    cache.nc_documentos = todos.filter(d => d.tipo_registro === 'CLI' && !d.anulado && esNotaCredito(d));
     // Agregar cliente_nombre directo desde el objeto cliente
     clientes.forEach(d => {
       d.cliente_nombre = d.cliente?.razon_social || d.cliente?.nombre_comercial || d.persona_id || '—';
@@ -1094,6 +1094,14 @@ function consolidarProductosMes(lista){
     mapa[k].total += x.total;
   });
   return Object.values(mapa).map(x=>({...x, cantidad: Math.round(x.cantidad*100)/100, total: Math.round(x.total*100)/100}));
+}
+
+// Nota de crédito: la API de Contifico puede reportar el tipo como 'NC', 'NCR', 'N/C'
+// o el nombre completo — reconocer TODAS las variantes (un 'NC' exacto dejaba pasar
+// notas de crédito como si fueran ventas positivas)
+function esNotaCredito(d) {
+  const t = String((d && d.tipo_documento) || '').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+  return t === 'NC' || t === 'NCR' || t === 'N/C' || t.includes('CREDITO');
 }
 
 let regenerandoEnProceso = false;
@@ -1699,7 +1707,7 @@ async function calcularVentasDiaMarca(anio, mes) {
         if (String(d.cliente?.ruc || d.cliente?.cedula || '').trim() === '1793143660001') return;
         const dk = d.id || d.documento;
         if (vistos.has(dk)) return; vistos.add(dk);
-        const signo = d.tipo_documento === 'NC' ? -1 : 1;
+        const signo = esNotaCredito(d) ? -1 : 1;
         const dia = parseInt(String(d.fecha_emision||'').split('/')[0]) || 0;
         if (!dia) return;
         (d.detalles || []).forEach(det => {
@@ -3175,7 +3183,7 @@ const server = http.createServer(async (req, res) => {
         nextUrl = data.next || null;
         paginas++;
       }
-      const clientes = todos.filter(doc => doc.tipo_registro === 'CLI' && !doc.anulado && doc.tipo_documento !== 'NC' && doc.tipo_documento !== 'COT' && doc.tipo_documento !== 'PRO');
+      const clientes = todos.filter(doc => doc.tipo_registro === 'CLI' && !doc.anulado && !esNotaCredito(doc) && doc.tipo_documento !== 'COT' && doc.tipo_documento !== 'PRO');
       clientes.forEach(doc => {
         doc.cliente_nombre = doc.cliente?.razon_social || doc.cliente?.nombre_comercial || doc.persona_id || '—';
       });
@@ -3212,7 +3220,7 @@ const server = http.createServer(async (req, res) => {
           nextUrl = data.next || null;
           paginas++;
         }
-        const clientes = todos.filter(doc => doc.tipo_registro === 'CLI' && !doc.anulado && doc.tipo_documento !== 'NC' && doc.tipo_documento !== 'COT' && doc.tipo_documento !== 'PRO');
+        const clientes = todos.filter(doc => doc.tipo_registro === 'CLI' && !doc.anulado && !esNotaCredito(doc) && doc.tipo_documento !== 'COT' && doc.tipo_documento !== 'PRO');
 
         for (const doc of clientes) {
           const cliNom = doc.cliente?.razon_social || doc.cliente?.nombre_comercial || doc.persona_id || '—';
@@ -3404,7 +3412,7 @@ const server = http.createServer(async (req, res) => {
             } else {
               totalCLI+=total; countCLI++;
             }
-          } else if(d.tipo_documento==='NC'||d.tipo_registro==='NC'){
+          } else if(esNotaCredito(d)||d.tipo_registro==='NC'){
             totalNC+=total; countNC++;
           }
         });
@@ -3451,7 +3459,7 @@ const server = http.createServer(async (req, res) => {
           if (!vN.includes(vendQ)) return;
           const dk = d.id || d.documento;
           if (vistosQ.has(dk)) return; vistosQ.add(dk);
-          const signoQ = d.tipo_documento === 'NC' ? -1 : 1;
+          const signoQ = esNotaCredito(d) ? -1 : 1;
           const subQ = signoQ * parseFloat(d.subtotal || 0);
           const cliN = (d.cliente && (d.cliente.razon_social || d.cliente.nombre_comercial)) || '—';
           docsVend.push({ doc: d.documento, tipo: d.tipo_documento, fecha: d.fecha_emision, cliente: cliN, subtotal: Math.round(subQ*100)/100, anulado: !!d.anulado, estado: d.estado, autorizado_sri: d.autorizado_sri, firmado: d.firmado, electronico: d.electronico });
@@ -3489,8 +3497,10 @@ const server = http.createServer(async (req, res) => {
       res.end(JSON.stringify({ ok:true, vendedora: vendQ, mes: `${anioQ}-${mmQ}`,
         total_contifico: totLive, total_app: totApp, diferencia_total: Math.round((totApp-totLive)*100)/100,
         clientas_con_diferencia: difs,
+        total_docs_validos: docsVend.filter(d=>!d.anulado).length,
         docs_sin_autorizacion_sri: docsVend.filter(d=>!d.anulado && d.autorizado_sri === false),
-        docs_anulados_del_mes: docsVend.filter(d=>d.anulado) }, null, 2));
+        docs_anulados_del_mes: docsVend.filter(d=>d.anulado),
+        docs_del_mes: docsVend.filter(d=>!d.anulado).sort((a,b)=>String(a.doc).localeCompare(String(b.doc))).map(d=>`${d.doc} · ${d.fecha} · ${d.cliente} · $${d.subtotal}${d.tipo!=='FAC'?' ('+d.tipo+')':''}${d.autorizado_sri===false?' (SIN AUT. SRI)':''}`) }, null, 2));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
   }
@@ -3546,7 +3556,7 @@ const server = http.createServer(async (req, res) => {
       const resp = await fetch(url, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
       const data = await resp.json();
       const vendedores = {};
-      (data.results||[]).filter(d=>d.tipo_registro==='CLI'&&!d.anulado&&d.tipo_documento!=='NC').forEach(d=>{
+      (data.results||[]).filter(d=>d.tipo_registro==='CLI'&&!d.anulado&&!esNotaCredito(d)).forEach(d=>{
         const vNom = d.vendedor?.razon_social || 'SIN VENDEDOR';
         if(!vendedores[vNom]) vendedores[vNom]={facturas:0,total:0};
         vendedores[vNom].facturas++;
@@ -3701,7 +3711,7 @@ const server = http.createServer(async (req, res) => {
       const filtrados = todos.filter(d => {
         if (d.tipo_registro !== 'CLI') return false;
         if (d.anulado) return false;
-        if (d.tipo_documento === 'NC') return false;
+        if (esNotaCredito(d)) return false;
         if (d.tipo_documento === 'COT') return false;
         if (d.tipo_documento === 'PRO') return false;
         if (!d.vendedor && !d.vendedor_id && !d.vendedor_identificacion) { sinVendedor++; sumaSinVendedor += parseFloat(d.total||0); return false; }
@@ -3766,7 +3776,7 @@ const server = http.createServer(async (req, res) => {
       const docsFiltrados = todos.filter(d => {
         if (d.tipo_registro !== 'CLI') return false;
         if (d.anulado) return false;
-        if (d.tipo_documento === 'NC') return false;
+        if (esNotaCredito(d)) return false;
         if (d.tipo_documento === 'COT') return false;
         if (d.tipo_documento === 'PRO') return false;
         if (!d.vendedor && !d.vendedor_id && !d.vendedor_identificacion) return false;
