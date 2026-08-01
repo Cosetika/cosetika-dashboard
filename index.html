@@ -205,6 +205,7 @@
     <div id="nav-clientes-subs" style="max-height:0;overflow:hidden;transition:max-height 0.25s ease">
       <div class="nav-sub-item" id="navsub-cpf" onclick="navSetSubtab('cpf')"><i class="ti ti-user-dollar" style="font-size:13px"></i>Compras</div>
       <div class="nav-sub-item" id="navsub-prov" onclick="navSetSubtab('prov')"><i class="ti ti-map-pin" style="font-size:13px"></i>Provincia</div>
+      <div class="nav-sub-item" id="navsub-seguimiento" onclick="navGoSeguimientoCli()"><i class="ti ti-user-search" style="font-size:13px"></i>Seguimiento</div>
       <div class="nav-sub-item" id="navsub-referidos" onclick="navGoReferidos()"><i class="ti ti-user-heart" style="font-size:13px"></i>Referidos<span id="badge-referidos" style="display:none;margin-left:auto;background:#ef4444;color:white;border-radius:10px;font-size:9px;padding:1px 6px;font-weight:700;line-height:1.5">0</span></div>
       <div class="nav-sub-item" id="navsub-institutos-cli" onclick="navGoInstitutosCli()"><i class="ti ti-school" style="font-size:13px"></i>Institutos</div>
     </div>
@@ -661,6 +662,8 @@ function setMod(mod){
     renderReferidos();
   } else if(mod==='institutos_cli'){
     renderInstitutosCli();
+  } else if(mod==='seguimiento_cli'){
+    renderSeguimientoClientes();
   } else if(mod==='bodegas'){
     renderBodegas();
   } else if(mod==='lotes'){
@@ -8771,6 +8774,150 @@ function navGoReferidos(){
   setTimeout(()=>{
     document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
     document.getElementById('navsub-referidos')?.classList.add('active');
+    const subs = document.getElementById('nav-clientes-subs');
+    const chev = document.getElementById('nav-clientes-chevron');
+    if(subs) subs.style.maxHeight = '300px';
+    if(chev) chev.style.transform = 'rotate(90deg)';
+    document.getElementById('nav-clientes')?.classList.add('active');
+  }, 30);
+}
+
+// ─── SEGUIMIENTO DE CLIENTAS: ritmo personal de compra e inactividad ─────────
+function renderSeguimientoClientes(){
+  const main = document.getElementById('main');
+  const uS = window.usuarioActual || {};
+  const rolS = uS.rol || '';
+  const puedeVerTodasS = (rolS === 'admin' || rolS === 'jefa_ventas' || rolS === 'administrativo');
+  const vendedorasS = Object.keys(DATA || {}).filter(v => (DATA[v]||[]).length > 0).sort();
+  let vendSel;
+  if (puedeVerTodasS) {
+    vendSel = window._segVendSel || vendedorasS[0] || '';
+  } else {
+    vendSel = resolverNombreReal(uS.nombre || '', DATA) || uS.nombre || '';
+    if (!DATA[vendSel]) {
+      main.innerHTML = '<div class="coming"><i class="ti ti-user-search"></i><p>No hay ventas registradas a tu nombre todavía</p></div>';
+      return;
+    }
+  }
+  window._segVendSel = vendSel;
+
+  const hoyS = new Date(new Date().toLocaleString('en-US',{timeZone:'America/Guayaquil'}));
+  const idxOf = (a,m) => a*12 + (m-1);
+  const curIdx = idxOf(hoyS.getFullYear(), hoyS.getMonth()+1);
+  const MPP = (typeof MESES_PPTO !== 'undefined') ? MESES_PPTO : ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const lblMes = idx => `${MPP[(idx%12)+1]} ${String(Math.floor(idx/12)).substring(2)}`;
+  const fmtS = v => '$' + Math.round(v).toLocaleString('en-US');
+  const esc = v => String(v||'').replace(/</g,'&lt;');
+
+  const riesgo = [], dormidas = [], unavez = [];
+  let activas = 0;
+  (DATA[vendSel] || []).forEach(c => {
+    const mesesCompra = new Set();
+    let subSum = 0;
+    (c.frecuencia || []).forEach(f => {
+      if (!f.mes) return;
+      if ((f.compras||0) > 0 || (f.total||0) > 0) {
+        mesesCompra.add(idxOf(f.anio || hoyS.getFullYear(), f.mes));
+        subSum += (f.subtotal || 0);
+      }
+    });
+    const lista = [...mesesCompra].sort((a,b)=>a-b);
+    if (!lista.length) return;
+    const ult = lista[lista.length-1];
+    const mesesSin = curIdx - ult;
+    const promMes = subSum / lista.length; // promedio sin IVA por mes en que compró
+    const fila = { nombre: c.nombre, telefono: c.telefono || '', ultima: lblMes(ult), mesesSin, promMes, compras: lista.length, ritmo: null };
+    if (lista.length === 1) {
+      if (mesesSin >= 2) unavez.push(fila); else activas++;
+      return;
+    }
+    let g = 0;
+    for (let i = 1; i < lista.length; i++) g += lista[i] - lista[i-1];
+    const ritmo = Math.max(1, g / (lista.length - 1));
+    fila.ritmo = Math.round(ritmo * 10) / 10;
+    const ratio = mesesSin / ritmo;
+    if (ratio >= 3 || mesesSin >= 6) dormidas.push(fila);
+    else if (ratio >= 1.5) riesgo.push(fila);
+    else activas++;
+  });
+  [riesgo, dormidas, unavez].forEach(l => l.sort((a,b) => b.promMes - a.promMes));
+  const valorFrio = [...riesgo, ...dormidas].reduce((a,f)=>a+f.promMes, 0);
+
+  const selectorS = puedeVerTodasS ? `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+      <span style="font-size:12px;color:var(--muted)">Asesora:</span>
+      <select onchange="window._segVendSel=this.value;renderSeguimientoClientes()" style="padding:6px 10px;border:0.5px solid var(--border);border-radius:6px;font-size:12px;outline:none;background:white">
+        ${vendedorasS.map(v=>`<option value="${esc(v)}" ${v===vendSel?'selected':''}>${esc((typeof NOMBRE_CORTO!=='undefined'&&NOMBRE_CORTO[v])||v)}</option>`).join('')}
+      </select>
+    </div>` : '';
+
+  const tablaSeg = (titulo, color, bg, borde, filas, icono, nota) => !filas.length ? '' : `
+    <div class="card" style="margin-bottom:12px;padding:0;border-left:4px solid ${color}">
+      <div style="padding:12px 16px 8px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px">
+        <div style="font-size:13px;font-weight:700;color:${color}"><i class="ti ${icono}" style="margin-right:6px"></i>${titulo} · ${filas.length}</div>
+        <div style="font-size:11px;color:var(--muted)">${nota}</div>
+      </div>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:560px">
+        <thead><tr style="border-bottom:1px solid var(--border)">
+          <th style="text-align:left;padding:7px 14px;font-size:10px;color:var(--muted);text-transform:uppercase">Clienta</th>
+          <th style="text-align:center;padding:7px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Última compra</th>
+          <th style="text-align:center;padding:7px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Ritmo habitual</th>
+          <th style="text-align:center;padding:7px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Sin comprar</th>
+          <th style="text-align:right;padding:7px 14px;font-size:10px;color:var(--muted);text-transform:uppercase">Compraba /mes</th>
+        </tr></thead>
+        <tbody>${filas.map((f,fi)=>`
+          <tr style="border-bottom:0.5px solid var(--border);background:${fi%2?'#f6f3ef':'white'}">
+            <td style="padding:8px 14px">
+              <div style="font-weight:600">${esc(f.nombre)}</div>
+              ${f.telefono?`<a href="tel:${esc(f.telefono)}" style="font-size:11px;color:var(--brown);text-decoration:none"><i class="ti ti-phone" style="font-size:10px"></i> ${esc(f.telefono)}</a>`:'<span style="font-size:10px;color:#ccc">sin teléfono</span>'}
+            </td>
+            <td style="padding:8px 8px;text-align:center">${f.ultima}</td>
+            <td style="padding:8px 8px;text-align:center;color:var(--muted)">${f.ritmo!==null?'cada '+f.ritmo+' m':'—'}</td>
+            <td style="padding:8px 8px;text-align:center;font-weight:800;color:${bg}">${f.mesesSin} m</td>
+            <td style="padding:8px 14px;text-align:right;font-weight:700;color:var(--brown)">${fmtS(f.promMes)}</td>
+          </tr>`).join('')}</tbody>
+      </table></div>
+    </div>`;
+
+  main.innerHTML = `
+    <div style="font-size:16px;font-weight:600;margin-bottom:12px"><i class="ti ti-user-search" style="margin-right:8px;color:var(--brown)"></i>Seguimiento de clientas — ${esc((typeof NOMBRE_CORTO!=='undefined'&&NOMBRE_CORTO[vendSel])||vendSel)}</div>
+    ${selectorS}
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px">
+      <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:10px;padding:12px;text-align:center">
+        <div style="font-size:10px;color:#166534;text-transform:uppercase;letter-spacing:0.5px">Activas</div>
+        <div style="font-size:24px;font-weight:800;color:#166534">${activas}</div>
+      </div>
+      <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:12px;text-align:center">
+        <div style="font-size:10px;color:#92400e;text-transform:uppercase;letter-spacing:0.5px">En riesgo</div>
+        <div style="font-size:24px;font-weight:800;color:#d97706">${riesgo.length}</div>
+      </div>
+      <div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:10px;padding:12px;text-align:center">
+        <div style="font-size:10px;color:#991b1b;text-transform:uppercase;letter-spacing:0.5px">Dormidas</div>
+        <div style="font-size:24px;font-weight:800;color:#dc2626">${dormidas.length}</div>
+      </div>
+      <div style="background:#faf9f8;border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center">
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">1 compra y no volvió</div>
+        <div style="font-size:24px;font-weight:800;color:var(--text)">${unavez.length}</div>
+      </div>
+      <div style="background:#1a1108;border-radius:10px;padding:12px;text-align:center">
+        <div style="font-size:10px;color:rgba(255,255,255,0.7);text-transform:uppercase;letter-spacing:0.5px">Venta /mes que se enfría</div>
+        <div style="font-size:24px;font-weight:800;color:white">${fmtS(valorFrio)}</div>
+      </div>
+    </div>
+    <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:#1e40af;line-height:1.5">
+      Cada clienta se compara contra <b>su propio ritmo de compra</b>: en riesgo = lleva 1.5× su ritmo sin comprar (el mejor momento para llamarla) · dormida = 3× su ritmo o 6+ meses. Ordenadas por lo que compraban al mes: <b>llama primero a las de arriba</b>.
+    </div>
+    ${tablaSeg('En riesgo — llámalas esta semana', '#d97706', '#d97706', '#fde68a', riesgo, 'ti-alert-triangle', 'superaron 1.5× su ritmo habitual')}
+    ${tablaSeg('Dormidas — recuperarlas vale oro', '#dc2626', '#dc2626', '#fca5a5', dormidas, 'ti-zzz', '3× su ritmo o más de 6 meses')}
+    ${tablaSeg('Compraron una vez y no volvieron', '#6b7280', '#6b7280', '#e5e7eb', unavez, 'ti-user-question', 'la recompra pendiente')}
+    ${(!riesgo.length && !dormidas.length && !unavez.length) ? '<div class="card" style="text-align:center;padding:40px;color:var(--muted)"><i class="ti ti-confetti" style="font-size:36px;opacity:0.4"></i><p style="margin-top:10px">¡Ninguna clienta fría! Cartera completamente activa.</p></div>' : ''}`;
+}
+
+function navGoSeguimientoCli(){
+  navSetMod('seguimiento_cli');
+  setTimeout(()=>{
+    document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
+    document.getElementById('navsub-seguimiento')?.classList.add('active');
     const subs = document.getElementById('nav-clientes-subs');
     const chev = document.getElementById('nav-clientes-chevron');
     if(subs) subs.style.maxHeight = '300px';
