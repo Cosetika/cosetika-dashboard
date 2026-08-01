@@ -2846,7 +2846,9 @@ const server = http.createServer(async (req, res) => {
   // CREAR PREFACTURA EN CONTIFICO desde un pedido web (María José solo revisa y factura)
   if (/^\/api\/pedidos-web\/[^/]+\/prefactura$/.test(urlPath) && req.method === 'POST') {
     try {
-      const WOO_URL = (process.env.WOO_URL || '').replace(/\/+$/, '');
+      let WOO_URL = (process.env.WOO_URL || '').trim();
+      const mUrl = WOO_URL.match(/https?:\/\/[^\s"']+/); // tolera valores tipo "WOO_URL = https://..."
+      WOO_URL = (mUrl ? mUrl[0] : WOO_URL).replace(/\/+$/, '');
       const WOO_CK = process.env.WOO_CK || process.env.WC_CONSUMER_KEY || '';
       const WOO_CS = process.env.WOO_CS || process.env.WC_CONSUMER_SECRET || '';
       if (!WOO_URL || !WOO_CK || !WOO_CS) throw new Error('Faltan credenciales de WooCommerce en Railway (WOO_URL + WC_CONSUMER_KEY/WC_CONSUMER_SECRET)');
