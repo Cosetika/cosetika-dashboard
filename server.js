@@ -2847,9 +2847,9 @@ const server = http.createServer(async (req, res) => {
   if (/^\/api\/pedidos-web\/[^/]+\/prefactura$/.test(urlPath) && req.method === 'POST') {
     try {
       const WOO_URL = (process.env.WOO_URL || '').replace(/\/+$/, '');
-      const WOO_CK = process.env.WOO_CK || '';
-      const WOO_CS = process.env.WOO_CS || '';
-      if (!WOO_URL || !WOO_CK || !WOO_CS) throw new Error('Faltan credenciales de WooCommerce en Railway (WOO_URL, WOO_CK, WOO_CS)');
+      const WOO_CK = process.env.WOO_CK || process.env.WC_CONSUMER_KEY || '';
+      const WOO_CS = process.env.WOO_CS || process.env.WC_CONSUMER_SECRET || '';
+      if (!WOO_URL || !WOO_CK || !WOO_CS) throw new Error('Faltan credenciales de WooCommerce en Railway (WOO_URL + WC_CONSUMER_KEY/WC_CONSUMER_SECRET)');
       if (!API_KEY) throw new Error('CONTIFICO_API_KEY no configurada');
       const numero = decodeURIComponent(urlPath.split('/')[3]);
       const rP = await pool.query('SELECT * FROM pedidos_web WHERE numero_pedido=$1', [numero]);
