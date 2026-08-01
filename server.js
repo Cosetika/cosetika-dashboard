@@ -189,7 +189,8 @@ async function generarDataJson(fi, ff) {
       const cli = vObj[cliId];
       cli.nombre = cliNom; cli.ruc = cliRuc;
       // Teléfono y dirección: se actualiza cada vez que aparece en una factura nueva
-      if(doc.cliente?.telefono) cli.telefono = doc.cliente.telefono;
+      const telCli = doc.cliente?.telefonos || doc.cliente?.telefono;
+      if(telCli) cli.telefono = String(telCli);
       if(doc.cliente?.direccion) cli.direccion = doc.cliente.direccion;
       // La provincia se recalcula siempre con el valor más reciente de cliProv, en vez de
       // quedarse fija con el primer valor calculado. Esto es necesario porque el override

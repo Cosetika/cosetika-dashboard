@@ -8783,15 +8783,24 @@ function navGoReferidos(){
 }
 
 // ─── SEGUIMIENTO DE CLIENTAS: ritmo personal de compra e inactividad ─────────
-function renderSeguimientoClientes(){
+async function renderSeguimientoClientes(){
   const main = document.getElementById('main');
   const uS = window.usuarioActual || {};
   const rolS = uS.rol || '';
   const puedeVerTodasS = (rolS === 'admin' || rolS === 'jefa_ventas' || rolS === 'administrativo');
-  const vendedorasS = Object.keys(DATA || {}).filter(v => (DATA[v]||[]).length > 0).sort();
+  // Usuarias activas (para separar asesoras vigentes de vendedoras históricas)
+  if (!window._segUsuarios) {
+    try { const rU = await fetch('/api/usuarios'); const dU = await rU.json(); window._segUsuarios = Array.isArray(dU) ? dU : []; } catch(e) { window._segUsuarios = []; }
+  }
+  const activasNoms = window._segUsuarios.filter(u => (u.rol==='asesora'||u.rol==='jefa_ventas') && u.activo).map(u => u.nombre);
+  const todasKeys = Object.keys(DATA || {}).filter(v => (DATA[v]||[]).length > 0);
+  const keysActivas = todasKeys.filter(v => activasNoms.some(n => (typeof mismoNombreAsig==='function') ? mismoNombreAsig(n, v) : n === v)).sort();
+  const keysAntiguas = todasKeys.filter(v => !keysActivas.includes(v)).sort();
+  const ANTIGUAS = '__antiguas__';
   let vendSel;
   if (puedeVerTodasS) {
-    vendSel = window._segVendSel || vendedorasS[0] || '';
+    vendSel = window._segVendSel || keysActivas[0] || todasKeys[0] || '';
+    if (vendSel !== ANTIGUAS && !todasKeys.includes(vendSel)) vendSel = keysActivas[0] || '';
   } else {
     vendSel = resolverNombreReal(uS.nombre || '', DATA) || uS.nombre || '';
     if (!DATA[vendSel]) {
@@ -8800,6 +8809,10 @@ function renderSeguimientoClientes(){
     }
   }
   window._segVendSel = vendSel;
+  const clientesSeg = vendSel === ANTIGUAS
+    ? keysAntiguas.reduce((acc, k) => acc.concat(DATA[k] || []), [])
+    : (DATA[vendSel] || []);
+  const tituloSel = vendSel === ANTIGUAS ? 'Clientes antiguas' : ((typeof NOMBRE_CORTO!=='undefined'&&NOMBRE_CORTO[vendSel])||vendSel);
 
   const hoyS = new Date(new Date().toLocaleString('en-US',{timeZone:'America/Guayaquil'}));
   const idxOf = (a,m) => a*12 + (m-1);
@@ -8811,7 +8824,7 @@ function renderSeguimientoClientes(){
 
   const riesgo = [], dormidas = [], unavez = [];
   let activas = 0;
-  (DATA[vendSel] || []).forEach(c => {
+  clientesSeg.forEach(c => {
     const mesesCompra = new Set();
     let subSum = 0;
     (c.frecuencia || []).forEach(f => {
@@ -8847,7 +8860,8 @@ function renderSeguimientoClientes(){
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap">
       <span style="font-size:12px;color:var(--muted)">Asesora:</span>
       <select onchange="window._segVendSel=this.value;renderSeguimientoClientes()" style="padding:6px 10px;border:0.5px solid var(--border);border-radius:6px;font-size:12px;outline:none;background:white">
-        ${vendedorasS.map(v=>`<option value="${esc(v)}" ${v===vendSel?'selected':''}>${esc((typeof NOMBRE_CORTO!=='undefined'&&NOMBRE_CORTO[v])||v)}</option>`).join('')}
+        ${keysActivas.map(v=>`<option value="${esc(v)}" ${v===vendSel?'selected':''}>${esc((typeof NOMBRE_CORTO!=='undefined'&&NOMBRE_CORTO[v])||v)}</option>`).join('')}
+        ${keysAntiguas.length?`<option value="${ANTIGUAS}" ${vendSel===ANTIGUAS?'selected':''}>— Clientes antiguas (${keysAntiguas.length} vendedoras) —</option>`:''}
       </select>
     </div>` : '';
 
@@ -8880,7 +8894,7 @@ function renderSeguimientoClientes(){
     </div>`;
 
   main.innerHTML = `
-    <div style="font-size:16px;font-weight:600;margin-bottom:12px"><i class="ti ti-user-search" style="margin-right:8px;color:var(--brown)"></i>Seguimiento de clientas — ${esc((typeof NOMBRE_CORTO!=='undefined'&&NOMBRE_CORTO[vendSel])||vendSel)}</div>
+    <div style="font-size:16px;font-weight:600;margin-bottom:12px"><i class="ti ti-user-search" style="margin-right:8px;color:var(--brown)"></i>Seguimiento de clientas — ${esc(tituloSel)}</div>
     ${selectorS}
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px">
       <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:10px;padding:12px;text-align:center">
