@@ -2981,7 +2981,16 @@ const server = http.createServer(async (req, res) => {
         detalles
       };
       if (persona) {
-        cuerpoDoc.cliente = { id: persona.id, ruc: persona.ruc || undefined, cedula: persona.cedula || undefined, razon_social: persona.razon_social };
+        cuerpoDoc.cliente = {
+          id: persona.id,
+          tipo: persona.tipo || (String(persona.ruc||'').replace(/\D/g,'').length === 13 ? 'J' : 'N'),
+          ruc: persona.ruc || undefined,
+          cedula: persona.cedula || undefined,
+          razon_social: persona.razon_social,
+          telefonos: persona.telefonos || undefined,
+          direccion: persona.direccion || undefined,
+          email: persona.email || undefined
+        };
       } else {
         cuerpoDoc.cliente = { cedula: '9999999999999', razon_social: 'CONSUMIDOR FINAL', tipo: 'N' };
       }
