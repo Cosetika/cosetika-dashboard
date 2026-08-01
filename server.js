@@ -2947,7 +2947,10 @@ const server = http.createServer(async (req, res) => {
       const ivaTotal = Math.round(baseTotal * 0.15 * 100) / 100;
       const hoyEC2 = nowEC();
       const fechaDoc = `${String(hoyEC2.getDate()).padStart(2,'0')}/${String(hoyEC2.getMonth()+1).padStart(2,'0')}/${hoyEC2.getFullYear()}`;
+      const POS_ID = (process.env.CONTIFICO_POS || process.env.CONTIFICO_POS_ID || '').trim();
+      if (!POS_ID) throw new Error('Falta la variable CONTIFICO_POS en Railway: es el "Token POS" que Contifico te dio junto a la API Key (Configuración → Integraciones/API)');
       const cuerpoDoc = {
+        pos: POS_ID,
         fecha_emision: fechaDoc,
         tipo_documento: 'PRE',
         documento: '',
@@ -3642,6 +3645,23 @@ const server = http.createServer(async (req, res) => {
         docs_sin_autorizacion_sri: docsVend.filter(d=>!d.anulado && d.autorizado_sri === false),
         docs_anulados_del_mes: docsVend.filter(d=>d.anulado),
         docs_del_mes: docsVend.filter(d=>!d.anulado).sort((a,b)=>String(a.doc).localeCompare(String(b.doc))).map(d=>`${d.doc} · ${d.fecha} · ${d.cliente} · $${d.subtotal}${d.tipo!=='FAC'?' ('+d.tipo+')':''}${d.autorizado_sri===false?' (SIN AUT. SRI)':''}`) }, null, 2));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
+  // DIAGNÓSTICO: sondear rutas de la API de Contifico que podrían exponer el token del POS
+  if (urlPath === '/api/debug-contifico-pos' && req.method === 'GET') {
+    try {
+      const rutas = ['pos/', 'caja/', 'punto-venta/', 'punto_venta/', 'puntoventa/', 'punto-emision/', 'establecimiento/', 'empresa/', 'configuracion/'];
+      const resultados = {};
+      for (const ruta of rutas) {
+        try {
+          const rr = await fetch('https://api.contifico.com/sistema/api/v1/' + ruta, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
+          const texto = await rr.text();
+          resultados[ruta] = { status: rr.status, body: texto.substring(0, 600) };
+        } catch(e) { resultados[ruta] = { error: e.message }; }
+      }
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(resultados, null, 2));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
   }
