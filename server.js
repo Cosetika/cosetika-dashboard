@@ -2866,10 +2866,27 @@ const server = http.createServer(async (req, res) => {
 
       // 2) Cédula/RUC: campos de facturación + meta_data (10 o 13 dígitos)
       let cedula = '';
-      const candidatos = [];
       const bill = orden.billing || {};
-      Object.values(bill).forEach(v => candidatos.push(String(v||'')));
-      (orden.meta_data || []).forEach(m => candidatos.push(String((m && m.value) || '')));
+      // 1º prioridad: campos cuyo NOMBRE indique cédula/RUC (checkout ecuatoriano)
+      const candidatos = [];
+      (orden.meta_data || []).forEach(m => {
+        const k = String((m && m.key) || '').toLowerCase();
+        if (/cedula|c\u00e9dula|ruc|identificacion|identificaci\u00f3n|dni|nit/.test(k)) candidatos.push(String((m && m.value) || ''));
+      });
+      Object.entries(bill).forEach(([k, v]) => {
+        if (/cedula|ruc|identific|dni/.test(String(k).toLowerCase())) candidatos.push(String(v||''));
+      });
+      // 2º prioridad: resto de campos, EXCLUYENDO teléfono y código postal (10 dígitos engañosos)
+      Object.entries(bill).forEach(([k, v]) => {
+        const kl = String(k).toLowerCase();
+        if (kl.includes('phone') || kl.includes('postcode') || kl.includes('telefono')) return;
+        candidatos.push(String(v||''));
+      });
+      (orden.meta_data || []).forEach(m => {
+        const k = String((m && m.key) || '').toLowerCase();
+        if (k.includes('phone') || k.includes('telefono')) return;
+        candidatos.push(String((m && m.value) || ''));
+      });
       for (const c of candidatos) {
         const d = c.replace(/\D/g, '');
         if (d.length === 10 || d.length === 13) { cedula = d; break; }
