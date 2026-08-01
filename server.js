@@ -143,7 +143,7 @@ async function generarDataJson(fi, ff) {
   let nextUrl = 'https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=' + fi + '&fecha_final=' + ff + '&page_size=100';
   let paginas = 0;
   let duplicadosOmitidos = 0;
-  while (nextUrl && paginas < 200) {
+  while (nextUrl && paginas < 500) {
     const resp = await fetch(nextUrl, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
     if (!resp.ok) break;
     const data = await resp.json();
@@ -1738,22 +1738,18 @@ async function regenerarDataAutomatico() {
   regenerandoEnProceso = true;
   try {
     const hoy = nowEC();
-    const anioActual = hoy.getFullYear();
-    const fi = `01/01/${anioActual}`;
+    // RECONSTRUCCIÓN COMPLETA desde 2022: la antigua "fusión" del año actual sobre el caché
+    // duplicaba datos sutilmente (el fantasma de +$725 de Liseth). Reconstruir todo desde
+    // cero tarda unos minutos más pero es matemáticamente incapaz de duplicar.
+    const fi = '01/01/2022';
     // Hasta AYER: lo de hoy vive en el caché en vivo y el frontend lo suma aparte
     const ayerR = new Date(hoy); ayerR.setDate(hoy.getDate()-1);
     const ff = fmtDateEC(ayerR);
-    console.log(`⏰ Regeneración automática diaria: ${fi} al ${ff}`);
+    console.log(`⏰ Regeneración automática diaria (histórico completo): ${fi} al ${ff}`);
     const dataAnio = await generarDataJson(fi, ff);
-    if (!DATA_CACHE || Object.keys(DATA_CACHE).length === 0) {
-      // No hay caché previo (primer arranque): usar el resultado tal cual, sin fusión
-      await guardarDataEnDB(dataAnio);
-    } else {
-      await fusionarAnioActualEnCache(anioActual, dataAnio);
-      await guardarDataEnDB(DATA_CACHE);
-    }
-    try { fs.writeFileSync(path.join(__dirname, 'data.json'), JSON.stringify(DATA_CACHE, null, 2)); } catch(e) {}
-    console.log('✓ Regeneración automática completada (año ' + anioActual + ' refrescado, años anteriores intactos)');
+    await guardarDataEnDB(dataAnio);
+    try { fs.writeFileSync(path.join(__dirname, 'data.json'), JSON.stringify(dataAnio, null, 2)); } catch(e) {}
+    console.log('✓ Regeneración automática completada (histórico completo reconstruido)');
   } catch(e) { console.error('Error en regeneración automática:', e.message); }
   regenerandoEnProceso = false;
 }
@@ -3503,13 +3499,13 @@ const server = http.createServer(async (req, res) => {
   if (urlPath === '/api/regenerar-data' && req.method === 'GET') {
     const desdeParam = urlObj.searchParams.get('desde');
     const anioActual = nowEC().getFullYear();
-    const fi = desdeParam || fmtDateEC(new Date(anioActual,0,1));
+    const fi = desdeParam || '01/01/2022';
     const ff = urlObj.searchParams.get('hasta') || fmtDateEC(nowEC());
     // El rango solicitado empieza en el año en curso (o después) → fusión segura, no toca
     // años anteriores. Si el rango pedido incluye años anteriores (ej. desde 2025), se
     // interpreta como intención deliberada de corregir histórico y se reemplaza todo el rango.
-    const anioInicioSolicitado = parseInt(fi.split('/')[2]) || anioActual;
-    const usarSoloAnioActual = anioInicioSolicitado >= anioActual;
+    // Siempre reemplazo completo — la fusión parcial quedó desactivada por duplicar datos
+    const usarSoloAnioActual = false;
     res.writeHead(200,{'Content-Type':'application/json'});
     res.end(JSON.stringify({
       msg: usarSoloAnioActual
