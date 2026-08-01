@@ -2005,6 +2005,8 @@ async function initDB() {
       CREATE INDEX IF NOT EXISTS idx_pedidos_cedula ON pedidos_web(cedula_ruc);
       CREATE INDEX IF NOT EXISTS idx_pedidos_cliente ON pedidos_web(LOWER(cliente_nombre));
       ALTER TABLE pedidos_web ADD COLUMN IF NOT EXISTS html_crudo TEXT;
+      ALTER TABLE pedidos_web ADD COLUMN IF NOT EXISTS prefactura_doc VARCHAR(100);
+      ALTER TABLE pedidos_web ADD COLUMN IF NOT EXISTS prefactura_at TIMESTAMP;
       CREATE TABLE IF NOT EXISTS metas_visitas (
         id SERIAL PRIMARY KEY,
         asesora VARCHAR(255) NOT NULL UNIQUE,
@@ -2841,6 +2843,142 @@ const server = http.createServer(async (req, res) => {
   // POST /api/pedidos-web/marcar-facturado  body: { numeroPedido, documentoFactura }
   // Permite marcar manualmente un pedido como facturado (por si el cruce automático no
   // lo detecta, ej. el nombre en Contifico es muy distinto al de la web)
+  // CREAR PREFACTURA EN CONTIFICO desde un pedido web (María José solo revisa y factura)
+  if (/^\/api\/pedidos-web\/[^/]+\/prefactura$/.test(urlPath) && req.method === 'POST') {
+    try {
+      const WOO_URL = (process.env.WOO_URL || '').replace(/\/+$/, '');
+      const WOO_CK = process.env.WOO_CK || '';
+      const WOO_CS = process.env.WOO_CS || '';
+      if (!WOO_URL || !WOO_CK || !WOO_CS) throw new Error('Faltan credenciales de WooCommerce en Railway (WOO_URL, WOO_CK, WOO_CS)');
+      if (!API_KEY) throw new Error('CONTIFICO_API_KEY no configurada');
+      const numero = decodeURIComponent(urlPath.split('/')[3]);
+      const rP = await pool.query('SELECT * FROM pedidos_web WHERE numero_pedido=$1', [numero]);
+      if (!rP.rows.length) throw new Error('Pedido no encontrado: ' + numero);
+      const ped = rP.rows[0];
+      if (ped.prefactura_doc) { res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, ya_existia:true, prefactura: ped.prefactura_doc})); return; }
+
+      // 1) Pedido completo desde WooCommerce (SKU, cédula y montos confiables)
+      const wooResp = await fetch(`${WOO_URL}/wp-json/wc/v3/orders/${encodeURIComponent(numero)}?consumer_key=${encodeURIComponent(WOO_CK)}&consumer_secret=${encodeURIComponent(WOO_CS)}`, { headers: { 'Accept': 'application/json' } });
+      if (!wooResp.ok) throw new Error('WooCommerce respondió ' + wooResp.status + ' al pedir el pedido ' + numero);
+      const orden = await wooResp.json();
+
+      // 2) Cédula/RUC: campos de facturación + meta_data (10 o 13 dígitos)
+      let cedula = '';
+      const candidatos = [];
+      const bill = orden.billing || {};
+      Object.values(bill).forEach(v => candidatos.push(String(v||'')));
+      (orden.meta_data || []).forEach(m => candidatos.push(String((m && m.value) || '')));
+      for (const c of candidatos) {
+        const d = c.replace(/\D/g, '');
+        if (d.length === 10 || d.length === 13) { cedula = d; break; }
+      }
+      if (!cedula && ped.cedula_ruc) cedula = String(ped.cedula_ruc).replace(/\D/g, '');
+      const nombreCli = `${bill.first_name||''} ${bill.last_name||''}`.trim() || ped.cliente_nombre || 'CONSUMIDOR FINAL';
+
+      // 3) Buscar la persona en Contifico por cédula/RUC; crearla si no existe
+      let persona = null;
+      let clienteCreado = false;
+      if (cedula) {
+        for (const param of (cedula.length === 13 ? ['ruc','cedula'] : ['cedula','ruc'])) {
+          try {
+            const rB = await fetch(`https://api.contifico.com/sistema/api/v1/persona/?${param}=${cedula}&page_size=5`, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
+            if (!rB.ok) continue;
+            const dB = await rB.json();
+            const lista = Array.isArray(dB) ? dB : (dB.results || []);
+            persona = lista.find(p => String(p.cedula||'').replace(/\D/g,'') === cedula || String(p.ruc||'').replace(/\D/g,'') === cedula) || lista[0] || null;
+            if (persona) break;
+          } catch(e) {}
+        }
+      }
+      if (!persona && cedula) {
+        // Crear la clienta nueva en Contifico con los datos del checkout
+        const cuerpoP = {
+          tipo: 'N', es_cliente: true,
+          razon_social: nombreCli.toUpperCase(),
+          telefonos: String(bill.phone || ped.telefono || ''),
+          email: String(bill.email || ''),
+          direccion: [bill.address_1, bill.city, bill.state].filter(Boolean).join(', ')
+        };
+        if (cedula.length === 13) cuerpoP.ruc = cedula; else cuerpoP.cedula = cedula;
+        try {
+          const rC = await fetch('https://api.contifico.com/sistema/api/v1/persona/', {
+            method: 'POST', headers: { 'Authorization': API_KEY, 'Content-Type': 'application/json' },
+            body: JSON.stringify(cuerpoP)
+          });
+          const dC = await rC.json();
+          if (rC.ok && dC && dC.id) { persona = dC; clienteCreado = true; }
+          else console.log('No se pudo crear persona:', JSON.stringify(dC).substring(0,300));
+        } catch(e) { console.log('Error creando persona:', e.message); }
+      }
+
+      // 4) Cruzar productos por SKU contra el catálogo de Contifico
+      const porSku = {};
+      Object.entries(catalogoProductos || {}).forEach(([id, info]) => {
+        const c = String(info.codigo || '').trim().toUpperCase();
+        if (c) porSku[c] = { id, nombre: info.nombre };
+      });
+      const detalles = []; const noCruzados = [];
+      (orden.line_items || []).forEach(it => {
+        const sku = String(it.sku || '').trim().toUpperCase();
+        const qty = parseFloat(it.quantity || 0);
+        const totalLinea = parseFloat(it.total || 0) + parseFloat(it.total_tax || 0) || parseFloat(it.total || 0);
+        if (!qty) return;
+        const match = sku ? porSku[sku] : null;
+        if (!match) { noCruzados.push(`${it.name || sku || '?'} (SKU: ${sku || 'sin SKU'}) × ${qty}`); return; }
+        // Precio unitario SIN IVA (los precios web incluyen IVA 15%)
+        const precioBase = Math.round((totalLinea / 1.15 / qty) * 10000) / 10000;
+        detalles.push({
+          producto_id: match.id,
+          cantidad: qty,
+          precio: precioBase,
+          porcentaje_iva: 15,
+          porcentaje_descuento: 0,
+          base_cero: 0,
+          base_gravable: Math.round(precioBase * qty * 100) / 100,
+          base_no_gravable: 0
+        });
+      });
+      if (detalles.length === 0) throw new Error('Ningún producto del pedido cruzó por SKU con Contifico. Sin cruzar: ' + noCruzados.join(' · '));
+
+      // 5) Crear la prefactura (PRE) en Contifico
+      const baseTotal = Math.round(detalles.reduce((a,d)=>a+d.base_gravable,0) * 100) / 100;
+      const ivaTotal = Math.round(baseTotal * 0.15 * 100) / 100;
+      const hoyEC2 = nowEC();
+      const fechaDoc = `${String(hoyEC2.getDate()).padStart(2,'0')}/${String(hoyEC2.getMonth()+1).padStart(2,'0')}/${hoyEC2.getFullYear()}`;
+      const cuerpoDoc = {
+        fecha_emision: fechaDoc,
+        tipo_documento: 'PRE',
+        documento: '',
+        estado: 'P',
+        electronico: false,
+        descripcion: `Pedido web #${numero}` + (persona ? '' : ` — cliente: ${nombreCli} (${cedula || 'sin cédula'}) NO ENCONTRADO, asignar manualmente`),
+        subtotal_0: 0,
+        subtotal_12: baseTotal,
+        iva: ivaTotal,
+        total: Math.round((baseTotal + ivaTotal) * 100) / 100,
+        detalles
+      };
+      if (persona) {
+        cuerpoDoc.cliente = { id: persona.id, ruc: persona.ruc || undefined, cedula: persona.cedula || undefined, razon_social: persona.razon_social };
+      } else {
+        cuerpoDoc.cliente = { cedula: '9999999999999', razon_social: 'CONSUMIDOR FINAL', tipo: 'N' };
+      }
+      const rD = await fetch('https://api.contifico.com/sistema/api/v1/documento/', {
+        method: 'POST', headers: { 'Authorization': API_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify(cuerpoDoc)
+      });
+      const dD = await rD.json().catch(()=>({}));
+      if (!rD.ok || !dD || (!dD.id && !dD.documento)) {
+        throw new Error('Contifico rechazó la prefactura: ' + JSON.stringify(dD).substring(0, 400));
+      }
+      const docNum = dD.documento || dD.id;
+      await pool.query('UPDATE pedidos_web SET prefactura_doc=$1, prefactura_at=NOW() WHERE numero_pedido=$2', [String(docNum).substring(0,90), numero]);
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:true, prefactura: docNum, cliente: persona ? persona.razon_social : 'CONSUMIDOR FINAL (asignar)', cliente_creado: clienteCreado, productos_cruzados: detalles.length, no_cruzados: noCruzados }));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false, error:e.message})); }
+    return;
+  }
+
   if (urlPath === '/api/pedidos-web/marcar-facturado' && req.method === 'POST') {
     try {
       const { numeroPedido, documentoFactura } = await bodyJSON(req);

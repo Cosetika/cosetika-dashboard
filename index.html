@@ -5530,6 +5530,12 @@ async function renderPedidosWeb(fechaSel){
             : '<span style="color:#16a34a;font-weight:700"><i class="ti ti-sparkles" style="font-size:9px"></i> Cliente nueva</span>')
         + '</div></div>'
         + '<div style="font-size:15px;font-weight:700;color:var(--brown);flex-shrink:0;min-width:80px;text-align:right">$'+parseFloat(p.total||0).toFixed(2)+'</div>'
+        + (function(){
+            const rolPre = (window.usuarioActual||{}).rol;
+            if(!['admin','administrativo','jefa_ventas'].includes(rolPre)) return '';
+            if(p.prefactura_doc) return '<span onclick="event.stopPropagation()" style="font-size:10px;font-weight:700;color:#16a34a;border:1px solid #86efac;background:#f0fdf4;border-radius:8px;padding:3px 8px;flex-shrink:0;white-space:nowrap" title="Prefactura creada en Contifico">PRE ✓</span>';
+            return '<button onclick="event.stopPropagation();crearPrefacturaPedido(\''+String(p.numero_pedido).replace(/'/g,'')+'\', this)" style="font-size:10px;font-weight:700;color:var(--brown);border:1px solid var(--border);background:white;border-radius:8px;padding:4px 9px;cursor:pointer;flex-shrink:0;white-space:nowrap" title="Crear prefactura en Contifico con los productos del pedido">Prefactura</button>';
+          })()
         + '<i class="ti ti-chevron-down" id="chev-'+prodId+'" style="font-size:14px;color:var(--muted);transition:transform 0.2s;flex-shrink:0"></i>'
         + '</div>'
         + '<div id="'+prodId+'" style="display:none;border-top:0.5px solid var(--border)">'
@@ -5550,6 +5556,28 @@ async function renderPedidosWeb(fechaSel){
     });
   }
   cont.innerHTML = html;
+}
+
+async function crearPrefacturaPedido(numero, btn){
+  if(!confirm('¿Crear la prefactura del pedido #'+numero+' en Contifico?\n\nSe cruzarán los productos por SKU y se asignará la clienta por cédula (si no existe, se crea automáticamente).')) return;
+  const txtOrig = btn ? btn.textContent : '';
+  if(btn){ btn.disabled = true; btn.textContent = 'Creando...'; }
+  try{
+    const r = await fetch('/api/pedidos-web/'+encodeURIComponent(numero)+'/prefactura', { method:'POST' });
+    const j = await r.json();
+    if(!j.ok) throw new Error(j.error||'error');
+    let msg = j.ya_existia
+      ? 'Este pedido ya tenía prefactura: '+j.prefactura
+      : '✅ Prefactura creada en Contifico: '+j.prefactura+'\nCliente: '+j.cliente+(j.cliente_creado?' (clienta NUEVA creada en Contifico)':'')+'\nProductos cargados: '+j.productos_cruzados;
+    if(j.no_cruzados && j.no_cruzados.length){
+      msg += '\n\n⚠️ NO se pudieron cruzar (agregar a mano en Contifico):\n· '+j.no_cruzados.join('\n· ');
+    }
+    alert(msg);
+    renderPedidosWeb();
+  }catch(e){
+    alert('Error creando la prefactura: '+e.message);
+    if(btn){ btn.disabled = false; btn.textContent = txtOrig; }
+  }
 }
 
 function togglePedidoDetalle(id){
