@@ -1128,7 +1128,10 @@ async function fusionarMesActualEnCache() {
   }
   regenerandoEnProceso = false;
 }
-setInterval(() => fusionarMesActualEnCache().catch(e => console.error(e)), 15 * 60 * 1000);
+// DESACTIVADO: esta fusión cada 15 min chocaba con la regeneración nocturna (mismo candado
+// regenerandoEnProceso) y hacía que la regen de las 2 AM se saltara aleatoriamente. Las ventas
+// de hoy ya viven en el caché en vivo (sincronizarHoy) — este proceso era redundante.
+// setInterval(() => fusionarMesActualEnCache().catch(e => console.error(e)), 15 * 60 * 1000);
 
 // ─── FUSIÓN: AÑO EN CURSO completo dentro de DATA_CACHE (regeneración diaria 2 AM) ──
 // Misma idea que fusionarMesActualEnCache, pero reemplaza el AÑO actual completo en vez de
@@ -1727,7 +1730,11 @@ setTimeout(() => { const h = nowEC(); calcularVentasDiaMarca(h.getFullYear(), h.
 setInterval(() => { const h = nowEC(); calcularVentasDiaMarca(h.getFullYear(), h.getMonth()+1); }, 10 * 60 * 1000);
 
 async function regenerarDataAutomatico() {
-  if (regenerandoEnProceso) { console.log('Regeneración automática diaria omitida: otra regeneración en curso'); return; }
+  if (regenerandoEnProceso) {
+    console.log('Regeneración automática diaria pospuesta: otra regeneración en curso — reintento en 20 min');
+    setTimeout(regenerarDataAutomatico, 20 * 60 * 1000);
+    return;
+  }
   regenerandoEnProceso = true;
   try {
     const hoy = nowEC();
@@ -1760,8 +1767,14 @@ async function verificarFrescuraData(){
     const r = await pool.query("SELECT actualizado_at FROM ventas_data WHERE id_unico='principal'");
     const ts = r.rows.length ? new Date(r.rows[0].actualizado_at).getTime() : 0;
     const horas = (Date.now() - ts) / 3600000;
-    if (horas > 26) {
-      console.log(`⚠️ data.json desactualizado (última regeneración hace ${Math.round(horas)}h) — regenerando ahora...`);
+    // Además del umbral de 26h: si HOY (Ecuador) aún no ha corrido ninguna regeneración
+    // y ya pasaron las 2:30 AM, regenerar — garantiza que cada mañana esté el día anterior
+    const fechaUltEC = ts ? new Date(ts).toLocaleDateString('en-CA', { timeZone: 'America/Guayaquil' }) : '';
+    const ahoraEC = nowEC();
+    const hoyEC = ahoraEC.toLocaleDateString('en-CA');
+    const noCorrioHoy = fechaUltEC !== hoyEC && (ahoraEC.getHours() > 2 || (ahoraEC.getHours() === 2 && ahoraEC.getMinutes() >= 30));
+    if (horas > 26 || noCorrioHoy) {
+      console.log(`⚠️ data.json desactualizado (última regen: ${fechaUltEC || 'nunca'} · hace ${Math.round(horas)}h) — regenerando ahora...`);
       regenerarDataAutomatico();
     }
   } catch(e) { console.error('Error verificando frescura de data:', e.message); }
@@ -3445,7 +3458,7 @@ const server = http.createServer(async (req, res) => {
           const signoQ = d.tipo_documento === 'NC' ? -1 : 1;
           const subQ = signoQ * parseFloat(d.subtotal || 0);
           const cliN = (d.cliente && (d.cliente.razon_social || d.cliente.nombre_comercial)) || '—';
-          docsVend.push({ doc: d.documento, tipo: d.tipo_documento, fecha: d.fecha_emision, cliente: cliN, subtotal: Math.round(subQ*100)/100, anulado: !!d.anulado, estado: d.estado });
+          docsVend.push({ doc: d.documento, tipo: d.tipo_documento, fecha: d.fecha_emision, cliente: cliN, subtotal: Math.round(subQ*100)/100, anulado: !!d.anulado, estado: d.estado, autorizado_sri: d.autorizado_sri, firmado: d.firmado, electronico: d.electronico });
           if (d.anulado) return; // los anulados se listan arriba pero no suman
           if (!liveCli[cliN]) liveCli[cliN] = 0;
           liveCli[cliN] += subQ;
@@ -3480,6 +3493,7 @@ const server = http.createServer(async (req, res) => {
       res.end(JSON.stringify({ ok:true, vendedora: vendQ, mes: `${anioQ}-${mmQ}`,
         total_contifico: totLive, total_app: totApp, diferencia_total: Math.round((totApp-totLive)*100)/100,
         clientas_con_diferencia: difs,
+        docs_sin_autorizacion_sri: docsVend.filter(d=>!d.anulado && d.autorizado_sri === false),
         docs_anulados_del_mes: docsVend.filter(d=>d.anulado) }, null, 2));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
