@@ -2918,8 +2918,10 @@ const server = http.createServer(async (req, res) => {
       }
       if (!persona && cedula) {
         // Crear la clienta nueva en Contifico con los datos del checkout
+        const PVP_WEB_NEW = (process.env.CONTIFICO_PVP_WEB || 'pvp1').toLowerCase().replace(/[^a-z0-9]/g,'');
         const cuerpoP = {
           tipo: 'N', es_cliente: true,
+          pvp_default: PVP_WEB_NEW,
           razon_social: nombreCli.toUpperCase(),
           telefonos: String(bill.phone || ped.telefono || ''),
           email: String(bill.email || ''),
@@ -2944,7 +2946,11 @@ const server = http.createServer(async (req, res) => {
         if (c) porSku[c] = { id, nombre: info.nombre };
       });
       // PVP que corresponde a la clienta en Contifico (pvp1..pvp4); por defecto pvp1
-      const pvpKey = String((persona && persona.pvp_default) || 'pvp1').toLowerCase().replace(/[^a-z0-9]/g,'');
+      // PVP de la clienta; si no tiene (clienta nueva o consumidor final) → el configurado
+      // en Railway con CONTIFICO_PVP_WEB (por defecto pvp1)
+      const PVP_WEB = (process.env.CONTIFICO_PVP_WEB || 'pvp1').toLowerCase().replace(/[^a-z0-9]/g,'');
+      const pvpPersona = String((persona && persona.pvp_default) || '').toLowerCase().replace(/[^a-z0-9]/g,'');
+      const pvpKey = /^pvp[1-4]$/.test(pvpPersona) ? pvpPersona : PVP_WEB;
       const detalles = []; const noCruzados = []; const sinPrecio = [];
       (orden.line_items || []).forEach(it => {
         const sku = String(it.sku || '').trim().toUpperCase();
@@ -2955,7 +2961,7 @@ const server = http.createServer(async (req, res) => {
         if (!match) { noCruzados.push(`${it.name || sku || '?'} (SKU: ${sku || 'sin SKU'}) × ${qty}`); return; }
         const info = catalogoProductos[match.id] || {};
         // Precio de LISTA de Contifico según el PVP de la clienta (los pvp incluyen IVA)
-        const pvpConIva = info[pvpKey] || info.pvp1 || info.pvp2 || 0;
+        const pvpConIva = info[pvpKey] || info.pvp1 || info.pvp2 || info.pvp3 || info.pvp4 || 0;
         const ivaProd = (info.iva === 0) ? 0 : 15;
         const precioBase = Math.round((pvpConIva / (1 + ivaProd/100)) * 10000) / 10000;
         if (!precioBase) { sinPrecio.push(`${info.nombre || sku} (sin PVP en Contifico)`); }
