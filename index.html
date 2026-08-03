@@ -5582,6 +5582,9 @@ async function crearPrefacturaPedido(numero, btn){
     if(j.no_cruzados && j.no_cruzados.length){
       msg += '\n\n⚠️ NO se pudieron cruzar (agregar a mano en Contifico):\n· '+j.no_cruzados.join('\n· ');
     }
+    if(j.sin_precio && j.sin_precio.length){
+      msg += '\n\n⚠️ Sin precio de lista en Contifico (revisar):\n· '+j.sin_precio.join('\n· ');
+    }
     alert(msg);
     renderPedidosWeb();
   }catch(e){

@@ -113,7 +113,13 @@ async function sincronizarCatalogo() {
         if (p.id) nuevosCatalogo[p.id] = {
           nombre: (p.nombre || '').trim(),
           marca:  (p.marca_nombre || p.marca || '').trim().toUpperCase(),
-          codigo: (p.codigo || '').trim()
+          codigo: (p.codigo || '').trim(),
+          // Precios de lista de Contifico (para las prefacturas) + IVA del producto
+          pvp1: parseFloat(p.pvp1) || 0,
+          pvp2: parseFloat(p.pvp2) || 0,
+          pvp3: parseFloat(p.pvp3) || 0,
+          pvp4: parseFloat(p.pvp4) || 0,
+          iva:  (p.porcentaje_iva === 0 ? 0 : 15)
         };
       });
       nextUrl = data.next || null;
@@ -2937,31 +2943,44 @@ const server = http.createServer(async (req, res) => {
         const c = String(info.codigo || '').trim().toUpperCase();
         if (c) porSku[c] = { id, nombre: info.nombre };
       });
-      const detalles = []; const noCruzados = [];
+      // PVP que corresponde a la clienta en Contifico (pvp1..pvp4); por defecto pvp1
+      const pvpKey = String((persona && persona.pvp_default) || 'pvp1').toLowerCase().replace(/[^a-z0-9]/g,'');
+      const detalles = []; const noCruzados = []; const sinPrecio = [];
       (orden.line_items || []).forEach(it => {
         const sku = String(it.sku || '').trim().toUpperCase();
         const qty = parseFloat(it.quantity || 0);
-        const totalLinea = parseFloat(it.total || 0) + parseFloat(it.total_tax || 0) || parseFloat(it.total || 0);
+        const totalLinea = parseFloat(it.total || 0);
         if (!qty) return;
         const match = sku ? porSku[sku] : null;
         if (!match) { noCruzados.push(`${it.name || sku || '?'} (SKU: ${sku || 'sin SKU'}) × ${qty}`); return; }
-        // Precio unitario SIN IVA (los precios web incluyen IVA 15%)
-        const precioBase = Math.round((totalLinea / 1.15 / qty) * 10000) / 10000;
-        detalles.push({
+        const info = catalogoProductos[match.id] || {};
+        // Precio de LISTA de Contifico según el PVP de la clienta (los pvp incluyen IVA)
+        const pvpConIva = info[pvpKey] || info.pvp1 || info.pvp2 || 0;
+        const ivaProd = (info.iva === 0) ? 0 : 15;
+        const precioBase = Math.round((pvpConIva / (1 + ivaProd/100)) * 10000) / 10000;
+        if (!precioBase) { sinPrecio.push(`${info.nombre || sku} (sin PVP en Contifico)`); }
+        // Regalos / promos: el pedido trae $0 → va el precio de lista con 100% de descuento
+        const esRegalo = totalLinea <= 0.009;
+        const desc = esRegalo ? 100 : 0;
+        const baseGrav = esRegalo ? 0 : Math.round(precioBase * qty * 100) / 100;
+        const det = {
           producto_id: match.id,
           cantidad: qty,
           precio: precioBase,
-          porcentaje_iva: 15,
-          porcentaje_descuento: 0,
+          porcentaje_iva: ivaProd,
+          porcentaje_descuento: desc,
           base_cero: 0,
-          base_gravable: Math.round(precioBase * qty * 100) / 100,
           base_no_gravable: 0
-        });
+        };
+        if (ivaProd === 0) { det.base_cero = baseGrav; det.base_gravable = 0; }
+        else { det.base_gravable = baseGrav; }
+        detalles.push(det);
       });
       if (detalles.length === 0) throw new Error('Ningún producto del pedido cruzó por SKU con Contifico. Sin cruzar: ' + noCruzados.join(' · '));
 
       // 5) Crear la prefactura (PRE) en Contifico
-      const baseTotal = Math.round(detalles.reduce((a,d)=>a+d.base_gravable,0) * 100) / 100;
+      const baseTotal = Math.round(detalles.reduce((a,d)=>a+(d.base_gravable||0),0) * 100) / 100;
+      const baseCeroTotal = Math.round(detalles.reduce((a,d)=>a+(d.base_cero||0),0) * 100) / 100;
       const ivaTotal = Math.round(baseTotal * 0.15 * 100) / 100;
       const hoyEC2 = nowEC();
       const fechaDoc = `${String(hoyEC2.getDate()).padStart(2,'0')}/${String(hoyEC2.getMonth()+1).padStart(2,'0')}/${hoyEC2.getFullYear()}`;
@@ -2975,10 +2994,10 @@ const server = http.createServer(async (req, res) => {
         estado: 'P',
         electronico: false,
         descripcion: `Pedido web #${numero}` + (persona ? '' : ` — cliente: ${nombreCli} (${cedula || 'sin cédula'}) NO ENCONTRADO, asignar manualmente`),
-        subtotal_0: 0,
+        subtotal_0: baseCeroTotal,
         subtotal_12: baseTotal,
         iva: ivaTotal,
-        total: Math.round((baseTotal + ivaTotal) * 100) / 100,
+        total: Math.round((baseTotal + baseCeroTotal + ivaTotal) * 100) / 100,
         detalles
       };
       if (persona) {
@@ -3006,7 +3025,7 @@ const server = http.createServer(async (req, res) => {
       const docNum = dD.documento || dD.id;
       await pool.query('UPDATE pedidos_web SET prefactura_doc=$1, prefactura_at=NOW() WHERE numero_pedido=$2', [String(docNum).substring(0,90), numero]);
       res.writeHead(200,{'Content-Type':'application/json'});
-      res.end(JSON.stringify({ ok:true, prefactura: docNum, cliente: persona ? persona.razon_social : 'CONSUMIDOR FINAL (asignar)', cliente_creado: clienteCreado, productos_cruzados: detalles.length, no_cruzados: noCruzados }));
+      res.end(JSON.stringify({ ok:true, prefactura: docNum, cliente: persona ? persona.razon_social : 'CONSUMIDOR FINAL (asignar)', cliente_creado: clienteCreado, productos_cruzados: detalles.length, no_cruzados: noCruzados, sin_precio: sinPrecio, pvp_usado: pvpKey }));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false, error:e.message})); }
     return;
   }
@@ -4360,6 +4379,20 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   // POST /api/personas/subir → carga masiva del Excel Personas.xls
+  if (urlPath === '/api/personas/telefonos' && req.method === 'GET') {
+    try {
+      const r = await pool.query("SELECT cedula, ruc, telefono FROM personas WHERE telefono IS NOT NULL AND telefono <> ''");
+      const mapa = {};
+      r.rows.forEach(p => {
+        [p.cedula, p.ruc].forEach(v => {
+          const d = String(v||'').replace(/\D/g,'');
+          if (d) { mapa[d] = p.telefono; if (d.length === 13) mapa[d.substring(0,10)] = p.telefono; }
+        });
+      });
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(mapa));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({})); }
+    return;
+  }
   if (urlPath === '/api/personas/subir' && req.method === 'POST') {
     try {
       const buf = await bodyBuffer(req);
