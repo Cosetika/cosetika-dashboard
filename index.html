@@ -2914,6 +2914,14 @@ async function renderCapacitacionesMes(anio, mes){
         </div>` : ''}
       </div>`;
     }).join('')}
+    ${(()=>{
+      const totCap = caps.reduce((a,c)=>a+(parseFloat(c.valor)||0),0);
+      if(!caps.length) return '';
+      return `<div style="margin-top:14px;background:#1a1108;border-radius:14px;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+        <div style="font-size:12px;font-weight:600;color:rgba(255,255,255,0.7);text-transform:uppercase;letter-spacing:1px"><i class="ti ti-school" style="margin-right:6px"></i>Total invertido en capacitaciones — ${MESES_NOMBRES[mes-1]}</div>
+        <div style="font-size:22px;font-weight:700;color:white">$${(Math.round(totCap*100)/100).toFixed(2)}</div>
+      </div>`;
+    })()}
   </div>`;
 
   if(document.getElementById('main')) document.getElementById('main').innerHTML = html;
