@@ -8425,10 +8425,14 @@ async function renderPresupuestoVentas(){
   window._pptoCfg = cfg;
 
   // Asesoras activas + Giovanna (referencia) + nombres solo-override (ej: Mayra antes de crear su usuario)
-  const asesoras = usuarios.filter(u=>(u.rol==='asesora'||u.rol==='jefa_ventas') && u.activo).map(u=>({nombre:u.nombre, rol:u.rol}));
+  let asesoras = usuarios.filter(u=>(u.rol==='asesora'||u.rol==='jefa_ventas') && u.activo).map(u=>({nombre:u.nombre, rol:u.rol}));
   Object.keys(cfg.overrides||{}).forEach(nom=>{
     if(!asesoras.some(a=>pptoAncla(a.nombre)===pptoAncla(nom))) asesoras.push({nombre:nom, rol:'asesora', sinUsuario:true});
   });
+  if (compactoP) {
+    // Presupuesto ventas: solo las asesoras de venta (fuera Giovanna, "Nueva Asesora" y jefas)
+    asesoras = asesoras.filter(a => a.rol !== 'jefa_ventas' && !/giovanna|nueva asesora/i.test(a.nombre));
+  }
 
   // Ventas sin IVA por asesora y mes (desde DATA, que ya incluye hoy vía merge)
   const hoyP = new Date(new Date().toLocaleString('en-US',{timeZone:'America/Guayaquil'}));
