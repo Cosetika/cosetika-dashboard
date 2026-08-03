@@ -2960,10 +2960,10 @@ const server = http.createServer(async (req, res) => {
         const match = sku ? porSku[sku] : null;
         if (!match) { noCruzados.push(`${it.name || sku || '?'} (SKU: ${sku || 'sin SKU'}) × ${qty}`); return; }
         const info = catalogoProductos[match.id] || {};
-        // Precio de LISTA de Contifico según el PVP de la clienta (los pvp incluyen IVA)
-        const pvpConIva = info[pvpKey] || info.pvp1 || info.pvp2 || info.pvp3 || info.pvp4 || 0;
+        // Precio de LISTA de Contifico según el PVP de la clienta.
+        // Los pvp de Contifico ya vienen SIN IVA → se envían tal cual (no dividir por 1.15)
         const ivaProd = (info.iva === 0) ? 0 : 15;
-        const precioBase = Math.round((pvpConIva / (1 + ivaProd/100)) * 10000) / 10000;
+        const precioBase = Math.round((info[pvpKey] || info.pvp1 || info.pvp2 || info.pvp3 || info.pvp4 || 0) * 10000) / 10000;
         if (!precioBase) { sinPrecio.push(`${info.nombre || sku} (sin PVP en Contifico)`); }
         // Regalos / promos: el pedido trae $0 → va el precio de lista con 100% de descuento
         const esRegalo = totalLinea <= 0.009;
