@@ -8825,14 +8825,17 @@ async function renderSeguimientoClientes(){
   const keysAntiguas = todasKeys.filter(v => !keysActivas.includes(v)).sort();
   const ANTIGUAS = '__antiguas__';
   let vendSel;
+  let propiaSeg = '';
   if (puedeVerTodasS) {
     vendSel = window._segVendSel || keysActivas[0] || todasKeys[0] || '';
     if (vendSel !== ANTIGUAS && !todasKeys.includes(vendSel)) vendSel = keysActivas[0] || '';
   } else {
-    vendSel = resolverNombreReal(uS.nombre || '', DATA) || uS.nombre || '';
-    if (!DATA[vendSel]) {
-      main.innerHTML = '<div class="coming"><i class="ti ti-user-search"></i><p>No hay ventas registradas a tu nombre todavía</p></div>';
-      return;
+    // Asesoras: su propia cartera o el grupo de Clientes antiguas (abierto para recuperación)
+    propiaSeg = resolverNombreReal(uS.nombre || '', DATA) || uS.nombre || '';
+    vendSel = (window._segVendSel === ANTIGUAS) ? ANTIGUAS : propiaSeg;
+    if (vendSel !== ANTIGUAS && !DATA[vendSel]) {
+      if (keysAntiguas.length) vendSel = ANTIGUAS;
+      else { main.innerHTML = '<div class="coming"><i class="ti ti-user-search"></i><p>No hay ventas registradas a tu nombre todavía</p></div>'; return; }
     }
   }
   window._segVendSel = vendSel;
@@ -8885,14 +8888,18 @@ async function renderSeguimientoClientes(){
   [riesgo, dormidas, unavez].forEach(l => l.sort((a,b) => b.promMes - a.promMes));
   const valorFrio = [...riesgo, ...dormidas].reduce((a,f)=>a+f.promMes, 0);
 
-  const selectorS = puedeVerTodasS ? `
+  const opcionesSel = puedeVerTodasS
+    ? keysActivas.map(v=>`<option value="${esc(v)}" ${v===vendSel?'selected':''}>${esc((typeof NOMBRE_CORTO!=='undefined'&&NOMBRE_CORTO[v])||v)}</option>`).join('')
+    : (propiaSeg && DATA[propiaSeg] ? `<option value="${esc(propiaSeg)}" ${vendSel!==ANTIGUAS?'selected':''}>Mis clientas</option>` : '');
+  const selectorS = `
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap">
-      <span style="font-size:12px;color:var(--muted)">Asesora:</span>
+      <span style="font-size:12px;color:var(--muted)">${puedeVerTodasS?'Asesora:':'Ver:'}</span>
       <select onchange="window._segVendSel=this.value;renderSeguimientoClientes()" style="padding:6px 10px;border:0.5px solid var(--border);border-radius:6px;font-size:12px;outline:none;background:white">
-        ${keysActivas.map(v=>`<option value="${esc(v)}" ${v===vendSel?'selected':''}>${esc((typeof NOMBRE_CORTO!=='undefined'&&NOMBRE_CORTO[v])||v)}</option>`).join('')}
-        ${keysAntiguas.length?`<option value="${ANTIGUAS}" ${vendSel===ANTIGUAS?'selected':''}>— Clientes antiguas (${keysAntiguas.length} vendedoras) —</option>`:''}
+        ${opcionesSel}
+        ${keysAntiguas.length?`<option value="${ANTIGUAS}" ${vendSel===ANTIGUAS?'selected':''}>— Clientes antiguas${puedeVerTodasS?' ('+keysAntiguas.length+' vendedoras)':''} —</option>`:''}
       </select>
-    </div>` : '';
+      ${(!puedeVerTodasS && vendSel===ANTIGUAS)?'<span style="font-size:11px;color:var(--muted)">clientas sin asesora activa — quien las recupera, las gana</span>':''}
+    </div>`;
 
   const tablaSeg = (titulo, color, bg, borde, filas, icono, nota) => !filas.length ? '' : `
     <div class="card" style="margin-bottom:12px;padding:0;border-left:4px solid ${color}">
