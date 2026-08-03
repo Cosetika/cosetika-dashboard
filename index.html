@@ -8555,11 +8555,12 @@ async function renderPresupuestoVentas(){
   });
 
   // Snapshot del mes actual (para cumplimiento cuando cierre)
+  const snapKey = ventana[0].key; // congela la meta del mes proyectado mientras está vigente
   const snapAct = {};
-  filas.forEach(f=>{ const m = f.metas[mkDe(anioAct,mesAct)]; if(m) snapAct[f.nombre] = m.valor; });
+  filas.forEach(f=>{ const m = f.metas[snapKey]; if(m) snapAct[f.nombre] = m.valor; });
   cfg.snapshots = cfg.snapshots || {};
-  if(JSON.stringify(cfg.snapshots[mkDe(anioAct,mesAct)]||{}) !== JSON.stringify(snapAct)){
-    cfg.snapshots[mkDe(anioAct,mesAct)] = snapAct;
+  if(JSON.stringify(cfg.snapshots[snapKey]||{}) !== JSON.stringify(snapAct)){
+    cfg.snapshots[snapKey] = snapAct;
     fetch('/api/presupuesto-config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({config:cfg})}).catch(()=>{});
   }
 
@@ -8662,10 +8663,12 @@ async function renderPresupuestoVentas(){
       const inc = cfg.incentivo;
       const PISO = 4000;
       const mesActKey = mkDe(anioAct, mesAct);
+      const snapEval = (cfg.snapshots || {})[evalKey] || {};
       const filasCom = filas.map(f => {
         if(/giovanna/i.test(f.nombre)) return null;
-        const mAct = f.metas[evalKey];
-        let metaCom = mAct ? mAct.valor : null;
+        // Meta REAL del mes cerrado: la que quedó congelada cuando ese mes estaba vigente
+        let metaCom = snapEval[f.nombre] ? Math.round(snapEval[f.nombre]) : null;
+        if(metaCom === null){ const mAct = f.metas[evalKey]; if(mAct) metaCom = mAct.valor; }
         if(metaCom === null && f.ovMesAct !== undefined && f.ovMesAct !== null && f.ovMesAct !== '') metaCom = Math.round(parseFloat(f.ovMesAct)||0);
         if(metaCom === null && f.pct !== null && f.ventasMesAnt) metaCom = Math.round(f.ventasMesAnt * (1 + f.pct/100));
         return (metaCom && metaCom > 0) ? Object.assign({}, f, { metaCom }) : null;
@@ -8679,12 +8682,12 @@ async function renderPresupuestoVentas(){
         return { minimo, nivel: 3, comision: 0.03 * Math.max(0, meta - PISO) + inc.bono + (inc.pct_exceso/100) * (ventas - meta) };
       };
       const fmtC = v => '$' + (Math.round(v*100)/100).toFixed(2);
-      const NIVELES = ['Sin comisión (bajo $4.000)',inc.pct_bajo+'% — bajo el mínimo','3% — mínimo cumplido','META + bono + '+inc.pct_exceso+'%'];
+      const NIVELES = ['Sin comisión (no llegó a $4.000)','Bajo su mínimo → '+inc.pct_bajo+'%','Mínimo cumplido → 3%','META CUMPLIDA → 3% + $'+inc.bono+' + '+inc.pct_exceso+'%'];
       const NIVEL_COLOR = ['#9ca3af','#d97706','#2563eb','#16a34a'];
       return `
     <div class="card" style="margin-top:12px;padding:0">
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding:14px 16px 10px">
-        <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px"><i class="ti ti-coin" style="margin-right:6px"></i>Comisiones proyectadas</div>
+        <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px"><i class="ti ti-coin" style="margin-right:6px"></i>Comisiones a pagar — ${MESES_PPTO[evalSh.m]} (mes cerrado)</div>
         <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:12px">
           <span>Por debajo del mínimo: <input type="number" min="0" max="100" step="0.5" value="${inc.pct_bajo}" onchange="guardarIncentivoPpto('pct_bajo',this.value)" style="width:52px;padding:3px 5px;font-size:12px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;font-weight:700;color:var(--brown)">% en comisiones</span>
           <span>Bono si cumple la meta $<input type="number" min="0" value="${inc.bono}" onchange="guardarIncentivoPpto('bono',this.value)" style="width:56px;padding:3px 5px;font-size:12px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;font-weight:700;color:var(--brown)"></span>
@@ -8696,17 +8699,16 @@ async function renderPresupuestoVentas(){
         <thead><tr style="border-bottom:1px solid var(--border)">
           <th style="text-align:left;padding:8px 12px;font-size:10px;color:var(--muted);text-transform:uppercase">Asesora</th>
           <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Mínimo<br>(prom. 2 meses)</th>
-          <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">${compactoP?'Ventas del<br>mes pasado':'Ventas del mes'}</th>
-          <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Meta</th>
-          <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Nivel actual</th>
-          <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Comisión hoy</th>
-          <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Si cumple la meta</th>
+          <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Ventas de<br>${MESES_PPTO[evalSh.m]}</th>
+          <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Meta<br>${MESES_PPTO[evalSh.m]}</th>
+          <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Resultado</th>
+          <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Comisión<br>a pagar</th>
         </tr></thead>
         <tbody>
           ${filasCom.map((f,fi)=>{
             const meta = f.metaCom;
             const r = calcCom(f.ventasEval, meta, f.minProm3);
-            const siMeta = 0.03 * Math.max(0, meta - PISO) + inc.bono;
+
             return `
           <tr style="border-bottom:0.5px solid var(--border);background:${fi%2?'#f6f3ef':'white'}">
             <td style="padding:8px 12px;font-weight:600">${esc(f.nombre.split(' ').slice(0,2).join(' '))}</td>
@@ -8715,7 +8717,6 @@ async function renderPresupuestoVentas(){
             <td style="padding:8px 8px;text-align:center;color:var(--muted)">${fmtP(meta)}</td>
             <td style="padding:8px 8px;text-align:center"><span style="font-size:10px;font-weight:700;color:${NIVEL_COLOR[r.nivel]};border:1px solid ${NIVEL_COLOR[r.nivel]};border-radius:10px;padding:2px 8px;white-space:nowrap">${NIVELES[r.nivel]}</span></td>
             <td style="padding:8px 8px;text-align:center;font-weight:800;font-size:13px;color:${r.comision>0?'#16a34a':'#9ca3af'}">${fmtC(r.comision)}</td>
-            <td style="padding:8px 8px;text-align:center;color:var(--brown);font-weight:600">${fmtC(siMeta)}<div style="font-size:9px;color:var(--muted);font-weight:400">+${inc.pct_exceso}% en comisiones en el exceso</div></td>
           </tr>`;
           }).join('')}
         </tbody>
