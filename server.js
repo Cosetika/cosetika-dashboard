@@ -3036,6 +3036,19 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // Reiniciar la marca de prefactura (para volver a probar) — ?fecha=YYYY-MM-DD o ?numero=17355
+  if (urlPath === '/api/pedidos-web/reset-prefactura' && req.method === 'POST') {
+    try {
+      const numeroR = urlObj.searchParams.get('numero');
+      const fechaR = urlObj.searchParams.get('fecha') || nowEC().toLocaleDateString('en-CA');
+      let r;
+      if (numeroR) r = await pool.query('UPDATE pedidos_web SET prefactura_doc=NULL, prefactura_at=NULL WHERE numero_pedido=$1', [numeroR]);
+      else r = await pool.query('UPDATE pedidos_web SET prefactura_doc=NULL, prefactura_at=NULL WHERE fecha=$1', [fechaR]);
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, reiniciados:r.rowCount, criterio: numeroR ? ('pedido '+numeroR) : ('fecha '+fechaR)}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
   if (urlPath === '/api/pedidos-web/marcar-facturado' && req.method === 'POST') {
     try {
       const { numeroPedido, documentoFactura } = await bodyJSON(req);

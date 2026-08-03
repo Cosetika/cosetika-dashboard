@@ -5516,6 +5516,10 @@ async function renderPedidosWeb(fechaSel){
     + '<button onclick="renderPedidosWeb(\'' + mananaNavStr + '\')" '+(sinSiguiente?'disabled style="opacity:0.3;cursor:default;"':'')+' style="width:34px;height:34px;border-radius:50%;border:1px solid var(--border);background:white;display:flex;align-items:center;justify-content:center"><i class="ti ti-chevron-right" style="font-size:16px;color:var(--muted)"></i></button>'
     + '</div>';
 
+  if((window.usuarioActual||{}).rol === 'admin' && pedidos.some(p=>p.prefactura_doc)){
+    html += '<div style="text-align:right;margin-bottom:10px"><button onclick="resetPrefacturasDia(\''+fechaSel+'\')" style="padding:5px 12px;font-size:11px;border:1px solid var(--border);background:white;color:var(--muted);border-radius:8px;cursor:pointer">Reiniciar marcas de prefactura (pruebas)</button></div>';
+  }
+
   if(pedidos.length === 0){
     html += '<div style="text-align:center;padding:40px;color:var(--muted)"><i class="ti ti-inbox" style="font-size:36px;opacity:0.3"></i><p style="margin-top:10px">Sin pedidos este día</p></div>';
   } else {
@@ -5566,6 +5570,17 @@ async function renderPedidosWeb(fechaSel){
     });
   }
   cont.innerHTML = html;
+}
+
+async function resetPrefacturasDia(fecha){
+  if(!confirm('¿Quitar la marca "PRE ✓" de los pedidos de este día para volver a probar?\n\n(Las prefacturas ya creadas en Contifico NO se borran — hay que eliminarlas allá si no las quieres.)')) return;
+  try{
+    const r = await fetch('/api/pedidos-web/reset-prefactura?fecha='+encodeURIComponent(fecha), { method:'POST' });
+    const j = await r.json();
+    if(!j.ok) throw new Error(j.error||'error');
+    alert('Listo — '+j.reiniciados+' pedido(s) quedaron sin marca de prefactura.');
+    renderPedidosWeb(fecha);
+  }catch(e){ alert('Error: '+e.message); }
 }
 
 async function crearPrefacturaPedido(numero, btn){
