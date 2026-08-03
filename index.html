@@ -269,7 +269,6 @@
       <i class="ti ti-chevron-right" id="nav-reportes-chevron" style="margin-left:auto;font-size:12px;transition:transform 0.2s"></i>
     </div>
     <div id="nav-reportes-subs" style="max-height:0;overflow:hidden;transition:max-height 0.25s ease">
-      <div class="nav-sub-item" id="navsub-rep-presupuesto" onclick="navGoReportes('presupuesto')"><i class="ti ti-target-arrow" style="font-size:13px"></i>Presupuesto</div>
       <div class="nav-sub-item" id="navsub-rep-presupuesto_ventas" onclick="navGoReportes('presupuesto_ventas')"><i class="ti ti-target" style="font-size:13px"></i>Presupuesto ventas</div>
       <div class="nav-sub-item" id="navsub-rep-comisiones" onclick="navGoReportes('comisiones')"><i class="ti ti-coin" style="font-size:13px"></i>Comisiones</div>
       <div class="nav-sub-item" id="navsub-rep-inversiones" onclick="navGoReportes('inversiones')"><i class="ti ti-receipt" style="font-size:13px"></i>Inversiones / Viáticos</div>
@@ -8387,6 +8386,7 @@ function renderReportes(){
   }
   document.getElementById('sidebar').classList.add('hidden');
   document.getElementById('body').classList.add('full-width');
+  if(window._reportesTab === 'presupuesto') window._reportesTab = 'presupuesto_ventas';
   window._reportesTab = window._reportesTab || 'comisiones';
   const tab = window._reportesTab;
   // Marcar sub-ítem activo en el sidebar
@@ -8551,7 +8551,7 @@ async function renderPresupuestoVentas(){
     const minProm3 = Math.round(prom3Sum / 2);
     // Ventas del mes evaluado: en vivo si es el mes en curso; cerradas si es un mes pasado
     const ventasEval = evalKey === mkDe(anioAct, mesAct) ? realActual : Math.round(vm[evalKey] || 0);
-    return { nombre:a.nombre, rol:a.rol, sinUsuario:a.sinUsuario, k, base, sugerido, pct, metas, realActual, uplift:upliftAse, hist, crecProm, ventasMesAnt, ovMesAct, minProm3, ventasEval };
+    return { nombre:a.nombre, rol:a.rol, sinUsuario:a.sinUsuario, k, base, sugerido, pct, metas, realActual, uplift:upliftAse, hist, crecProm, ventasMesAnt, ovMesAct, minProm3, ventasEval, baseUlt: (compactoP ? baseUltimo : base) || 0 };
   });
 
   // Snapshot del mes actual (para cumplimiento cuando cierre)
@@ -8601,6 +8601,7 @@ async function renderPresupuestoVentas(){
           ${compactoP?'':`<th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;background:#f3f0ec">Crec.<br>prom. ${HIST_N}m</th>`}
           ${compactoP?'':`<th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Base<br>(prom. 3m)</th>`}
           <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">${compactoP?'% Incremento mensual':'% mensual'}</th>
+          ${compactoP?'<th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Valor<br>incremento</th>':''}
           ${ventana.map(v=>`<th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">${MESES_PPTO[v.mes]} ${String(v.anio).substring(2)}${compactoP?'<br><span style="color:#16a34a">proyectado</span>':(v.key===mkDe(anioAct,mesAct)?'<br><span style="color:#16a34a">(en curso)</span>':'')}</th>`).join('')}
         </tr></thead>
         <tbody>
@@ -8616,6 +8617,11 @@ async function renderPresupuestoVentas(){
               <input type="number" step="0.5" value="${f.pct!==null?f.pct:''}" placeholder="—" onchange="guardarPctPpto('${f.nombre.replace(/'/g,"\\'")}',this.value)" style="width:52px;padding:3px 4px;font-size:11px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;font-weight:700;color:var(--brown)">%
               ${compactoP?'':`<div style="font-size:9px;color:var(--muted);margin-top:2px;cursor:pointer" onclick="guardarPctPpto('${f.nombre.replace(/'/g,"\\'")}',${f.sugerido})" title="Aplicar sugerido">sug: <span style="color:#2563eb;font-weight:600">${f.sugerido}%</span></div>`}
             </td>
+            ${compactoP?(()=>{
+              const m0 = f.metas[ventana[0].key];
+              const inc0 = (m0 && f.baseUlt) ? m0.valor - f.baseUlt : null;
+              return `<td style="padding:8px 8px;text-align:center;font-weight:700;color:${inc0===null?'#ccc':(inc0>=0?'#16a34a':'#dc2626')}">${inc0===null?'—':(inc0<0?'-':'+')+fmtP(Math.abs(inc0)).substring(0)}</td>`;
+            })():''}
             ${ventana.map(v=>{
               const m = f.metas[v.key];
               const esActual = v.key===mkDe(anioAct,mesAct);
@@ -8640,6 +8646,10 @@ async function renderPresupuestoVentas(){
             ${compactoP?'':'<td style="background:#f3f0ec"></td>'}
             ${compactoP?'':`<td style="padding:9px 8px;text-align:center;font-weight:700;color:var(--muted)">${fmtP(filas.reduce((x,f)=>x+(f.base||0),0))}</td>`}
             <td></td>
+            ${compactoP?(()=>{
+              const totInc = filas.reduce((x,f)=>{ const m0=f.metas[ventana[0].key]; return x + ((m0&&f.baseUlt)?(m0.valor-f.baseUlt):0); },0);
+              return `<td style="padding:9px 8px;text-align:center;font-weight:700;color:${totInc>=0?'#16a34a':'#dc2626'}">${totInc>=0?'+':'-'}${fmtP(Math.abs(totInc))}</td>`;
+            })():''}
             ${ventana.map(v=>{
               const tot = filas.reduce((x,f)=>x+((f.metas[v.key]&&f.metas[v.key].valor)||0),0);
               return `<td style="padding:9px 8px;text-align:center;font-weight:700;color:var(--brown)">${tot?fmtP(tot):'—'}</td>`;
@@ -8792,6 +8802,9 @@ async function renderSeguimientoClientes(){
   if (!window._segUsuarios) {
     try { const rU = await fetch('/api/usuarios'); const dU = await rU.json(); window._segUsuarios = Array.isArray(dU) ? dU : []; } catch(e) { window._segUsuarios = []; }
   }
+  if (!window._segTelefonos) {
+    try { const rT = await fetch('/api/personas/telefonos'); window._segTelefonos = await rT.json() || {}; } catch(e) { window._segTelefonos = {}; }
+  }
   const activasNoms = window._segUsuarios.filter(u => (u.rol==='asesora'||u.rol==='jefa_ventas') && u.activo).map(u => u.nombre);
   const todasKeys = Object.keys(DATA || {}).filter(v => (DATA[v]||[]).length > 0);
   const keysActivas = todasKeys.filter(v => activasNoms.some(n => (typeof mismoNombreAsig==='function') ? mismoNombreAsig(n, v) : n === v)).sort();
@@ -8839,7 +8852,9 @@ async function renderSeguimientoClientes(){
     const ult = lista[lista.length-1];
     const mesesSin = curIdx - ult;
     const promMes = subSum / lista.length; // promedio sin IVA por mes en que compró
-    const fila = { nombre: c.nombre, telefono: c.telefono || '', ultima: lblMes(ult), mesesSin, promMes, compras: lista.length, ritmo: null };
+    const cedD = String(c.ruc||'').replace(/\D/g,'');
+    const telSeg = c.telefono || (cedD && (window._segTelefonos[cedD] || (cedD.length===13 ? window._segTelefonos[cedD.substring(0,10)] : ''))) || '';
+    const fila = { nombre: c.nombre, telefono: telSeg, ultima: lblMes(ult), mesesSin, promMes, compras: lista.length, ritmo: null };
     if (lista.length === 1) {
       if (mesesSin >= 2) unavez.push(fila); else activas++;
       return;
