@@ -2175,6 +2175,7 @@ async function initDB() {
         asesora VARCHAR(255),
         contactado_at TIMESTAMPTZ DEFAULT NOW()
       );
+      ALTER TABLE seguimiento_contactos ADD COLUMN IF NOT EXISTS comentario TEXT DEFAULT '';
       CREATE TABLE IF NOT EXISTS articulos (
         id SERIAL PRIMARY KEY,
         nombre VARCHAR(300) NOT NULL,
@@ -5503,9 +5504,9 @@ const server = http.createServer(async (req, res) => {
   // ─── SEGUIMIENTO: marcar clienta como contactada ──
   if (urlPath === '/api/seguimiento-contactos' && req.method === 'GET') {
     try {
-      const r = await pool.query("SELECT cliente_key, cliente_nombre, asesora, TO_CHAR(contactado_at AT TIME ZONE 'America/Guayaquil','DD/MM/YYYY') AS fecha FROM seguimiento_contactos");
+      const r = await pool.query("SELECT cliente_key, cliente_nombre, asesora, comentario, contactado_at, TO_CHAR(contactado_at AT TIME ZONE 'America/Guayaquil','DD/MM/YYYY') AS fecha FROM seguimiento_contactos");
       const mapa = {};
-      r.rows.forEach(x => { mapa[x.cliente_key] = { fecha: x.fecha, asesora: x.asesora }; });
+      r.rows.forEach(x => { mapa[x.cliente_key] = { fecha: x.contactado_at ? x.fecha : '', asesora: x.asesora, comentario: x.comentario || '', contactado: !!x.contactado_at }; });
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(mapa));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({})); }
     return;
@@ -5515,15 +5516,28 @@ const server = http.createServer(async (req, res) => {
       const b = await bodyJSON(req);
       const key = String(b.cliente_key || '').substring(0,290);
       if (!key) throw new Error('Falta cliente_key');
+      const nom = String(b.cliente_nombre||'').substring(0,490);
+      const ase = String(b.asesora||'').substring(0,250);
+      if ('comentario' in b && !('contactado' in b)) {
+        // Solo guardar/actualizar el comentario (sin tocar la marca de contactada)
+        await pool.query(
+          `INSERT INTO seguimiento_contactos(cliente_key, cliente_nombre, asesora, comentario, contactado_at)
+           VALUES($1,$2,$3,$4,NULL)
+           ON CONFLICT (cliente_key) DO UPDATE SET comentario=$4, cliente_nombre=$2`,
+          [key, nom, ase, String(b.comentario||'').substring(0,900)]
+        );
+        res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, comentario:String(b.comentario||'')})); return;
+      }
       if (b.contactado === false) {
-        await pool.query('DELETE FROM seguimiento_contactos WHERE cliente_key=$1', [key]);
+        // Desmarcar: se conserva el comentario
+        await pool.query('UPDATE seguimiento_contactos SET contactado_at=NULL WHERE cliente_key=$1', [key]);
         res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, contactado:false})); return;
       }
       await pool.query(
         `INSERT INTO seguimiento_contactos(cliente_key, cliente_nombre, asesora, contactado_at)
          VALUES($1,$2,$3,NOW())
          ON CONFLICT (cliente_key) DO UPDATE SET cliente_nombre=$2, asesora=$3, contactado_at=NOW()`,
-        [key, String(b.cliente_nombre||'').substring(0,490), String(b.asesora||'').substring(0,250)]
+        [key, nom, ase]
       );
       const rf = await pool.query("SELECT TO_CHAR(contactado_at AT TIME ZONE 'America/Guayaquil','DD/MM/YYYY') AS fecha FROM seguimiento_contactos WHERE cliente_key=$1", [key]);
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, contactado:true, fecha: rf.rows[0]?.fecha || ''}));

@@ -8937,6 +8937,7 @@ async function renderSeguimientoClientes(){
           <th style="text-align:center;padding:7px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Ritmo habitual</th>
           <th style="text-align:center;padding:7px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Sin comprar</th>
           <th style="text-align:right;padding:7px 14px;font-size:10px;color:var(--muted);text-transform:uppercase">Compraba /mes</th>
+          <th style="text-align:left;padding:7px 10px;font-size:10px;color:var(--muted);text-transform:uppercase;width:190px">Comentario</th>
           <th style="text-align:center;padding:7px 10px;font-size:10px;color:var(--muted);text-transform:uppercase;width:110px">Contactada</th>
         </tr></thead>
         <tbody>${filas.map((f,fi)=>`
@@ -8949,10 +8950,16 @@ async function renderSeguimientoClientes(){
             <td style="padding:8px 8px;text-align:center;color:var(--muted)">${f.ritmo!==null?'cada '+f.ritmo+' m':'—'}</td>
             <td style="padding:8px 8px;text-align:center;font-weight:800;color:${bg}">${f.mesesSin} m</td>
             <td style="padding:8px 14px;text-align:right;font-weight:700;color:var(--brown)">${fmtS(f.promMes)}</td>
+            <td style="padding:8px 10px">
+              <input type="text" value="${String(((window._segContactos||{})[f.keySeg]||{}).comentario||'').replace(/"/g,'&quot;')}" placeholder="Comentario..."
+                onchange="guardarComentarioSeg('${f.keySeg.replace(/'/g,"")}','${String(f.nombre).replace(/'/g,"")}',this.value)"
+                style="width:100%;min-width:150px;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:6px;outline:none;box-sizing:border-box">
+            </td>
             <td style="padding:8px 10px;text-align:center">
               ${(()=>{ const ct = (window._segContactos||{})[f.keySeg];
-                return `<input type="checkbox" ${ct?'checked':''} onchange="marcarContactadaSeg('${f.keySeg.replace(/'/g,"")}','${String(f.nombre).replace(/'/g,"")}',this.checked)" style="accent-color:#16a34a;width:16px;height:16px;cursor:pointer">
-                ${ct?`<div style="font-size:9px;color:#16a34a;font-weight:600;margin-top:2px">${ct.fecha}${ct.asesora?'<br>'+String(ct.asesora).split(' ')[0]:''}</div>`:''}`; })()}
+                const marcada = ct && ct.contactado;
+                return `<input type="checkbox" ${marcada?'checked':''} onchange="marcarContactadaSeg('${f.keySeg.replace(/'/g,"")}','${String(f.nombre).replace(/'/g,"")}',this.checked)" style="accent-color:#16a34a;width:16px;height:16px;cursor:pointer">
+                ${marcada?`<div style="font-size:9px;color:#16a34a;font-weight:600;margin-top:2px">${ct.fecha}${ct.asesora?'<br>'+String(ct.asesora).split(' ')[0]:''}</div>`:''}`; })()}
             </td>
           </tr>`).join('')}</tbody>
       </table></div>
@@ -8992,6 +8999,17 @@ async function renderSeguimientoClientes(){
     ${(!riesgo.length && !dormidas.length && !unavez.length) ? '<div class="card" style="text-align:center;padding:40px;color:var(--muted)"><i class="ti ti-confetti" style="font-size:36px;opacity:0.4"></i><p style="margin-top:10px">¡Ninguna clienta fría! Cartera completamente activa.</p></div>' : ''}`;
 }
 
+async function guardarComentarioSeg(key, nombre, texto){
+  try{
+    const r = await fetch('/api/seguimiento-contactos', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ cliente_key:key, cliente_nombre:nombre, asesora:(window.usuarioActual||{}).nombre||'', comentario:texto }) });
+    const j = await r.json();
+    if(!j.ok) throw new Error(j.error||'error');
+    window._segContactos = window._segContactos || {};
+    window._segContactos[key] = Object.assign({}, window._segContactos[key]||{}, { comentario: texto });
+  }catch(e){ alert('Error al guardar el comentario: '+e.message); }
+}
+
 async function marcarContactadaSeg(key, nombre, checked){
   try{
     const r = await fetch('/api/seguimiento-contactos', { method:'POST', headers:{'Content-Type':'application/json'},
@@ -8999,8 +9017,9 @@ async function marcarContactadaSeg(key, nombre, checked){
     const j = await r.json();
     if(!j.ok) throw new Error(j.error||'error');
     window._segContactos = window._segContactos || {};
-    if(checked) window._segContactos[key] = { fecha: j.fecha, asesora: (window.usuarioActual||{}).nombre||'' };
-    else delete window._segContactos[key];
+    const prevC = (window._segContactos[key]||{}).comentario || '';
+    if(checked) window._segContactos[key] = { fecha: j.fecha, asesora: (window.usuarioActual||{}).nombre||'', comentario: prevC, contactado: true };
+    else window._segContactos[key] = { fecha:'', asesora:'', comentario: prevC, contactado: false };
     renderSeguimientoClientes();
   }catch(e){ alert('Error al marcar: '+e.message); }
 }
