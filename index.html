@@ -8557,9 +8557,10 @@ async function renderPresupuestoVentas(){
     const shAnt = mesShiftK2(evalSh.a, evalSh.m, -1);
     const ventasMesAnt = Math.round(vm[mkDe(shAnt.a, shAnt.m)] || 0);
     const ovMesAct = ov[evalKey];
-    // Mínimo de comisiones: promedio de los 2 meses anteriores al mes evaluado (absorbe picos)
+    // Mínimo de comisiones: promedio de los 2 últimos meses cerrados INCLUYENDO el evaluado
+    // (jun+jul para liquidar julio) — vara más exigente, decidido por Fernando
     let prom3Sum = 0;
-    for(let d3 = 1; d3 <= 2; d3++){ const sh3 = mesShiftK2(evalSh.a, evalSh.m, -d3); prom3Sum += vm[mkDe(sh3.a, sh3.m)] || 0; }
+    for(let d3 = 0; d3 <= 1; d3++){ const sh3 = mesShiftK2(evalSh.a, evalSh.m, -d3); prom3Sum += vm[mkDe(sh3.a, sh3.m)] || 0; }
     const minProm3 = Math.round(prom3Sum / 2);
     // Ventas del mes evaluado: en vivo si es el mes en curso; cerradas si es un mes pasado
     const ventasEval = evalKey === mkDe(anioAct, mesAct) ? realActual : Math.round(vm[evalKey] || 0);
