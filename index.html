@@ -8834,6 +8834,10 @@ async function renderSeguimientoClientes(){
   if (!window._segUsuarios) {
     try { const rU = await fetch('/api/usuarios'); const dU = await rU.json(); window._segUsuarios = Array.isArray(dU) ? dU : []; } catch(e) { window._segUsuarios = []; }
   }
+  if (!window._segContactos || window._segRecargarContactos) {
+    window._segRecargarContactos = false;
+    try { const rC2 = await fetch('/api/seguimiento-contactos'); window._segContactos = await rC2.json() || {}; } catch(e) { window._segContactos = {}; }
+  }
   if (!window._segTelefonos) {
     try { const rT = await fetch('/api/personas/telefonos'); window._segTelefonos = await rT.json() || {}; } catch(e) { window._segTelefonos = {}; }
   }
@@ -8889,7 +8893,8 @@ async function renderSeguimientoClientes(){
     const promMes = subSum / lista.length; // promedio sin IVA por mes en que compró
     const cedD = String(c.ruc||'').replace(/\D/g,'');
     const telSeg = c.telefono || (cedD && (window._segTelefonos[cedD] || (cedD.length===13 ? window._segTelefonos[cedD.substring(0,10)] : ''))) || '';
-    const fila = { nombre: c.nombre, telefono: telSeg, ultima: lblMes(ult), mesesSin, promMes, compras: lista.length, ritmo: null };
+    const keySeg = (cedD || ('n:' + String(c.nombre||'').toUpperCase().replace(/\s+/g,' ').trim())).substring(0,290);
+    const fila = { nombre: c.nombre, telefono: telSeg, ultima: lblMes(ult), mesesSin, promMes, compras: lista.length, ritmo: null, keySeg };
     if (lista.length === 1) {
       if (mesesSin >= 2) unavez.push(fila); else activas++;
       return;
@@ -8932,6 +8937,7 @@ async function renderSeguimientoClientes(){
           <th style="text-align:center;padding:7px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Ritmo habitual</th>
           <th style="text-align:center;padding:7px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Sin comprar</th>
           <th style="text-align:right;padding:7px 14px;font-size:10px;color:var(--muted);text-transform:uppercase">Compraba /mes</th>
+          <th style="text-align:center;padding:7px 10px;font-size:10px;color:var(--muted);text-transform:uppercase;width:110px">Contactada</th>
         </tr></thead>
         <tbody>${filas.map((f,fi)=>`
           <tr style="border-bottom:0.5px solid var(--border);background:${fi%2?'#f6f3ef':'white'}">
@@ -8943,6 +8949,11 @@ async function renderSeguimientoClientes(){
             <td style="padding:8px 8px;text-align:center;color:var(--muted)">${f.ritmo!==null?'cada '+f.ritmo+' m':'—'}</td>
             <td style="padding:8px 8px;text-align:center;font-weight:800;color:${bg}">${f.mesesSin} m</td>
             <td style="padding:8px 14px;text-align:right;font-weight:700;color:var(--brown)">${fmtS(f.promMes)}</td>
+            <td style="padding:8px 10px;text-align:center">
+              ${(()=>{ const ct = (window._segContactos||{})[f.keySeg];
+                return `<input type="checkbox" ${ct?'checked':''} onchange="marcarContactadaSeg('${f.keySeg.replace(/'/g,"")}','${String(f.nombre).replace(/'/g,"")}',this.checked)" style="accent-color:#16a34a;width:16px;height:16px;cursor:pointer">
+                ${ct?`<div style="font-size:9px;color:#16a34a;font-weight:600;margin-top:2px">${ct.fecha}${ct.asesora?'<br>'+String(ct.asesora).split(' ')[0]:''}</div>`:''}`; })()}
+            </td>
           </tr>`).join('')}</tbody>
       </table></div>
     </div>`;
@@ -8979,6 +8990,19 @@ async function renderSeguimientoClientes(){
     ${tablaSeg('Dormidas — recuperarlas vale oro', '#dc2626', '#dc2626', '#fca5a5', dormidas, 'ti-zzz', '3× su ritmo o más de 6 meses')}
     ${tablaSeg('Compraron una vez y no volvieron', '#6b7280', '#6b7280', '#e5e7eb', unavez, 'ti-user-question', 'la recompra pendiente')}
     ${(!riesgo.length && !dormidas.length && !unavez.length) ? '<div class="card" style="text-align:center;padding:40px;color:var(--muted)"><i class="ti ti-confetti" style="font-size:36px;opacity:0.4"></i><p style="margin-top:10px">¡Ninguna clienta fría! Cartera completamente activa.</p></div>' : ''}`;
+}
+
+async function marcarContactadaSeg(key, nombre, checked){
+  try{
+    const r = await fetch('/api/seguimiento-contactos', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ cliente_key:key, cliente_nombre:nombre, asesora:(window.usuarioActual||{}).nombre||'', contactado:checked }) });
+    const j = await r.json();
+    if(!j.ok) throw new Error(j.error||'error');
+    window._segContactos = window._segContactos || {};
+    if(checked) window._segContactos[key] = { fecha: j.fecha, asesora: (window.usuarioActual||{}).nombre||'' };
+    else delete window._segContactos[key];
+    renderSeguimientoClientes();
+  }catch(e){ alert('Error al marcar: '+e.message); }
 }
 
 function navGoSeguimientoCli(){

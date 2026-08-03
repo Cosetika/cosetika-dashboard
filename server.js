@@ -2168,6 +2168,13 @@ async function initDB() {
       );
       ALTER TABLE viaticos_tarifas ADD COLUMN IF NOT EXISTS dias NUMERIC(6,2) DEFAULT 0;
       ALTER TABLE viaticos_tarifas ADD COLUMN IF NOT EXISTS googlemaps NUMERIC(10,2) DEFAULT 0;
+      CREATE TABLE IF NOT EXISTS seguimiento_contactos (
+        id SERIAL PRIMARY KEY,
+        cliente_key VARCHAR(300) NOT NULL UNIQUE,
+        cliente_nombre VARCHAR(500),
+        asesora VARCHAR(255),
+        contactado_at TIMESTAMPTZ DEFAULT NOW()
+      );
       CREATE TABLE IF NOT EXISTS articulos (
         id SERIAL PRIMARY KEY,
         nombre VARCHAR(300) NOT NULL,
@@ -5490,6 +5497,37 @@ const server = http.createServer(async (req, res) => {
       });
       res.end(buf);
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+
+  // ─── SEGUIMIENTO: marcar clienta como contactada ──
+  if (urlPath === '/api/seguimiento-contactos' && req.method === 'GET') {
+    try {
+      const r = await pool.query("SELECT cliente_key, cliente_nombre, asesora, TO_CHAR(contactado_at AT TIME ZONE 'America/Guayaquil','DD/MM/YYYY') AS fecha FROM seguimiento_contactos");
+      const mapa = {};
+      r.rows.forEach(x => { mapa[x.cliente_key] = { fecha: x.fecha, asesora: x.asesora }; });
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(mapa));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({})); }
+    return;
+  }
+  if (urlPath === '/api/seguimiento-contactos' && req.method === 'POST') {
+    try {
+      const b = await bodyJSON(req);
+      const key = String(b.cliente_key || '').substring(0,290);
+      if (!key) throw new Error('Falta cliente_key');
+      if (b.contactado === false) {
+        await pool.query('DELETE FROM seguimiento_contactos WHERE cliente_key=$1', [key]);
+        res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, contactado:false})); return;
+      }
+      await pool.query(
+        `INSERT INTO seguimiento_contactos(cliente_key, cliente_nombre, asesora, contactado_at)
+         VALUES($1,$2,$3,NOW())
+         ON CONFLICT (cliente_key) DO UPDATE SET cliente_nombre=$2, asesora=$3, contactado_at=NOW()`,
+        [key, String(b.cliente_nombre||'').substring(0,490), String(b.asesora||'').substring(0,250)]
+      );
+      const rf = await pool.query("SELECT TO_CHAR(contactado_at AT TIME ZONE 'America/Guayaquil','DD/MM/YYYY') AS fecha FROM seguimiento_contactos WHERE cliente_key=$1", [key]);
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, contactado:true, fecha: rf.rows[0]?.fecha || ''}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
   }
 
