@@ -157,8 +157,7 @@ async function generarDataJson(fi, ff) {
       if (d.tipo_registro !== 'CLI') return false;  // solo clientes
       if (d.anulado) return false;                   // excluir anulados
       // Las notas de crédito (NC) SÍ pasan: se restan del total (neteo, igual que Contifico)
-      if (d.tipo_documento === 'COT') return false;  // excluir cotizaciones (no son ventas reales)
-      if (d.tipo_documento === 'PRO') return false;  // excluir proformas
+      if (noEsVenta(d)) return false;  // cotizaciones, proformas y PREFACTURAS no son ventas
       // Si no hay objeto vendedor pero hay identificación, lo incluimos como "Sin asignar"
       if (!d.vendedor && !d.vendedor_id && !d.vendedor_identificacion) return false;
       // Excluir autoconsumo: facturas al cliente Corporación Cosétika (RUC 1793143660001)
@@ -505,7 +504,7 @@ async function sincronizarHoy() {
       paginas++;
       console.log(`Página ${paginas}: ${(data.results||[]).length} docs, total: ${todos.length}`);
     }
-    const clientes = todos.filter(d => d.tipo_registro === 'CLI' && !d.anulado && !esNotaCredito(d) && d.tipo_documento !== 'COT' && d.tipo_documento !== 'PRO');
+    const clientes = todos.filter(d => d.tipo_registro === 'CLI' && !d.anulado && !esNotaCredito(d) && !noEsVenta(d));
     // Notas de crédito del día — se restan en los gráficos (mismo neteo que la regeneración)
     cache.nc_documentos = todos.filter(d => d.tipo_registro === 'CLI' && !d.anulado && esNotaCredito(d));
     // Agregar cliente_nombre directo desde el objeto cliente
@@ -1106,6 +1105,14 @@ function consolidarProductosMes(lista){
 // Nota de crédito: la API de Contifico puede reportar el tipo como 'NC', 'NCR', 'N/C'
 // o el nombre completo — reconocer TODAS las variantes (un 'NC' exacto dejaba pasar
 // notas de crédito como si fueran ventas positivas)
+// Documentos que NO son ventas reales: cotización, proforma y PREFACTURA (las que crea
+// la app desde los pedidos web). Sin esto, las prefacturas inflaban ventas y facturas.
+function noEsVenta(d) {
+  const t = String((d && d.tipo_documento) || '').toUpperCase().trim();
+  const tr = String((d && d.tipo_registro) || '').toUpperCase().trim();
+  return t === 'COT' || t === 'PRO' || t === 'PRE' || tr === 'PRE' || tr === 'PRO' || tr === 'COT';
+}
+
 function esNotaCredito(d) {
   const t = String((d && d.tipo_documento) || '').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
   // 'NCT' es el código real que usa Contifico; startsWith cubre NC/NCR/NCT y futuros
@@ -1711,7 +1718,7 @@ async function calcularVentasDiaMarca(anio, mes) {
       const data = await resp.json();
       (data.results || []).forEach(d => {
         if (d.tipo_registro !== 'CLI' || d.anulado) return;
-        if (d.tipo_documento === 'COT' || d.tipo_documento === 'PRO') return;
+        if (noEsVenta(d)) return;
         if (String(d.cliente?.ruc || d.cliente?.cedula || '').trim() === '1793143660001') return;
         const dk = d.id || d.documento;
         if (vistos.has(dk)) return; vistos.add(dk);
@@ -3400,7 +3407,7 @@ const server = http.createServer(async (req, res) => {
         nextUrl = data.next || null;
         paginas++;
       }
-      const clientes = todos.filter(doc => doc.tipo_registro === 'CLI' && !doc.anulado && !esNotaCredito(doc) && doc.tipo_documento !== 'COT' && doc.tipo_documento !== 'PRO');
+      const clientes = todos.filter(doc => doc.tipo_registro === 'CLI' && !doc.anulado && !esNotaCredito(doc) && !noEsVenta(doc));
       clientes.forEach(doc => {
         doc.cliente_nombre = doc.cliente?.razon_social || doc.cliente?.nombre_comercial || doc.persona_id || '—';
       });
@@ -3437,7 +3444,7 @@ const server = http.createServer(async (req, res) => {
           nextUrl = data.next || null;
           paginas++;
         }
-        const clientes = todos.filter(doc => doc.tipo_registro === 'CLI' && !doc.anulado && !esNotaCredito(doc) && doc.tipo_documento !== 'COT' && doc.tipo_documento !== 'PRO');
+        const clientes = todos.filter(doc => doc.tipo_registro === 'CLI' && !doc.anulado && !esNotaCredito(doc) && !noEsVenta(doc));
 
         for (const doc of clientes) {
           const cliNom = doc.cliente?.razon_social || doc.cliente?.nombre_comercial || doc.persona_id || '—';
@@ -3670,7 +3677,7 @@ const server = http.createServer(async (req, res) => {
         const dataQ = await respQ.json();
         (dataQ.results || []).forEach(d => {
           if (d.tipo_registro !== 'CLI') return;
-          if (d.tipo_documento === 'COT' || d.tipo_documento === 'PRO') return;
+          if (noEsVenta(d)) return;
           if (String(d.cliente?.ruc || d.cliente?.cedula || '').trim() === '1793143660001') return;
           const vN = String(d.vendedor?.razon_social || '').toUpperCase();
           if (!vN.includes(vendQ)) return;
@@ -3946,8 +3953,7 @@ const server = http.createServer(async (req, res) => {
         if (d.tipo_registro !== 'CLI') return false;
         if (d.anulado) return false;
         if (esNotaCredito(d)) return false;
-        if (d.tipo_documento === 'COT') return false;
-        if (d.tipo_documento === 'PRO') return false;
+        if (noEsVenta(d)) return false;
         if (!d.vendedor && !d.vendedor_id && !d.vendedor_identificacion) { sinVendedor++; sumaSinVendedor += parseFloat(d.total||0); return false; }
         const cliRuc = (d.cliente?.ruc || d.cliente?.cedula || '').trim();
         if (cliRuc === '1793143660001') { cosetikaExcluidos++; sumaCosetika += parseFloat(d.total||0); return false; }
@@ -4011,8 +4017,7 @@ const server = http.createServer(async (req, res) => {
         if (d.tipo_registro !== 'CLI') return false;
         if (d.anulado) return false;
         if (esNotaCredito(d)) return false;
-        if (d.tipo_documento === 'COT') return false;
-        if (d.tipo_documento === 'PRO') return false;
+        if (noEsVenta(d)) return false;
         if (!d.vendedor && !d.vendedor_id && !d.vendedor_identificacion) return false;
         const cliRuc = (d.cliente?.ruc || d.cliente?.cedula || '').trim();
         if (cliRuc === '1793143660001') return false;
