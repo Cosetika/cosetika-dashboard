@@ -10649,6 +10649,8 @@ function cardPresupuestoAsesora(nombreVend){
   if(ovMes !== undefined && ovMes !== null && ovMes !== ''){ meta = Math.round(parseFloat(ovMes)||0); esManual = true; }
   else if(pct !== null && v2) meta = Math.round(v2 * (1 + pct/100));
   const incremento = (meta !== null && v2) ? meta - v2 : null;
+  // Mínimo para cobrar comisión: promedio de los 2 últimos meses cerrados (piso $4.000)
+  const minimoP = Math.max(Math.round((v1 + v2) / 2), 4000);
   const fmtK = x => '$' + Math.round(x).toLocaleString('en-US');
   if(meta === null && !v1 && !v2) return '';
   return `
@@ -10656,14 +10658,14 @@ function cardPresupuestoAsesora(nombreVend){
       <div class="card-title" style="margin-bottom:12px"><i class="ti ti-target-arrow"></i> Mi presupuesto — ${MESES_P[pm]} ${pa}</div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px">
         <div style="background:#f3f0ec;border-radius:10px;padding:12px;text-align:center">
-          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">${MESES_P[h1.m]} ${String(h1.a).substring(2)}</div>
-          <div style="font-size:19px;font-weight:700;color:var(--text)">${fmtK(v1)}</div>
-          ${crec1!==null?`<div style="font-size:10px;font-weight:700;color:${crec1>=0?'#16a34a':'#dc2626'}">${crec1>0?'+':''}${crec1}%</div>`:''}
-        </div>
-        <div style="background:#f3f0ec;border-radius:10px;padding:12px;text-align:center">
           <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">${MESES_P[h2.m]} ${String(h2.a).substring(2)}</div>
           <div style="font-size:19px;font-weight:700;color:var(--text)">${fmtK(v2)}</div>
           ${crec2!==null?`<div style="font-size:10px;font-weight:700;color:${crec2>=0?'#16a34a':'#dc2626'}">${crec2>0?'+':''}${crec2}%</div>`:''}
+        </div>
+        <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:12px;text-align:center">
+          <div style="font-size:10px;color:#92400e;text-transform:uppercase;letter-spacing:0.5px">Mínimo a cumplir</div>
+          <div style="font-size:19px;font-weight:800;color:#d97706">${fmtK(minimoP)}</div>
+          <div style="font-size:9px;color:#92400e">para tu comisión</div>
         </div>
         <div style="background:#faf9f8;border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center">
           <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Incremento pedido</div>
@@ -10676,7 +10678,7 @@ function cardPresupuestoAsesora(nombreVend){
           ${esManual?'<div style="font-size:9px;color:#fcd34d;font-weight:600">meta fijada</div>':''}
         </div>
       </div>
-      <div style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.5">Tu meta sale de tu último mes cerrado (${MESES_P[h2.m]}: ${fmtK(v2)}) más el incremento mensual acordado${pct!==null?' de '+pct+'%':''}.</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.5">Tu meta sale de tu último mes cerrado (${MESES_P[h2.m]}: ${fmtK(v2)}) más el incremento mensual acordado${pct!==null?' de '+pct+'%':''}. El <b>mínimo</b> es el promedio de tus 2 últimos meses: por debajo de ${fmtK(minimoP)} tu comisión baja.</div>
     </div>`;
 }
 
