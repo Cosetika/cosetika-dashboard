@@ -10497,7 +10497,7 @@ function ventasMesDeVendedora(nombreVend, mes, anio){
 }
 
 // Par de tarjetas: "Ventas durante el año" + "Meta de ventas" (lado a lado)
-function cardsVentasYMeta(nombreVend, anioRef){
+function cardsVentasYMeta(nombreVend, anioRef, soloParte){
   const hoyC = new Date();
   const mesMax = (anioRef === hoyC.getFullYear()) ? (hoyC.getMonth()+1) : 12;
   const serie = Array.from({length: mesMax}, (_,i)=>({ mes:i+1, sinIva: ventasMesDeVendedora(nombreVend, i+1, anioRef) }));
@@ -10546,6 +10546,8 @@ function cardsVentasYMeta(nombreVend, anioRef){
       `}
     </div>`;
 
+  if(soloParte === 'meta') return `<div class="kpi-ventas-meta" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">${cardMeta}</div>`;
+  if(soloParte === 'ventas') return `<div class="kpi-ventas-meta" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">${cardVentas}</div>`;
   return `<div class="kpi-ventas-meta" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">${cardVentas}${cardMeta}</div>`;
 }
 
@@ -11662,11 +11664,10 @@ async function renderKpis(){
       <button onclick="kpiAsesoraMesNav(1)" ${esMesActualKpi?'disabled':''} style="width:34px;height:34px;border:1px solid var(--border);border-radius:50%;background:${esMesActualKpi?'#f5f3f0':'white'};cursor:${esMesActualKpi?'default':'pointer'};display:flex;align-items:center;justify-content:center;font-size:14px;color:${esMesActualKpi?'#ccc':'var(--brown)'}"><i class="ti ti-chevron-right"></i></button>
     </div>
 
-    <!-- Ventas durante el año + Meta de ventas (lado a lado) -->
-    ${cardsVentasYMeta(asesoraKpi, anioFiltro)}
-
-    <!-- Presupuesto personal (2 últimos meses + mes proyectado) -->
+    <!-- 1) Mi presupuesto · 2) Meta de ventas · 3) Ventas durante el año -->
     ${cardPresupuestoAsesora(asesoraKpi)}
+    ${cardsVentasYMeta(asesoraKpi, anioFiltro, 'meta')}
+    ${cardsVentasYMeta(asesoraKpi, anioFiltro, 'ventas')}
 
     <!-- Comisiones del mes -->
     <div class="card" style="margin-bottom:12px">
