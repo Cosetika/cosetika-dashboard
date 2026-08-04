@@ -10604,12 +10604,78 @@ async function guardarMetaVentas(clave){
 }
 
 async function cargarMetaVentasCfg(){
-  if(window._metaVentasCfg) return;
-  try{
-    const r = await fetch('/api/meta-ventas');
-    const d = await r.json();
-    if(d.ok) window._metaVentasCfg = d.config;
-  }catch(e){}
+  if(!window._metaVentasCfg){
+    try{
+      const r = await fetch('/api/meta-ventas');
+      const d = await r.json();
+      if(d.ok) window._metaVentasCfg = d.config;
+    }catch(e){}
+  }
+  if(!window._pptoCfgKpi){
+    try{
+      const r2 = await fetch('/api/presupuesto-config');
+      const d2 = await r2.json();
+      if(d2.ok) window._pptoCfgKpi = d2.config || {};
+    }catch(e){ window._pptoCfgKpi = {}; }
+  }
+}
+
+// Tarjeta de presupuesto personal (misma lógica que Reportes → Presupuesto ventas, una asesora)
+function cardPresupuestoAsesora(nombreVend){
+  const cfgP = window._pptoCfgKpi;
+  if(!cfgP) return '';
+  const hoyP = new Date(new Date().toLocaleString('en-US',{timeZone:'America/Guayaquil'}));
+  const anioA = hoyP.getFullYear(), mesA = hoyP.getMonth()+1;
+  const shift = (a,m,d)=>{ m+=d; while(m>12){m-=12;a++;} while(m<1){m+=12;a--;} return {a,m}; };
+  const MESES_P = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  // Mes proyectado: del 1 al 24 el mes en curso; desde el 25, el siguiente
+  let pa = anioA, pm = mesA;
+  if(hoyP.getDate() >= 25){ const sh = shift(pa,pm,1); pa = sh.a; pm = sh.m; }
+  const h1 = shift(pa,pm,-2), h2 = shift(pa,pm,-1), h0 = shift(pa,pm,-3);
+  const v = (a,m) => Math.round(ventasMesDeVendedora(nombreVend, m, a) || 0);
+  const vAntes = v(h0.a,h0.m), v1 = v(h1.a,h1.m), v2 = v(h2.a,h2.m);
+  const crec1 = vAntes > 100 ? Math.round((v1-vAntes)/vAntes*1000)/10 : null;
+  const crec2 = v1 > 100 ? Math.round((v2-v1)/v1*1000)/10 : null;
+  // % y meta manual de la configuración
+  const anclaP = x => String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().split(/\s+/).slice(0,2).join(' ');
+  const kPct = Object.keys(cfgP.pct||{}).find(k=>anclaP(k)===anclaP(nombreVend));
+  const pct = kPct !== undefined ? parseFloat(cfgP.pct[kPct]) : null;
+  const kOv = Object.keys(cfgP.overrides||{}).find(k=>anclaP(k)===anclaP(nombreVend));
+  const mkP = (a,m)=>a+'-'+String(m).padStart(2,'0');
+  const ovMes = kOv !== undefined ? (cfgP.overrides[kOv]||{})[mkP(pa,pm)] : undefined;
+  let meta = null, esManual = false;
+  if(ovMes !== undefined && ovMes !== null && ovMes !== ''){ meta = Math.round(parseFloat(ovMes)||0); esManual = true; }
+  else if(pct !== null && v2) meta = Math.round(v2 * (1 + pct/100));
+  const incremento = (meta !== null && v2) ? meta - v2 : null;
+  const fmtK = x => '$' + Math.round(x).toLocaleString('en-US');
+  if(meta === null && !v1 && !v2) return '';
+  return `
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-title" style="margin-bottom:12px"><i class="ti ti-target-arrow"></i> Mi presupuesto — ${MESES_P[pm]} ${pa}</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px">
+        <div style="background:#f3f0ec;border-radius:10px;padding:12px;text-align:center">
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">${MESES_P[h1.m]} ${String(h1.a).substring(2)}</div>
+          <div style="font-size:19px;font-weight:700;color:var(--text)">${fmtK(v1)}</div>
+          ${crec1!==null?`<div style="font-size:10px;font-weight:700;color:${crec1>=0?'#16a34a':'#dc2626'}">${crec1>0?'+':''}${crec1}%</div>`:''}
+        </div>
+        <div style="background:#f3f0ec;border-radius:10px;padding:12px;text-align:center">
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">${MESES_P[h2.m]} ${String(h2.a).substring(2)}</div>
+          <div style="font-size:19px;font-weight:700;color:var(--text)">${fmtK(v2)}</div>
+          ${crec2!==null?`<div style="font-size:10px;font-weight:700;color:${crec2>=0?'#16a34a':'#dc2626'}">${crec2>0?'+':''}${crec2}%</div>`:''}
+        </div>
+        <div style="background:#faf9f8;border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center">
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Incremento pedido</div>
+          <div style="font-size:19px;font-weight:800;color:var(--brown)">${pct!==null?pct+'%':'—'}</div>
+          ${incremento!==null?`<div style="font-size:10px;font-weight:700;color:#16a34a">${incremento>=0?'+':''}${fmtK(incremento)}</div>`:''}
+        </div>
+        <div style="background:#1a1108;border-radius:10px;padding:12px;text-align:center">
+          <div style="font-size:10px;color:rgba(255,255,255,0.7);text-transform:uppercase;letter-spacing:0.5px">Mi meta ${MESES_P[pm]}</div>
+          <div style="font-size:22px;font-weight:800;color:white">${meta!==null?fmtK(meta):'—'}</div>
+          ${esManual?'<div style="font-size:9px;color:#fcd34d;font-weight:600">meta fijada</div>':''}
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.5">Tu meta sale de tu último mes cerrado (${MESES_P[h2.m]}: ${fmtK(v2)}) más el incremento mensual acordado${pct!==null?' de '+pct+'%':''}.</div>
+    </div>`;
 }
 
 async function renderKpisGiovanna(asesoraKpi, asesoras, puedeVerTodas, rol){
@@ -11598,6 +11664,9 @@ async function renderKpis(){
 
     <!-- Ventas durante el año + Meta de ventas (lado a lado) -->
     ${cardsVentasYMeta(asesoraKpi, anioFiltro)}
+
+    <!-- Presupuesto personal (2 últimos meses + mes proyectado) -->
+    ${cardPresupuestoAsesora(asesoraKpi)}
 
     <!-- Comisiones del mes -->
     <div class="card" style="margin-bottom:12px">
