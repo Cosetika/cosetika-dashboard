@@ -5554,19 +5554,20 @@ async function renderPedidosWeb(fechaSel){
         + '</div>'
         + '<div id="'+prodId+'" style="display:none;border-top:0.5px solid var(--border)">'
         + '<table style="width:100%;border-collapse:collapse;font-size:12px">'
-        + '<thead><tr style="background:#faf9f8"><th style="padding:8px 16px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:600">Producto</th><th style="padding:8px 10px;text-align:center;font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:600">Cant.</th><th style="padding:8px 16px;text-align:right;font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:600">Total</th></tr></thead>'
+        + '<thead><tr style="background:#faf9f8"><th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:600;width:90px">SKU</th><th style="padding:8px 16px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:600">Producto</th><th style="padding:8px 10px;text-align:center;font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:600">Cant.</th><th style="padding:8px 16px;text-align:right;font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:600">Total</th></tr></thead>'
         + '<tbody>';
       if(prods.length){
         prods.forEach(function(pr){
           const nombre = pr.nombre||pr.name||pr.producto||'—';
           const cant = pr.cantidad||pr.qty||pr.quantity||1;
           const total = parseFloat(pr.total||pr.subtotal||pr.precio||pr.price||0);
-          html += '<tr style="border-top:0.5px solid var(--border)"><td style="padding:9px 16px">'+nombre+'</td><td style="padding:9px 10px;text-align:center;color:var(--muted)">'+cant+'</td><td style="padding:9px 16px;text-align:right;font-weight:500;color:var(--brown)">$'+total.toFixed(2)+'</td></tr>';
+          const skuPr = pr.sku || pr.SKU || pr.codigo || pr.code || '';
+          html += '<tr style="border-top:0.5px solid var(--border)"><td style="padding:9px 12px;font-size:11px;color:var(--brown);font-weight:600;white-space:nowrap">'+(skuPr||'—')+'</td><td style="padding:9px 16px">'+nombre+'</td><td style="padding:9px 10px;text-align:center;color:var(--muted)">'+cant+'</td><td style="padding:9px 16px;text-align:right;font-weight:500;color:var(--brown)">$'+total.toFixed(2)+'</td></tr>';
         });
       } else {
-        html += '<tr><td colspan="3" style="padding:14px 16px;color:var(--muted);text-align:center">Sin detalle</td></tr>';
+        html += '<tr><td colspan="4" style="padding:14px 16px;color:var(--muted);text-align:center">Sin detalle</td></tr>';
       }
-      html += '</tbody><tfoot><tr style="border-top:1px solid var(--border);background:#faf9f8"><td colspan="2" style="padding:9px 16px;font-weight:600">Total pedido</td><td style="padding:9px 16px;text-align:right;font-weight:700;color:var(--brown)">$'+parseFloat(p.total||0).toFixed(2)+'</td></tr></tfoot></table></div></div>';
+      html += '</tbody><tfoot><tr style="border-top:1px solid var(--border);background:#faf9f8"><td colspan="3" style="padding:9px 16px;font-weight:600">Total pedido</td><td style="padding:9px 16px;text-align:right;font-weight:700;color:var(--brown)">$'+parseFloat(p.total||0).toFixed(2)+'</td></tr></tfoot></table></div></div>';
     });
   }
   cont.innerHTML = html;
