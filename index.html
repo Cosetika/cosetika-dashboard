@@ -8916,6 +8916,43 @@ function navGoReferidos(){
   }, 30);
 }
 
+// Estadística de seguimiento de una vendedora a un mes dado: cuántas clientas requieren
+// contacto (en riesgo + dormidas + 1 sola compra) y cuántas fueron marcadas como contactadas.
+function seguimientoStats(nombreVend, curIdx, contactos){
+  const clientes = (window.DATA || DATA || {})[nombreVend] || [];
+  const anioS = Math.floor(curIdx/12), mesS = (curIdx%12)+1;
+  const mesKeyS = anioS+'-'+String(mesS).padStart(2,'0');
+  let total = 0, contactadas = 0;
+  clientes.forEach(c=>{
+    const meses = new Set();
+    (c.frecuencia||[]).forEach(f=>{
+      if(!f.mes) return;
+      if(((f.compras||0) > 0 || (f.total||0) > 0)){
+        const ix = (f.anio || anioS)*12 + (f.mes-1);
+        if(ix <= curIdx) meses.add(ix);
+      }
+    });
+    const lista = [...meses].sort((a,b)=>a-b);
+    if(!lista.length) return;
+    const ult = lista[lista.length-1];
+    const sin = curIdx - ult;
+    let requiere = false;
+    if(lista.length === 1){ requiere = sin >= 2; }
+    else {
+      let g = 0; for(let i=1;i<lista.length;i++) g += lista[i]-lista[i-1];
+      const ritmo = Math.max(1, g/(lista.length-1));
+      requiere = (sin/ritmo) >= 1.5;
+    }
+    if(!requiere) return;
+    total++;
+    const ced = String(c.ruc||'').replace(/\D/g,'');
+    const key = (mesKeyS + '|' + (ced || ('n:' + String(c.nombre||'').toUpperCase().replace(/\s+/g,' ').trim()))).substring(0,290);
+    const ct = (contactos||{})[key];
+    if(ct && ct.contactado) contactadas++;
+  });
+  return { total, contactadas, pct: total ? Math.round(contactadas/total*1000)/10 : 100 };
+}
+
 // ─── SEGUIMIENTO DE CLIENTAS: ritmo personal de compra e inactividad ─────────
 async function renderSeguimientoClientes(){
   const main = document.getElementById('main');
@@ -9104,7 +9141,27 @@ async function renderSeguimientoClientes(){
     ${tablaSeg('En riesgo — llámalas esta semana', '#d97706', '#d97706', '#fde68a', riesgo, 'ti-alert-triangle', 'superaron 1.5× su ritmo habitual')}
     ${tablaSeg('Dormidas — recuperarlas vale oro', '#dc2626', '#dc2626', '#fca5a5', dormidas, 'ti-zzz', '3× su ritmo o más de 6 meses')}
     ${tablaSeg('Compraron una vez y no volvieron', '#6b7280', '#6b7280', '#e5e7eb', unavez, 'ti-user-question', 'la recompra pendiente')}
-    ${(!riesgo.length && !dormidas.length && !unavez.length) ? '<div class="card" style="text-align:center;padding:40px;color:var(--muted)"><i class="ti ti-confetti" style="font-size:36px;opacity:0.4"></i><p style="margin-top:10px">¡Ninguna clienta fría! Cartera completamente activa.</p></div>' : ''}`;
+    ${(!riesgo.length && !dormidas.length && !unavez.length) ? '<div class="card" style="text-align:center;padding:40px;color:var(--muted)"><i class="ti ti-confetti" style="font-size:36px;opacity:0.4"></i><p style="margin-top:10px">¡Ninguna clienta fría! Cartera completamente activa.</p></div>' : (()=>{
+      const todasF = [...riesgo, ...dormidas, ...unavez];
+      const totalF = todasF.length;
+      const contF = todasF.filter(f=>{ const ct = (window._segContactos||{})[f.keySeg]; return ct && ct.contactado; }).length;
+      const pctF = totalF ? Math.round(contF/totalF*1000)/10 : 100;
+      const colF = pctF >= 100 ? '#16a34a' : (pctF >= 50 ? '#d97706' : '#dc2626');
+      return `
+      <div class="card" style="margin-top:12px;border:2px solid ${colF}">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+          <div style="font-size:13px;font-weight:700;color:var(--text)"><i class="ti ti-phone-check" style="margin-right:6px;color:${colF}"></i>Índice de contacto — ${MPP[mesSeg]} ${anioSeg}</div>
+          <div style="font-size:28px;font-weight:800;color:${colF}">${pctF}%</div>
+        </div>
+        <div style="height:14px;background:#e5e0d8;border-radius:8px;overflow:hidden">
+          <div style="height:100%;width:${pctF}%;background:${colF};border-radius:8px;transition:width 0.3s"></div>
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-top:8px">
+          <b>${contF}</b> de <b>${totalF}</b> clientas contactadas · faltan <b>${totalF-contF}</b> para llegar al 100%.
+          Este índice es un KPI del mes: debes marcar <b>todas</b> las clientas de las listas de arriba.
+        </div>
+      </div>`;
+    })()}`;
 }
 
 function segNavMes(delta){
@@ -11086,8 +11143,10 @@ async function renderKpisControl(){
   let excepcionesCtrl = [];
   try{ const rEx = await fetch(`/api/visitas-excepciones?mes=${mesKey}`); const dEx = await rEx.json(); if(Array.isArray(dEx)) excepcionesCtrl = dEx; }catch(e){}
   const semanaJustificada = (asesora, key) => excepcionesCtrl.some(e => String(e.semana).substring(0,10) === key && mismoP(e.asesora, asesora));
-  let pesosKpi = { visitas: 33.33, provincia: 33.33, casa: 33.33, nuevos: 0 };
-  try{ const rP = await fetch('/api/kpis-pesos'); const jP = await rP.json(); if(jP.ok && jP.pesos) pesosKpi = jP.pesos; }catch(e){}
+  let pesosKpi = { visitas: 33.33, provincia: 33.33, casa: 33.33, nuevos: 0, seguimiento: 0 };
+  let contactosCtrl = {};
+  try{ const rCt = await fetch('/api/seguimiento-contactos'); contactosCtrl = await rCt.json() || {}; }catch(e){}
+  try{ const rP = await fetch('/api/kpis-pesos'); const jP = await rP.json(); if(jP.ok && jP.pesos) pesosKpi = Object.assign(pesosKpi, jP.pesos); }catch(e){}
   window._kpisPesosActual = pesosKpi;
   try{
     const [rCu, rRev, rU, rEq, rGi, rCa, rNu, rMc] = await Promise.all([
@@ -11164,7 +11223,9 @@ async function renderKpisControl(){
     const claveM = Object.keys(metasCliCtrl||{}).find(k=>mismoP(k, a));
     const metaN = claveM ? (parseInt(metasCliCtrl[claveM])||0) : 0;
     const cumpleNuevos = metaN > 0 ? nNuevos >= metaN : nNuevos > 0;
-    return { a, cumpleVis, pctVisitas, semanasOk, nSemMes, pesoSemana: Math.round(pesoSemana*10)/10, giras, casas, nNuevos, metaN, cumpleNuevos,
+    const claveSegD = Object.keys(DATA||{}).find(v=>mismoP(v, a)) || a;
+    const segSt = seguimientoStats(claveSegD, anio*12 + (mes-1), contactosCtrl);
+    return { a, cumpleVis, pctVisitas, semanasOk, nSemMes, pesoSemana: Math.round(pesoSemana*10)/10, segSt, giras, casas, nNuevos, metaN, cumpleNuevos,
              cumpleProv: giras.length >= 1, cumpleCasa: casas.length >= 1 };
   });
 
@@ -11323,12 +11384,13 @@ async function renderKpisControl(){
       ${(()=>{
         const p = pesosKpi;
         const fmtW = v => (Math.round(v*100)/100).toString();
-        const conP = [['Visitas',p.visitas],['Giras a Provincia',p.provincia],['Casas Abiertas',p.casa],['Clientes Nuevos',p.nuevos]].filter(x=>x[1]>0);
+        const conP = [['Visitas',p.visitas],['Giras a Provincia',p.provincia],['Casas Abiertas',p.casa],['Clientes Nuevos',p.nuevos],['Seguimiento de clientas',p.seguimiento]].filter(x=>x[1]>0);
         const nSemR = (resumenCtrl[0] && resumenCtrl[0].nSemMes) || 4;
         const pesoSemR = (resumenCtrl[0] && resumenCtrl[0].pesoSemana) || 25;
         return `<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:12px 16px;margin-bottom:12px;font-size:12px;color:#1e40af;line-height:1.6">
           <b>Cómo se llega al 100%:</b> ${conP.map(x=>x[0]+' <b>'+fmtW(x[1])+'%</b>').join(' · ')}.<br>
           Dentro de <b>Visitas</b>, cada una de las ${nSemR} semanas que alcanza la meta vale <b>${pesoSemR}%</b> de ese ${fmtW(p.visitas)}% — las semanas no se compensan entre sí (20 una semana y 40 otra = solo 1 semana cumplida).<br>
+          En <b>Seguimiento de clientas</b> cuenta el % de clientas frías marcadas como contactadas en Clientes → Seguimiento (deben estar todas).<br>
           El <b>% Comisión</b> es la suma de lo logrado en cada KPI: con el 100% se paga la comisión completa.
         </div>`;
       })()}
@@ -11337,7 +11399,7 @@ async function renderKpisControl(){
         <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:640px">
           <thead><tr style="border-bottom:1px solid var(--border)">
             <th style="text-align:left;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Asesora</th>
-            ${[['visitas','Visitas'],['provincia','Visita Provincia'],['casa','Casa Abierta'],['nuevos','Clientes Nuevos']].map(([k,lbl])=>`
+            ${[['visitas','Visitas'],['provincia','Giras a Provincia'],['casa','Casa Abierta'],['nuevos','Clientes Nuevos'],['seguimiento','Seguimiento clientas']].map(([k,lbl])=>`
             <th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">${lbl}<br>
               ${rol==='admin'
                 ? `<input type="number" min="0" max="100" step="0.01" value="${pesosKpi[k]}" onchange="guardarPesoKpi('${k}',this.value)" style="width:58px;margin-top:3px;padding:2px 4px;font-size:10px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;color:#2563eb;font-weight:700">`
@@ -11349,9 +11411,9 @@ async function renderKpisControl(){
           <tbody>
             ${resumenCtrl.map(r=>{
               const p = pesosKpi;
-              const totalPesos = (p.visitas||0)+(p.provincia||0)+(p.casa||0)+(p.nuevos||0);
+              const totalPesos = (p.visitas||0)+(p.provincia||0)+(p.casa||0)+(p.nuevos||0)+(p.seguimiento||0);
               // Visitas aporta en proporción a las semanas cumplidas; el resto es todo o nada
-              const logrado = ((r.pctVisitas||0)/100*p.visitas)+(r.cumpleProv?p.provincia:0)+(r.cumpleCasa?p.casa:0)+(r.cumpleNuevos?p.nuevos:0);
+              const logrado = ((r.pctVisitas||0)/100*p.visitas)+(r.cumpleProv?p.provincia:0)+(r.cumpleCasa?p.casa:0)+(r.cumpleNuevos?p.nuevos:0)+((r.segSt.pct||0)/100*(p.seguimiento||0));
               const pct = totalPesos > 0 ? Math.round(logrado/totalPesos*1000)/10 : 0;
               const todos = pct >= 100;
               const colPct = todos ? '#16a34a' : (pct > 0 ? '#d97706' : '#dc2626');
@@ -11365,6 +11427,10 @@ async function renderKpisControl(){
                 <td style="padding:8px 10px;text-align:center">${chipControl(r.cumpleProv)}</td>
                 <td style="padding:8px 10px;text-align:center">${chipControl(r.cumpleCasa)}</td>
                 <td style="padding:8px 10px;text-align:center">${chipControl(r.cumpleNuevos)}</td>
+                <td style="padding:8px 10px;text-align:center">
+                  <div style="font-size:13px;font-weight:800;color:${r.segSt.pct>=100?'#16a34a':(r.segSt.pct>0?'#d97706':'#dc2626')}">${r.segSt.pct}%</div>
+                  <div style="font-size:9px;color:var(--muted)">${r.segSt.contactadas}/${r.segSt.total}</div>
+                </td>
                 <td style="padding:8px 10px;text-align:center;font-weight:700;font-size:14px;color:${colPct}">${pct}%</td>
                 <td style="padding:8px 10px;text-align:center">${todos
                   ? '<span style="font-size:11px;padding:3px 12px;border-radius:12px;background:#16a34a;color:white;font-weight:700">CUMPLIÓ</span>'

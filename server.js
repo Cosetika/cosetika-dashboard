@@ -5707,7 +5707,7 @@ const server = http.createServer(async (req, res) => {
   if (urlPath === '/api/kpis-pesos' && req.method === 'GET') {
     try {
       const raw = await getConfigApp('kpis_pesos', null);
-      let pesos = { visitas: 33.33, provincia: 33.33, casa: 33.33, nuevos: 0 };
+      let pesos = { visitas: 33.33, provincia: 33.33, casa: 33.33, nuevos: 0, seguimiento: 0 };
       if (raw) { try { pesos = Object.assign(pesos, JSON.parse(raw)); } catch(e) {} }
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ ok:true, pesos }));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
@@ -5718,7 +5718,7 @@ const server = http.createServer(async (req, res) => {
       const { pesos } = await bodyJSON(req);
       if (!pesos || typeof pesos !== 'object') { res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'Pesos inválidos'})); return; }
       const limpio = {};
-      ['visitas','provincia','casa','nuevos'].forEach(k => { limpio[k] = Math.max(0, Math.min(100, parseFloat(pesos[k]) || 0)); });
+      ['visitas','provincia','casa','nuevos','seguimiento'].forEach(k => { limpio[k] = Math.max(0, Math.min(100, parseFloat(pesos[k]) || 0)); });
       await setConfigApp('kpis_pesos', JSON.stringify(limpio));
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
