@@ -5019,6 +5019,14 @@ const server = http.createServer(async (req, res) => {
       const r = await pool.query('SELECT panel, texto FROM kpis_control_notas WHERE mes_key=$1', [mesK]);
       const notas = {};
       r.rows.forEach(x => { notas[x.panel] = x.texto || ''; });
+      // Herencia: los paneles sin nota propia en este mes muestran la última nota escrita
+      // en cualquier mes anterior (las reglas siguen vigentes hasta que se cambien)
+      try {
+        const rPrev = await pool.query(
+          `SELECT DISTINCT ON (panel) panel, texto FROM kpis_control_notas
+           WHERE mes_key < $1 AND texto <> '' ORDER BY panel, mes_key DESC`, [mesK]);
+        rPrev.rows.forEach(x => { if (!notas[x.panel]) notas[x.panel] = x.texto || ''; });
+      } catch(e) {}
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ ok:true, notas }));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
