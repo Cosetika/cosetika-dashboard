@@ -894,6 +894,80 @@ async function setConfigApp(clave, valor){
 let INSTITUTOS_ULTIMA_SYNC = null;
 const CAMPOS_ADICIONALES = ['adicional1_cliente','adicional2_cliente','adicional3_cliente','adicional4_cliente'];
 
+// ─── PEDIDOS WEB: completar cédula/RUC y SKUs desde la API de WooCommerce ───
+// El correo de WooCommerce a veces trae los datos de pago en vez de la cédula; la API
+// siempre entrega el pedido completo, así que la usamos como fuente de verdad.
+function cedulaDesdeOrdenWoo(orden){
+  const bill = orden.billing || {};
+  const candidatos = [];
+  (orden.meta_data || []).forEach(m => {
+    const k = String((m && m.key) || '').toLowerCase();
+    if (/cedula|c\u00e9dula|ruc|identificacion|identificaci\u00f3n|dni|nit/.test(k)) candidatos.push(String((m && m.value) || ''));
+  });
+  Object.entries(bill).forEach(([k, v]) => {
+    if (/cedula|ruc|identific|dni/.test(String(k).toLowerCase())) candidatos.push(String(v||''));
+  });
+  Object.entries(bill).forEach(([k, v]) => {
+    const kl = String(k).toLowerCase();
+    if (kl.includes('phone') || kl.includes('postcode') || kl.includes('telefono')) return;
+    candidatos.push(String(v||''));
+  });
+  (orden.meta_data || []).forEach(m => {
+    const k = String((m && m.key) || '').toLowerCase();
+    if (k.includes('phone') || k.includes('telefono')) return;
+    candidatos.push(String((m && m.value) || ''));
+  });
+  for (const c of candidatos) {
+    const d = String(c).replace(/\D/g, '');
+    if (d.length === 10 || d.length === 13) return d;
+  }
+  return '';
+}
+
+async function completarPedidosDesdeWoo(limite = 25){
+  const WOO_URL0 = (process.env.WOO_URL || '').trim();
+  const mU = WOO_URL0.match(/https?:\/\/[^\s"']+/);
+  const WOO_URL = (mU ? mU[0] : WOO_URL0).replace(/\/+$/, '');
+  const CK = process.env.WOO_CK || process.env.WC_CONSUMER_KEY || '';
+  const CS = process.env.WOO_CS || process.env.WC_CONSUMER_SECRET || '';
+  if (!WOO_URL || !CK || !CS) return { ok:false, error:'Faltan credenciales de WooCommerce' };
+  try {
+    // Solo pedidos de HOY en adelante (los históricos se dejan como están)
+    const r = await pool.query(
+      `SELECT numero_pedido FROM pedidos_web
+       WHERE (cedula_ruc IS NULL OR LENGTH(REGEXP_REPLACE(cedula_ruc,'\\D','','g')) NOT IN (10,13))
+         AND fecha >= CURRENT_DATE ORDER BY id DESC LIMIT $1`, [limite]);
+    let actualizados = 0;
+    for (const row of r.rows) {
+      const num = row.numero_pedido;
+      try {
+        const resp = await fetch(`${WOO_URL}/wp-json/wc/v3/orders/${encodeURIComponent(num)}?consumer_key=${encodeURIComponent(CK)}&consumer_secret=${encodeURIComponent(CS)}`, { headers:{'Accept':'application/json'} });
+        if (!resp.ok) continue;
+        const orden = await resp.json();
+        const ced = cedulaDesdeOrdenWoo(orden);
+        // Productos con SKU real desde la API
+        const prods = (orden.line_items || []).map(it => ({
+          sku: it.sku || '', nombre: it.name || '',
+          cantidad: parseFloat(it.quantity || 0),
+          total: Math.round((parseFloat(it.total || 0) + parseFloat(it.total_tax || 0)) * 100) / 100
+        }));
+        const tel = String((orden.billing && orden.billing.phone) || '').replace(/\D/g,'').substring(0,20);
+        await pool.query(
+          `UPDATE pedidos_web SET cedula_ruc = COALESCE(NULLIF($1,''), cedula_ruc),
+                                  telefono   = COALESCE(NULLIF($2,''), telefono),
+                                  productos  = CASE WHEN $3::text <> '[]' THEN $3 ELSE productos END
+           WHERE numero_pedido = $4`,
+          [ced, tel, JSON.stringify(prods), num]);
+        if (ced) actualizados++;
+      } catch(e) {}
+    }
+    if (actualizados) console.log(`✓ Cédulas completadas desde WooCommerce: ${actualizados} pedido(s)`);
+    return { ok:true, revisados: r.rows.length, actualizados };
+  } catch(e) { console.error('Error completando pedidos desde Woo:', e.message); return { ok:false, error:e.message }; }
+}
+setTimeout(() => completarPedidosDesdeWoo(20).catch(e=>console.error(e)), 2 * 60 * 1000);
+setInterval(() => completarPedidosDesdeWoo(20).catch(e=>console.error(e)), 3 * 60 * 1000);
+
 // ─── CRÉDITO DE CLIENTES (cupo y días) desde Contifico ──────────────────────
 let CREDITO_CACHE = {};
 let CREDITO_SYNC_AT = null;
@@ -5570,6 +5644,15 @@ const server = http.createServer(async (req, res) => {
       });
       res.end(buf);
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+
+  if (urlPath === '/api/pedidos-web/completar-cedulas' && req.method === 'POST') {
+    try {
+      const lim = parseInt(urlObj.searchParams.get('limite')) || 50;
+      const r = await completarPedidosDesdeWoo(lim);
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
   }
 
