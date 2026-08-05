@@ -5847,15 +5847,17 @@ function dibujarComparativoAnual(modo){
     })
   }));
 
+  window._serieComparativo = { series, meses: mesesConDatos };
   const leyenda = document.getElementById('leyenda-comparativo');
   if(leyenda){
-    leyenda.innerHTML = series.map(s=>`
-      <div style="display:flex;align-items:center;gap:5px">
+    leyenda.innerHTML = series.map((s,i)=>`
+      <div class="leyenda-comp-item" data-idx="${i}" onclick="toggleLineaComparativo(${i})" style="display:flex;align-items:center;gap:5px;cursor:pointer;padding:3px 8px;border-radius:12px;transition:background 0.15s;opacity:${(window._compSelIdx!==null&&window._compSelIdx!==undefined&&window._compSelIdx!==i)?'0.3':'1'}">
         <div style="width:20px;height:3px;border-radius:2px;background:${s.color}"></div>
         <span style="font-size:11px;color:var(--text)">${s.nombre}</span>
       </div>`).join('');
   }
-  requestAnimationFrame(()=>dibujarGraficoLineas('grafico-comparativo-anual', series, mesesConDatos));
+  const seriesComp = (window._compSelIdx!==null && window._compSelIdx!==undefined) ? series.filter((_,i)=>i===window._compSelIdx) : series;
+  requestAnimationFrame(()=>dibujarGraficoLineas('grafico-comparativo-anual', seriesComp, mesesConDatos));
 }
 
 async function cargarYDibujarVentasDiaMarca(){
@@ -5896,10 +5898,13 @@ async function cargarYDibujarVentasDiaMarca(){
       color: getMarcaColor(m),
       valores: ejeDias.map(dv=>{ const v = (d.marcas[m]||{})[dv]; return v && v > 0 ? Math.round(v) : null; })
     }));
-    requestAnimationFrame(()=>dibujarGraficoDiario('grafico-ventas-dia-marca', series, ejeDias));
-    if(legEl) legEl.innerHTML = MARCAS_ORD.map(m=>{
+    window._serieDiaMarca = { series, ejeDias, marcas: MARCAS_ORD, totales: d.totales };
+    const seriesM = (window._marcaSelIdx!==null && window._marcaSelIdx!==undefined) ? series.filter((_,i)=>i===window._marcaSelIdx) : series;
+    requestAnimationFrame(()=>dibujarGraficoDiario('grafico-ventas-dia-marca', seriesM, ejeDias));
+    if(legEl) legEl.innerHTML = MARCAS_ORD.map((m,i)=>{
       const tot = d.totales[m]||0;
-      return `<div style="display:flex;align-items:center;gap:6px">
+      const atenuada = (window._marcaSelIdx!==null && window._marcaSelIdx!==undefined && window._marcaSelIdx!==i);
+      return `<div onclick="toggleLineaMarcaDia(${i})" style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:3px 8px;border-radius:12px;transition:background 0.15s;opacity:${atenuada?'0.3':'1'}">
         <span style="width:10px;height:10px;border-radius:3px;background:${getMarcaColor(m)};display:inline-block"></span>
         <span style="font-size:12px;font-weight:600">${m}</span>
         <span style="font-size:12px;font-weight:700;color:${getMarcaColor(m)}">$${Math.round(tot).toLocaleString('en-US')}</span>
@@ -6413,6 +6418,32 @@ function toggleVendMensual(i){
   const abierto = det.style.display !== 'none';
   det.style.display = abierto ? 'none' : 'block';
   if(chev) chev.style.transform = abierto ? '' : 'rotate(90deg)';
+}
+
+// Leyendas clicables: aislar una serie (mismo comportamiento que el gráfico por vendedora)
+window._compSelIdx = null;
+window._marcaSelIdx = null;
+
+function toggleLineaComparativo(idx){
+  window._compSelIdx = (window._compSelIdx===idx) ? null : idx;
+  const g = window._serieComparativo;
+  if(!g) return;
+  document.querySelectorAll('.leyenda-comp-item').forEach(el=>{
+    const i = parseInt(el.dataset.idx);
+    el.style.opacity = (window._compSelIdx!==null && i!==window._compSelIdx) ? '0.3' : '1';
+  });
+  const ss = (window._compSelIdx!==null) ? g.series.filter((_,i)=>i===window._compSelIdx) : g.series;
+  dibujarGraficoLineas('grafico-comparativo-anual', ss, g.meses);
+}
+
+function toggleLineaMarcaDia(idx){
+  window._marcaSelIdx = (window._marcaSelIdx===idx) ? null : idx;
+  const g = window._serieDiaMarca;
+  if(!g) return;
+  const legEl = document.getElementById('ventas-dia-marca-leyenda');
+  if(legEl) Array.from(legEl.children).forEach((el,i)=>{ el.style.opacity = (window._marcaSelIdx!==null && i!==window._marcaSelIdx) ? '0.3' : '1'; });
+  const ss = (window._marcaSelIdx!==null) ? g.series.filter((_,i)=>i===window._marcaSelIdx) : g.series;
+  dibujarGraficoDiario('grafico-ventas-dia-marca', ss, g.ejeDias);
 }
 
 let _vendSeleccionadaIdx = null;
