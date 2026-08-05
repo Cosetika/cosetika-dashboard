@@ -11384,7 +11384,7 @@ async function renderKpisControl(){
       ${(()=>{
         const p = pesosKpi;
         const fmtW = v => (Math.round(v*100)/100).toString();
-        const conP = [['Visitas',p.visitas],['Giras a Provincia',p.provincia],['Casas Abiertas',p.casa],['Clientes Nuevos',p.nuevos],['Seguimiento de clientas',p.seguimiento]].filter(x=>x[1]>0);
+        const conP = [['Visitas',p.visitas],['Giras a Provincia',p.provincia],['Seguimiento de clientas',p.seguimiento],['Casas Abiertas',p.casa],['Clientes Nuevos',p.nuevos]].filter(x=>x[1]>0);
         const nSemR = (resumenCtrl[0] && resumenCtrl[0].nSemMes) || 4;
         const pesoSemR = (resumenCtrl[0] && resumenCtrl[0].pesoSemana) || 25;
         return `<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:12px 16px;margin-bottom:12px;font-size:12px;color:#1e40af;line-height:1.6">
@@ -11399,7 +11399,7 @@ async function renderKpisControl(){
         <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:640px">
           <thead><tr style="border-bottom:1px solid var(--border)">
             <th style="text-align:left;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Asesora</th>
-            ${[['visitas','Visitas'],['provincia','Giras a Provincia'],['casa','Casa Abierta'],['nuevos','Clientes Nuevos'],['seguimiento','Seguimiento clientas']].map(([k,lbl])=>`
+            ${[['visitas','Visitas'],['provincia','Giras a Provincia'],['seguimiento','Seguimiento clientas'],['casa','Casa Abierta'],['nuevos','Clientes Nuevos']].map(([k,lbl])=>`
             <th style="text-align:center;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">${lbl}<br>
               ${rol==='admin'
                 ? `<input type="number" min="0" max="100" step="0.01" value="${pesosKpi[k]}" onchange="guardarPesoKpi('${k}',this.value)" style="width:58px;margin-top:3px;padding:2px 4px;font-size:10px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;color:#2563eb;font-weight:700">`
@@ -11425,12 +11425,12 @@ async function renderKpisControl(){
                   <div style="font-size:9px;color:var(--muted)">${r.semanasOk||0}/${r.nSemMes||4} sem</div>
                 </td>
                 <td style="padding:8px 10px;text-align:center">${chipControl(r.cumpleProv)}</td>
-                <td style="padding:8px 10px;text-align:center">${chipControl(r.cumpleCasa)}</td>
-                <td style="padding:8px 10px;text-align:center">${chipControl(r.cumpleNuevos)}</td>
                 <td style="padding:8px 10px;text-align:center">
                   <div style="font-size:13px;font-weight:800;color:${r.segSt.pct>=100?'#16a34a':(r.segSt.pct>0?'#d97706':'#dc2626')}">${r.segSt.pct}%</div>
                   <div style="font-size:9px;color:var(--muted)">${r.segSt.contactadas}/${r.segSt.total}</div>
                 </td>
+                <td style="padding:8px 10px;text-align:center">${chipControl(r.cumpleCasa)}</td>
+                <td style="padding:8px 10px;text-align:center">${chipControl(r.cumpleNuevos)}</td>
                 <td style="padding:8px 10px;text-align:center;font-weight:700;font-size:14px;color:${colPct}">${pct}%</td>
                 <td style="padding:8px 10px;text-align:center">${todos
                   ? '<span style="font-size:11px;padding:3px 12px;border-radius:12px;background:#16a34a;color:white;font-weight:700">CUMPLIÓ</span>'
