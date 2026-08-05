@@ -750,6 +750,11 @@ async function sincronizarPedidosWeb(opciones){
 
     await client.logout();
     console.log(`✓ Pedidos web sync: ${procesados} pedidos guardados, ${errores} errores`);
+    // Si entraron pedidos nuevos, completar YA sus datos desde la API de WooCommerce
+    // (cédula/RUC, teléfono, email, dirección y SKUs) — sin esperar el ciclo periódico
+    if (procesados > 0) {
+      completarPedidosDesdeWoo(Math.max(procesados, 5)).catch(e => console.error('Woo backfill:', e.message));
+    }
     return { ok: true, procesados, errores };
   } catch (e) {
     console.error('Error conectando a pedidos@cosetika.com:', e.message);
@@ -977,8 +982,8 @@ async function completarPedidosDesdeWoo(limite = 25){
     return { ok:true, revisados: r.rows.length, actualizados };
   } catch(e) { console.error('Error completando pedidos desde Woo:', e.message); return { ok:false, error:e.message }; }
 }
-setTimeout(() => completarPedidosDesdeWoo(20).catch(e=>console.error(e)), 2 * 60 * 1000);
-setInterval(() => completarPedidosDesdeWoo(20).catch(e=>console.error(e)), 3 * 60 * 1000);
+setTimeout(() => completarPedidosDesdeWoo(20).catch(e=>console.error(e)), 60 * 1000);
+setInterval(() => completarPedidosDesdeWoo(20).catch(e=>console.error(e)), 60 * 1000);
 
 // ─── CRÉDITO DE CLIENTES (cupo y días) desde Contifico ──────────────────────
 let CREDITO_CACHE = {};
