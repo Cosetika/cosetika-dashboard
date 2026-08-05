@@ -894,6 +894,47 @@ async function setConfigApp(clave, valor){
 let INSTITUTOS_ULTIMA_SYNC = null;
 const CAMPOS_ADICIONALES = ['adicional1_cliente','adicional2_cliente','adicional3_cliente','adicional4_cliente'];
 
+// ─── CRÉDITO DE CLIENTES (cupo y días) desde Contifico ──────────────────────
+let CREDITO_CACHE = {};
+let CREDITO_SYNC_AT = null;
+async function sincronizarCreditos(){
+  if (!API_KEY) return;
+  try {
+    const personas = [];
+    let nextUrl = 'https://api.contifico.com/sistema/api/v2/persona/?page_size=200';
+    let pag = 0;
+    while (nextUrl && pag < 200) {
+      const resp = await fetch(nextUrl, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
+      if (!resp.ok) break;
+      const data = await resp.json();
+      if (Array.isArray(data)) { personas.push(...data); nextUrl = null; }
+      else { personas.push(...(data.results || [])); nextUrl = data.next || null; }
+      pag++;
+    }
+    const mapa = {};
+    personas.forEach(p => {
+      const info = {
+        cupo: parseFloat(p.cupo_credito) || 0,
+        dias: parseInt(p.dias_credito) || 0,
+        aplica: String(p.aplicar_cupo) === 'True' || p.aplicar_cupo === true,
+        nombre: p.razon_social || ''
+      };
+      [p.cedula, p.ruc].forEach(v => {
+        const d = String(v || '').replace(/\D/g, '');
+        if (d) { mapa[d] = info; if (d.length === 13) mapa[d.substring(0,10)] = info; }
+      });
+    });
+    if (Object.keys(mapa).length) {
+      CREDITO_CACHE = mapa;
+      CREDITO_SYNC_AT = new Date().toISOString();
+      const conCupo = personas.filter(p => (parseFloat(p.cupo_credito)||0) > 0).length;
+      console.log(`✓ Créditos: ${personas.length} personas · ${conCupo} con cupo asignado`);
+    }
+  } catch(e) { console.error('Error sincronizando créditos:', e.message); }
+}
+setTimeout(() => sincronizarCreditos(), 3 * 60 * 1000);
+setInterval(() => sincronizarCreditos(), 6 * 60 * 60 * 1000);
+
 async function sincronizarInstitutos(){
   if (!API_KEY) return { ok:false, error:'CONTIFICO_API_KEY no configurada' };
   const campo = await getConfigApp('instituto_campo', 'adicional2_cliente');
@@ -2790,6 +2831,12 @@ const server = http.createServer(async (req, res) => {
       }
       const pedidos = r.rows.map(row => ({
         ...row,
+        credito: (() => {
+          const d = String(row.cedula_ruc || '').replace(/\D/g, '');
+          if (!d) return null;
+          const c = CREDITO_CACHE[d] || (d.length === 13 ? CREDITO_CACHE[d.substring(0,10)] : null) || CREDITO_CACHE[d + '001'] || null;
+          return c ? { cupo: c.cupo, dias: c.dias, aplica: c.aplica } : { cupo: 0, dias: 0, aplica: false };
+        })(),
         productos: (() => { try { return JSON.parse(row.productos || '[]'); } catch(e){ return []; } })()
       }));
       // Enriquecer con la asesora asignada en el directorio (personas). Sin match → cliente nueva
@@ -5523,6 +5570,12 @@ const server = http.createServer(async (req, res) => {
       });
       res.end(buf);
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+
+  if (urlPath === '/api/creditos/sync' && req.method === 'POST') {
+    sincronizarCreditos().catch(e=>console.error(e));
+    res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, msg:'Sincronizando créditos desde Contifico'}));
     return;
   }
 
