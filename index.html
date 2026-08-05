@@ -11043,11 +11043,18 @@ async function renderKpisControl(){
   const resumenCtrl = asesorasCtrl.map(a=>{
     const det = (cumplimiento.detalle||[]).find(d=>mismoP(d.asesora, a));
     const misSem = (cumplimiento.semanas||[]).filter(x=>mismoP(x.asesora, a));
-    const cumpleVis = !!det && lunesTranscurridos.length > 0 && lunesTranscurridos.every(l=>{
+    // Visitas: cada semana del mes que alcanza la meta vale 100/nºsemanas (25% con 4 semanas).
+    // Las semanas NO se compensan entre sí.
+    const nSemMes = Math.max(lunesDelMes.length, 1);
+    const pesoSemana = 100 / nSemMes;
+    let semanasOk = 0;
+    lunesTranscurridos.forEach(l=>{
       const key = `${l.getFullYear()}-${String(l.getMonth()+1).padStart(2,'0')}-${String(l.getDate()).padStart(2,'0')}`;
       const vis = misSem.filter(x=>String(x.semana).substring(0,10)===key).reduce((a,x)=>a+(parseInt(x.visitadas)||0),0);
-      return vis >= det.meta;
+      if (det && vis >= det.meta) semanasOk++;
     });
+    const pctVisitas = Math.min(100, Math.round(semanasOk * pesoSemana * 10) / 10);
+    const cumpleVis = pctVisitas >= 100;
     const giras = girasCtrl.filter(g=>g.realizada && mismoP(g.asesora, a));
     const casas = casasCtrl.filter(c=>c.realizada && mismoP(c.asesora, a));
     const claveN = Object.keys(nuevosCtrl.asesoras||{}).find(k=>mismoP(k, a));
@@ -11055,7 +11062,7 @@ async function renderKpisControl(){
     const claveM = Object.keys(metasCliCtrl||{}).find(k=>mismoP(k, a));
     const metaN = claveM ? (parseInt(metasCliCtrl[claveM])||0) : 0;
     const cumpleNuevos = metaN > 0 ? nNuevos >= metaN : nNuevos > 0;
-    return { a, cumpleVis, giras, casas, nNuevos, metaN, cumpleNuevos,
+    return { a, cumpleVis, pctVisitas, semanasOk, nSemMes, pesoSemana: Math.round(pesoSemana*10)/10, giras, casas, nNuevos, metaN, cumpleNuevos,
              cumpleProv: giras.length >= 1, cumpleCasa: casas.length >= 1 };
   });
 
@@ -11103,7 +11110,7 @@ async function renderKpisControl(){
                 const v = reg ? reg.visitadas : 0;
                 return `<td style="padding:8px 10px;text-align:center;font-weight:700;color:${v>=d.meta?'#16a34a':(v>0?'#d97706':'#dc2626')}">${v}</td>`;
               }).join('');
-              const totalMes = misSemanas.reduce((a,x)=>a+(x.visitadas||0),0);
+              const totalMes = misSemanas.reduce((a,x)=>a+(parseInt(x.visitadas)||0),0);
               // Control: cumplió si todas las semanas transcurridas alcanzaron la meta
               const cumpleVis = lunesTranscurridos.length > 0 && lunesTranscurridos.every(l=>{
                 const key = `${l.getFullYear()}-${String(l.getMonth()+1).padStart(2,'0')}-${String(l.getDate()).padStart(2,'0')}`;
@@ -11209,6 +11216,18 @@ async function renderKpisControl(){
     <!-- RESUMEN DEL MES: matriz de cumplimiento -->
     <div class="card" style="margin-top:12px;border:2px solid #1a1108">
       <div class="card-title"><i class="ti ti-trophy"></i> Resumen del mes — cumplimiento de KPIs</div>
+      ${(()=>{
+        const p = pesosKpi;
+        const fmtW = v => (Math.round(v*100)/100).toString();
+        const conP = [['Visitas',p.visitas],['Visitas a Provincia',p.provincia],['Casas Abiertas',p.casa],['Clientes Nuevos',p.nuevos]].filter(x=>x[1]>0);
+        const nSemR = (resumenCtrl[0] && resumenCtrl[0].nSemMes) || 4;
+        const pesoSemR = (resumenCtrl[0] && resumenCtrl[0].pesoSemana) || 25;
+        return `<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:12px 16px;margin-bottom:12px;font-size:12px;color:#1e40af;line-height:1.6">
+          <b>Cómo se llega al 100%:</b> ${conP.map(x=>x[0]+' <b>'+fmtW(x[1])+'%</b>').join(' · ')}.<br>
+          Dentro de <b>Visitas</b>, cada una de las ${nSemR} semanas que alcanza la meta vale <b>${pesoSemR}%</b> de ese ${fmtW(p.visitas)}% — las semanas no se compensan entre sí (20 una semana y 40 otra = solo 1 semana cumplida).<br>
+          El <b>% Comisión</b> es la suma de lo logrado en cada KPI: con el 100% se paga la comisión completa.
+        </div>`;
+      })()}
       ${notaPanel('resumen')}
       <div style="overflow-x:auto">
         <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:640px">
@@ -11227,14 +11246,18 @@ async function renderKpisControl(){
             ${resumenCtrl.map(r=>{
               const p = pesosKpi;
               const totalPesos = (p.visitas||0)+(p.provincia||0)+(p.casa||0)+(p.nuevos||0);
-              const logrado = (r.cumpleVis?p.visitas:0)+(r.cumpleProv?p.provincia:0)+(r.cumpleCasa?p.casa:0)+(r.cumpleNuevos?p.nuevos:0);
+              // Visitas aporta en proporción a las semanas cumplidas; el resto es todo o nada
+              const logrado = ((r.pctVisitas||0)/100*p.visitas)+(r.cumpleProv?p.provincia:0)+(r.cumpleCasa?p.casa:0)+(r.cumpleNuevos?p.nuevos:0);
               const pct = totalPesos > 0 ? Math.round(logrado/totalPesos*1000)/10 : 0;
               const todos = pct >= 100;
               const colPct = todos ? '#16a34a' : (pct > 0 ? '#d97706' : '#dc2626');
               return `
               <tr style="border-bottom:0.5px solid #f0ede9;background:${todos?'#f0fdf4':'white'}">
                 <td style="padding:8px 10px;font-weight:600">${r.a.split(' ')[0]} ${(r.a.split(' ')[1]||'')}</td>
-                <td style="padding:8px 10px;text-align:center">${chipControl(r.cumpleVis)}</td>
+                <td style="padding:8px 10px;text-align:center">
+                  <div style="font-size:13px;font-weight:800;color:${r.pctVisitas>=100?'#16a34a':(r.pctVisitas>0?'#d97706':'#dc2626')}">${r.pctVisitas||0}%</div>
+                  <div style="font-size:9px;color:var(--muted)">${r.semanasOk||0}/${r.nSemMes||4} sem</div>
+                </td>
                 <td style="padding:8px 10px;text-align:center">${chipControl(r.cumpleProv)}</td>
                 <td style="padding:8px 10px;text-align:center">${chipControl(r.cumpleCasa)}</td>
                 <td style="padding:8px 10px;text-align:center">${chipControl(r.cumpleNuevos)}</td>
@@ -11768,7 +11791,17 @@ async function renderKpis(){
       <div class="card-title" style="margin-bottom:12px"><i class="ti ti-map-pin"></i> Visitas semanales · Meta ${visitasMeta}/semana</div>
       ${visitasSemanasMes.length===0 ? `
         <p style="font-size:12px;color:var(--muted)">Sin registros de visitas en este mes. Los conteos salen de los checks "Visitado" en Visitas → Planificación.</p>
-      ` : `
+      ` : (()=>{
+        const nSem = Math.max(visitasSemanasMes.length, 4);
+        const pesoSem = Math.round(100 / nSem * 10) / 10;   // 25% con 4 semanas
+        const semCumplidas = visitasSemanasMes.filter(s=>s.visitadas >= visitasMeta).length;
+        const pctVis = Math.min(100, Math.round(semCumplidas * pesoSem * 10) / 10);
+        const colPct = pctVis >= 100 ? '#16a34a' : (pctVis >= 50 ? '#d97706' : '#dc2626');
+        return `
+        <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:#1e40af;line-height:1.5">
+          Cada semana que cumples las <b>${visitasMeta} visitas</b> vale <b>${pesoSem}%</b>. Las 4 semanas completas = <b>100%</b>.
+          <b>Las semanas no se compensan entre sí</b>: hacer 20 una semana y 40 la otra cuenta como una sola semana cumplida.
+        </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           ${visitasSemanasMes.map((s,i)=>{
             const cumple = s.visitadas >= visitasMeta;
@@ -11776,7 +11809,8 @@ async function renderKpis(){
             return `<div style="flex:1;min-width:90px;text-align:center;background:${cumple?'#f0fdf4':'#fef2f2'};border:1px solid ${cumple?'#86efac':'#fca5a5'};border-radius:10px;padding:12px 8px">
               <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Semana del ${fSem.getDate()}/${fSem.getMonth()+1}</div>
               <div style="font-size:24px;font-weight:800;color:${cumple?'#166534':'#991b1b'}">${s.visitadas}</div>
-              <div style="font-size:9px;color:var(--muted)">${cumple?'✅ meta':'de '+visitasMeta}</div>
+              <div style="font-size:9px;color:var(--muted)">de ${visitasMeta}</div>
+              <div style="margin-top:5px;font-size:11px;font-weight:800;color:${cumple?'#166534':'#991b1b'}">${cumple?'+'+pesoSem+'%':'0%'}</div>
             </div>`;
           }).join('')}
           <div style="flex:1;min-width:90px;text-align:center;background:#faf9f8;border:1px solid var(--border);border-radius:10px;padding:12px 8px">
@@ -11785,7 +11819,17 @@ async function renderKpis(){
             <div style="font-size:9px;color:var(--muted)">visitadas</div>
           </div>
         </div>
-      `}
+        <div style="margin-top:12px;background:#faf9f8;border-radius:10px;padding:12px 14px">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:6px">
+            <span style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Cumplimiento de visitas del mes</span>
+            <span style="font-size:20px;font-weight:800;color:${colPct}">${pctVis}%</span>
+          </div>
+          <div style="height:10px;background:#e5e0d8;border-radius:6px;overflow:hidden">
+            <div style="height:100%;width:${pctVis}%;background:${colPct};border-radius:6px;transition:width 0.3s"></div>
+          </div>
+          <div style="font-size:11px;color:var(--muted);margin-top:6px">${semCumplidas} de ${nSem} semanas cumplidas × ${pesoSem}%</div>
+        </div>`;
+      })()}
     </div>
 
     <!-- Visita a Provincia -->
