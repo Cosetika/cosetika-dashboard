@@ -3232,7 +3232,10 @@ const server = http.createServer(async (req, res) => {
       // Desglose por semana del mes
       const semR = mes ? await pool.query(
         `SELECT asesora, TO_CHAR(semana,'YYYY-MM-DD') AS semana, COUNT(*) FILTER (WHERE coordinado) AS visitadas
-         FROM planificacion WHERE TO_CHAR(semana,'YYYY-MM')=$1 GROUP BY asesora, semana ORDER BY semana`, [mes]
+         FROM planificacion
+         WHERE semana >= (TO_DATE($1,'YYYY-MM') - INTERVAL '10 days')
+           AND semana <  (TO_DATE($1,'YYYY-MM') + INTERVAL '1 month' + INTERVAL '10 days')
+         GROUP BY asesora, semana ORDER BY semana`, [mes]
       ) : {rows:[]};
       const vSem = {}; sR.rows.forEach(r=>{ vSem[r.asesora]=parseInt(r.visitadas)||0; });
       const vMes = {}; mesR.rows.forEach(r=>{ vMes[r.asesora]=parseInt(r.visitadas)||0; });

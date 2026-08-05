@@ -7672,6 +7672,27 @@ async function renderPlanificacion(){
 
 // Orden de la planificación: primero por día de la semana; dentro de cada día, las ya
 // visitadas van arriba ordenadas por la hora de visita, y debajo las pendientes.
+// Una semana pertenece al mes donde cae la MAYORÍA de sus días hábiles (lun-sáb).
+// Así la semana del 31/ago (1 día en agosto, 5 en septiembre) cuenta para septiembre.
+function semanasDelMesKpi(anio, mes){
+  const res = [];
+  const d1 = new Date(anio, mes-1, 1);
+  const primerLunes = new Date(d1);
+  primerLunes.setDate(d1.getDate() - ((d1.getDay()+6)%7));
+  for(let k=0; k<6; k++){
+    const lunes = new Date(primerLunes);
+    lunes.setDate(primerLunes.getDate() + k*7);
+    let dias = 0;
+    for(let i=0; i<6; i++){
+      const x = new Date(lunes); x.setDate(lunes.getDate()+i);
+      if(x.getMonth() === mes-1 && x.getFullYear() === anio) dias++;
+    }
+    if(dias >= 4) res.push(lunes);
+  }
+  return res;
+}
+function claveLunes(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+
 function _minutosVisita(txt){
   const m = String(txt||'').match(/(\d{1,2}):(\d{2})\s*([ap])/i);
   if(!m) return 99999;
@@ -11031,9 +11052,7 @@ async function renderKpisControl(){
   const mesKey = `${anio}-${String(mes).padStart(2,'0')}`;
   const MESES_N = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 
-  const lunesDelMes = [];
-  const dC = new Date(anio, mes-1, 1);
-  while(dC.getMonth() === mes-1){ if(dC.getDay() === 1) lunesDelMes.push(new Date(dC)); dC.setDate(dC.getDate()+1); }
+  const lunesDelMes = semanasDelMesKpi(anio, mes);
 
   document.getElementById('main').innerHTML = '<div style="display:flex;justify-content:center;padding:40px;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:24px"></i></div>';
 
@@ -11602,7 +11621,9 @@ async function renderKpis(){
         const k = String(s.semana).substring(0,10);
         porSemK[k] = (porSemK[k]||0) + (parseInt(s.visitadas)||0);
       });
-      visitasSemanasMes = Object.keys(porSemK).sort().map(k => ({ semana: k, visitadas: porSemK[k] }));
+      const clavesMes = semanasDelMesKpi(anioFiltro, mesFiltro).map(claveLunes);
+      visitasSemanasMes = clavesMes.map(k => ({ semana: k, visitadas: porSemK[k] || 0 }));
+      visitasMesTotal = visitasSemanasMes.reduce((a,x)=>a+x.visitadas, 0);
       // Semanas justificadas (vacaciones): cuentan como meta cumplida
       try{
         const rEx = await fetch(`/api/visitas-excepciones?mes=${mesKeyK}`);
