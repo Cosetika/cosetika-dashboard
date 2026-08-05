@@ -935,7 +935,8 @@ async function completarPedidosDesdeWoo(limite = 25){
     // Solo pedidos de HOY en adelante (los históricos se dejan como están)
     const r = await pool.query(
       `SELECT numero_pedido FROM pedidos_web
-       WHERE (cedula_ruc IS NULL OR LENGTH(REGEXP_REPLACE(cedula_ruc,'\\D','','g')) NOT IN (10,13))
+       WHERE ((cedula_ruc IS NULL OR LENGTH(REGEXP_REPLACE(cedula_ruc,'\\D','','g')) NOT IN (10,13))
+              OR direccion IS NULL OR direccion = '')
          AND fecha >= CURRENT_DATE ORDER BY id DESC LIMIT $1`, [limite]);
     let actualizados = 0;
     for (const row of r.rows) {
@@ -951,13 +952,24 @@ async function completarPedidosDesdeWoo(limite = 25){
           cantidad: parseFloat(it.quantity || 0),
           total: Math.round((parseFloat(it.total || 0) + parseFloat(it.total_tax || 0)) * 100) / 100
         }));
-        const tel = String((orden.billing && orden.billing.phone) || '').replace(/\D/g,'').substring(0,20);
+        const b = orden.billing || {}; const sh = orden.shipping || {};
+        const tel = String(b.phone || '').replace(/\D/g,'').substring(0,20);
+        const dir = [sh.address_1 || b.address_1, sh.address_2 || b.address_2].filter(Boolean).join(' · ').substring(0,390);
+        const ciu = String(sh.city || b.city || '').substring(0,140);
+        const prov = String(sh.state || b.state || '').substring(0,140);
+        const mail = String(b.email || '').substring(0,190);
+        const nota = String(orden.customer_note || '').substring(0,900);
         await pool.query(
-          `UPDATE pedidos_web SET cedula_ruc = COALESCE(NULLIF($1,''), cedula_ruc),
-                                  telefono   = COALESCE(NULLIF($2,''), telefono),
-                                  productos  = CASE WHEN $3::text <> '[]' THEN $3 ELSE productos END
+          `UPDATE pedidos_web SET cedula_ruc   = COALESCE(NULLIF($1,''), cedula_ruc),
+                                  telefono     = COALESCE(NULLIF($2,''), telefono),
+                                  productos    = CASE WHEN $3::text <> '[]' THEN $3 ELSE productos END,
+                                  email        = COALESCE(NULLIF($5,''), email),
+                                  direccion    = COALESCE(NULLIF($6,''), direccion),
+                                  ciudad       = COALESCE(NULLIF($7,''), ciudad),
+                                  provincia_env= COALESCE(NULLIF($8,''), provincia_env),
+                                  nota_cliente = COALESCE(NULLIF($9,''), nota_cliente)
            WHERE numero_pedido = $4`,
-          [ced, tel, JSON.stringify(prods), num]);
+          [ced, tel, JSON.stringify(prods), num, mail, dir, ciu, prov, nota]);
         if (ced) actualizados++;
       } catch(e) {}
     }
@@ -2134,6 +2146,11 @@ async function initDB() {
       CREATE INDEX IF NOT EXISTS idx_pedidos_cedula ON pedidos_web(cedula_ruc);
       CREATE INDEX IF NOT EXISTS idx_pedidos_cliente ON pedidos_web(LOWER(cliente_nombre));
       ALTER TABLE pedidos_web ADD COLUMN IF NOT EXISTS html_crudo TEXT;
+      ALTER TABLE pedidos_web ADD COLUMN IF NOT EXISTS email VARCHAR(200);
+      ALTER TABLE pedidos_web ADD COLUMN IF NOT EXISTS direccion VARCHAR(400);
+      ALTER TABLE pedidos_web ADD COLUMN IF NOT EXISTS ciudad VARCHAR(150);
+      ALTER TABLE pedidos_web ADD COLUMN IF NOT EXISTS provincia_env VARCHAR(150);
+      ALTER TABLE pedidos_web ADD COLUMN IF NOT EXISTS nota_cliente TEXT;
       ALTER TABLE pedidos_web ADD COLUMN IF NOT EXISTS prefactura_doc VARCHAR(100);
       ALTER TABLE pedidos_web ADD COLUMN IF NOT EXISTS prefactura_at TIMESTAMP;
       CREATE TABLE IF NOT EXISTS metas_visitas (
