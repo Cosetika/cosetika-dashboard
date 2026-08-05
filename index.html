@@ -5563,27 +5563,31 @@ async function renderPedidosWeb(fechaSel){
         + '</div>'
         + '<div id="'+prodId+'" style="display:none;border-top:0.5px solid var(--border)">'
         + (function(){
+            // Cédula, teléfono, email y dirección se muestran SIEMPRE (vacío = "—");
+            // la nota del cliente solo si existe
             const campos = [
               ['ti-id','Cédula/RUC', String(p.cedula_ruc||'').replace(/\D/g,'')],
               ['ti-phone','Teléfono', p.telefono||''],
               ['ti-mail','Email', p.email||''],
-              ['ti-map-pin','Dirección', [p.direccion, p.ciudad, p.provincia_env].filter(Boolean).join(', ')],
-              ['ti-note','Nota del cliente', p.nota_cliente||'']
-            ].filter(x=>x[2]);
-            if(!campos.length) return '';
-            const todo = campos.map(c=>c[1]+': '+c[2]).join('\n');
+              ['ti-map-pin','Dirección', [p.direccion, p.ciudad, p.provincia_env].filter(Boolean).join(', ')]
+            ];
+            if(p.nota_cliente) campos.push(['ti-note','Nota del cliente', p.nota_cliente]);
+            const todo = campos.filter(c=>c[2]).map(c=>c[1]+': '+c[2]).join('\n');
             return '<div style="padding:12px 16px;background:#faf9f8;border-bottom:0.5px solid var(--border)">'
               + '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px">'
               + '<span style="font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Datos del cliente</span>'
               + '<button onclick="event.stopPropagation();copiarDatoPedido(this,'+JSON.stringify(todo).replace(/"/g,'&quot;')+')" style="font-size:10px;padding:3px 10px;border:1px solid var(--border);background:white;border-radius:7px;cursor:pointer;color:var(--brown);font-weight:600"><i class="ti ti-copy" style="font-size:10px;margin-right:3px"></i>Copiar todo</button>'
               + '</div>'
               + '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px">'
-              + campos.map(c=>'<div style="display:flex;align-items:center;gap:8px;background:white;border:1px solid var(--border);border-radius:8px;padding:7px 10px">'
-                  + '<i class="ti '+c[0]+'" style="font-size:13px;color:var(--brown);flex-shrink:0"></i>'
+              + campos.map(c=>{
+                  const vacio = !c[2];
+                  return '<div style="display:flex;align-items:center;gap:8px;background:white;border:1px solid var(--border);border-radius:8px;padding:7px 10px;'+(vacio?'opacity:0.6':'')+'">'
+                  + '<i class="ti '+c[0]+'" style="font-size:13px;color:'+(vacio?'#ccc':'var(--brown)')+';flex-shrink:0"></i>'
                   + '<div style="flex:1;min-width:0"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">'+c[1]+'</div>'
-                  + '<div style="font-size:12px;font-weight:500;word-break:break-word">'+String(c[2]).replace(/</g,'&lt;')+'</div></div>'
-                  + '<button onclick="event.stopPropagation();copiarDatoPedido(this,'+JSON.stringify(String(c[2])).replace(/"/g,'&quot;')+')" title="Copiar" style="width:26px;height:26px;border:1px solid var(--border);background:white;border-radius:6px;cursor:pointer;flex-shrink:0;color:var(--muted)"><i class="ti ti-copy" style="font-size:12px"></i></button>'
-                  + '</div>').join('')
+                  + '<div style="font-size:12px;font-weight:500;word-break:break-word;color:'+(vacio?'#bbb':'inherit')+'">'+(vacio?'—':String(c[2]).replace(/</g,'&lt;'))+'</div></div>'
+                  + (vacio ? '' : '<button onclick="event.stopPropagation();copiarDatoPedido(this,'+JSON.stringify(String(c[2])).replace(/"/g,'&quot;')+')" title="Copiar" style="width:26px;height:26px;border:1px solid var(--border);background:white;border-radius:6px;cursor:pointer;flex-shrink:0;color:var(--muted)"><i class="ti ti-copy" style="font-size:12px"></i></button>')
+                  + '</div>';
+                }).join('')
               + '</div></div>';
           })()
         + '<table style="width:100%;border-collapse:collapse;font-size:12px">'
