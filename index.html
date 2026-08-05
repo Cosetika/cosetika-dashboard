@@ -8960,7 +8960,13 @@ async function renderSeguimientoClientes(){
 
   const hoyS = new Date(new Date().toLocaleString('en-US',{timeZone:'America/Guayaquil'}));
   const idxOf = (a,m) => a*12 + (m-1);
-  const curIdx = idxOf(hoyS.getFullYear(), hoyS.getMonth()+1);
+  // Mes de referencia (navegable): por defecto el actual, nunca posterior al actual
+  const idxHoy = idxOf(hoyS.getFullYear(), hoyS.getMonth()+1);
+  if(window._segIdxMes === undefined || window._segIdxMes > idxHoy) window._segIdxMes = idxHoy;
+  const curIdx = window._segIdxMes;
+  const anioSeg = Math.floor(curIdx/12), mesSeg = (curIdx%12)+1;
+  const mesKeySeg = anioSeg+'-'+String(mesSeg).padStart(2,'0');
+  const esMesActualSeg = (curIdx === idxHoy);
   const MPP = (typeof MESES_PPTO !== 'undefined') ? MESES_PPTO : ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
   const lblMes = idx => `${MPP[(idx%12)+1]} ${String(Math.floor(idx/12)).substring(2)}`;
   const fmtS = v => '$' + Math.round(v).toLocaleString('en-US');
@@ -8974,7 +8980,9 @@ async function renderSeguimientoClientes(){
     (c.frecuencia || []).forEach(f => {
       if (!f.mes) return;
       if ((f.compras||0) > 0 || (f.total||0) > 0) {
-        mesesCompra.add(idxOf(f.anio || hoyS.getFullYear(), f.mes));
+        const ix = idxOf(f.anio || hoyS.getFullYear(), f.mes);
+        if (ix > curIdx) return;   // ignorar compras posteriores al mes consultado
+        mesesCompra.add(ix);
         subSum += (f.subtotal || 0);
       }
     });
@@ -8985,7 +8993,7 @@ async function renderSeguimientoClientes(){
     const promMes = subSum / lista.length; // promedio sin IVA por mes en que compró
     const cedD = String(c.ruc||'').replace(/\D/g,'');
     const telSeg = c.telefono || (cedD && (window._segTelefonos[cedD] || (cedD.length===13 ? window._segTelefonos[cedD.substring(0,10)] : ''))) || '';
-    const keySeg = (cedD || ('n:' + String(c.nombre||'').toUpperCase().replace(/\s+/g,' ').trim())).substring(0,290);
+    const keySeg = (mesKeySeg + '|' + (cedD || ('n:' + String(c.nombre||'').toUpperCase().replace(/\s+/g,' ').trim()))).substring(0,290);
     const fila = { nombre: c.nombre, telefono: telSeg, ultima: lblMes(ult), mesesSin, promMes, compras: lista.length, ritmo: null, keySeg };
     if (lista.length === 1) {
       if (mesesSin >= 2) unavez.push(fila); else activas++;
@@ -9059,6 +9067,14 @@ async function renderSeguimientoClientes(){
 
   main.innerHTML = `
     <div style="font-size:16px;font-weight:600;margin-bottom:12px"><i class="ti ti-user-search" style="margin-right:8px;color:var(--brown)"></i>Seguimiento de clientas — ${esc(tituloSel)}</div>
+    <div style="display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:14px">
+      <button onclick="segNavMes(-1)" style="width:34px;height:34px;border:1px solid var(--border);border-radius:50%;background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--brown)"><i class="ti ti-chevron-left"></i></button>
+      <div style="text-align:center">
+        <div style="font-size:18px;font-weight:700">${MPP[mesSeg]} ${anioSeg}</div>
+        <div style="font-size:11px;color:var(--muted)">${esMesActualSeg?'Mes actual · corte a hoy':'Corte al cierre de '+MPP[mesSeg]}</div>
+      </div>
+      <button onclick="segNavMes(1)" ${esMesActualSeg?'disabled':''} style="width:34px;height:34px;border:1px solid var(--border);border-radius:50%;background:${esMesActualSeg?'#f5f3f0':'white'};cursor:${esMesActualSeg?'default':'pointer'};display:flex;align-items:center;justify-content:center;color:${esMesActualSeg?'#ccc':'var(--brown)'}"><i class="ti ti-chevron-right"></i></button>
+    </div>
     ${selectorS}
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px">
       <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:10px;padding:12px;text-align:center">
@@ -9089,6 +9105,15 @@ async function renderSeguimientoClientes(){
     ${tablaSeg('Dormidas — recuperarlas vale oro', '#dc2626', '#dc2626', '#fca5a5', dormidas, 'ti-zzz', '3× su ritmo o más de 6 meses')}
     ${tablaSeg('Compraron una vez y no volvieron', '#6b7280', '#6b7280', '#e5e7eb', unavez, 'ti-user-question', 'la recompra pendiente')}
     ${(!riesgo.length && !dormidas.length && !unavez.length) ? '<div class="card" style="text-align:center;padding:40px;color:var(--muted)"><i class="ti ti-confetti" style="font-size:36px;opacity:0.4"></i><p style="margin-top:10px">¡Ninguna clienta fría! Cartera completamente activa.</p></div>' : ''}`;
+}
+
+function segNavMes(delta){
+  const hoyN = new Date(new Date().toLocaleString('en-US',{timeZone:'America/Guayaquil'}));
+  const idxHoyN = hoyN.getFullYear()*12 + hoyN.getMonth();
+  const nuevo = (window._segIdxMes === undefined ? idxHoyN : window._segIdxMes) + delta;
+  if(nuevo > idxHoyN) return;
+  window._segIdxMes = nuevo;
+  renderSeguimientoClientes();
 }
 
 async function guardarComentarioSeg(key, nombre, texto){
