@@ -7546,6 +7546,7 @@ async function renderPlanificacion(){
   } else {
     planRows = Array.from({length:30}, ()=>({dia:'',sector:'',cliente:'',coordinado:false,visitado_at:'',primera_compra_at:'',recompra_at:'',observaciones:''}));
   }
+  ordenarPlanRows(weekDates);
 
   // Si admin o jefa, mostrar selector de asesora
   let asesoraSelector = '';
@@ -7669,6 +7670,43 @@ async function renderPlanificacion(){
 }
 
 
+// Orden de la planificación: primero por día de la semana; dentro de cada día, las ya
+// visitadas van arriba ordenadas por la hora de visita, y debajo las pendientes.
+function _minutosVisita(txt){
+  const m = String(txt||'').match(/(\d{1,2}):(\d{2})\s*([ap])/i);
+  if(!m) return 99999;
+  let h = parseInt(m[1]) % 12;
+  if(m[3].toLowerCase() === 'p') h += 12;
+  return h * 60 + parseInt(m[2]);
+}
+
+function ordenarPlanRows(weekDates){
+  const ordenDia = {};
+  (weekDates||[]).forEach((d,idx)=>{ ordenDia[`${getDayName(d)} ${d.getDate()}`] = idx; });
+  const conDatos = planRows.filter(r => r.dia || r.sector || r.cliente || r.visitado_at);
+  const vacias   = planRows.filter(r => !(r.dia || r.sector || r.cliente || r.visitado_at));
+  conDatos.sort((a,b)=>{
+    const da = ordenDia[a.dia] !== undefined ? ordenDia[a.dia] : 90;
+    const db = ordenDia[b.dia] !== undefined ? ordenDia[b.dia] : 90;
+    if(da !== db) return da - db;
+    const va = a.coordinado || a.visitado_at ? 0 : 1;
+    const vb = b.coordinado || b.visitado_at ? 0 : 1;
+    if(va !== vb) return va - vb;              // visitadas arriba
+    if(va === 0) return _minutosVisita(a.visitado_at) - _minutosVisita(b.visitado_at); // por hora
+    return 0;
+  });
+  planRows = conDatos.concat(vacias);
+}
+
+function repintarPlanTabla(){
+  const tbody = document.getElementById('plan-tbody');
+  if(!tbody) return;
+  const weekDates = getWeekDates(planWeekOffset);
+  ordenarPlanRows(weekDates);
+  const weekDayNames = weekDates.map(d=>`${getDayName(d)} ${d.getDate()}`);
+  tbody.innerHTML = planRows.map((r,i)=>renderPlanRow(r,i,weekDayNames)).join('');
+}
+
 function renderPlanRow(row, i, weekDayNames){
   const dayOpts = ['',
     ...(weekDayNames||['Lun','Mar','Mié','Jue','Vie','Sáb'])
@@ -7773,8 +7811,9 @@ async function marcarVisitado(i, checked){
       : '';
   }
   actualizarKpisPlan();
-  // Guardar automáticamente al marcar
+  // Guardar automáticamente al marcar y reordenar (visitadas arriba, por hora de visita)
   await autoGuardarPlanificacion();
+  repintarPlanTabla();
 }
 
 async function marcarCompraPlan(i, campo, checked){
