@@ -2175,6 +2175,15 @@ async function initDB() {
       );
       ALTER TABLE viaticos_tarifas ADD COLUMN IF NOT EXISTS dias NUMERIC(6,2) DEFAULT 0;
       ALTER TABLE viaticos_tarifas ADD COLUMN IF NOT EXISTS googlemaps NUMERIC(10,2) DEFAULT 0;
+      CREATE TABLE IF NOT EXISTS visitas_excepciones (
+        id SERIAL PRIMARY KEY,
+        asesora VARCHAR(255) NOT NULL,
+        semana DATE NOT NULL,
+        motivo VARCHAR(100) DEFAULT 'Vacaciones',
+        creado_por VARCHAR(255),
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(asesora, semana)
+      );
       CREATE TABLE IF NOT EXISTS seguimiento_contactos (
         id SERIAL PRIMARY KEY,
         cliente_key VARCHAR(300) NOT NULL UNIQUE,
@@ -5511,6 +5520,37 @@ const server = http.createServer(async (req, res) => {
       });
       res.end(buf);
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+
+  // ─── VISITAS: semanas justificadas (vacaciones, etc.) cuentan como meta cumplida ──
+  if (urlPath === '/api/visitas-excepciones' && req.method === 'GET') {
+    try {
+      const mesE = urlObj.searchParams.get('mes'); // YYYY-MM
+      const r = mesE
+        ? await pool.query("SELECT asesora, TO_CHAR(semana,'YYYY-MM-DD') AS semana, motivo FROM visitas_excepciones WHERE TO_CHAR(semana,'YYYY-MM')=$1", [mesE])
+        : await pool.query("SELECT asesora, TO_CHAR(semana,'YYYY-MM-DD') AS semana, motivo FROM visitas_excepciones");
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.rows));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify([])); }
+    return;
+  }
+  if (urlPath === '/api/visitas-excepciones' && req.method === 'POST') {
+    try {
+      const b = await bodyJSON(req);
+      const ase = String(b.asesora||'').trim().substring(0,250);
+      const sem = String(b.semana||'').substring(0,10);
+      if (!ase || !sem) throw new Error('Faltan asesora o semana');
+      if (b.activo === false) {
+        await pool.query('DELETE FROM visitas_excepciones WHERE asesora=$1 AND semana=$2', [ase, sem]);
+        res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, activo:false})); return;
+      }
+      await pool.query(
+        `INSERT INTO visitas_excepciones(asesora, semana, motivo, creado_por) VALUES($1,$2,$3,$4)
+         ON CONFLICT (asesora, semana) DO UPDATE SET motivo=$3, creado_por=$4`,
+        [ase, sem, String(b.motivo||'Vacaciones').substring(0,90), String(b.creado_por||'').substring(0,250)]
+      );
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, activo:true}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
   }
 

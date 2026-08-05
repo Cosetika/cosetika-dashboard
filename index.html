@@ -9081,6 +9081,22 @@ async function guardarComentarioSeg(key, nombre, texto){
   }catch(e){ alert('Error al guardar el comentario: '+e.message); }
 }
 
+async function toggleSemanaJustificada(asesora, semana, yaActivo){
+  let motivo = 'Vacaciones';
+  if(!yaActivo){
+    const m = prompt('¿Motivo por el que esta semana cuenta como cumplida?\n(vacaciones, permiso médico, capacitación...)', 'Vacaciones');
+    if(m === null) return;
+    motivo = (m||'Vacaciones').trim() || 'Vacaciones';
+  } else if(!confirm('¿Quitar la justificación de esta semana?')) return;
+  try{
+    const r = await fetch('/api/visitas-excepciones', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ asesora, semana, motivo, creado_por:(window.usuarioActual||{}).nombre||'', activo: !yaActivo }) });
+    const j = await r.json();
+    if(!j.ok) throw new Error(j.error||'error');
+    renderKpis();
+  }catch(e){ alert('Error: '+e.message); }
+}
+
 async function marcarContactadaSeg(key, nombre, checked){
   try{
     const r = await fetch('/api/seguimiento-contactos', { method:'POST', headers:{'Content-Type':'application/json'},
@@ -11023,6 +11039,9 @@ async function renderKpisControl(){
 
   let cumplimiento = {detalle:[], semanas:[]}, revisiones = [], usuarios = [], equipos = [];
   let girasCtrl = [], casasCtrl = [], nuevosCtrl = {asesoras:{}}, metasCliCtrl = {};
+  let excepcionesCtrl = [];
+  try{ const rEx = await fetch(`/api/visitas-excepciones?mes=${mesKey}`); const dEx = await rEx.json(); if(Array.isArray(dEx)) excepcionesCtrl = dEx; }catch(e){}
+  const semanaJustificada = (asesora, key) => excepcionesCtrl.some(e => String(e.semana).substring(0,10) === key && mismoP(e.asesora, asesora));
   let pesosKpi = { visitas: 33.33, provincia: 33.33, casa: 33.33, nuevos: 0 };
   try{ const rP = await fetch('/api/kpis-pesos'); const jP = await rP.json(); if(jP.ok && jP.pesos) pesosKpi = jP.pesos; }catch(e){}
   window._kpisPesosActual = pesosKpi;
@@ -11090,7 +11109,7 @@ async function renderKpisControl(){
     lunesTranscurridos.forEach(l=>{
       const key = `${l.getFullYear()}-${String(l.getMonth()+1).padStart(2,'0')}-${String(l.getDate()).padStart(2,'0')}`;
       const vis = misSem.filter(x=>String(x.semana).substring(0,10)===key).reduce((a,x)=>a+(parseInt(x.visitadas)||0),0);
-      if (det && vis >= det.meta) semanasOk++;
+      if (semanaJustificada(a, key) || (det && vis >= det.meta)) semanasOk++;
     });
     const pctVisitas = Math.min(100, Math.round(semanasOk * pesoSemana * 10) / 10);
     const cumpleVis = pctVisitas >= 100;
@@ -11147,12 +11166,14 @@ async function renderKpisControl(){
                 const key = `${l.getFullYear()}-${String(l.getMonth()+1).padStart(2,'0')}-${String(l.getDate()).padStart(2,'0')}`;
                 const reg = { visitadas: misSemanas.filter(x=>String(x.semana).substring(0,10)===key).reduce((a,x)=>a+(parseInt(x.visitadas)||0),0) };
                 const v = reg ? reg.visitadas : 0;
+                if(semanaJustificada(d.asesora, key)) return `<td style="padding:8px 10px;text-align:center;font-weight:700;color:#2563eb" title="Semana justificada">✓<div style="font-size:8px;color:var(--muted);font-weight:400">justif.</div></td>`;
                 return `<td style="padding:8px 10px;text-align:center;font-weight:700;color:${v>=d.meta?'#16a34a':(v>0?'#d97706':'#dc2626')}">${v}</td>`;
               }).join('');
               const totalMes = misSemanas.reduce((a,x)=>a+(parseInt(x.visitadas)||0),0);
               // Control: cumplió si todas las semanas transcurridas alcanzaron la meta
               const cumpleVis = lunesTranscurridos.length > 0 && lunesTranscurridos.every(l=>{
                 const key = `${l.getFullYear()}-${String(l.getMonth()+1).padStart(2,'0')}-${String(l.getDate()).padStart(2,'0')}`;
+                if(semanaJustificada(d.asesora, key)) return true;
                 const reg = { visitadas: misSemanas.filter(x=>String(x.semana).substring(0,10)===key).reduce((a,x)=>a+(parseInt(x.visitadas)||0),0) };
                 return (reg ? reg.visitadas : 0) >= d.meta;
               });
@@ -11582,6 +11603,15 @@ async function renderKpis(){
         porSemK[k] = (porSemK[k]||0) + (parseInt(s.visitadas)||0);
       });
       visitasSemanasMes = Object.keys(porSemK).sort().map(k => ({ semana: k, visitadas: porSemK[k] }));
+      // Semanas justificadas (vacaciones): cuentan como meta cumplida
+      try{
+        const rEx = await fetch(`/api/visitas-excepciones?mes=${mesKeyK}`);
+        const dEx = await rEx.json();
+        if(Array.isArray(dEx)) visitasSemanasMes.forEach(sx=>{
+          const ex = dEx.find(e => String(e.semana).substring(0,10) === sx.semana && matchA(e.asesora));
+          if(ex){ sx.excepcion = true; sx.motivo = ex.motivo || 'Justificada'; }
+        });
+      }catch(e){}
     }
   }catch(e){}
 
@@ -11833,23 +11863,29 @@ async function renderKpis(){
       ` : (()=>{
         const nSem = Math.max(visitasSemanasMes.length, 4);
         const pesoSem = Math.round(100 / nSem * 10) / 10;   // 25% con 4 semanas
-        const semCumplidas = visitasSemanasMes.filter(s=>s.visitadas >= visitasMeta).length;
+        const semCumplidas = visitasSemanasMes.filter(s=>s.excepcion || s.visitadas >= visitasMeta).length;
+        const esAdminVis = (window.usuarioActual||{}).rol === 'admin';
         const pctVis = Math.min(100, Math.round(semCumplidas * pesoSem * 10) / 10);
         const colPct = pctVis >= 100 ? '#16a34a' : (pctVis >= 50 ? '#d97706' : '#dc2626');
         return `
         <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:#1e40af;line-height:1.5">
           Cada semana que cumples las <b>${visitasMeta} visitas</b> vale <b>${pesoSem}%</b>. Las 4 semanas completas = <b>100%</b>.
           <b>Las semanas no se compensan entre sí</b>: hacer 20 una semana y 40 la otra cuenta como una sola semana cumplida.
+          ${((window.usuarioActual||{}).rol==='admin')?'<br>Como admin puedes pulsar <b>justificar</b> en una semana (vacaciones, permiso) y contará como cumplida.':''}
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           ${visitasSemanasMes.map((s,i)=>{
-            const cumple = s.visitadas >= visitasMeta;
+            const cumple = s.excepcion || s.visitadas >= visitasMeta;
             const fSem = new Date(s.semana+'T12:00:00');
-            return `<div style="flex:1;min-width:90px;text-align:center;background:${cumple?'#f0fdf4':'#fef2f2'};border:1px solid ${cumple?'#86efac':'#fca5a5'};border-radius:10px;padding:12px 8px">
+            const bg = s.excepcion ? '#eff6ff' : (cumple?'#f0fdf4':'#fef2f2');
+            const bd = s.excepcion ? '#bfdbfe' : (cumple?'#86efac':'#fca5a5');
+            const col = s.excepcion ? '#1e40af' : (cumple?'#166534':'#991b1b');
+            return `<div style="flex:1;min-width:90px;text-align:center;background:${bg};border:1px solid ${bd};border-radius:10px;padding:12px 8px">
               <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Semana del ${fSem.getDate()}/${fSem.getMonth()+1}</div>
-              <div style="font-size:24px;font-weight:800;color:${cumple?'#166534':'#991b1b'}">${s.visitadas}</div>
-              <div style="font-size:9px;color:var(--muted)">de ${visitasMeta}</div>
-              <div style="margin-top:5px;font-size:11px;font-weight:800;color:${cumple?'#166534':'#991b1b'}">${cumple?'+'+pesoSem+'%':'0%'}</div>
+              <div style="font-size:24px;font-weight:800;color:${col}">${s.excepcion?'✓':s.visitadas}</div>
+              <div style="font-size:9px;color:var(--muted)">${s.excepcion?(s.motivo||'Justificada'):'de '+visitasMeta}</div>
+              <div style="margin-top:5px;font-size:11px;font-weight:800;color:${col}">${cumple?'+'+pesoSem+'%':'0%'}</div>
+              ${esAdminVis?`<div onclick="toggleSemanaJustificada('${asesoraKpi.replace(/'/g,"")}','${s.semana}',${s.excepcion?'true':'false'})" style="margin-top:6px;font-size:9px;color:${s.excepcion?'#dc2626':'var(--muted)'};cursor:pointer;text-decoration:underline">${s.excepcion?'quitar':'justificar'}</div>`:''}
             </div>`;
           }).join('')}
           <div style="flex:1;min-width:90px;text-align:center;background:#faf9f8;border:1px solid var(--border);border-radius:10px;padding:12px 8px">
