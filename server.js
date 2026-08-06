@@ -2344,6 +2344,16 @@ async function initDB() {
         created_at TIMESTAMP DEFAULT NOW(),
         UNIQUE(mes_key, cedula)
       );
+      CREATE TABLE IF NOT EXISTS nomina_extras (
+        id SERIAL PRIMARY KEY,
+        mes_key VARCHAR(7) NOT NULL,
+        cedula VARCHAR(20),
+        empleado VARCHAR(300),
+        concepto VARCHAR(120) NOT NULL,
+        valor NUMERIC(12,2) DEFAULT 0,
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(mes_key, cedula, concepto)
+      );
       CREATE TABLE IF NOT EXISTS nomina_meses (
         mes_key VARCHAR(7) PRIMARY KEY,
         archivo VARCHAR(300),
@@ -5732,6 +5742,53 @@ const server = http.createServer(async (req, res) => {
       if (!archivo) throw new Error('No se encontró archivo');
       const mesParam = urlObj.searchParams.get('mes') || '';
       const wb = XLSX.read(archivo.buffer, { type: 'buffer' });
+
+      // ── ¿Es una planilla de UTILIDADES / pago extra? (hoja PLANILLA con "PAGO ACUMULADO")
+      const hojaPlan = wb.SheetNames.find(n => n.toUpperCase().includes('PLANILLA'));
+      if (hojaPlan && !wb.SheetNames.some(n => n.toUpperCase().includes('ROL'))) {
+        const fp = XLSX.utils.sheet_to_json(wb.Sheets[hojaPlan], { header: 1, defval: null });
+        let iH = -1;
+        for (let i = 0; i < Math.min(10, fp.length); i++) {
+          if ((fp[i]||[]).some(c => String(c||'').toUpperCase().includes('CEDULA') || String(c||'').toUpperCase().includes('CÉDULA'))) { iH = i; break; }
+        }
+        if (iH === -1) throw new Error('No se encontró la fila de encabezados en la planilla');
+        const HP = (fp[iH]||[]).map(h => String(h||'').trim().toUpperCase());
+        const idxCed = HP.findIndex(h => h.includes('CEDULA') || h.includes('CÉDULA'));
+        const idxNom = HP.findIndex(h => h.includes('EMPLEADO') || h.includes('CARGO'));
+        const idxTot = HP.findIndex(h => h.includes('ACUMULADO') || h.includes('TOTAL'));
+        // Fecha de pago (busca "FECHA DE PAGO" en las primeras filas)
+        let fechaPago = null;
+        for (let i = 0; i < Math.min(10, fp.length); i++) {
+          const fila = fp[i] || [];
+          const j = fila.findIndex(c => String(c||'').toUpperCase().includes('FECHA DE PAGO'));
+          if (j >= 0) { fechaPago = fila.slice(j+1).find(v => v); break; }
+        }
+        let mesPago = mesParam;
+        if (!/^\d{4}-\d{2}$/.test(mesPago) && fechaPago) {
+          const d = (fechaPago instanceof Date) ? fechaPago : new Date(fechaPago);
+          if (!isNaN(d)) mesPago = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+        }
+        if (!/^\d{4}-\d{2}$/.test(mesPago)) throw new Error('No se pudo determinar el mes de pago de la planilla');
+        const conceptoP = String(archivo.filename||'').toUpperCase().includes('DECIMO') ? 'Décimo cuarto' : 'Utilidades';
+        const numP = v => { const x = parseFloat(v); return isNaN(x) ? 0 : x; };
+        let n2 = 0;
+        for (let i = iH + 1; i < fp.length; i++) {
+          const f = fp[i] || [];
+          const ced = String(f[idxCed] || '').replace(/\D/g,'');
+          const val = numP(f[idxTot]);
+          if (ced.length < 10 || !val) continue;
+          await pool.query(
+            `INSERT INTO nomina_extras(mes_key,cedula,empleado,concepto,valor) VALUES($1,$2,$3,$4,$5)
+             ON CONFLICT (mes_key,cedula,concepto) DO UPDATE SET valor=$5, empleado=$3`,
+            [mesPago, ced, String(f[idxNom]||'').substring(0,290), conceptoP, val]);
+          n2++;
+        }
+        if (!n2) throw new Error('No se encontraron pagos en la planilla');
+        res.writeHead(200,{'Content-Type':'application/json'});
+        res.end(JSON.stringify({ ok:true, tipo:'extra', concepto: conceptoP, mes: mesPago, empleados: n2 }));
+        return;
+      }
+
       const hojaRol = wb.SheetNames.find(n => n.toUpperCase().includes('ROL')) || wb.SheetNames[0];
       const filas = XLSX.utils.sheet_to_json(wb.Sheets[hojaRol], { header: 1, defval: null });
       // Encabezados en la fila que contiene 'Empleado'
@@ -5824,7 +5881,8 @@ const server = http.createServer(async (req, res) => {
     try {
       const r = await pool.query('SELECT * FROM nomina_detalle ORDER BY mes_key, empleado');
       const m = await pool.query("SELECT mes_key, archivo, empleados, costo_total, TO_CHAR(subido_at,'DD/MM/YYYY') AS subido FROM nomina_meses ORDER BY mes_key");
-      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ ok:true, detalle: r.rows, meses: m.rows }));
+      const ex = await pool.query('SELECT mes_key, cedula, empleado, concepto, valor FROM nomina_extras ORDER BY mes_key');
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ ok:true, detalle: r.rows, meses: m.rows, extras: ex.rows }));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
   }
@@ -5833,6 +5891,7 @@ const server = http.createServer(async (req, res) => {
       const mk = urlPath.split('/').pop();
       await pool.query('DELETE FROM nomina_detalle WHERE mes_key=$1', [mk]);
       await pool.query('DELETE FROM nomina_meses WHERE mes_key=$1', [mk]);
+      await pool.query('DELETE FROM nomina_extras WHERE mes_key=$1', [mk]);
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;

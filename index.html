@@ -8577,16 +8577,17 @@ async function renderNomina(){
   const cont = document.getElementById('reportes-content');
   if(!cont) return;
   cont.innerHTML = '<div style="padding:30px;text-align:center;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:22px"></i></div>';
-  let detalle = [], meses = [];
-  try{ const r = await fetch('/api/nomina'); const d = await r.json(); if(d.ok){ detalle = d.detalle||[]; meses = d.meses||[]; } }catch(e){}
-  window._nominaData = { detalle, meses };
+  let detalle = [], meses = [], extras = [];
+  try{ const r = await fetch('/api/nomina'); const d = await r.json(); if(d.ok){ detalle = d.detalle||[]; meses = d.meses||[]; extras = d.extras||[]; } }catch(e){}
+  window._nominaData = { detalle, meses, extras };
   const fmtN = v => '$' + Math.round(v).toLocaleString('en-US');
   const fmtN2 = v => '$' + (Math.round(v*100)/100).toFixed(2);
   const esc = v => String(v||'').replace(/</g,'&lt;');
   const lblMes = mk => { const [a,m] = mk.split('-'); return MESES_NOM[parseInt(m)] + ' ' + a.substring(2); };
   const num = v => parseFloat(v) || 0;
 
-  const mesesKeys = [...new Set(detalle.map(d=>d.mes_key))].sort();
+  const mesesKeys = [...new Set(detalle.map(d=>d.mes_key).concat(extras.map(e=>e.mes_key)))].sort();
+  const extrasDe = (ced, mk) => extras.filter(e=>e.cedula===ced && e.mes_key===mk).reduce((a,e)=>a+(parseFloat(e.valor)||0), 0);
   const empleados = {};
   detalle.forEach(d=>{
     const k = d.cedula;
@@ -8595,8 +8596,14 @@ async function renderNomina(){
     empleados[k].meses[d.mes_key] = d;
     empleados[k].total += num(d.costo_empresa);
   });
+  // Pagos extra (utilidades, décimos) — pueden existir para alguien sin rol ese mes
+  extras.forEach(e=>{
+    if(!empleados[e.cedula]) empleados[e.cedula] = { cedula:e.cedula, nombre:e.empleado, cargo:'', meses:{}, total:0 };
+    empleados[e.cedula].total += num(e.valor);
+  });
   const listaEmp = Object.values(empleados).sort((a,b)=>b.total-a.total);
-  const costoMes = mk => detalle.filter(d=>d.mes_key===mk).reduce((a,d)=>a+num(d.costo_empresa),0);
+  const extrasMes = mk => extras.filter(e=>e.mes_key===mk).reduce((a,e)=>a+num(e.valor),0);
+  const costoMes = mk => detalle.filter(d=>d.mes_key===mk).reduce((a,d)=>a+num(d.costo_empresa),0) + extrasMes(mk);
   const totalGlobal = mesesKeys.reduce((a,mk)=>a+costoMes(mk),0);
   const ultMes = mesesKeys[mesesKeys.length-1];
   const penMes = mesesKeys[mesesKeys.length-2];
@@ -8634,7 +8641,8 @@ async function renderNomina(){
     ['Beneficios mensualizados', dUlt.reduce((a,d)=>a+num(d.decimo_tercero)+num(d.decimo_cuarto)+num(d.fondo_reserva),0), '#a5b4fc'],
     ['Movilización y otros', dUlt.reduce((a,d)=>a+num(d.movilizacion)+num(d.bonificaciones)+num(d.horas_extra),0), '#fcd34d'],
     ['Aportes patronales + CCC', dUlt.reduce((a,d)=>a+num(d.aportes_patronales)+num(d.valor_ccc),0), '#f9a8d4'],
-    ['Provisiones (décimos, vac., FR)', dUlt.reduce((a,d)=>a+num(d.vacaciones)+num(d.prov_decimo_tercero)+num(d.prov_decimo_cuarto)+num(d.prov_fondo_reserva),0), '#94a3b8']
+    ['Provisiones (décimos, vac., FR)', dUlt.reduce((a,d)=>a+num(d.vacaciones)+num(d.prov_decimo_tercero)+num(d.prov_decimo_cuarto)+num(d.prov_fondo_reserva),0), '#94a3b8'],
+    ['Utilidades / pagos extra', extrasMes(ultMes), '#c4b5fd']
   ].filter(x=>x[1] > 0.5);
   const totComp = comp.reduce((a,x)=>a+x[1],0) || 1;
 
@@ -8697,7 +8705,10 @@ async function renderNomina(){
             </td>
             ${mesesKeys.map(mk=>{
               const d = e.meses[mk];
-              return `<td style="padding:9px 8px;text-align:right;${d?'':'color:#ccc'}">${d?fmtN(num(d.costo_empresa)):'—'}</td>`;
+              const ex = extrasDe(e.cedula, mk);
+              const val = (d ? num(d.costo_empresa) : 0) + ex;
+              if(!val) return '<td style="padding:9px 8px;text-align:right;color:#ccc">—</td>';
+              return `<td style="padding:9px 8px;text-align:right">${fmtN(val)}${ex?`<div style="font-size:9px;color:#7c3aed;font-weight:600">+${fmtN(ex)} extra</div>`:''}</td>`;
             }).join('')}
             <td style="padding:9px 14px;text-align:right;font-weight:700;color:var(--brown)">${fmtN(e.total)}</td>
           </tr>`).join('')}
@@ -8732,10 +8743,12 @@ function verFichaNomina(cedula){
   const lblMes = mk => { const [a,m] = mk.split('-'); return MESES_NOM[parseInt(m)] + ' ' + a.substring(2); };
   const esc = v => String(v||'').replace(/</g,'&lt;');
   const emp = filas[filas.length-1];
-  const totalCosto = filas.reduce((a,d)=>a+num(d.costo_empresa),0);
+  const misExtras = (window._nominaData.extras||[]).filter(e=>e.cedula===cedula);
+  const totalExtras = misExtras.reduce((a,e)=>a+num(e.valor),0);
+  const totalCosto = filas.reduce((a,d)=>a+num(d.costo_empresa),0) + totalExtras;
   // Lo que realmente recibe: el saldo del rol + los anticipos ya entregados en el mes
   // (desde mayo las comisiones se pagan por adelantado y figuran como "Anticipo Sueldo")
-  const totalRecibido = filas.reduce((a,d)=>a+num(d.total_recibir)+num(d.anticipos),0);
+  const totalRecibido = filas.reduce((a,d)=>a+num(d.total_recibir)+num(d.anticipos),0) + totalExtras;
   const maxC = Math.max(...filas.map(d=>num(d.costo_empresa)), 1);
   document.getElementById('ficha-nomina-overlay')?.remove();
   const ov = document.createElement('div');
@@ -8813,6 +8826,14 @@ function verFichaNomina(cedula){
           }).join('')}
         </tbody>
       </table></div>
+      ${misExtras.length?`
+      <div style="margin-top:14px">
+        <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Pagos adicionales</div>
+        ${misExtras.map(e=>`<div style="display:flex;align-items:center;justify-content:space-between;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;padding:9px 12px;margin-bottom:6px">
+          <div><span style="font-size:12px;font-weight:600;color:#5b21b6">${esc(e.concepto)}</span> <span style="font-size:11px;color:var(--muted)">· ${lblMes(e.mes_key)}</span></div>
+          <div style="font-size:14px;font-weight:800;color:#7c3aed">${fmtN2(num(e.valor))}</div>
+        </div>`).join('')}
+      </div>`:''}
       <div style="font-size:11px;color:var(--muted);margin-top:12px;line-height:1.5;background:#faf9f8;border-radius:8px;padding:10px 12px">
         <b>Costo empresa</b> = todo lo que la compañía invierte en ella: lo que recibe + aportes patronales + provisiones de décimos, vacaciones y fondos de reserva.<br>
         <b>Recibió</b> incluye los <b>anticipos</b> entregados durante el mes (las comisiones se adelantan), no solo el saldo final del rol.
@@ -8837,7 +8858,8 @@ async function subirRolNomina(input){
     const j = await r.json();
     if(!j.ok) throw new Error(j.error||'error');
     if(st) st.textContent = '';
-    alert('✅ Rol de ' + j.mes + ' cargado: ' + j.empleados + ' colaboradoras · costo total ' + '$' + Math.round(j.costo_total).toLocaleString('en-US'));
+    if(j.tipo === 'extra') alert('✅ ' + j.concepto + ' de ' + j.mes + ' cargado: ' + j.empleados + ' colaboradoras');
+    else alert('✅ Rol de ' + j.mes + ' cargado: ' + j.empleados + ' colaboradoras · costo total ' + '$' + Math.round(j.costo_total).toLocaleString('en-US'));
     renderNomina();
   }catch(e){
     if(st) st.textContent = '';
