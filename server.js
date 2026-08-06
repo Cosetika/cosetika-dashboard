@@ -5877,6 +5877,8 @@ const server = http.createServer(async (req, res) => {
         patron: col('aportes patronales'), ccc: col('valor ccc'), vac: col('vacaciones'), fr: col('fondos de reserva')
       };
       if (C.empleado < 0 || C.totRec < 0) throw new Error('El archivo no tiene el formato del rol (faltan columnas Empleado / Total a recibir)');
+      // Cargos que se muestran siempre así, sin importar lo que diga el Excel
+      const CARGOS_FIJOS = { '1722165089': 'JEFE DE MARCA / CAPACITADORA' };
       const num = (fila, idx) => { if (idx < 0) return 0; const v = parseFloat(fila[idx]); return isNaN(v) ? 0 : v; };
       const registros = [];
       for (let i = iHdr + 1; i < filas.length; i++) {
@@ -5890,7 +5892,7 @@ const server = http.createServer(async (req, res) => {
         const p3 = num(f, C.d3ac), p4 = num(f, C.d4ac), pfr = num(f, C.fr);
         const costo = Math.round((ingresos + patron + ccc + vac + p3 + p4 + pfr) * 100) / 100;
         registros.push({
-          cedula: ced, empleado: nom, cargo: String(f[C.cargo]||'').trim(), dias: num(f,C.dias),
+          cedula: ced, empleado: nom, cargo: CARGOS_FIJOS[ced.replace(/\D/g,'')] || String(f[C.cargo]||'').trim(), dias: num(f,C.dias),
           sueldo: num(f,C.sueldo), horas_extra: num(f,C.he100)+num(f,C.he50),
           movilizacion: num(f,C.movApo)+num(f,C.mov)+num(f,C.alim), comisiones: num(f,C.comis),
           bonificaciones: num(f,C.bonif), decimo_tercero: num(f,C.d3m), decimo_cuarto: num(f,C.d4m),
@@ -5936,6 +5938,7 @@ const server = http.createServer(async (req, res) => {
   if (urlPath === '/api/nomina' && req.method === 'GET') {
     if (bloquearSiNoAdmin(req, res)) return;
     try {
+      await pool.query("UPDATE nomina_detalle SET cargo='JEFE DE MARCA / CAPACITADORA' WHERE REGEXP_REPLACE(cedula,'\\D','','g')='1722165089' AND cargo <> 'JEFE DE MARCA / CAPACITADORA'");
       const r = await pool.query('SELECT * FROM nomina_detalle ORDER BY mes_key, empleado');
       const m = await pool.query("SELECT mes_key, archivo, empleados, costo_total, TO_CHAR(subido_at,'DD/MM/YYYY') AS subido FROM nomina_meses ORDER BY mes_key");
       const ex = await pool.query('SELECT mes_key, cedula, empleado, concepto, valor FROM nomina_extras ORDER BY mes_key');
