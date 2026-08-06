@@ -8733,7 +8733,9 @@ function verFichaNomina(cedula){
   const esc = v => String(v||'').replace(/</g,'&lt;');
   const emp = filas[filas.length-1];
   const totalCosto = filas.reduce((a,d)=>a+num(d.costo_empresa),0);
-  const totalRecibido = filas.reduce((a,d)=>a+num(d.total_recibir),0);
+  // Lo que realmente recibe: el saldo del rol + los anticipos ya entregados en el mes
+  // (desde mayo las comisiones se pagan por adelantado y figuran como "Anticipo Sueldo")
+  const totalRecibido = filas.reduce((a,d)=>a+num(d.total_recibir)+num(d.anticipos),0);
   const maxC = Math.max(...filas.map(d=>num(d.costo_empresa)), 1);
   document.getElementById('ficha-nomina-overlay')?.remove();
   const ov = document.createElement('div');
@@ -8757,6 +8759,7 @@ function verFichaNomina(cedula){
         </div>
         <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:10px;padding:12px;text-align:center">
           <div style="font-size:10px;color:#166534;text-transform:uppercase">Recibido por ella</div>
+          <div style="font-size:8px;color:#166534;opacity:0.8">incluye anticipos</div>
           <div style="font-size:20px;font-weight:800;color:#166534">${fmtN(totalRecibido)}</div>
         </div>
         <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:12px;text-align:center">
@@ -8803,7 +8806,7 @@ function verFichaNomina(cedula){
               <td style="padding:7px 8px;text-align:right">${fmtN2(num(d.sueldo))}</td>
               <td style="padding:7px 8px;text-align:right;color:#16a34a;font-weight:600">${num(d.comisiones)?fmtN2(num(d.comisiones)):'—'}</td>
               <td style="padding:7px 8px;text-align:right">${fmtN2(benef)}</td>
-              <td style="padding:7px 8px;text-align:right;font-weight:700">${fmtN2(num(d.total_recibir))}</td>
+              <td style="padding:7px 8px;text-align:right;font-weight:700">${fmtN2(num(d.total_recibir)+num(d.anticipos))}${num(d.anticipos)?`<div style="font-size:8px;color:var(--muted);font-weight:400">${fmtN2(num(d.anticipos))} adelantado</div>`:''}</td>
               <td style="padding:7px 8px;text-align:right;color:var(--muted)">${fmtN2(patron)}</td>
               <td style="padding:7px 8px;text-align:right;font-weight:800;color:var(--brown)">${fmtN2(num(d.costo_empresa))}</td>
             </tr>`;
@@ -8811,7 +8814,8 @@ function verFichaNomina(cedula){
         </tbody>
       </table></div>
       <div style="font-size:11px;color:var(--muted);margin-top:12px;line-height:1.5;background:#faf9f8;border-radius:8px;padding:10px 12px">
-        <b>Costo empresa</b> = todo lo que la compañía invierte en ella: lo que recibe + aportes patronales + provisiones de décimos, vacaciones y fondos de reserva.
+        <b>Costo empresa</b> = todo lo que la compañía invierte en ella: lo que recibe + aportes patronales + provisiones de décimos, vacaciones y fondos de reserva.<br>
+        <b>Recibió</b> incluye los <b>anticipos</b> entregados durante el mes (las comisiones se adelantan), no solo el saldo final del rol.
       </div>
       <div style="text-align:right;margin-top:14px">
         <button onclick="window.print()" style="padding:8px 16px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:12px;cursor:pointer;font-weight:500"><i class="ti ti-printer" style="margin-right:5px"></i>Imprimir / PDF</button>
