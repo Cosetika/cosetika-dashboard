@@ -899,6 +899,38 @@ async function setConfigApp(clave, valor){
 let INSTITUTOS_ULTIMA_SYNC = null;
 const CAMPOS_ADICIONALES = ['adicional1_cliente','adicional2_cliente','adicional3_cliente','adicional4_cliente'];
 
+// ─── SEGURIDAD: token de sesión firmado y guardia de administrador ──────────
+const crypto = require('crypto');
+const SESION_SECRET = process.env.SESION_SECRET || (process.env.CONTIFICO_API_KEY || 'cosetika') + '::sesion';
+function firmarSesion(u){
+  const payload = Buffer.from(JSON.stringify({ id: u.id, rol: u.rol, nombre: u.nombre })).toString('base64url');
+  const firma = crypto.createHmac('sha256', SESION_SECRET).update(payload).digest('base64url');
+  return payload + '.' + firma;
+}
+function leerSesion(req){
+  try {
+    let t = String(req.headers['x-sesion'] || '').trim();
+    if (!t) {
+      const ck = String(req.headers.cookie || '');
+      const m = ck.match(/(?:^|;\s*)cosetika_ses=([^;]+)/);
+      if (m) t = decodeURIComponent(m[1]);
+    }
+    if (!t || !t.includes('.')) return null;
+    const [payload, firma] = t.split('.');
+    const esperada = crypto.createHmac('sha256', SESION_SECRET).update(payload).digest('base64url');
+    if (firma !== esperada) return null;
+    return JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+  } catch(e) { return null; }
+}
+// Devuelve true si la petición NO es de un admin (y ya respondió 403)
+function bloquearSiNoAdmin(req, res){
+  const s = leerSesion(req);
+  if (s && s.rol === 'admin') return false;
+  res.writeHead(403, {'Content-Type':'application/json'});
+  res.end(JSON.stringify({ ok:false, error:'Acceso restringido: solo el administrador puede ver esta información' }));
+  return true;
+}
+
 // ─── PEDIDOS WEB: completar cédula/RUC y SKUs desde la API de WooCommerce ───
 // El correo de WooCommerce a veces trae los datos de pago en vez de la cédula; la API
 // siempre entrega el pedido completo, así que la usamos como fuente de verdad.
@@ -2531,8 +2563,14 @@ const server = http.createServer(async (req, res) => {
       const r = await pool.query('SELECT * FROM usuarios WHERE usuario=$1 AND password=$2 AND activo=true', [usuario, password]);
       if (!r.rows.length) { res.writeHead(401,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:'Usuario o contraseña incorrectos'})); return; }
       const u = r.rows[0];
-      res.writeHead(200,{'Content-Type':'application/json'});
-      res.end(JSON.stringify({ok:true, usuario:{id:u.id,nombre:u.nombre,usuario:u.usuario,rol:u.rol,modulos:u.modulos}}));
+      const token = firmarSesion(u);
+      // Cookie firmada: el navegador la envía en cada petición, así el server puede
+      // verificar el rol real sin depender del frontend (no se puede falsificar)
+      res.writeHead(200,{
+        'Content-Type':'application/json',
+        'Set-Cookie': `cosetika_ses=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60*60*24*30}`
+      });
+      res.end(JSON.stringify({ok:true, token, usuario:{id:u.id,nombre:u.nombre,usuario:u.usuario,rol:u.rol,modulos:u.modulos}}));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
     return;
   }
@@ -5736,6 +5774,7 @@ const server = http.createServer(async (req, res) => {
 
   // ─── NÓMINA: subida de roles mensuales y consulta ──────────────────────────
   if (urlPath === '/api/nomina/subir' && req.method === 'POST') {
+    if (bloquearSiNoAdmin(req, res)) return;
     try {
       const buf = await bodyBuffer(req);
       const archivo = parseMultipartFile(buf, req.headers['content-type']);
@@ -5895,6 +5934,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   if (urlPath === '/api/nomina' && req.method === 'GET') {
+    if (bloquearSiNoAdmin(req, res)) return;
     try {
       const r = await pool.query('SELECT * FROM nomina_detalle ORDER BY mes_key, empleado');
       const m = await pool.query("SELECT mes_key, archivo, empleados, costo_total, TO_CHAR(subido_at,'DD/MM/YYYY') AS subido FROM nomina_meses ORDER BY mes_key");
@@ -5904,6 +5944,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   if (/^\/api\/nomina\/\d{4}-\d{2}$/.test(urlPath) && req.method === 'DELETE') {
+    if (bloquearSiNoAdmin(req, res)) return;
     try {
       const mk = urlPath.split('/').pop();
       await pool.query('DELETE FROM nomina_detalle WHERE mes_key=$1', [mk]);
@@ -6048,6 +6089,7 @@ const server = http.createServer(async (req, res) => {
 
   // ─── PRESUPUESTO DE VENTAS (Reportes → Presupuesto) ──
   if (urlPath === '/api/presupuesto-config' && req.method === 'GET') {
+    if (bloquearSiNoAdmin(req, res)) return;
     try {
       const raw = await getConfigApp('presupuesto_ventas', null);
       let cfg = null;
@@ -6082,6 +6124,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   if (urlPath === '/api/presupuesto-config' && req.method === 'POST') {
+    if (bloquearSiNoAdmin(req, res)) return;
     try {
       const { config } = await bodyJSON(req);
       if (!config || typeof config !== 'object') { res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'Config inválida'})); return; }
