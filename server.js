@@ -5765,11 +5765,28 @@ const server = http.createServer(async (req, res) => {
         }
         let mesPago = mesParam;
         if (!/^\d{4}-\d{2}$/.test(mesPago) && fechaPago) {
-          const d = (fechaPago instanceof Date) ? fechaPago : new Date(fechaPago);
-          if (!isNaN(d)) mesPago = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+          let d = null;
+          if (fechaPago instanceof Date) d = fechaPago;
+          else if (typeof fechaPago === 'number' && fechaPago > 20000) {
+            // Excel guarda las fechas como número de serie desde el 30/12/1899
+            d = new Date(Date.UTC(1899, 11, 30) + fechaPago * 86400000);
+          } else {
+            const t = String(fechaPago).trim();
+            const m1 = t.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/); // dd/mm/aaaa
+            if (m1) {
+              let anio = parseInt(m1[3]); if (anio < 100) anio += 2000;
+              d = new Date(anio, parseInt(m1[2]) - 1, parseInt(m1[1]));
+            } else {
+              const dd = new Date(t);
+              if (!isNaN(dd) && dd.getFullYear() > 2000) d = dd;
+            }
+          }
+          if (d && !isNaN(d) && d.getFullYear() > 2000) mesPago = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
         }
         if (!/^\d{4}-\d{2}$/.test(mesPago)) throw new Error('No se pudo determinar el mes de pago de la planilla');
         const conceptoP = String(archivo.filename||'').toUpperCase().includes('DECIMO') ? 'Décimo cuarto' : 'Utilidades';
+        // Limpiar cargas previas con fecha mal interpretada (ej. 1970)
+        await pool.query("DELETE FROM nomina_extras WHERE mes_key < '2015-01'");
         const numP = v => { const x = parseFloat(v); return isNaN(x) ? 0 : x; };
         let n2 = 0;
         for (let i = iH + 1; i < fp.length; i++) {
