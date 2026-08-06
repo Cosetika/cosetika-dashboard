@@ -1025,9 +1025,9 @@ async function sincronizarCreditos(){
   if (!API_KEY) { CREDITO_SYNC_LOG = { estado:'sin API_KEY', paginas:0, personas:0, error:'CONTIFICO_API_KEY no configurada' }; return; }
   try {
     const personas = [];
-    let nextUrl = 'https://api.contifico.com/sistema/api/v2/persona/?page_size=200';
+    let nextUrl = 'https://api.contifico.com/sistema/api/v2/persona/?page_size=100';
     let pag = 0;
-    while (nextUrl && pag < 200) {
+    while (nextUrl && pag < 500) {
       const resp = await fetch(nextUrl, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
       if (!resp.ok) { CREDITO_SYNC_LOG = { estado:'HTTP '+resp.status, paginas:pag, personas:personas.length, error:(await resp.text().catch(()=>'')).slice(0,300) }; break; }
       const data = await resp.json();
@@ -1099,10 +1099,10 @@ async function sincronizarInstitutos(){
   const campo = await getConfigApp('instituto_campo', 'adicional2_cliente');
   // Leer TODAS las personas de Contifico (paginado v2, fallback v1)
   const personasApi = [];
-  let nextUrl = 'https://api.contifico.com/sistema/api/v2/persona/?page_size=200';
+  let nextUrl = 'https://api.contifico.com/sistema/api/v2/persona/?page_size=100';
   let paginas = 0;
   try {
-    while (nextUrl && paginas < 200) {
+    while (nextUrl && paginas < 500) {
       const resp = await fetch(nextUrl, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
       const data = await resp.json();
@@ -4215,7 +4215,7 @@ const server = http.createServer(async (req, res) => {
       let todos = [];
       let nextUrl = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${desde}&fecha_final=${hasta}&page_size=100`;
       let paginas = 0;
-      while (nextUrl && paginas < 200) {
+      while (nextUrl && paginas < 500) {
         const resp = await fetch(nextUrl, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
         if (!resp.ok) break;
         const data = await resp.json();
@@ -4295,7 +4295,7 @@ const server = http.createServer(async (req, res) => {
       let todos = [];
       let nextUrl = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${desde}&fecha_final=${hasta}&page_size=100`;
       let paginas = 0;
-      while (nextUrl && paginas < 200) {
+      while (nextUrl && paginas < 500) {
         const resp = await fetch(nextUrl, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
         if (!resp.ok) break;
         const data = await resp.json();
@@ -6392,7 +6392,7 @@ const server = http.createServer(async (req, res) => {
       let todos = [];
       let nextUrl = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${desde}&fecha_final=${hasta}&page_size=100`;
       let paginas = 0;
-      while (nextUrl && paginas < 200) {
+      while (nextUrl && paginas < 500) {
         const resp = await fetch(nextUrl, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
         if (!resp.ok) break;
         const data = await resp.json();
