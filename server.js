@@ -1020,15 +1020,16 @@ setInterval(() => completarPedidosDesdeWoo(20).catch(e=>console.error(e)), 60 * 
 // ─── CRÉDITO DE CLIENTES (cupo y días) desde Contifico ──────────────────────
 let CREDITO_CACHE = {};
 let CREDITO_SYNC_AT = null;
+let CREDITO_SYNC_LOG = { estado:'sin correr', paginas:0, personas:0, error:null };
 async function sincronizarCreditos(){
-  if (!API_KEY) return;
+  if (!API_KEY) { CREDITO_SYNC_LOG = { estado:'sin API_KEY', paginas:0, personas:0, error:'CONTIFICO_API_KEY no configurada' }; return; }
   try {
     const personas = [];
     let nextUrl = 'https://api.contifico.com/sistema/api/v2/persona/?page_size=200';
     let pag = 0;
     while (nextUrl && pag < 200) {
       const resp = await fetch(nextUrl, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
-      if (!resp.ok) break;
+      if (!resp.ok) { CREDITO_SYNC_LOG = { estado:'HTTP '+resp.status, paginas:pag, personas:personas.length, error:(await resp.text().catch(()=>'')).slice(0,300) }; break; }
       const data = await resp.json();
       if (Array.isArray(data)) { personas.push(...data); nextUrl = null; }
       else { personas.push(...(data.results || [])); nextUrl = data.next || null; }
@@ -1051,11 +1052,14 @@ async function sincronizarCreditos(){
       CREDITO_CACHE = mapa;
       CREDITO_SYNC_AT = new Date().toISOString();
       const conCupo = personas.filter(p => (parseFloat(p.cupo_credito)||0) > 0).length;
+      CREDITO_SYNC_LOG = { estado:'ok', paginas:pag, personas:personas.length, con_cupo:conCupo, error:null };
       console.log(`✓ Créditos: ${personas.length} personas · ${conCupo} con cupo asignado`);
+    } else if (CREDITO_SYNC_LOG.estado === 'sin correr') {
+      CREDITO_SYNC_LOG = { estado:'respuesta vacía', paginas:pag, personas:personas.length, error:'Contifico no devolvió personas' };
     }
-  } catch(e) { console.error('Error sincronizando créditos:', e.message); }
+  } catch(e) { CREDITO_SYNC_LOG = { estado:'excepción', paginas:0, personas:0, error:e.message }; console.error('Error sincronizando créditos:', e.message); }
 }
-setTimeout(() => sincronizarCreditos(), 3 * 60 * 1000);
+setTimeout(() => sincronizarCreditos(), 15 * 1000);
 setInterval(() => sincronizarCreditos(), 60 * 60 * 1000);
 
 // Consulta en vivo a Contifico el crédito de una cédula/RUC puntual (con TTL corto)
@@ -5811,7 +5815,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (urlPath === '/api/creditos/sync' && req.method === 'POST') {
+  if (urlPath === '/api/creditos/sync') {
     sincronizarCreditos().catch(e=>console.error(e));
     res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, msg:'Sincronizando créditos desde Contifico'}));
     return;
@@ -5821,6 +5825,7 @@ const server = http.createServer(async (req, res) => {
     try {
       const ced = String(urlObj.searchParams.get('cedula')||'').replace(/\D/g,'');
       const nom = String(urlObj.searchParams.get('nombre')||'').toUpperCase().trim();
+      if (urlObj.searchParams.get('sync') === '1' || !Object.keys(CREDITO_CACHE).length) { await sincronizarCreditos(); }
       const enCache = ced ? (CREDITO_CACHE[ced] || (ced.length===13?CREDITO_CACHE[ced.substring(0,10)]:null) || CREDITO_CACHE[ced+'001'] || null) : null;
       // Consultar en vivo a Contifico
       let vivo = [];
@@ -5838,7 +5843,7 @@ const server = http.createServer(async (req, res) => {
       const porNombre = nom ? Object.entries(CREDITO_CACHE).filter(([k,v]) => String(v.nombre||'').toUpperCase().includes(nom)).slice(0,5).map(([k,v])=>({clave:k, ...v})) : [];
       const conCupo = Object.values(CREDITO_CACHE).filter(v=>v.cupo>0).length;
       res.writeHead(200,{'Content-Type':'application/json'});
-      res.end(JSON.stringify({ ok:true, ultima_sync: CREDITO_SYNC_AT, personas_en_cache: Object.keys(CREDITO_CACHE).length,
+      res.end(JSON.stringify({ ok:true, sincronizacion: CREDITO_SYNC_LOG, ultima_sync: CREDITO_SYNC_AT, personas_en_cache: Object.keys(CREDITO_CACHE).length,
         claves_con_cupo: conCupo, en_cache: enCache, en_contifico_ahora: vivo, coincidencias_por_nombre: porNombre }, null, 2));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
