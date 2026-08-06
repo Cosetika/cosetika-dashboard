@@ -8827,7 +8827,7 @@ async function subirRolNomina(input){
   const st = document.getElementById('nomina-status');
   if(st) st.textContent = 'Procesando ' + f.name + '...';
   try{
-    const fd = new FormData(); fd.append('archivo', f);
+    const fd = new FormData(); fd.append('file', f, f.name);
     const usr = encodeURIComponent((window.usuarioActual||{}).nombre||'');
     const r = await fetch('/api/nomina/subir?usuario='+usr, { method:'POST', body: fd });
     const j = await r.json();
