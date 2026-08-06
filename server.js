@@ -2312,6 +2312,46 @@ async function initDB() {
       );
       ALTER TABLE viaticos_tarifas ADD COLUMN IF NOT EXISTS dias NUMERIC(6,2) DEFAULT 0;
       ALTER TABLE viaticos_tarifas ADD COLUMN IF NOT EXISTS googlemaps NUMERIC(10,2) DEFAULT 0;
+      CREATE TABLE IF NOT EXISTS nomina_detalle (
+        id SERIAL PRIMARY KEY,
+        mes_key VARCHAR(7) NOT NULL,
+        cedula VARCHAR(20),
+        empleado VARCHAR(300),
+        cargo VARCHAR(200),
+        dias NUMERIC(6,2) DEFAULT 0,
+        sueldo NUMERIC(12,2) DEFAULT 0,
+        horas_extra NUMERIC(12,2) DEFAULT 0,
+        movilizacion NUMERIC(12,2) DEFAULT 0,
+        comisiones NUMERIC(12,2) DEFAULT 0,
+        bonificaciones NUMERIC(12,2) DEFAULT 0,
+        decimo_tercero NUMERIC(12,2) DEFAULT 0,
+        decimo_cuarto NUMERIC(12,2) DEFAULT 0,
+        fondo_reserva NUMERIC(12,2) DEFAULT 0,
+        total_ingresos NUMERIC(12,2) DEFAULT 0,
+        iess_personal NUMERIC(12,2) DEFAULT 0,
+        retencion NUMERIC(12,2) DEFAULT 0,
+        anticipos NUMERIC(12,2) DEFAULT 0,
+        otros_egresos NUMERIC(12,2) DEFAULT 0,
+        total_egresos NUMERIC(12,2) DEFAULT 0,
+        total_recibir NUMERIC(12,2) DEFAULT 0,
+        aportes_patronales NUMERIC(12,2) DEFAULT 0,
+        valor_ccc NUMERIC(12,2) DEFAULT 0,
+        vacaciones NUMERIC(12,2) DEFAULT 0,
+        prov_decimo_tercero NUMERIC(12,2) DEFAULT 0,
+        prov_decimo_cuarto NUMERIC(12,2) DEFAULT 0,
+        prov_fondo_reserva NUMERIC(12,2) DEFAULT 0,
+        costo_empresa NUMERIC(12,2) DEFAULT 0,
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(mes_key, cedula)
+      );
+      CREATE TABLE IF NOT EXISTS nomina_meses (
+        mes_key VARCHAR(7) PRIMARY KEY,
+        archivo VARCHAR(300),
+        subido_por VARCHAR(255),
+        subido_at TIMESTAMP DEFAULT NOW(),
+        empleados INTEGER DEFAULT 0,
+        costo_total NUMERIC(14,2) DEFAULT 0
+      );
       CREATE TABLE IF NOT EXISTS visitas_excepciones (
         id SERIAL PRIMARY KEY,
         asesora VARCHAR(255) NOT NULL,
@@ -5681,6 +5721,120 @@ const server = http.createServer(async (req, res) => {
   if (urlPath === '/api/creditos/sync' && req.method === 'POST') {
     sincronizarCreditos().catch(e=>console.error(e));
     res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, msg:'Sincronizando créditos desde Contifico'}));
+    return;
+  }
+
+  // ─── NÓMINA: subida de roles mensuales y consulta ──────────────────────────
+  if (urlPath === '/api/nomina/subir' && req.method === 'POST') {
+    try {
+      const buf = await bodyBuffer(req);
+      const archivo = parseMultipartFile(buf, req.headers['content-type']);
+      if (!archivo) throw new Error('No se encontró archivo');
+      const mesParam = urlObj.searchParams.get('mes') || '';
+      const wb = XLSX.read(archivo.buffer, { type: 'buffer' });
+      const hojaRol = wb.SheetNames.find(n => n.toUpperCase().includes('ROL')) || wb.SheetNames[0];
+      const filas = XLSX.utils.sheet_to_json(wb.Sheets[hojaRol], { header: 1, defval: null });
+      // Encabezados en la fila que contiene 'Empleado'
+      let iHdr = -1;
+      for (let i = 0; i < Math.min(8, filas.length); i++) {
+        if ((filas[i]||[]).some(c => String(c||'').trim().toLowerCase() === 'empleado')) { iHdr = i; break; }
+      }
+      if (iHdr === -1) throw new Error('No se encontró la fila de encabezados (columna "Empleado")');
+      const H = (filas[iHdr]||[]).map(h => String(h||'').trim().toLowerCase());
+      const col = (...claves) => {
+        for (const k of claves) {
+          const idx = H.findIndex(h => h.includes(k));
+          if (idx >= 0) return idx;
+        }
+        return -1;
+      };
+      const C = {
+        cedula: col('cédula','cedula'), empleado: col('empleado'), cargo: col('cargo'),
+        dias: col('días trabajados','dias trabajados'), sueldo: col('sueldo'),
+        he100: col('horas extra 100'), he50: col('horas extra 50'),
+        movApo: col('movilización aportable','movilizacion aportable'), comis: col('comisiones'),
+        bonif: col('bonificaciones'), mov: col('movilización','movilizacion'), alim: col('alimentación','alimentacion'),
+        d3m: col('décimo tercero men','decimo tercero men'), d4m: col('décimo cuarto men','decimo cuarto men'),
+        frm: col('fondo de reserva men'), totIng: col('total ingresos'),
+        iess: col('iess aporte'), ret: col('retencion renta','retención renta'),
+        faltas: col('descuento faltas'), anticipo: col('anticipo sueldo'), consumos: col('descuentos consumos'),
+        totEgr: col('total egresos'), totRec: col('total a recibir'),
+        d3ac: col('decimo tercer sueldo acumulado','décimo tercer sueldo acumulado'),
+        d4ac: col('decimo cuarto sueldo acumulado','décimo cuarto sueldo acumulado'),
+        patron: col('aportes patronales'), ccc: col('valor ccc'), vac: col('vacaciones'), fr: col('fondos de reserva')
+      };
+      if (C.empleado < 0 || C.totRec < 0) throw new Error('El archivo no tiene el formato del rol (faltan columnas Empleado / Total a recibir)');
+      const num = (fila, idx) => { if (idx < 0) return 0; const v = parseFloat(fila[idx]); return isNaN(v) ? 0 : v; };
+      const registros = [];
+      for (let i = iHdr + 1; i < filas.length; i++) {
+        const f = filas[i] || [];
+        const nom = String(f[C.empleado] || '').trim();
+        const ced = String(f[C.cedula] || '').trim();
+        if (!nom || !ced) continue;                       // salta totales y filas vacías
+        if (/^total/i.test(nom)) continue;
+        const ingresos = num(f, C.totIng) || (num(f,C.sueldo)+num(f,C.he100)+num(f,C.he50)+num(f,C.movApo)+num(f,C.comis)+num(f,C.bonif)+num(f,C.mov)+num(f,C.alim)+num(f,C.d3m)+num(f,C.d4m)+num(f,C.frm));
+        const patron = num(f, C.patron), ccc = num(f, C.ccc), vac = num(f, C.vac);
+        const p3 = num(f, C.d3ac), p4 = num(f, C.d4ac), pfr = num(f, C.fr);
+        const costo = Math.round((ingresos + patron + ccc + vac + p3 + p4 + pfr) * 100) / 100;
+        registros.push({
+          cedula: ced, empleado: nom, cargo: String(f[C.cargo]||'').trim(), dias: num(f,C.dias),
+          sueldo: num(f,C.sueldo), horas_extra: num(f,C.he100)+num(f,C.he50),
+          movilizacion: num(f,C.movApo)+num(f,C.mov)+num(f,C.alim), comisiones: num(f,C.comis),
+          bonificaciones: num(f,C.bonif), decimo_tercero: num(f,C.d3m), decimo_cuarto: num(f,C.d4m),
+          fondo_reserva: num(f,C.frm), total_ingresos: ingresos, iess_personal: num(f,C.iess),
+          retencion: num(f,C.ret), anticipos: num(f,C.anticipo), otros_egresos: num(f,C.faltas)+num(f,C.consumos),
+          total_egresos: num(f,C.totEgr), total_recibir: num(f,C.totRec),
+          aportes_patronales: patron, valor_ccc: ccc, vacaciones: vac,
+          prov_decimo_tercero: p3, prov_decimo_cuarto: p4, prov_fondo_reserva: pfr, costo_empresa: costo
+        });
+      }
+      if (!registros.length) throw new Error('No se encontraron empleados en el archivo');
+      // Mes: del parámetro o deducido del nombre del archivo
+      let mesKey = mesParam;
+      if (!/^\d{4}-\d{2}$/.test(mesKey)) {
+        const MES_NOM = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+        const nombreArch = String(archivo.filename || '').toLowerCase();
+        const mIdx = MES_NOM.findIndex(m => nombreArch.includes(m));
+        const anioM = (nombreArch.match(/20\d{2}/) || [])[0] || (nombreArch.match(/\b(\d{2})\b/) ? '20'+nombreArch.match(/(\d{2})(?!.*\d)/)[1] : String(nowEC().getFullYear()));
+        if (mIdx < 0) throw new Error('No se pudo deducir el mes del archivo — indícalo al subir');
+        mesKey = `${anioM}-${String(mIdx+1).padStart(2,'0')}`;
+      }
+      await pool.query('DELETE FROM nomina_detalle WHERE mes_key=$1', [mesKey]);
+      for (const r2 of registros) {
+        await pool.query(
+          `INSERT INTO nomina_detalle(mes_key,cedula,empleado,cargo,dias,sueldo,horas_extra,movilizacion,comisiones,bonificaciones,
+             decimo_tercero,decimo_cuarto,fondo_reserva,total_ingresos,iess_personal,retencion,anticipos,otros_egresos,
+             total_egresos,total_recibir,aportes_patronales,valor_ccc,vacaciones,prov_decimo_tercero,prov_decimo_cuarto,prov_fondo_reserva,costo_empresa)
+           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)`,
+          [mesKey, r2.cedula, r2.empleado, r2.cargo, r2.dias, r2.sueldo, r2.horas_extra, r2.movilizacion, r2.comisiones, r2.bonificaciones,
+           r2.decimo_tercero, r2.decimo_cuarto, r2.fondo_reserva, r2.total_ingresos, r2.iess_personal, r2.retencion, r2.anticipos, r2.otros_egresos,
+           r2.total_egresos, r2.total_recibir, r2.aportes_patronales, r2.valor_ccc, r2.vacaciones, r2.prov_decimo_tercero, r2.prov_decimo_cuarto, r2.prov_fondo_reserva, r2.costo_empresa]);
+      }
+      const costoTotal = Math.round(registros.reduce((a,x)=>a+x.costo_empresa,0)*100)/100;
+      await pool.query(
+        `INSERT INTO nomina_meses(mes_key,archivo,subido_por,subido_at,empleados,costo_total) VALUES($1,$2,$3,NOW(),$4,$5)
+         ON CONFLICT (mes_key) DO UPDATE SET archivo=$2, subido_por=$3, subido_at=NOW(), empleados=$4, costo_total=$5`,
+        [mesKey, String(archivo.filename||'').substring(0,290), String(urlObj.searchParams.get('usuario')||'').substring(0,250), registros.length, costoTotal]);
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:true, mes: mesKey, empleados: registros.length, costo_total: costoTotal }));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+  if (urlPath === '/api/nomina' && req.method === 'GET') {
+    try {
+      const r = await pool.query('SELECT * FROM nomina_detalle ORDER BY mes_key, empleado');
+      const m = await pool.query("SELECT mes_key, archivo, empleados, costo_total, TO_CHAR(subido_at,'DD/MM/YYYY') AS subido FROM nomina_meses ORDER BY mes_key");
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ ok:true, detalle: r.rows, meses: m.rows }));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+  if (/^\/api\/nomina\/\d{4}-\d{2}$/.test(urlPath) && req.method === 'DELETE') {
+    try {
+      const mk = urlPath.split('/').pop();
+      await pool.query('DELETE FROM nomina_detalle WHERE mes_key=$1', [mk]);
+      await pool.query('DELETE FROM nomina_meses WHERE mes_key=$1', [mk]);
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
   }
 

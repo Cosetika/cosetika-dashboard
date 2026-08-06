@@ -271,6 +271,7 @@
     <div id="nav-reportes-subs" style="max-height:0;overflow:hidden;transition:max-height 0.25s ease">
       <div class="nav-sub-item" id="navsub-rep-presupuesto_ventas" onclick="navGoReportes('presupuesto_ventas')"><i class="ti ti-target" style="font-size:13px"></i>Presupuesto ventas</div>
       <div class="nav-sub-item" id="navsub-rep-comisiones" onclick="navGoReportes('comisiones')"><i class="ti ti-coin" style="font-size:13px"></i>Comisiones</div>
+      <div class="nav-sub-item" id="navsub-rep-nomina" onclick="navGoReportes('nomina')"><i class="ti ti-users-group" style="font-size:13px"></i>Nómina</div>
       <div class="nav-sub-item" id="navsub-rep-inversiones" onclick="navGoReportes('inversiones')"><i class="ti ti-receipt" style="font-size:13px"></i>Inversiones / Viáticos</div>
     </div>
     <div class="nav-item" id="nav-config" style="display:none" onclick="navToggleGroup('nav-config-subs','nav-config-chevron','config')">
@@ -8561,11 +8562,292 @@ function renderReportes(){
   document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
   document.getElementById('navsub-rep-'+tab)?.classList.add('active');
   document.getElementById('main').innerHTML=`
-    <div class="breadcrumb" style="margin-bottom:12px"><i class="ti ti-file-analytics" style="color:var(--brown);font-size:12px"></i><span style="font-weight:500">Reportes — ${tab==='inversiones'?'Inversiones / Viáticos':tab==='presupuesto'?'Presupuesto de ventas':tab==='presupuesto_ventas'?'Presupuesto ventas':'Comisiones'}</span></div>
+    <div class="breadcrumb" style="margin-bottom:12px"><i class="ti ti-file-analytics" style="color:var(--brown);font-size:12px"></i><span style="font-weight:500">Reportes — ${tab==='inversiones'?'Inversiones / Viáticos':tab==='presupuesto'?'Presupuesto de ventas':tab==='presupuesto_ventas'?'Presupuesto ventas':tab==='nomina'?'Nómina':'Comisiones'}</span></div>
     <div id="reportes-content"></div>`;
   if(tab==='inversiones') renderInversiones();
   else if(tab==='presupuesto' || tab==='presupuesto_ventas') renderPresupuestoVentas();
+  else if(tab==='nomina') renderNomina();
   else renderComisiones();
+}
+
+// ─── NÓMINA: costo real del personal por mes y por colaboradora ──────────────
+const MESES_NOM = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+
+async function renderNomina(){
+  const cont = document.getElementById('reportes-content');
+  if(!cont) return;
+  cont.innerHTML = '<div style="padding:30px;text-align:center;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:22px"></i></div>';
+  let detalle = [], meses = [];
+  try{ const r = await fetch('/api/nomina'); const d = await r.json(); if(d.ok){ detalle = d.detalle||[]; meses = d.meses||[]; } }catch(e){}
+  window._nominaData = { detalle, meses };
+  const fmtN = v => '$' + Math.round(v).toLocaleString('en-US');
+  const fmtN2 = v => '$' + (Math.round(v*100)/100).toFixed(2);
+  const esc = v => String(v||'').replace(/</g,'&lt;');
+  const lblMes = mk => { const [a,m] = mk.split('-'); return MESES_NOM[parseInt(m)] + ' ' + a.substring(2); };
+  const num = v => parseFloat(v) || 0;
+
+  const mesesKeys = [...new Set(detalle.map(d=>d.mes_key))].sort();
+  const empleados = {};
+  detalle.forEach(d=>{
+    const k = d.cedula;
+    if(!empleados[k]) empleados[k] = { cedula:k, nombre:d.empleado, cargo:d.cargo, meses:{}, total:0 };
+    empleados[k].nombre = d.empleado; empleados[k].cargo = d.cargo || empleados[k].cargo;
+    empleados[k].meses[d.mes_key] = d;
+    empleados[k].total += num(d.costo_empresa);
+  });
+  const listaEmp = Object.values(empleados).sort((a,b)=>b.total-a.total);
+  const costoMes = mk => detalle.filter(d=>d.mes_key===mk).reduce((a,d)=>a+num(d.costo_empresa),0);
+  const totalGlobal = mesesKeys.reduce((a,mk)=>a+costoMes(mk),0);
+  const ultMes = mesesKeys[mesesKeys.length-1];
+  const penMes = mesesKeys[mesesKeys.length-2];
+  const varUlt = (ultMes && penMes && costoMes(penMes)) ? Math.round((costoMes(ultMes)-costoMes(penMes))/costoMes(penMes)*1000)/10 : null;
+
+  const subirBtn = `
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+      <input type="file" id="nomina-file" accept=".xlsx,.xls" style="display:none" onchange="subirRolNomina(this)">
+      <button onclick="document.getElementById('nomina-file').click()" style="padding:9px 16px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-upload" style="margin-right:6px"></i>Subir rol del mes (Excel)</button>
+      <span id="nomina-status" style="font-size:12px;color:var(--muted)"></span>
+    </div>`;
+
+  if(!mesesKeys.length){
+    cont.innerHTML = subirBtn + '<div class="card" style="text-align:center;padding:40px 20px;color:var(--muted)"><i class="ti ti-users-group" style="font-size:36px;opacity:0.35"></i><p style="margin-top:10px;font-size:14px">Aún no hay roles cargados — sube el primer Excel con el botón de arriba.</p></div>';
+    return;
+  }
+
+  // Gráfico de barras: costo por mes
+  const maxMes = Math.max(...mesesKeys.map(costoMes), 1);
+  const barrasMes = mesesKeys.map(mk=>{
+    const v = costoMes(mk);
+    const h = Math.max(Math.round(v/maxMes*130), 4);
+    return `<div style="flex:1;min-width:52px;display:flex;flex-direction:column;align-items:center;gap:4px">
+      <span style="font-size:9px;font-weight:700;color:var(--text);white-space:nowrap">${fmtN(v)}</span>
+      <div style="width:100%;display:flex;align-items:flex-end;height:130px"><div style="width:100%;background:var(--brown);border-radius:5px 5px 0 0;height:${h}px"></div></div>
+      <span style="font-size:10px;color:var(--muted)">${lblMes(mk)}</span>
+    </div>`;
+  }).join('');
+
+  // Composición del costo del último mes
+  const dUlt = detalle.filter(d=>d.mes_key===ultMes);
+  const comp = [
+    ['Sueldos', dUlt.reduce((a,d)=>a+num(d.sueldo),0), '#A0684A'],
+    ['Comisiones', dUlt.reduce((a,d)=>a+num(d.comisiones),0), '#6ee7b7'],
+    ['Beneficios mensualizados', dUlt.reduce((a,d)=>a+num(d.decimo_tercero)+num(d.decimo_cuarto)+num(d.fondo_reserva),0), '#a5b4fc'],
+    ['Movilización y otros', dUlt.reduce((a,d)=>a+num(d.movilizacion)+num(d.bonificaciones)+num(d.horas_extra),0), '#fcd34d'],
+    ['Aportes patronales + CCC', dUlt.reduce((a,d)=>a+num(d.aportes_patronales)+num(d.valor_ccc),0), '#f9a8d4'],
+    ['Provisiones (décimos, vac., FR)', dUlt.reduce((a,d)=>a+num(d.vacaciones)+num(d.prov_decimo_tercero)+num(d.prov_decimo_cuarto)+num(d.prov_fondo_reserva),0), '#94a3b8']
+  ].filter(x=>x[1] > 0.5);
+  const totComp = comp.reduce((a,x)=>a+x[1],0) || 1;
+
+  cont.innerHTML = subirBtn + `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:14px">
+      <div style="background:#1a1108;border-radius:12px;padding:14px;text-align:center">
+        <div style="font-size:10px;color:rgba(255,255,255,0.7);text-transform:uppercase;letter-spacing:0.5px">Costo ${lblMes(ultMes)}</div>
+        <div style="font-size:24px;font-weight:800;color:white">${fmtN(costoMes(ultMes))}</div>
+        ${varUlt!==null?`<div style="font-size:11px;font-weight:700;color:${varUlt>=0?'#fca5a5':'#86efac'}">${varUlt>0?'+':''}${varUlt}% vs ${lblMes(penMes)}</div>`:''}
+      </div>
+      <div style="background:#faf9f8;border:1px solid var(--border);border-radius:12px;padding:14px;text-align:center">
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Colaboradoras</div>
+        <div style="font-size:24px;font-weight:800;color:var(--text)">${dUlt.length}</div>
+      </div>
+      <div style="background:#faf9f8;border:1px solid var(--border);border-radius:12px;padding:14px;text-align:center">
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Costo promedio</div>
+        <div style="font-size:24px;font-weight:800;color:var(--text)">${fmtN(costoMes(ultMes)/(dUlt.length||1))}</div>
+      </div>
+      <div style="background:#faf9f8;border:1px solid var(--border);border-radius:12px;padding:14px;text-align:center">
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Acumulado ${mesesKeys.length} meses</div>
+        <div style="font-size:24px;font-weight:800;color:var(--brown)">${fmtN(totalGlobal)}</div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-title"><i class="ti ti-chart-bar"></i> Costo real de nómina por mes</div>
+      <div style="display:flex;gap:8px;align-items:flex-end;margin-top:10px">${barrasMes}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:10px">Incluye sueldos, comisiones, beneficios, aportes patronales y provisiones (décimos, vacaciones y fondos de reserva).</div>
+    </div>
+
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-title"><i class="ti ti-chart-pie"></i> Composición del costo — ${lblMes(ultMes)}</div>
+      <div style="display:flex;height:26px;border-radius:8px;overflow:hidden;margin:12px 0 10px">
+        ${comp.map(c=>`<div title="${c[0]}: ${fmtN(c[1])}" style="width:${c[1]/totComp*100}%;background:${c[2]}"></div>`).join('')}
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:12px">
+        ${comp.map(c=>`<div style="display:flex;align-items:center;gap:6px;font-size:11px">
+          <span style="width:10px;height:10px;border-radius:3px;background:${c[2]}"></span>
+          <span style="font-weight:600">${c[0]}</span>
+          <span style="color:var(--brown);font-weight:700">${fmtN(c[1])}</span>
+          <span style="color:var(--muted)">(${Math.round(c[1]/totComp*100)}%)</span>
+        </div>`).join('')}
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:12px;padding:0">
+      <div style="padding:14px 16px 10px;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px"><i class="ti ti-users" style="margin-right:6px"></i>Costo por colaboradora · haz clic para ver su ficha</div>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:${260+mesesKeys.length*80}px">
+        <thead><tr style="border-bottom:1px solid var(--border)">
+          <th style="text-align:left;padding:8px 14px;font-size:10px;color:var(--muted);text-transform:uppercase">Colaboradora</th>
+          ${mesesKeys.map(mk=>`<th style="text-align:right;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">${lblMes(mk)}</th>`).join('')}
+          <th style="text-align:right;padding:8px 14px;font-size:10px;color:var(--muted);text-transform:uppercase">Total</th>
+        </tr></thead>
+        <tbody>
+          ${listaEmp.map((e,ei)=>`
+          <tr onclick="verFichaNomina('${e.cedula}')" style="border-bottom:0.5px solid var(--border);background:${ei%2?'#f6f3ef':'white'};cursor:pointer">
+            <td style="padding:9px 14px">
+              <div style="font-weight:600">${esc(e.nombre)}</div>
+              <div style="font-size:10px;color:var(--muted)">${esc(e.cargo)}</div>
+            </td>
+            ${mesesKeys.map(mk=>{
+              const d = e.meses[mk];
+              return `<td style="padding:9px 8px;text-align:right;${d?'':'color:#ccc'}">${d?fmtN(num(d.costo_empresa)):'—'}</td>`;
+            }).join('')}
+            <td style="padding:9px 14px;text-align:right;font-weight:700;color:var(--brown)">${fmtN(e.total)}</td>
+          </tr>`).join('')}
+          <tr style="border-top:2px solid var(--border);background:#faf9f8">
+            <td style="padding:9px 14px;font-weight:700">TOTAL</td>
+            ${mesesKeys.map(mk=>`<td style="padding:9px 8px;text-align:right;font-weight:700">${fmtN(costoMes(mk))}</td>`).join('')}
+            <td style="padding:9px 14px;text-align:right;font-weight:800;color:var(--brown)">${fmtN(totalGlobal)}</td>
+          </tr>
+        </tbody>
+      </table></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><i class="ti ti-file-spreadsheet"></i> Roles cargados</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">
+        ${meses.map(m=>`<div style="display:flex;align-items:center;gap:8px;background:#faf9f8;border:1px solid var(--border);border-radius:8px;padding:6px 10px">
+          <span style="font-size:12px;font-weight:600">${lblMes(m.mes_key)}</span>
+          <span style="font-size:11px;color:var(--muted)">${m.empleados} pers · ${fmtN(num(m.costo_total))}</span>
+          <button onclick="event.stopPropagation();borrarMesNomina('${m.mes_key}')" title="Eliminar este mes" style="width:20px;height:20px;border:1px solid #fca5a5;background:#fef2f2;border-radius:5px;cursor:pointer;color:#ef4444;font-size:11px;line-height:1;padding:0">×</button>
+        </div>`).join('')}
+      </div>
+    </div>`;
+}
+
+function verFichaNomina(cedula){
+  const { detalle } = window._nominaData || { detalle: [] };
+  const filas = detalle.filter(d=>d.cedula===cedula).sort((a,b)=>a.mes_key.localeCompare(b.mes_key));
+  if(!filas.length) return;
+  const num = v => parseFloat(v) || 0;
+  const fmtN = v => '$' + Math.round(v).toLocaleString('en-US');
+  const fmtN2 = v => '$' + (Math.round(v*100)/100).toFixed(2);
+  const lblMes = mk => { const [a,m] = mk.split('-'); return MESES_NOM[parseInt(m)] + ' ' + a.substring(2); };
+  const esc = v => String(v||'').replace(/</g,'&lt;');
+  const emp = filas[filas.length-1];
+  const totalCosto = filas.reduce((a,d)=>a+num(d.costo_empresa),0);
+  const totalRecibido = filas.reduce((a,d)=>a+num(d.total_recibir),0);
+  const maxC = Math.max(...filas.map(d=>num(d.costo_empresa)), 1);
+  document.getElementById('ficha-nomina-overlay')?.remove();
+  const ov = document.createElement('div');
+  ov.id = 'ficha-nomina-overlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:400;display:flex;align-items:center;justify-content:center;padding:16px';
+  ov.onclick = e => { if(e.target===ov) ov.remove(); };
+  ov.innerHTML = `<div style="background:white;border-radius:16px;max-width:820px;width:100%;max-height:88vh;overflow-y:auto">
+    <div style="background:#1a1108;padding:18px 22px;display:flex;align-items:flex-start;justify-content:space-between;gap:10px;border-radius:16px 16px 0 0">
+      <div>
+        <div style="font-size:16px;font-weight:700;color:white">${esc(emp.empleado)}</div>
+        <div style="font-size:12px;color:rgba(255,255,255,0.7)">${esc(emp.cargo)} · CI ${esc(emp.cedula)}</div>
+      </div>
+      <button onclick="document.getElementById('ficha-nomina-overlay').remove()" style="background:none;border:none;color:rgba(255,255,255,0.7);cursor:pointer;font-size:20px">×</button>
+    </div>
+    <div style="padding:20px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px">
+        <div style="background:#faf9f8;border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center">
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase">Costo total empresa</div>
+          <div style="font-size:20px;font-weight:800;color:var(--brown)">${fmtN(totalCosto)}</div>
+          <div style="font-size:9px;color:var(--muted)">${filas.length} meses</div>
+        </div>
+        <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:10px;padding:12px;text-align:center">
+          <div style="font-size:10px;color:#166534;text-transform:uppercase">Recibido por ella</div>
+          <div style="font-size:20px;font-weight:800;color:#166534">${fmtN(totalRecibido)}</div>
+        </div>
+        <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:12px;text-align:center">
+          <div style="font-size:10px;color:#1e40af;text-transform:uppercase">Costo promedio /mes</div>
+          <div style="font-size:20px;font-weight:800;color:#1e40af">${fmtN(totalCosto/filas.length)}</div>
+        </div>
+        <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:12px;text-align:center">
+          <div style="font-size:10px;color:#92400e;text-transform:uppercase">Beneficios de ley</div>
+          <div style="font-size:20px;font-weight:800;color:#d97706">${fmtN(totalCosto-totalRecibido)}</div>
+          <div style="font-size:9px;color:#92400e">${Math.round((totalCosto-totalRecibido)/totalCosto*100)}% del costo</div>
+        </div>
+      </div>
+
+      <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Evolución del costo mensual</div>
+      <div style="display:flex;gap:6px;align-items:flex-end;margin-bottom:18px">
+        ${filas.map(d=>{
+          const v = num(d.costo_empresa);
+          const h = Math.max(Math.round(v/maxC*90), 4);
+          return `<div style="flex:1;min-width:44px;display:flex;flex-direction:column;align-items:center;gap:3px">
+            <span style="font-size:9px;font-weight:700">${fmtN(v)}</span>
+            <div style="width:100%;display:flex;align-items:flex-end;height:90px"><div style="width:100%;background:var(--brown);border-radius:4px 4px 0 0;height:${h}px"></div></div>
+            <span style="font-size:9px;color:var(--muted)">${lblMes(d.mes_key)}</span>
+          </div>`;
+        }).join('')}
+      </div>
+
+      <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Detalle mes a mes</div>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px;min-width:640px">
+        <thead><tr style="border-bottom:1px solid var(--border)">
+          <th style="text-align:left;padding:6px 8px;font-size:9px;color:var(--muted);text-transform:uppercase">Mes</th>
+          <th style="text-align:right;padding:6px 8px;font-size:9px;color:var(--muted);text-transform:uppercase">Sueldo</th>
+          <th style="text-align:right;padding:6px 8px;font-size:9px;color:var(--muted);text-transform:uppercase">Comisiones</th>
+          <th style="text-align:right;padding:6px 8px;font-size:9px;color:var(--muted);text-transform:uppercase">Beneficios</th>
+          <th style="text-align:right;padding:6px 8px;font-size:9px;color:var(--muted);text-transform:uppercase">Recibió</th>
+          <th style="text-align:right;padding:6px 8px;font-size:9px;color:var(--muted);text-transform:uppercase">Aportes+prov.</th>
+          <th style="text-align:right;padding:6px 8px;font-size:9px;color:var(--muted);text-transform:uppercase">Costo empresa</th>
+        </tr></thead>
+        <tbody>
+          ${filas.map((d,i)=>{
+            const benef = num(d.decimo_tercero)+num(d.decimo_cuarto)+num(d.fondo_reserva)+num(d.movilizacion)+num(d.bonificaciones)+num(d.horas_extra);
+            const patron = num(d.aportes_patronales)+num(d.valor_ccc)+num(d.vacaciones)+num(d.prov_decimo_tercero)+num(d.prov_decimo_cuarto)+num(d.prov_fondo_reserva);
+            return `<tr style="border-bottom:0.5px solid var(--border);background:${i%2?'#f6f3ef':'white'}">
+              <td style="padding:7px 8px;font-weight:600">${lblMes(d.mes_key)}</td>
+              <td style="padding:7px 8px;text-align:right">${fmtN2(num(d.sueldo))}</td>
+              <td style="padding:7px 8px;text-align:right;color:#16a34a;font-weight:600">${num(d.comisiones)?fmtN2(num(d.comisiones)):'—'}</td>
+              <td style="padding:7px 8px;text-align:right">${fmtN2(benef)}</td>
+              <td style="padding:7px 8px;text-align:right;font-weight:700">${fmtN2(num(d.total_recibir))}</td>
+              <td style="padding:7px 8px;text-align:right;color:var(--muted)">${fmtN2(patron)}</td>
+              <td style="padding:7px 8px;text-align:right;font-weight:800;color:var(--brown)">${fmtN2(num(d.costo_empresa))}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table></div>
+      <div style="font-size:11px;color:var(--muted);margin-top:12px;line-height:1.5;background:#faf9f8;border-radius:8px;padding:10px 12px">
+        <b>Costo empresa</b> = todo lo que la compañía invierte en ella: lo que recibe + aportes patronales + provisiones de décimos, vacaciones y fondos de reserva.
+      </div>
+      <div style="text-align:right;margin-top:14px">
+        <button onclick="window.print()" style="padding:8px 16px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:12px;cursor:pointer;font-weight:500"><i class="ti ti-printer" style="margin-right:5px"></i>Imprimir / PDF</button>
+      </div>
+    </div>
+  </div>`;
+  document.body.appendChild(ov);
+}
+
+async function subirRolNomina(input){
+  const f = input.files && input.files[0];
+  if(!f) return;
+  const st = document.getElementById('nomina-status');
+  if(st) st.textContent = 'Procesando ' + f.name + '...';
+  try{
+    const fd = new FormData(); fd.append('archivo', f);
+    const usr = encodeURIComponent((window.usuarioActual||{}).nombre||'');
+    const r = await fetch('/api/nomina/subir?usuario='+usr, { method:'POST', body: fd });
+    const j = await r.json();
+    if(!j.ok) throw new Error(j.error||'error');
+    if(st) st.textContent = '';
+    alert('✅ Rol de ' + j.mes + ' cargado: ' + j.empleados + ' colaboradoras · costo total ' + '$' + Math.round(j.costo_total).toLocaleString('en-US'));
+    renderNomina();
+  }catch(e){
+    if(st) st.textContent = '';
+    alert('Error al subir el rol: ' + e.message + '\n\nSi el mes no se pudo deducir del nombre del archivo, renómbralo incluyendo el mes (ej: NOMINA COSETIKA ABRIL 2026.xlsx).');
+  }
+  input.value = '';
+}
+
+async function borrarMesNomina(mk){
+  if(!confirm('¿Eliminar el rol de '+mk+'? Podrás volver a subirlo cuando quieras.')) return;
+  try{
+    await fetch('/api/nomina/'+mk, { method:'DELETE' });
+    renderNomina();
+  }catch(e){ alert('Error: '+e.message); }
 }
 
 // ─── PRESUPUESTO DE VENTAS: proyección rodante 6 meses por asesora (sin IVA) ──
