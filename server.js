@@ -1056,7 +1056,39 @@ async function sincronizarCreditos(){
   } catch(e) { console.error('Error sincronizando créditos:', e.message); }
 }
 setTimeout(() => sincronizarCreditos(), 3 * 60 * 1000);
-setInterval(() => sincronizarCreditos(), 6 * 60 * 60 * 1000);
+setInterval(() => sincronizarCreditos(), 60 * 60 * 1000);
+
+// Consulta en vivo a Contifico el crédito de una cédula/RUC puntual (con TTL corto)
+const CREDITO_VIVO = {};   // digitos -> { info, ts }
+const CREDITO_VIVO_TTL = 10 * 60 * 1000;
+async function creditoEnVivo(digitos) {
+  const d = String(digitos || '').replace(/\D/g, '');
+  if (!d || !API_KEY) return null;
+  const ca = CREDITO_VIVO[d];
+  if (ca && (Date.now() - ca.ts) < CREDITO_VIVO_TTL) return ca.info;
+  let info = null;
+  for (const campo of (d.length === 13 ? ['ruc','cedula'] : ['cedula','ruc'])) {
+    try {
+      const rr = await fetch(`https://api.contifico.com/sistema/api/v1/persona/?${campo}=${d}&page_size=5`, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
+      if (!rr.ok) continue;
+      const dd = await rr.json();
+      const lista = Array.isArray(dd) ? dd : (dd.results || []);
+      if (!lista.length) continue;
+      // Si hay varias fichas de la misma persona, nos quedamos con la de mayor cupo
+      const mejor = lista.slice().sort((a,b) => (parseFloat(b.cupo_credito)||0) - (parseFloat(a.cupo_credito)||0))[0];
+      info = {
+        cupo: parseFloat(mejor.cupo_credito) || 0,
+        dias: parseInt(mejor.dias_credito) || 0,
+        aplica: String(mejor.aplicar_cupo) === 'True' || mejor.aplicar_cupo === true,
+        nombre: mejor.razon_social || ''
+      };
+      break;
+    } catch(e) {}
+  }
+  CREDITO_VIVO[d] = { info, ts: Date.now() };
+  if (info && info.cupo > 0) { CREDITO_CACHE[d] = info; if (d.length === 13) CREDITO_CACHE[d.substring(0,10)] = info; }
+  return info;
+}
 
 async function sincronizarInstitutos(){
   if (!API_KEY) return { ok:false, error:'CONTIFICO_API_KEY no configurada' };
@@ -3013,12 +3045,25 @@ const server = http.createServer(async (req, res) => {
       } else {
         r = await pool.query('SELECT * FROM pedidos_web ORDER BY fecha DESC, id DESC LIMIT 200');
       }
+      // Índice por nombre para pedidos sin cédula (o con cédula que no matchea)
+      const CRED_POR_NOMBRE = (() => {
+        const m = {};
+        const nk = x => String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/[^A-Z ]/g,' ').replace(/\s+/g,' ').trim();
+        Object.values(CREDITO_CACHE).forEach(v => { const k = nk(v.nombre); if (k && v.cupo > 0) m[k] = v; });
+        return { m, nk };
+      })();
       const pedidos = r.rows.map(row => ({
         ...row,
         credito: (() => {
           const d = String(row.cedula_ruc || '').replace(/\D/g, '');
-          if (!d) return null;
-          const c = CREDITO_CACHE[d] || (d.length === 13 ? CREDITO_CACHE[d.substring(0,10)] : null) || CREDITO_CACHE[d + '001'] || null;
+          let c = d ? (CREDITO_CACHE[d] || (d.length === 13 ? CREDITO_CACHE[d.substring(0,10)] : null) || CREDITO_CACHE[d + '001'] || null) : null;
+          if (!c || !(c.cupo > 0)) {
+            // Fallback por nombre del cliente (cubre pedidos sin cédula o con cédula distinta a la de Contifico)
+            const kn = CRED_POR_NOMBRE.nk(row.cliente_nombre);
+            const alt = kn ? (CRED_POR_NOMBRE.m[kn] || null) : null;
+            if (alt) c = alt;
+          }
+          if (!d && !c) return null;
           return c ? { cupo: c.cupo, dias: c.dias, aplica: c.aplica } : { cupo: 0, dias: 0, aplica: false };
         })(),
         productos: (() => { try { return JSON.parse(row.productos || '[]'); } catch(e){ return []; } })()
@@ -5769,6 +5814,33 @@ const server = http.createServer(async (req, res) => {
   if (urlPath === '/api/creditos/sync' && req.method === 'POST') {
     sincronizarCreditos().catch(e=>console.error(e));
     res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, msg:'Sincronizando créditos desde Contifico'}));
+    return;
+  }
+  // Diagnóstico de crédito: ?cedula=... o ?nombre=...
+  if (urlPath === '/api/creditos/debug' && req.method === 'GET') {
+    try {
+      const ced = String(urlObj.searchParams.get('cedula')||'').replace(/\D/g,'');
+      const nom = String(urlObj.searchParams.get('nombre')||'').toUpperCase().trim();
+      const enCache = ced ? (CREDITO_CACHE[ced] || (ced.length===13?CREDITO_CACHE[ced.substring(0,10)]:null) || CREDITO_CACHE[ced+'001'] || null) : null;
+      // Consultar en vivo a Contifico
+      let vivo = [];
+      if (ced) {
+        for (const p of (ced.length===13 ? ['ruc','cedula'] : ['cedula','ruc'])) {
+          try {
+            const rr = await fetch(`https://api.contifico.com/sistema/api/v1/persona/?${p}=${ced}&page_size=5`, { headers:{'Authorization':API_KEY,'Accept':'application/json'} });
+            const dd = await rr.json();
+            const lista = Array.isArray(dd) ? dd : (dd.results||[]);
+            lista.forEach(x => vivo.push({ id:x.id, razon_social:x.razon_social, cedula:x.cedula, ruc:x.ruc, cupo_credito:x.cupo_credito, dias_credito:x.dias_credito, aplicar_cupo:x.aplicar_cupo }));
+            if (vivo.length) break;
+          } catch(e) {}
+        }
+      }
+      const porNombre = nom ? Object.entries(CREDITO_CACHE).filter(([k,v]) => String(v.nombre||'').toUpperCase().includes(nom)).slice(0,5).map(([k,v])=>({clave:k, ...v})) : [];
+      const conCupo = Object.values(CREDITO_CACHE).filter(v=>v.cupo>0).length;
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:true, ultima_sync: CREDITO_SYNC_AT, personas_en_cache: Object.keys(CREDITO_CACHE).length,
+        claves_con_cupo: conCupo, en_cache: enCache, en_contifico_ahora: vivo, coincidencias_por_nombre: porNombre }, null, 2));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
   }
 
