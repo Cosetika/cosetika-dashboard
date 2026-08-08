@@ -2073,14 +2073,25 @@ async function verificarFrescuraData(){
     const ahoraEC = nowEC();
     const hoyEC = ahoraEC.toLocaleDateString('en-CA');
     const noCorrioHoy = fechaUltEC !== hoyEC && (ahoraEC.getHours() > 2 || (ahoraEC.getHours() === 2 && ahoraEC.getMinutes() >= 30));
-    if (horas > 26 || noCorrioHoy) {
+    // Tercer chequeo, el más confiable: si el último día CON VENTAS del caché quedó a más
+    // de 2 días de ayer, el caché está rezagado sin importar qué diga el timestamp.
+    let rezagado = false;
+    try {
+      const ult = ultimoDiaEnCache();
+      if (ult) {
+        const ayer = new Date(ahoraEC); ayer.setDate(ayer.getDate() - 1);
+        const diasAtras = Math.floor((ayer - ult) / 86400000);
+        if (diasAtras > 2) { rezagado = true; console.log(`⚠️ Caché rezagado: último día con ventas ${fmtDateEC(ult)} (${diasAtras} días atrás)`); }
+      }
+    } catch(e) {}
+    if (horas > 26 || noCorrioHoy || rezagado) {
       console.log(`⚠️ data.json desactualizado (última regen: ${fechaUltEC || 'nunca'} · hace ${Math.round(horas)}h) — regenerando ahora...`);
       regenerarDataAutomatico();
     }
   } catch(e) { console.error('Error verificando frescura de data:', e.message); }
 }
 setTimeout(verificarFrescuraData, 4 * 60 * 1000);       // al arrancar (tras cargar el catálogo)
-setInterval(verificarFrescuraData, 2 * 60 * 60 * 1000); // y cada 2 horas como respaldo
+setInterval(verificarFrescuraData, 60 * 60 * 1000); // y cada hora como respaldo
 
 function programarRegeneracionDiaria() {
   const ahora = new Date();
