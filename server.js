@@ -3951,6 +3951,92 @@ const server = http.createServer(async (req, res) => {
   }
 
   // COMPARADOR DE DIAGNÓSTICO: app vs Contifico por vendedora/mes, clienta por clienta
+  // ─── CUADRE CONTIFICO: explica documento por documento cualquier diferencia ───
+  if (urlPath === '/api/cuadre' && req.method === 'GET') {
+    try {
+      const anioC = parseInt(urlObj.searchParams.get('anio')) || nowEC().getFullYear();
+      const mesC = parseInt(urlObj.searchParams.get('mes')) || (nowEC().getMonth() + 1);
+      const mmC = String(mesC).padStart(2,'0');
+      const hoyEC = nowEC();
+      const esMesActual = (anioC === hoyEC.getFullYear() && mesC === (hoyEC.getMonth()+1));
+      const ultC = esMesActual ? hoyEC.getDate() : new Date(anioC, mesC, 0).getDate();
+      const desdeC = `01/${mmC}/${anioC}`;
+      const hastaC = `${String(ultC).padStart(2,'0')}/${mmC}/${anioC}`;
+
+      const razones = {};
+      const add = (k, doc, monto) => {
+        if (!razones[k]) razones[k] = { docs: 0, total: 0, ejemplos: [] };
+        razones[k].docs++; razones[k].total += monto;
+        if (razones[k].ejemplos.length < 20) razones[k].ejemplos.push({ doc: doc.documento, tipo: doc.tipo_documento, fecha: doc.fecha_emision, cliente: (doc.cliente && (doc.cliente.razon_social||doc.cliente.nombre_comercial)) || '—', identificacion: (doc.cliente && (doc.cliente.ruc||doc.cliente.cedula)) || '', vendedor: (doc.vendedor && doc.vendedor.razon_social) || null, total: Math.round(parseFloat(doc.total||0)*100)/100 });
+      };
+
+      let nC = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${desdeC}&fecha_final=${hastaC}&page_size=100`;
+      let pgC = 0; const vistosC = new Set();
+      let contTotal = 0, contFac = 0, contNC = 0, brutoFac = 0, subFac = 0, brutoNC = 0, subNC = 0;
+      let aceptTotal = 0, aceptSub = 0, aceptDocs = 0;
+      while (nC && pgC < 200) {
+        const rC = await fetch(nC, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
+        if (!rC.ok) { razones['error_api'] = { docs:0, total:0, ejemplos:[{ doc:'HTTP '+rC.status }] }; break; }
+        const dC = await rC.json();
+        (dC.results || []).forEach(d => {
+          const tot = parseFloat(d.total || 0);
+          const sub = parseFloat(d.subtotal || 0);
+          const esNC = esNotaCredito(d);
+          // Panorama de lo que hay en Contifico (facturas vivas)
+          if (d.tipo_registro === 'CLI' && !noEsVenta(d) && !d.anulado) {
+            contTotal++;
+            if (esNC) { contNC++; brutoNC += tot; subNC += sub; } else { contFac++; brutoFac += tot; subFac += sub; }
+          }
+          // Ahora, las mismas reglas del pipeline, anotando por qué se descarta
+          if (d.tipo_registro !== 'CLI') return add('proveedor_o_no_cliente', d, tot);
+          if (d.anulado) return add('anulado', d, tot);
+          if (noEsVenta(d)) return add('cotizacion_proforma_o_prefactura', d, tot);
+          if (!d.vendedor && !d.vendedor_id && !d.vendedor_identificacion) return add('SIN_VENDEDOR_ASIGNADO', d, tot);
+          const idCli = String((d.cliente && (d.cliente.ruc || d.cliente.cedula)) || '').trim();
+          if (idCli === '1793143660001') return add('autoconsumo_cosetika', d, tot);
+          const dk = d.id || d.documento;
+          if (vistosC.has(dk)) return add('duplicado_en_paginacion', d, tot);
+          vistosC.add(dk);
+          const cid = (d.cliente && d.cliente.id) ? d.cliente.id : d.persona_id;
+          if (!cid) return add('SIN_ID_DE_CLIENTE', d, tot);
+          if (tot === 0) return add('total_cero', d, tot);
+          const sg = esNC ? -1 : 1;
+          aceptDocs++; aceptTotal += sg * tot; aceptSub += sg * sub;
+        });
+        nC = dC.next || null; pgC++;
+      }
+
+      // Lado app: lo que hoy tiene guardado DATA_CACHE para ese mes
+      let appSub = 0, appTot = 0;
+      Object.values(DATA_CACHE || {}).forEach(clientes => {
+        (clientes || []).forEach(c => {
+          (c.frecuencia || []).forEach(f => {
+            if (f.mes !== mesC) return;
+            if (f.anio && f.anio !== anioC) return;
+            appSub += (f.subtotal || 0); appTot += (f.total || 0);
+          });
+        });
+      });
+
+      const r2 = x => Math.round(x*100)/100;
+      Object.keys(razones).forEach(k => { razones[k].total = r2(razones[k].total); });
+      res.writeHead(200, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({
+        ok: true, rango: { desde: desdeC, hasta: hastaC }, paginas_leidas: pgC,
+        contifico_vivo: { facturas: contFac, notas_credito: contNC, documentos: contTotal,
+          total_facturas_con_iva: r2(brutoFac), subtotal_facturas: r2(subFac),
+          total_nc_con_iva: r2(brutoNC), subtotal_nc: r2(subNC),
+          neto_con_iva: r2(brutoFac - brutoNC), neto_subtotal: r2(subFac - subNC) },
+        pipeline_app: { documentos_aceptados: aceptDocs, neto_con_iva: r2(aceptTotal), neto_subtotal: r2(aceptSub) },
+        cache_guardada: { subtotal: r2(appSub), total_con_iva: r2(appTot) },
+        diferencia_pipeline_vs_contifico: { con_iva: r2(aceptTotal - (brutoFac - brutoNC)), subtotal: r2(aceptSub - (subFac - subNC)) },
+        diferencia_cache_vs_pipeline: { subtotal: r2(appSub - aceptSub), con_iva: r2(appTot - aceptTotal) },
+        descartados_por_razon: razones
+      }, null, 2));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false, error:e.message})); }
+    return;
+  }
+
   if (urlPath === '/api/debug-vendedora-mes' && req.method === 'GET') {
     try {
       const vendQ = (urlObj.searchParams.get('vendedora') || 'Liseth').toUpperCase();
