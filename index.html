@@ -3981,15 +3981,19 @@ async function cargarData(){
     const r=await fetch('/data.json');
     DATA=await r.json();
 
-    // Cargar ventas de hoy desde API v2
+    // Cargar TODO lo que el data.json todavía no cubre (desde su fecha de corte hasta hoy).
+    // Antes se cargaba solo "hoy" y, si la regeneración nocturna se atrasaba, los días
+    // intermedios desaparecían de la app sin aviso.
     try {
-      const hoy = await fetch('/api/ventas-hoy');
-      const dataHoy = await hoy.json();
-      if(dataHoy.total > 0) {
-        mergearVentasHoy(dataHoy.documentos || [], dataHoy.nc_documentos || []);
-        console.log('Ventas hoy cargadas:', dataHoy.total);
+      const pend = await fetch('/api/ventas-pendientes');
+      const dataPend = await pend.json();
+      window._corteCache = dataPend.corte_cache || null;
+      window._rangoPendiente = (dataPend.desde && dataPend.hasta) ? (dataPend.desde + ' → ' + dataPend.hasta) : null;
+      if(dataPend.total > 0 || (dataPend.nc_documentos||[]).length) {
+        mergearVentasHoy(dataPend.documentos || [], dataPend.nc_documentos || []);
+        console.log('Ventas pendientes cargadas:', dataPend.total, window._rangoPendiente);
       }
-    } catch(e) { console.log('Sin data de hoy:', e.message); }
+    } catch(e) { console.log('Sin data pendiente:', e.message); }
 
     initVendedoras();
     mostrarVentasHoy();
@@ -4081,10 +4085,12 @@ function mergearVentasHoy(docs, ncs){
   // gráficos y KPIs estén al día sin esperar la regeneración nocturna.
   // OJO: la regeneración del data.json llega solo hasta AYER — así nunca se duplica.
   const hoy = new Date(new Date().toLocaleString('en-US',{timeZone:'America/Guayaquil'}));
-  const mes = hoy.getMonth() + 1;
-  const anioHoy = hoy.getFullYear();
 
   [[docs||[], 1], [ncs||[], -1]].forEach(([listaDocs, signoNC]) => listaDocs.forEach(doc => {
+    // Cada documento aporta a SU propio mes/año (el tramo pendiente puede cruzar meses)
+    const _fe = String(doc.fecha_emision||'').split('/');
+    const mes = parseInt(_fe[1]) || (hoy.getMonth() + 1);
+    const anioHoy = parseInt(_fe[2]) || hoy.getFullYear();
     const vendedor = doc.vendedor?.razon_social || doc.vendedor?.nombre || '';
     const cliente = doc.cliente_nombre || doc.cliente?.razon_social || doc.cliente?.nombre_comercial || '';
     const total = signoNC * parseFloat(doc.total || 0);

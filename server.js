@@ -547,6 +547,65 @@ async function sincronizarHoy() {
   cache.sincronizando = false;
 }
 
+// ─── VENTAS PENDIENTES ────────────────────────────────────────────────────────────
+// El data.json guardado llega hasta cierta fecha de corte (app_config.data_hasta). Todo
+// lo emitido después vive solo en Contifico. Esta función trae ese tramo completo — no
+// únicamente "hoy" — para que no exista forma de perder un día.
+let PEND_CACHE = { ts: 0, data: null };
+function _parseDDMMYYYY(str){
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(String(str||'').trim());
+  if (!m) return null;
+  return new Date(parseInt(m[3]), parseInt(m[2])-1, parseInt(m[1]));
+}
+async function ventasPendientes(forzar){
+  if (!forzar && PEND_CACHE.data && (Date.now() - PEND_CACHE.ts) < 5 * 60 * 1000) return PEND_CACHE.data;
+  const hoyD = nowEC();
+  const hasta = fmtDateEC(hoyD);
+  let desde = hasta;
+  const corteStr = await getConfigApp('data_hasta', '');
+  const corte = _parseDDMMYYYY(corteStr);
+  if (corte) {
+    const sig = new Date(corte); sig.setDate(sig.getDate() + 1);
+    // Tope de seguridad: nunca pedir más de 40 días hacia atrás
+    const tope = new Date(hoyD); tope.setDate(tope.getDate() - 40);
+    desde = fmtDateEC(sig < tope ? tope : sig);
+  }
+  const dDesde = _parseDDMMYYYY(desde);
+  const dHasta = _parseDDMMYYYY(hasta);
+  if (dDesde && dHasta && dDesde > dHasta) desde = hasta;  // el caché ya cubre hoy
+
+  let todos = [];
+  let nextUrl = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${desde}&fecha_final=${hasta}&page_size=100`;
+  let pgs = 0;
+  while (nextUrl && pgs < 60) {
+    const resp = await fetch(nextUrl, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
+    if (!resp.ok) break;
+    const data = await resp.json();
+    todos = todos.concat(data.results || []);
+    nextUrl = data.next || null;
+    pgs++;
+  }
+  const vistos = new Set();
+  const base = todos.filter(d => {
+    if (d.tipo_registro !== 'CLI' || d.anulado || noEsVenta(d)) return false;
+    const k = d.id || d.documento;
+    if (vistos.has(k)) return false;
+    vistos.add(k);
+    return true;
+  });
+  const documentos = base.filter(d => !esNotaCredito(d));
+  const nc_documentos = base.filter(d => esNotaCredito(d));
+  documentos.forEach(d => { d.cliente_nombre = d.cliente?.razon_social || d.cliente?.nombre_comercial || d.persona_id || '—'; });
+  nc_documentos.forEach(d => { d.cliente_nombre = d.cliente?.razon_social || d.cliente?.nombre_comercial || d.persona_id || '—'; });
+  const out = { total: documentos.length, desde, hasta, corte_cache: corteStr || null, documentos, nc_documentos, generado: new Date().toISOString() };
+  PEND_CACHE = { ts: Date.now(), data: out };
+  console.log(`✓ Ventas pendientes ${desde} → ${hasta}: ${documentos.length} facturas, ${nc_documentos.length} NC`);
+  return out;
+}
+// Refrescar el tramo pendiente cada 10 minutos para que la app abra siempre al instante
+setInterval(() => { ventasPendientes(true).catch(e => console.error('Pendientes:', e.message)); }, 10 * 60 * 1000);
+setTimeout(() => { ventasPendientes(true).catch(e => console.error('Pendientes:', e.message)); }, 45 * 1000);
+
 // Convierte fecha DD/MM/YYYY (formato Contifico) a YYYY-MM-DD (formato SQL)
 function fechaParaSQL(fechaDDMMYYYY){
   const [d,m,y] = fechaDDMMYYYY.split('/');
@@ -1345,6 +1404,7 @@ async function fusionarMesActualEnCache() {
     // Reordenar
     Object.keys(DATA_CACHE).forEach(v => DATA_CACHE[v].sort((a,b)=>b.total-a.total));
     await guardarDataEnDB(DATA_CACHE);
+    try { await setConfigApp('data_hasta', hasta); PEND_CACHE = { ts:0, data:null }; } catch(e) {}
     console.log(`✓ Fusión completa (${fi} - ${hasta}): ${Object.keys(DATA_CACHE).length} vendedoras`);
   } catch(e) {
     console.error('Error en fusión:', e.message);
@@ -1971,6 +2031,9 @@ async function regenerarDataAutomatico() {
     console.log(`⏰ Regeneración automática diaria (histórico completo): ${fi} al ${ff}`);
     const dataAnio = await generarDataJson(fi, ff);
     await guardarDataEnDB(dataAnio);
+    // Marca hasta qué día llega el caché. Todo lo posterior lo completa /api/ventas-pendientes,
+    // así ningún día puede quedar en tierra de nadie si la regeneración se atrasa o falla.
+    try { await setConfigApp('data_hasta', ff); PEND_CACHE = { ts:0, data:null }; } catch(e) {}
     try { fs.writeFileSync(path.join(__dirname, 'data.json'), JSON.stringify(dataAnio, null, 2)); } catch(e) {}
     console.log('✓ Regeneración automática completada (histórico completo reconstruido)');
   } catch(e) { console.error('Error en regeneración automática:', e.message); }
@@ -3644,6 +3707,22 @@ const server = http.createServer(async (req, res) => {
   }
 
   // VENTAS HOY (caché v2)
+  // VENTAS PENDIENTES: todos los documentos desde el día siguiente al corte del caché
+  // hasta hoy. Reemplaza al viejo "solo hoy", que perdía días completos cada vez que la
+  // regeneración nocturna se atrasaba o fallaba.
+  if (urlPath === '/api/ventas-pendientes' && req.method === 'GET') {
+    try {
+      const out = await ventasPendientes(urlObj.searchParams.get('forzar') === '1');
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify(out));
+    } catch(e) {
+      // Ante cualquier fallo, devolver al menos el caché de hoy para no dejar la app sin datos
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ total: cache.documentos.length, documentos: cache.documentos, nc_documentos: cache.nc_documentos || [], degradado: true, error: e.message }));
+    }
+    return;
+  }
+
   if (urlPath === '/api/ventas-hoy' && req.method === 'GET') {
     res.writeHead(200,{'Content-Type':'application/json'});
     res.end(JSON.stringify({ total: cache.documentos.length, ultima_sync: cache.ultima_sync, sincronizando: cache.sincronizando, documentos: cache.documentos, nc_documentos: cache.nc_documentos || [] }));
