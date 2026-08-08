@@ -100,8 +100,30 @@ let cache = { documentos: [], ultima_sync: null, sincronizando: false };
 let catalogoProductos = {};
 let catalogoSyncedAt = null;
 
+let categoriasContifico = {};
+async function sincronizarCategorias() {
+  try {
+    const mapa = {};
+    for (const v of ['v1','v2']) {
+      let next = `https://api.contifico.com/sistema/api/${v}/categoria/?page_size=100`;
+      let pg = 0;
+      while (next && pg < 30) {
+        const r = await fetch(next, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
+        if (!r.ok) break;
+        const d = await r.json();
+        const lista = Array.isArray(d) ? d : (d.results || []);
+        lista.forEach(c => { if (c && c.id) mapa[c.id] = String(c.nombre || c.descripcion || '').trim(); });
+        next = (d && d.next) || null; pg++;
+      }
+      if (Object.keys(mapa).length) break;
+    }
+    if (Object.keys(mapa).length) { categoriasContifico = mapa; console.log('Categorías: ' + Object.keys(mapa).length); }
+  } catch(e) { console.error('Error categorías:', e.message); }
+}
+
 async function sincronizarCatalogo() {
   try {
+    await sincronizarCategorias();
     let nuevosCatalogo = {};
     let nextUrl = 'https://api.contifico.com/sistema/api/v2/producto/?page_size=100';
     let paginas = 0;
@@ -133,7 +155,8 @@ async function sincronizarCatalogo() {
             for (const [k,v] of cands) { if (parseFloat(v) > 0) return k; }
             return null;
           })(),
-          categoria: String(p.categoria_nombre || (p.categoria && (p.categoria.nombre || p.categoria)) || '').trim(),
+          categoria: String(p.categoria_nombre || categoriasContifico[p.categoria_id] || (p.categoria && (p.categoria.nombre || p.categoria)) || '').trim(),
+          categoria_id: p.categoria_id || null,
           estado: String(p.estado || '').trim(),
           tipo: String(p.tipo || '').trim()
         };
@@ -2468,6 +2491,13 @@ async function initDB() {
       UPDATE personas SET origen='institutos' WHERE origen IS NULL AND instituto IS NOT NULL
         AND (vendedor IS NULL OR vendedor='') AND (telefono IS NULL OR telefono='') AND (email IS NULL OR email='');
       ALTER TABLE facturas_detalle ADD COLUMN IF NOT EXISTS cedula_ruc VARCHAR(50);
+      CREATE TABLE IF NOT EXISTS producto_costos (
+        codigo VARCHAR(100) PRIMARY KEY,
+        nombre VARCHAR(500),
+        costo NUMERIC(14,6) NOT NULL DEFAULT 0,
+        fuente VARCHAR(120),
+        actualizado_at TIMESTAMP DEFAULT NOW()
+      );
       CREATE TABLE IF NOT EXISTS stock_bodegas (
         id SERIAL PRIMARY KEY,
         producto_id VARCHAR(30) NOT NULL,
@@ -3781,12 +3811,83 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // SUBIR EXCEL DE COSTOS (el inventario valorizado que se descarga de Contifico).
+  // Detecta sola la columna de código y la de costo, sin importar el orden ni el nombre exacto.
+  if (urlPath === '/api/costos/subir' && req.method === 'POST') {
+    if (bloquearSiNoAdmin(req, res)) return;
+    try {
+      const buf = await bodyBuffer(req);
+      const archivo = parseMultipartFile(buf, req.headers['content-type']);
+      if (!archivo) { res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'No se encontró el archivo (campo "file")'})); return; }
+      const wb = XLSX.read(archivo.buffer, { type:'buffer' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const filas = XLSX.utils.sheet_to_json(ws, { header:1, defval:null });
+      const norm = x => String(x==null?'':x).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().trim();
+
+      // Fila de encabezados: la primera que tenga algo parecido a "código"
+      let fh = -1, encab = null;
+      for (let i = 0; i < Math.min(25, filas.length); i++) {
+        const f = (filas[i]||[]).map(norm);
+        if (f.some(h => h === 'CODIGO' || h === 'COD' || h === 'SKU' || h.startsWith('CODIGO'))) { fh = i; encab = f; break; }
+      }
+      if (fh === -1) throw new Error('No se encontró una columna de Código en el Excel');
+
+      const idxCod = encab.findIndex(h => h === 'CODIGO' || h === 'COD' || h === 'SKU' || h.startsWith('CODIGO'));
+      const idxNom = encab.findIndex(h => h === 'PRODUCTO' || h === 'NOMBRE' || h.startsWith('DESCRIPCION'));
+      // Costo unitario: preferir "costo unitario/promedio/prom"; nunca el costo total
+      const cands = [];
+      encab.forEach((h,i) => {
+        if (!h || !h.includes('COSTO')) return;
+        let score = 0;
+        if (h.includes('UNIT')) score += 10;
+        if (h.includes('PROM')) score += 8;
+        if (h.includes('ULTIM')) score += 6;
+        if (h === 'COSTO') score += 4;
+        if (h.includes('TOTAL') || h.includes('VALOR')) score -= 12;
+        cands.push({ i, h, score });
+      });
+      cands.sort((a,b) => b.score - a.score);
+      const idxCosto = cands.length ? cands[0].i : -1;
+      if (idxCosto === -1) throw new Error('No se encontró ninguna columna de Costo. Encabezados leídos: ' + encab.filter(Boolean).join(' | '));
+
+      const vistos = {};
+      for (let i = fh+1; i < filas.length; i++) {
+        const f = filas[i];
+        if (!f) continue;
+        const cod = String(f[idxCod]==null?'':f[idxCod]).trim();
+        if (!cod) continue;
+        const costo = parseFloat(String(f[idxCosto]==null?'':f[idxCosto]).replace(/[^0-9.\-]/g,''));
+        if (!isFinite(costo) || costo <= 0) continue;
+        vistos[cod] = { costo, nombre: idxNom !== -1 ? String(f[idxNom]||'').trim() : '' };
+      }
+      const codigos = Object.keys(vistos);
+      if (!codigos.length) throw new Error('No se leyó ningún costo mayor a cero. Columna usada: ' + (encab[idxCosto]||'?'));
+      for (const cod of codigos) {
+        await pool.query(
+          `INSERT INTO producto_costos(codigo, nombre, costo, fuente, actualizado_at) VALUES($1,$2,$3,$4,NOW())
+           ON CONFLICT (codigo) DO UPDATE SET nombre=$2, costo=$3, fuente=$4, actualizado_at=NOW()`,
+          [cod, vistos[cod].nombre, vistos[cod].costo, 'Excel: ' + (encab[idxCosto]||'costo')]
+        );
+      }
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:true, cargados: codigos.length, columna_costo: encab[idxCosto], columna_codigo: encab[idxCod] }));
+    } catch(e) { res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
   // CATÁLOGO CON COSTOS — insumo del simulador de promociones (solo admin)
   if (urlPath === '/api/productos-costos' && req.method === 'GET') {
     if (bloquearSiNoAdmin(req, res)) return;
+    // Costos subidos por Excel (Contifico no los expone por API)
+    const COSTOS = {}; let costosAt = null;
+    try {
+      const rc = await pool.query('SELECT codigo, costo, fuente, actualizado_at FROM producto_costos');
+      rc.rows.forEach(x => { COSTOS[String(x.codigo).trim().toUpperCase()] = parseFloat(x.costo)||0; if (!costosAt || x.actualizado_at > costosAt) costosAt = x.actualizado_at; });
+    } catch(e) {}
     const lista = Object.entries(catalogoProductos || {}).map(([id, p]) => ({
       id, codigo: p.codigo, nombre: p.nombre, marca: p.marca, categoria: p.categoria || '',
-      costo: p.costo || 0, costo_campo: p.costo_campo || null,
+      costo: COSTOS[String(p.codigo||'').trim().toUpperCase()] || p.costo || 0,
+      costo_campo: COSTOS[String(p.codigo||'').trim().toUpperCase()] ? 'excel' : (p.costo_campo || null),
       pvp1: p.pvp1 || 0, pvp2: p.pvp2 || 0, pvp3: p.pvp3 || 0, pvp4: p.pvp4 || 0,
       iva: p.iva, estado: p.estado || '', tipo: p.tipo || ''
     }));
@@ -3794,7 +3895,7 @@ const server = http.createServer(async (req, res) => {
     const campos = {};
     lista.forEach(x => { if (x.costo_campo) campos[x.costo_campo] = (campos[x.costo_campo]||0) + 1; });
     res.writeHead(200,{'Content-Type':'application/json'});
-    res.end(JSON.stringify({ ok:true, total: lista.length, con_costo: conCosto, campos_de_costo: campos, sincronizado: catalogoSyncedAt, productos: lista }));
+    res.end(JSON.stringify({ ok:true, total: lista.length, con_costo: conCosto, campos_de_costo: campos, sincronizado: catalogoSyncedAt, costos_actualizado: costosAt, costos_cargados: Object.keys(COSTOS).length, productos: lista }));
     return;
   }
 
