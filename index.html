@@ -271,6 +271,7 @@
     <div id="nav-reportes-subs" style="max-height:0;overflow:hidden;transition:max-height 0.25s ease">
       <div class="nav-sub-item" id="navsub-rep-presupuesto_ventas" onclick="navGoReportes('presupuesto_ventas')"><i class="ti ti-target" style="font-size:13px"></i>Presupuesto ventas</div>
       <div class="nav-sub-item" id="navsub-rep-comisiones" onclick="navGoReportes('comisiones')"><i class="ti ti-coin" style="font-size:13px"></i>Comisiones</div>
+      <div class="nav-sub-item" id="navsub-rep-promos" onclick="navGoReportes('promos')"><i class="ti ti-gift" style="font-size:13px"></i>Promociones</div>
       <div class="nav-sub-item" id="navsub-rep-nomina" onclick="navGoReportes('nomina')"><i class="ti ti-users-group" style="font-size:13px"></i>Nómina</div>
       <div class="nav-sub-item" id="navsub-rep-inversiones" onclick="navGoReportes('inversiones')"><i class="ti ti-receipt" style="font-size:13px"></i>Inversiones / Viáticos</div>
     </div>
@@ -8568,12 +8569,187 @@ function renderReportes(){
   document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
   document.getElementById('navsub-rep-'+tab)?.classList.add('active');
   document.getElementById('main').innerHTML=`
-    <div class="breadcrumb" style="margin-bottom:12px"><i class="ti ti-file-analytics" style="color:var(--brown);font-size:12px"></i><span style="font-weight:500">Reportes — ${tab==='inversiones'?'Inversiones / Viáticos':tab==='presupuesto'?'Presupuesto de ventas':tab==='presupuesto_ventas'?'Presupuesto ventas':tab==='nomina'?'Nómina':'Comisiones'}</span></div>
+    <div class="breadcrumb" style="margin-bottom:12px"><i class="ti ti-file-analytics" style="color:var(--brown);font-size:12px"></i><span style="font-weight:500">Reportes — ${tab==='inversiones'?'Inversiones / Viáticos':tab==='presupuesto'?'Presupuesto de ventas':tab==='presupuesto_ventas'?'Presupuesto ventas':tab==='nomina'?'Nómina':tab==='promos'?'Promociones — rentabilidad':'Comisiones'}</span></div>
     <div id="reportes-content"></div>`;
   if(tab==='inversiones') renderInversiones();
   else if(tab==='presupuesto' || tab==='presupuesto_ventas') renderPresupuestoVentas();
   else if(tab==='nomina') renderNomina();
+  else if(tab==='promos') renderPromos();
   else renderComisiones();
+}
+
+// ─── PROMOCIONES: rentabilidad de 2+1, 3+1 y descuentos por marca/categoría ────────
+// Todo el cálculo es SIN IVA. Los pvp de Contifico ya vienen sin IVA.
+window._promoCfg = window._promoCfg || { tipo:'2+1', pvpKey:'pvp2', marca:'', categoria:'', soloConCosto:true, orden:'margen' };
+
+const PROMOS_TIPOS = {
+  '2+1':   { paga:2, lleva:3, label:'2 + 1',  desc:'Paga 2, lleva 3' },
+  '3+1':   { paga:3, lleva:4, label:'3 + 1',  desc:'Paga 3, lleva 4' },
+  '4+1':   { paga:4, lleva:5, label:'4 + 1',  desc:'Paga 4, lleva 5' },
+  '5+1':   { paga:5, lleva:6, label:'5 + 1',  desc:'Paga 5, lleva 6' },
+  '6+2':   { paga:6, lleva:8, label:'6 + 2',  desc:'Paga 6, lleva 8' },
+  'normal':{ paga:1, lleva:1, label:'Sin promo', desc:'Venta normal, referencia' }
+};
+
+async function renderPromos(){
+  const cont = document.getElementById('reportes-content');
+  if(!cont) return;
+  cont.innerHTML = '<div style="padding:30px;text-align:center;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:22px"></i></div>';
+  if(!window._promoData){
+    try{
+      const r = await fetch('/api/productos-costos');
+      const d = await r.json();
+      if(!d.ok) throw new Error(d.error||'Sin acceso');
+      window._promoData = d;
+    }catch(e){
+      cont.innerHTML = '<div class="card" style="padding:24px;text-align:center;color:var(--muted)">No se pudo cargar el catálogo de costos.<br><span style="font-size:12px">'+String(e.message||'').replace(/</g,'&lt;')+'</span></div>';
+      return;
+    }
+  }
+  pintarPromos();
+}
+
+function promoSet(campo, valor){
+  window._promoCfg[campo] = valor;
+  pintarPromos();
+}
+
+function pintarPromos(){
+  const cont = document.getElementById('reportes-content');
+  if(!cont) return;
+  const D = window._promoData || {};
+  const cfg = window._promoCfg;
+  const todos = D.productos || [];
+  const esc = v => String(v==null?'':v).replace(/</g,'&lt;');
+  const m$ = v => '$' + (Math.round(v*100)/100).toFixed(2);
+  const pct = v => (isFinite(v) ? (Math.round(v*10)/10).toFixed(1) : '—') + '%';
+
+  // Productos vendibles: fuera kits, testers, promos armadas y todo lo que no tenga precio
+  const esVendible = p => {
+    const n = (p.nombre||'').toUpperCase();
+    if(/\bKIT\b|TESTER|MUESTRA|PROMO|COMBO|REGALO|OBSEQUIO/.test(n)) return false;
+    if(p.estado && p.estado.toUpperCase().startsWith('IN')) return false;
+    return (p[cfg.pvpKey]||0) > 0;
+  };
+  const base = todos.filter(esVendible);
+  const marcas = [...new Set(base.map(p=>p.marca).filter(Boolean))].sort();
+  const cats = [...new Set(base.filter(p=>!cfg.marca||p.marca===cfg.marca).map(p=>p.categoria).filter(Boolean))].sort();
+
+  let lista = base.filter(p => (!cfg.marca || p.marca===cfg.marca) && (!cfg.categoria || p.categoria===cfg.categoria));
+  if(cfg.soloConCosto) lista = lista.filter(p => p.costo > 0);
+
+  const T = PROMOS_TIPOS[cfg.tipo] || PROMOS_TIPOS['2+1'];
+
+  // Cálculo por producto
+  const filas = lista.map(p => {
+    const precio = p[cfg.pvpKey] || 0;
+    const costo = p.costo || 0;
+    const ingreso = T.paga * precio;              // lo que factura la clienta
+    const costoTotal = T.lleva * costo;           // lo que sale de bodega
+    const util = ingreso - costoTotal;
+    const margen = ingreso > 0 ? (util/ingreso)*100 : 0;
+    const margenNormal = precio > 0 ? ((precio-costo)/precio)*100 : 0;
+    const descEfectivo = T.lleva > 0 ? (1 - T.paga/T.lleva)*100 : 0;
+    const precioUnit = T.lleva > 0 ? ingreso/T.lleva : 0;
+    return { ...p, precio, costo, ingreso, costoTotal, util, margen, margenNormal, descEfectivo, precioUnit,
+             caida: margenNormal - margen };
+  });
+  const ord = { margen:(a,b)=>a.margen-b.margen, nombre:(a,b)=>String(a.nombre).localeCompare(b.nombre), util:(a,b)=>b.util-a.util };
+  filas.sort(ord[cfg.orden] || ord.margen);
+
+  const sinCosto = base.filter(p => (!cfg.marca||p.marca===cfg.marca) && (!cfg.categoria||p.categoria===cfg.categoria) && !(p.costo>0)).length;
+  const totIng = filas.reduce((a,f)=>a+f.ingreso,0);
+  const totCos = filas.reduce((a,f)=>a+f.costoTotal,0);
+  const totUtil = totIng - totCos;
+  const margenProm = totIng>0 ? (totUtil/totIng)*100 : 0;
+  const margenNormalProm = (() => { const i = filas.reduce((a,f)=>a+f.precio,0), c = filas.reduce((a,f)=>a+f.costo,0); return i>0 ? ((i-c)/i)*100 : 0; })();
+  const enPerdida = filas.filter(f=>f.util<0).length;
+
+  const chip = (activo,label,onclick) => '<span onclick="'+onclick+'" style="cursor:pointer;padding:5px 12px;border-radius:20px;font-size:12px;font-weight:600;border:1px solid '+(activo?'var(--brown)':'var(--border)')+';background:'+(activo?'var(--brown)':'white')+';color:'+(activo?'white':'var(--muted)')+'">'+label+'</span>';
+
+  const colorMargen = m => m<0 ? '#dc2626' : m<15 ? '#d97706' : m<30 ? '#65a30d' : '#16a34a';
+
+  let html = '';
+
+  // ── Controles ──
+  html += '<div class="card" style="margin-bottom:12px;padding:14px 16px">'
+    + '<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1.2px;margin-bottom:8px">Promoción a simular</div>'
+    + '<div style="display:flex;flex-wrap:wrap;gap:7px;margin-bottom:14px">'
+    + Object.entries(PROMOS_TIPOS).map(([k,v]) => chip(cfg.tipo===k, v.label, "promoSet('tipo','"+k+"')")).join('')
+    + '</div>'
+    + '<div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end">'
+    + '<div><div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:5px">Marca</div>'
+    +   '<select onchange="window._promoCfg.categoria=\'\';promoSet(\'marca\',this.value)" style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:white;cursor:pointer;min-width:150px">'
+    +   '<option value="">Todas las marcas</option>' + marcas.map(m=>'<option value="'+esc(m)+'"'+(cfg.marca===m?' selected':'')+'>'+esc(m)+'</option>').join('') + '</select></div>'
+    + '<div><div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:5px">Categoría</div>'
+    +   '<select onchange="promoSet(\'categoria\',this.value)" style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:white;cursor:pointer;min-width:170px">'
+    +   '<option value="">Todas las categorías</option>' + cats.map(c=>'<option value="'+esc(c)+'"'+(cfg.categoria===c?' selected':'')+'>'+esc(c)+'</option>').join('') + '</select></div>'
+    + '<div><div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:5px">Lista de precios</div>'
+    +   '<select onchange="promoSet(\'pvpKey\',this.value)" style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:white;cursor:pointer">'
+    +   ['pvp1','pvp2','pvp3','pvp4'].map(k=>'<option value="'+k+'"'+(cfg.pvpKey===k?' selected':'')+'>'+k.toUpperCase()+(k==='pvp2'?' (web)':'')+'</option>').join('') + '</select></div>'
+    + '<div><div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:5px">Ordenar</div>'
+    +   '<select onchange="promoSet(\'orden\',this.value)" style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:white;cursor:pointer">'
+    +   '<option value="margen"'+(cfg.orden==='margen'?' selected':'')+'>Margen más bajo primero</option>'
+    +   '<option value="util"'+(cfg.orden==='util'?' selected':'')+'>Mayor utilidad</option>'
+    +   '<option value="nombre"'+(cfg.orden==='nombre'?' selected':'')+'>Nombre</option></select></div>'
+    + '<label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);cursor:pointer;padding-bottom:7px">'
+    +   '<input type="checkbox" '+(cfg.soloConCosto?'checked':'')+' onchange="promoSet(\'soloConCosto\',this.checked)" style="cursor:pointer"> Solo con costo registrado</label>'
+    + '</div></div>';
+
+  // ── Tarjetas resumen ──
+  const card = (titulo, valor, sub, color) => '<div class="card" style="padding:14px 16px;flex:1;min-width:150px">'
+    + '<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1.2px">'+titulo+'</div>'
+    + '<div style="font-size:24px;font-weight:700;color:'+(color||'var(--brown)')+';margin-top:4px">'+valor+'</div>'
+    + '<div style="font-size:11px;color:var(--muted);margin-top:2px">'+sub+'</div></div>';
+
+  html += '<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px">'
+    + card('Margen con '+T.label, pct(margenProm), 'antes era '+pct(margenNormalProm), colorMargen(margenProm))
+    + card('Descuento efectivo', pct(filas.length?filas[0].descEfectivo:0), T.desc, '#d97706')
+    + card('Utilidad por combo', m$(filas.length? totUtil/filas.length : 0), 'promedio de '+filas.length+' productos')
+    + card('En pérdida', String(enPerdida), enPerdida? 'productos bajo costo' : 'ninguno bajo costo', enPerdida?'#dc2626':'#16a34a')
+    + '</div>';
+
+  if(sinCosto > 0){
+    html += '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:#92400e">'
+      + '<i class="ti ti-alert-triangle" style="margin-right:6px"></i><b>'+sinCosto+' producto'+(sinCosto>1?'s':'')+' sin costo en Contifico</b> — no entran en el cálculo. Se registran al cargar la compra en Contifico.</div>';
+  }
+
+  // ── Tabla ──
+  html += '<div class="card" style="padding:0;overflow:hidden">'
+    + '<div style="padding:14px 16px 10px;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px">'
+    + '<i class="ti ti-gift" style="margin-right:6px"></i>' + T.desc + ' — ' + (cfg.marca||'todas las marcas') + (cfg.categoria? ' · '+esc(cfg.categoria):'') + ' (sin IVA)</div>'
+    + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:820px">'
+    + '<thead><tr style="background:#faf8f6">'
+    + ['Producto','Costo u.','PVP u.','Margen normal','Cobra','Entrega','Costo combo','Utilidad','Margen promo'].map((h,i)=>
+        '<th style="padding:9px 12px;text-align:'+(i===0?'left':'right')+';font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px;border-bottom:1px solid var(--border);white-space:nowrap">'+h+'</th>').join('')
+    + '</tr></thead><tbody>';
+
+  if(!filas.length){
+    html += '<tr><td colspan="9" style="padding:26px;text-align:center;color:var(--muted)">No hay productos con costo para este filtro.</td></tr>';
+  }
+  filas.forEach((f,i) => {
+    html += '<tr style="background:'+(i%2?'#fcfbfa':'white')+'">'
+      + '<td style="padding:9px 12px;border-bottom:0.5px solid var(--border)"><div style="font-weight:600;line-height:1.25">'+esc(f.nombre)+'</div>'
+      +   '<div style="font-size:10px;color:var(--muted);margin-top:2px">'+esc(f.codigo)+(f.categoria?' · '+esc(f.categoria):'')+'</div></td>'
+      + '<td style="padding:9px 12px;text-align:right;border-bottom:0.5px solid var(--border);white-space:nowrap">'+m$(f.costo)+'</td>'
+      + '<td style="padding:9px 12px;text-align:right;border-bottom:0.5px solid var(--border);white-space:nowrap">'+m$(f.precio)+'</td>'
+      + '<td style="padding:9px 12px;text-align:right;border-bottom:0.5px solid var(--border);color:var(--muted);white-space:nowrap">'+pct(f.margenNormal)+'</td>'
+      + '<td style="padding:9px 12px;text-align:right;border-bottom:0.5px solid var(--border);white-space:nowrap">'+m$(f.ingreso)+'</td>'
+      + '<td style="padding:9px 12px;text-align:right;border-bottom:0.5px solid var(--border);color:var(--muted);white-space:nowrap">'+T.lleva+' u.</td>'
+      + '<td style="padding:9px 12px;text-align:right;border-bottom:0.5px solid var(--border);white-space:nowrap">'+m$(f.costoTotal)+'</td>'
+      + '<td style="padding:9px 12px;text-align:right;border-bottom:0.5px solid var(--border);font-weight:700;color:'+(f.util<0?'#dc2626':'var(--brown)')+';white-space:nowrap">'+m$(f.util)+'</td>'
+      + '<td style="padding:9px 12px;text-align:right;border-bottom:0.5px solid var(--border);font-weight:700;color:'+colorMargen(f.margen)+';white-space:nowrap">'+pct(f.margen)+'</td>'
+      + '</tr>';
+  });
+  html += '</tbody></table></div></div>';
+
+  html += '<div style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.6">'
+    + '<b>Cómo leerlo.</b> "Cobra" es lo que factura la clienta ('+T.paga+' unidad'+(T.paga>1?'es':'')+' a precio '+cfg.pvpKey.toUpperCase()+'); "Entrega" es lo que sale de bodega ('+T.lleva+'). '
+    + 'La utilidad es la diferencia contra el costo de las '+T.lleva+' unidades. El descuento efectivo de un '+T.label+' es fijo: '+pct(T.lleva?((1-T.paga/T.lleva)*100):0)+'. '
+    + 'Los costos vienen del costo promedio de Contifico'+ (D.campos_de_costo && Object.keys(D.campos_de_costo).length ? ' (campo '+Object.keys(D.campos_de_costo).join(', ')+')' : '') +'.'
+    + '</div>';
+
+  cont.innerHTML = html;
 }
 
 // ─── NÓMINA: costo real del personal por mes y por colaboradora ──────────────

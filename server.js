@@ -119,7 +119,23 @@ async function sincronizarCatalogo() {
           pvp2: parseFloat(p.pvp2) || 0,
           pvp3: parseFloat(p.pvp3) || 0,
           pvp4: parseFloat(p.pvp4) || 0,
-          iva:  (p.porcentaje_iva === 0 ? 0 : 15)
+          iva:  (p.porcentaje_iva === 0 ? 0 : 15),
+          // Costo: Contifico expone el campo con distintos nombres según la versión de la
+          // ficha. Tomamos el primero con valor y dejamos anotado cuál fue, para poder
+          // auditarlo desde el panel sin adivinar.
+          costo: (function(){
+            const cands = [['costo_promedio',p.costo_promedio],['costo',p.costo],['costo_produccion',p.costo_produccion],['costo_ultima_compra',p.costo_ultima_compra],['precio_costo',p.precio_costo]];
+            for (const [k,v] of cands) { const n = parseFloat(v); if (n > 0) return n; }
+            return 0;
+          })(),
+          costo_campo: (function(){
+            const cands = [['costo_promedio',p.costo_promedio],['costo',p.costo],['costo_produccion',p.costo_produccion],['costo_ultima_compra',p.costo_ultima_compra],['precio_costo',p.precio_costo]];
+            for (const [k,v] of cands) { if (parseFloat(v) > 0) return k; }
+            return null;
+          })(),
+          categoria: String(p.categoria_nombre || (p.categoria && (p.categoria.nombre || p.categoria)) || '').trim(),
+          estado: String(p.estado || '').trim(),
+          tipo: String(p.tipo || '').trim()
         };
       });
       nextUrl = data.next || null;
@@ -3762,6 +3778,37 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200,{'Content-Type':'application/json'});
       res.end(JSON.stringify({ total: cache.documentos.length, documentos: cache.documentos, nc_documentos: cache.nc_documentos || [], degradado: true, error: e.message }));
     }
+    return;
+  }
+
+  // CATÁLOGO CON COSTOS — insumo del simulador de promociones (solo admin)
+  if (urlPath === '/api/productos-costos' && req.method === 'GET') {
+    if (bloquearSiNoAdmin(req, res)) return;
+    const lista = Object.entries(catalogoProductos || {}).map(([id, p]) => ({
+      id, codigo: p.codigo, nombre: p.nombre, marca: p.marca, categoria: p.categoria || '',
+      costo: p.costo || 0, costo_campo: p.costo_campo || null,
+      pvp1: p.pvp1 || 0, pvp2: p.pvp2 || 0, pvp3: p.pvp3 || 0, pvp4: p.pvp4 || 0,
+      iva: p.iva, estado: p.estado || '', tipo: p.tipo || ''
+    }));
+    const conCosto = lista.filter(x => x.costo > 0).length;
+    const campos = {};
+    lista.forEach(x => { if (x.costo_campo) campos[x.costo_campo] = (campos[x.costo_campo]||0) + 1; });
+    res.writeHead(200,{'Content-Type':'application/json'});
+    res.end(JSON.stringify({ ok:true, total: lista.length, con_costo: conCosto, campos_de_costo: campos, sincronizado: catalogoSyncedAt, productos: lista }));
+    return;
+  }
+
+  // SONDEO: ficha cruda de un producto en Contifico (para auditar de dónde sale el costo)
+  if (urlPath === '/api/producto-raw' && req.method === 'GET') {
+    if (bloquearSiNoAdmin(req, res)) return;
+    try {
+      const q = String(urlObj.searchParams.get('codigo') || '').trim();
+      const r = await fetch(`https://api.contifico.com/sistema/api/v1/producto/?codigo=${encodeURIComponent(q)}&page_size=3`, { headers:{'Authorization':API_KEY,'Accept':'application/json'} });
+      const d = await r.json();
+      const lista = Array.isArray(d) ? d : (d.results || []);
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:true, encontrados: lista.length, fichas: lista.slice(0,2) }, null, 2));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
   }
 
