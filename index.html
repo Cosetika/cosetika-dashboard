@@ -8658,12 +8658,14 @@ function pintarPromos(){
   filas.sort(ord[cfg.orden] || ord.margen);
 
   const sinCosto = base.filter(p => (!cfg.marca||p.marca===cfg.marca) && (!cfg.categoria||p.categoria===cfg.categoria) && !(p.costo>0)).length;
-  const totIng = filas.reduce((a,f)=>a+f.ingreso,0);
-  const totCos = filas.reduce((a,f)=>a+f.costoTotal,0);
+  // Los productos sin costo NO se promedian: darían 100% de margen y falsearían todo
+  const conC = filas.filter(f=>f.costo>0);
+  const totIng = conC.reduce((a,f)=>a+f.ingreso,0);
+  const totCos = conC.reduce((a,f)=>a+f.costoTotal,0);
   const totUtil = totIng - totCos;
-  const margenProm = totIng>0 ? (totUtil/totIng)*100 : 0;
-  const margenNormalProm = (() => { const i = filas.reduce((a,f)=>a+f.precio,0), c = filas.reduce((a,f)=>a+f.costo,0); return i>0 ? ((i-c)/i)*100 : 0; })();
-  const enPerdida = filas.filter(f=>f.util<0).length;
+  const margenProm = totIng>0 ? (totUtil/totIng)*100 : NaN;
+  const margenNormalProm = (() => { const i = conC.reduce((a,f)=>a+f.precio,0), c = conC.reduce((a,f)=>a+f.costo,0); return i>0 ? ((i-c)/i)*100 : NaN; })();
+  const enPerdida = conC.filter(f=>f.util<0).length;
 
   const chip = (activo,label,onclick) => '<span onclick="'+onclick+'" style="cursor:pointer;padding:5px 12px;border-radius:20px;font-size:12px;font-weight:600;border:1px solid '+(activo?'var(--brown)':'var(--border)')+';background:'+(activo?'var(--brown)':'white')+';color:'+(activo?'white':'var(--muted)')+'">'+label+'</span>';
 
@@ -8705,7 +8707,7 @@ function pintarPromos(){
   html += '<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px">'
     + card('Margen con '+T.label, pct(margenProm), 'antes era '+pct(margenNormalProm), colorMargen(margenProm))
     + card('Descuento efectivo', pct(filas.length?filas[0].descEfectivo:0), T.desc, '#d97706')
-    + card('Utilidad por combo', m$(filas.length? totUtil/filas.length : 0), 'promedio de '+filas.length+' productos')
+    + card('Utilidad por combo', conC.length? m$(totUtil/conC.length) : '—', conC.length? 'promedio de '+conC.length+' productos con costo' : 'sin costos cargados')
     + card('En pérdida', String(enPerdida), enPerdida? 'productos bajo costo' : 'ninguno bajo costo', enPerdida?'#dc2626':'#16a34a')
     + '</div>';
 
@@ -8731,14 +8733,14 @@ function pintarPromos(){
     html += '<tr style="background:'+(i%2?'#fcfbfa':'white')+'">'
       + '<td style="padding:9px 12px;border-bottom:0.5px solid var(--border)"><div style="font-weight:600;line-height:1.25">'+esc(f.nombre)+'</div>'
       +   '<div style="font-size:10px;color:var(--muted);margin-top:2px">'+esc(f.codigo)+(f.categoria?' · '+esc(f.categoria):'')+'</div></td>'
-      + '<td style="padding:9px 12px;text-align:right;border-bottom:0.5px solid var(--border);white-space:nowrap">'+m$(f.costo)+'</td>'
+      + '<td style="padding:9px 12px;text-align:right;border-bottom:0.5px solid var(--border);white-space:nowrap'+(f.costo>0?'':';color:#d97706')+'">'+(f.costo>0?m$(f.costo):'sin costo')+'</td>'
       + '<td style="padding:9px 12px;text-align:right;border-bottom:0.5px solid var(--border);white-space:nowrap">'+m$(f.precio)+'</td>'
-      + '<td style="padding:9px 12px;text-align:right;border-bottom:0.5px solid var(--border);color:var(--muted);white-space:nowrap">'+pct(f.margenNormal)+'</td>'
+      + '<td style="padding:9px 12px;text-align:right;border-bottom:0.5px solid var(--border);color:var(--muted);white-space:nowrap">'+(f.costo>0?pct(f.margenNormal):'—')+'</td>'
       + '<td style="padding:9px 12px;text-align:right;border-bottom:0.5px solid var(--border);white-space:nowrap">'+m$(f.ingreso)+'</td>'
       + '<td style="padding:9px 12px;text-align:right;border-bottom:0.5px solid var(--border);color:var(--muted);white-space:nowrap">'+T.lleva+' u.</td>'
-      + '<td style="padding:9px 12px;text-align:right;border-bottom:0.5px solid var(--border);white-space:nowrap">'+m$(f.costoTotal)+'</td>'
-      + '<td style="padding:9px 12px;text-align:right;border-bottom:0.5px solid var(--border);font-weight:700;color:'+(f.util<0?'#dc2626':'var(--brown)')+';white-space:nowrap">'+m$(f.util)+'</td>'
-      + '<td style="padding:9px 12px;text-align:right;border-bottom:0.5px solid var(--border);font-weight:700;color:'+colorMargen(f.margen)+';white-space:nowrap">'+pct(f.margen)+'</td>'
+      + '<td style="padding:9px 12px;text-align:right;border-bottom:0.5px solid var(--border);white-space:nowrap">'+(f.costo>0?m$(f.costoTotal):'—')+'</td>'
+      + '<td style="padding:9px 12px;text-align:right;border-bottom:0.5px solid var(--border);font-weight:700;color:'+(f.util<0?'#dc2626':'var(--brown)')+';white-space:nowrap">'+(f.costo>0?m$(f.util):'—')+'</td>'
+      + '<td style="padding:9px 12px;text-align:right;border-bottom:0.5px solid var(--border);font-weight:700;color:'+(f.costo>0?colorMargen(f.margen):'var(--muted)')+';white-space:nowrap">'+(f.costo>0?pct(f.margen):'—')+'</td>'
       + '</tr>';
   });
   html += '</tbody></table></div></div>';

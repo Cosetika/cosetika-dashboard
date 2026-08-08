@@ -3798,16 +3798,33 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // SONDEO: ficha cruda de un producto en Contifico (para auditar de dónde sale el costo)
+  // SONDEO: ficha cruda de un producto en Contifico, por todas las vías disponibles.
+  // Sirve para descubrir cómo se llaman realmente los campos de costo y categoría.
   if (urlPath === '/api/producto-raw' && req.method === 'GET') {
     if (bloquearSiNoAdmin(req, res)) return;
     try {
       const q = String(urlObj.searchParams.get('codigo') || '').trim();
-      const r = await fetch(`https://api.contifico.com/sistema/api/v1/producto/?codigo=${encodeURIComponent(q)}&page_size=3`, { headers:{'Authorization':API_KEY,'Accept':'application/json'} });
-      const d = await r.json();
-      const lista = Array.isArray(d) ? d : (d.results || []);
+      const salida = {};
+      const pedir = async (etiqueta, url) => {
+        try {
+          const r = await fetch(url, { headers:{'Authorization':API_KEY,'Accept':'application/json'} });
+          const txt = await r.text();
+          let d; try { d = JSON.parse(txt); } catch(e) { salida[etiqueta] = { http:r.status, crudo: txt.slice(0,300) }; return null; }
+          const lista = Array.isArray(d) ? d : (d.results || (d.id ? [d] : []));
+          salida[etiqueta] = { http:r.status, encontrados: lista.length, campos: lista.length ? Object.keys(lista[0]).sort() : [], ficha: lista[0] || null };
+          return lista[0] || null;
+        } catch(e) { salida[etiqueta] = { error: e.message }; return null; }
+      };
+      const enV2 = await pedir('v2_lista', `https://api.contifico.com/sistema/api/v2/producto/?codigo=${encodeURIComponent(q)}&page_size=3`);
+      await pedir('v1_lista', `https://api.contifico.com/sistema/api/v1/producto/?codigo=${encodeURIComponent(q)}&page_size=3`);
+      // El detalle por id suele traer bastante más que el listado
+      const pid = enV2 && enV2.id;
+      if (pid) {
+        await pedir('v1_detalle', `https://api.contifico.com/sistema/api/v1/producto/${pid}/`);
+        await pedir('v2_detalle', `https://api.contifico.com/sistema/api/v2/producto/${pid}/`);
+      }
       res.writeHead(200,{'Content-Type':'application/json'});
-      res.end(JSON.stringify({ ok:true, encontrados: lista.length, fichas: lista.slice(0,2) }, null, 2));
+      res.end(JSON.stringify({ ok:true, codigo:q, resultados: salida }, null, 2));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
   }
