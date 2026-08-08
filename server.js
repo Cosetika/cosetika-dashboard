@@ -552,6 +552,20 @@ async function sincronizarHoy() {
 // lo emitido después vive solo en Contifico. Esta función trae ese tramo completo — no
 // únicamente "hoy" — para que no exista forma de perder un día.
 let PEND_CACHE = { ts: 0, data: null };
+// Último día con ventas presente en el caché guardado (usa el desglose diario del data.json)
+function ultimoDiaEnCache(){
+  let max = null;
+  try {
+    Object.values(DATA_CACHE || {}).forEach(clientes => (clientes || []).forEach(c => {
+      (c.frecuencia_dia || []).forEach(f => {
+        if (!f || !f.anio || !f.mes || !f.dia) return;
+        const d = new Date(f.anio, f.mes - 1, f.dia);
+        if (!max || d > max) max = d;
+      });
+    }));
+  } catch(e) {}
+  return max;
+}
 function _parseDDMMYYYY(str){
   const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(String(str||'').trim());
   if (!m) return null;
@@ -562,8 +576,12 @@ async function ventasPendientes(forzar){
   const hoyD = nowEC();
   const hasta = fmtDateEC(hoyD);
   let desde = hasta;
-  const corteStr = await getConfigApp('data_hasta', '');
-  const corte = _parseDDMMYYYY(corteStr);
+  // El corte REAL se deduce del propio caché: el último día con ventas registradas.
+  // Es imposible que se solapen (nunca pedimos un día que el caché ya tenga) y es
+  // inmune a que la regeneración nocturna falle, se atrase o se salte días.
+  let corte = ultimoDiaEnCache();
+  const corteStr = corte ? fmtDateEC(corte) : (await getConfigApp('data_hasta', '') || null);
+  if (!corte) corte = _parseDDMMYYYY(corteStr);
   if (corte) {
     const sig = new Date(corte); sig.setDate(sig.getDate() + 1);
     // Tope de seguridad: nunca pedir más de 40 días hacia atrás
@@ -4107,7 +4125,7 @@ const server = http.createServer(async (req, res) => {
           total_nc_con_iva: r2(brutoNC), subtotal_nc: r2(subNC),
           neto_con_iva: r2(brutoFac - brutoNC), neto_subtotal: r2(subFac - subNC) },
         pipeline_app: { documentos_aceptados: aceptDocs, neto_con_iva: r2(aceptTotal), neto_subtotal: r2(aceptSub) },
-        cache_guardada: { subtotal: r2(appSub), total_con_iva: r2(appTot) },
+        cache_guardada: { subtotal: r2(appSub), total_con_iva: r2(appTot), ultimo_dia_con_ventas: (function(){ const u = ultimoDiaEnCache(); return u ? fmtDateEC(u) : null; })() },
         diferencia_pipeline_vs_contifico: { con_iva: r2(aceptTotal - (brutoFac - brutoNC)), subtotal: r2(aceptSub - (subFac - subNC)) },
         diferencia_cache_vs_pipeline: { subtotal: r2(appSub - aceptSub), con_iva: r2(appTot - aceptTotal) },
         descartados_por_razon: razones
