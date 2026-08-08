@@ -551,7 +551,7 @@ async function sincronizarHoy() {
 // El data.json guardado llega hasta cierta fecha de corte (app_config.data_hasta). Todo
 // lo emitido después vive solo en Contifico. Esta función trae ese tramo completo — no
 // únicamente "hoy" — para que no exista forma de perder un día.
-let PEND_CACHE = { ts: 0, data: null };
+let PEND_CACHE = { ts: 0, clave: '', data: null };
 // Último día con ventas presente en el caché guardado (usa el desglose diario del data.json)
 function ultimoDiaEnCache(){
   let max = null;
@@ -572,7 +572,6 @@ function _parseDDMMYYYY(str){
   return new Date(parseInt(m[3]), parseInt(m[2])-1, parseInt(m[1]));
 }
 async function ventasPendientes(forzar){
-  if (!forzar && PEND_CACHE.data && (Date.now() - PEND_CACHE.ts) < 5 * 60 * 1000) return PEND_CACHE.data;
   const hoyD = nowEC();
   const hasta = fmtDateEC(hoyD);
   let desde = hasta;
@@ -592,6 +591,14 @@ async function ventasPendientes(forzar){
   const dHasta = _parseDDMMYYYY(hasta);
   if (dDesde && dHasta && dDesde > dHasta) desde = hasta;  // el caché ya cubre hoy
 
+  // El memo se invalida solo si cambia el rango. Sin esto, cuando la regeneración
+  // avanzaba el corte del caché, el memo viejo seguía devolviendo días que el caché
+  // ya había absorbido — y esos días se contaban dos veces.
+  const claveRango = desde + '|' + hasta;
+  if (!forzar && PEND_CACHE.data && PEND_CACHE.clave === claveRango && (Date.now() - PEND_CACHE.ts) < 5 * 60 * 1000) {
+    return PEND_CACHE.data;
+  }
+
   let todos = [];
   let nextUrl = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${desde}&fecha_final=${hasta}&page_size=100`;
   let pgs = 0;
@@ -606,6 +613,12 @@ async function ventasPendientes(forzar){
   const vistos = new Set();
   const base = todos.filter(d => {
     if (d.tipo_registro !== 'CLI' || d.anulado || noEsVenta(d)) return false;
+    // Cinturón de seguridad: jamás devolver un día que el caché ya contiene
+    if (corte) {
+      const fe = String(d.fecha_emision || '').split('/');
+      const fd = new Date(parseInt(fe[2]), parseInt(fe[1]) - 1, parseInt(fe[0]));
+      if (!isNaN(fd) && fd <= corte) return false;
+    }
     const k = d.id || d.documento;
     if (vistos.has(k)) return false;
     vistos.add(k);
@@ -616,7 +629,7 @@ async function ventasPendientes(forzar){
   documentos.forEach(d => { d.cliente_nombre = d.cliente?.razon_social || d.cliente?.nombre_comercial || d.persona_id || '—'; });
   nc_documentos.forEach(d => { d.cliente_nombre = d.cliente?.razon_social || d.cliente?.nombre_comercial || d.persona_id || '—'; });
   const out = { total: documentos.length, desde, hasta, corte_cache: corteStr || null, documentos, nc_documentos, generado: new Date().toISOString() };
-  PEND_CACHE = { ts: Date.now(), data: out };
+  PEND_CACHE = { ts: Date.now(), clave: claveRango, data: out };
   console.log(`✓ Ventas pendientes ${desde} → ${hasta}: ${documentos.length} facturas, ${nc_documentos.length} NC`);
   return out;
 }
@@ -1422,7 +1435,7 @@ async function fusionarMesActualEnCache() {
     // Reordenar
     Object.keys(DATA_CACHE).forEach(v => DATA_CACHE[v].sort((a,b)=>b.total-a.total));
     await guardarDataEnDB(DATA_CACHE);
-    try { await setConfigApp('data_hasta', hasta); PEND_CACHE = { ts:0, data:null }; } catch(e) {}
+    try { await setConfigApp('data_hasta', hasta); PEND_CACHE = { ts:0, clave:'', data:null }; } catch(e) {}
     console.log(`✓ Fusión completa (${fi} - ${hasta}): ${Object.keys(DATA_CACHE).length} vendedoras`);
   } catch(e) {
     console.error('Error en fusión:', e.message);
@@ -2051,7 +2064,7 @@ async function regenerarDataAutomatico() {
     await guardarDataEnDB(dataAnio);
     // Marca hasta qué día llega el caché. Todo lo posterior lo completa /api/ventas-pendientes,
     // así ningún día puede quedar en tierra de nadie si la regeneración se atrasa o falla.
-    try { await setConfigApp('data_hasta', ff); PEND_CACHE = { ts:0, data:null }; } catch(e) {}
+    try { await setConfigApp('data_hasta', ff); PEND_CACHE = { ts:0, clave:'', data:null }; } catch(e) {}
     try { fs.writeFileSync(path.join(__dirname, 'data.json'), JSON.stringify(dataAnio, null, 2)); } catch(e) {}
     console.log('✓ Regeneración automática completada (histórico completo reconstruido)');
   } catch(e) { console.error('Error en regeneración automática:', e.message); }
@@ -3897,28 +3910,25 @@ const server = http.createServer(async (req, res) => {
           });
         });
       });
-      // Sumar las facturas de HOY desde el caché en vivo (la regeneración del data.json
-      // llega solo hasta ayer, así que aquí nunca se duplica)
+      // Sumar TODO lo que el caché aún no cubre (desde su corte hasta hoy), cada factura
+      // en su propio día. Antes solo se sumaba "hoy" y los días intermedios salían en cero.
       if (anio === ahora.getFullYear() && mes === (ahora.getMonth() + 1)) {
-        const diaHoy = ahora.getDate();
-        let tHoy = 0, sHoy = 0;
-        (cache.documentos || []).forEach(d => {
-          if (String(d.cliente?.ruc || d.cliente?.cedula || '').trim() === '1793143660001') return;
-          const tot = parseFloat(d.total || 0);
-          tHoy += tot;
-          sHoy += parseFloat(d.subtotal || (tot/1.15) || 0);
-        });
-        (cache.nc_documentos || []).forEach(d => {
-          if (String(d.cliente?.ruc || d.cliente?.cedula || '').trim() === '1793143660001') return;
-          const tot = parseFloat(d.total || 0);
-          tHoy -= tot;
-          sHoy -= parseFloat(d.subtotal || (tot/1.15) || 0);
-        });
-        if (tHoy > 0) {
-          if (!porDia[diaHoy]) porDia[diaHoy] = { total: 0, subtotal: 0 };
-          porDia[diaHoy].total += tHoy;
-          porDia[diaHoy].subtotal += sHoy;
-        }
+        try {
+          const pend = await ventasPendientes(false);
+          const aportar = (lista, signo) => (lista || []).forEach(d => {
+            if (String(d.cliente?.ruc || d.cliente?.cedula || '').trim() === '1793143660001') return;
+            const fe = String(d.fecha_emision || '').split('/');
+            const dd = parseInt(fe[0]), mm = parseInt(fe[1]), aa = parseInt(fe[2]);
+            if (!dd || mm !== mes || aa !== anio) return;
+            const tot = parseFloat(d.total || 0);
+            const sub = parseFloat(d.subtotal || (tot/1.15) || 0);
+            if (!porDia[dd]) porDia[dd] = { total: 0, subtotal: 0 };
+            porDia[dd].total += signo * tot;
+            porDia[dd].subtotal += signo * sub;
+          });
+          aportar(pend.documentos, 1);
+          aportar(pend.nc_documentos, -1);
+        } catch(e) { console.error('ventas-mes-actual pendientes:', e.message); }
       }
       const diasArr = Object.keys(porDia).map(d=>parseInt(d)).sort((a,b)=>a-b).map(d=>({
         dia: d,
