@@ -9119,8 +9119,9 @@ async function renderPresupuestoVentas(){
     if(!asesoras.some(a=>pptoAncla(a.nombre)===pptoAncla(nom))) asesoras.push({nombre:nom, rol:'asesora', sinUsuario:true});
   });
   if (compactoP) {
-    // Presupuesto ventas: solo las asesoras de venta (fuera Giovanna, "Nueva Asesora" y jefas)
-    asesoras = asesoras.filter(a => a.rol !== 'jefa_ventas' && !/giovanna|nueva asesora/i.test(a.nombre));
+    // Presupuesto ventas: las asesoras de venta + Giovanna (jefa de marca, también vende).
+    // Fuera "Nueva Asesora" y cualquier otra jefatura sin cartera propia.
+    asesoras = asesoras.filter(a => !/nueva asesora/i.test(a.nombre) && (a.rol !== 'jefa_ventas' || /giovanna/i.test(a.nombre)));
   }
 
   // Ventas sin IVA por asesora y mes (desde DATA, que ya incluye hoy vía merge)
@@ -9199,7 +9200,8 @@ async function renderPresupuestoVentas(){
     let sugerido = crecs.length ? crecs[Math.floor(crecs.length/2)] : 0;
     sugerido = Math.max(-10, Math.min(20, Math.round(sugerido*10)/10));
     const pctKey = Object.keys(cfg.pct||{}).find(n=>pptoAncla(n)===k);
-    const pct = pctKey !== undefined ? parseFloat(cfg.pct[pctKey]) : null;
+    let pct = pctKey !== undefined ? parseFloat(cfg.pct[pctKey]) : null;
+    if(pct === null || isNaN(pct)) pct = pctPorDefecto(a.nombre);
     const ovKey = Object.keys(cfg.overrides||{}).find(n=>pptoAncla(n)===k);
     const ov = ovKey !== undefined ? (cfg.overrides[ovKey]||{}) : {};
     const upliftAse = Math.round(upliftTotal * ((eraybaAse[k]||0) / eraybaTotal));
@@ -11382,6 +11384,16 @@ async function cargarMetaVentasCfg(){
   }
 }
 
+// % de crecimiento mensual por defecto cuando todavía no se ha configurado uno a mano.
+// Se muestra en el campo editable, así que basta con cambiarlo ahí para sobrescribirlo.
+const PCT_CRECIMIENTO_DEFECTO = [
+  { patron: /giovanna/i, pct: 5 }
+];
+function pctPorDefecto(nombre){
+  const hit = PCT_CRECIMIENTO_DEFECTO.find(x => x.patron.test(String(nombre||'')));
+  return hit ? hit.pct : null;
+}
+
 // Barra de avance del mes contra la meta: cuánto lleva vendido, cuánto le falta y el
 // porcentaje cumplido al final de la barra.
 function barraAvanceMeta(nombreVend, anioM, mesM, meta, MESES_P){
@@ -11414,6 +11426,124 @@ function barraAvanceMeta(nombreVend, anioM, mesM, meta, MESES_P){
         <div style="font-size:15px;font-weight:800;color:${col};min-width:52px;text-align:right">${pctA}%</div>
       </div>
     </div>`;
+}
+
+// Meta mensual de una asesora — MISMA regla que el panel Presupuesto ventas:
+// override manual si existe, si no el último mes cerrado más su % de crecimiento.
+// Se centraliza aquí para que el panel de Giovanna y la tarjeta personal no puedan
+// divergir: una sola definición de "meta".
+function metaDeAsesora(nombreVend, anioM, mesM){
+  const cfgP = window._pptoCfgKpi || {};
+  const shiftM = (a,m,d)=>{ m+=d; while(m>12){m-=12;a++;} while(m<1){m+=12;a--;} return {a,m}; };
+  const ancla = x => String(x||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase().split(/\s+/).slice(0,2).join(' ');
+  const prev = shiftM(anioM, mesM, -1);
+  const base = Math.round(ventasMesDeVendedora(nombreVend, prev.m, prev.a) || 0);
+  const kPct = Object.keys(cfgP.pct||{}).find(k=>ancla(k)===ancla(nombreVend));
+  let pct = kPct !== undefined ? parseFloat(cfgP.pct[kPct]) : null;
+  if(pct === null || isNaN(pct)) pct = pctPorDefecto(nombreVend);
+  const kOv = Object.keys(cfgP.overrides||{}).find(k=>ancla(k)===ancla(nombreVend));
+  const mkM = anioM+'-'+String(mesM).padStart(2,'0');
+  const ov = kOv !== undefined ? (cfgP.overrides[kOv]||{})[mkM] : undefined;
+  if(ov !== undefined && ov !== null && ov !== ''){
+    return { meta: Math.round(parseFloat(ov)||0), manual:true, pct, base };
+  }
+  if(pct !== null && !isNaN(pct) && base) return { meta: Math.round(base*(1+pct/100)), manual:false, pct, base };
+  return { meta: null, manual:false, pct, base };
+}
+
+// Panel de equipo para Giovanna: ventas y cumplimiento de meta de cada asesora + las suyas.
+// Las metas salen del mismo sitio que el panel Presupuesto ventas, así que cambiarlas allá
+// se refleja aquí sin tocar nada.
+function cardEquipoGiovanna(nombreVend, usuarios, anioE, mesE){
+  if(!/giovanna/i.test(String(nombreVend||''))) return '';
+  const MESES_E = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const ancla = x => String(x||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase().split(/\s+/).slice(0,2).join(' ');
+
+  // El equipo se arma solo con las asesoras activas: si entra o sale alguien, este panel
+  // se actualiza sin tener que tocar código.
+  const miembros = [];
+  (usuarios||[]).forEach(u=>{
+    if(!u.activo) return;
+    if(u.rol !== 'asesora') return;
+    if(/nueva asesora/i.test(u.nombre)) return;
+    const real = (typeof resolverNombreReal === 'function' ? resolverNombreReal(u.nombre, DATA) : null) || u.nombre;
+    if(miembros.some(m=>ancla(m.nombre)===ancla(real))) return;
+    miembros.push({ nombre: real, propia:false });
+  });
+  const realGio = (typeof resolverNombreReal === 'function' ? resolverNombreReal(nombreVend, DATA) : null) || nombreVend;
+  if(!miembros.some(m=>ancla(m.nombre)===ancla(realGio))) miembros.unshift({ nombre: realGio, propia:true });
+  else miembros.forEach(m=>{ if(ancla(m.nombre)===ancla(realGio)) m.propia = true; });
+
+  const filas = miembros.map(m=>{
+    const ventas = Math.round(ventasMesDeVendedora(m.nombre, mesE, anioE) || 0);
+    const mi = metaDeAsesora(m.nombre, anioE, mesE);
+    const meta = mi.meta;
+    const pctCump = (meta && meta > 0) ? Math.round(ventas/meta*1000)/10 : null;
+    return { ...m, ventas, meta, pctCump, manual: mi.manual };
+  }).sort((a,b)=> b.ventas - a.ventas);
+
+  if(!filas.length) return '';
+
+  const totalVentas = filas.reduce((a,f)=>a+f.ventas, 0);
+  const totalMeta = filas.reduce((a,f)=>a+(f.meta||0), 0);
+  const pctEquipo = totalMeta > 0 ? Math.round(totalVentas/totalMeta*1000)/10 : null;
+  const faltaEquipo = Math.max(0, totalMeta - totalVentas);
+
+  const fmtE = x => '$' + Math.round(x).toLocaleString('en-US');
+  const esc = x => String(x||'').replace(/</g,'&lt;');
+  const colorPct = p => p===null ? 'var(--muted)' : p>=100 ? '#16a34a' : p>=70 ? 'var(--brown)' : p>=40 ? '#d97706' : '#dc2626';
+
+  let html = `
+    <div class="card" style="margin-bottom:12px">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:14px">
+        <div class="card-title" style="margin-bottom:0"><i class="ti ti-users-group"></i> Mi equipo — ${MESES_E[mesE]} ${anioE}</div>
+        <div style="font-size:10px;color:var(--muted)">Metas tomadas de Reportes → Presupuesto ventas</div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px">
+        <div style="background:#1a1108;border-radius:10px;padding:12px;text-align:center">
+          <div style="font-size:10px;color:rgba(255,255,255,0.7);text-transform:uppercase;letter-spacing:0.5px">Ventas del equipo</div>
+          <div style="font-size:22px;font-weight:800;color:white">${fmtE(totalVentas)}</div>
+          <div style="font-size:9px;color:rgba(255,255,255,0.6)">${filas.length} personas · sin IVA</div>
+        </div>
+        <div style="background:#faf9f8;border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center">
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Meta del equipo</div>
+          <div style="font-size:22px;font-weight:800;color:var(--brown)">${totalMeta?fmtE(totalMeta):'—'}</div>
+          ${totalMeta?`<div style="font-size:9px;color:var(--muted)">${faltaEquipo?'faltan '+fmtE(faltaEquipo):'cumplida'}</div>`:''}
+        </div>
+        <div style="background:${pctEquipo!==null&&pctEquipo>=100?'#f0fdf4':'#f3f0ec'};border-radius:10px;padding:12px;text-align:center">
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Cumplimiento</div>
+          <div style="font-size:22px;font-weight:800;color:${colorPct(pctEquipo)}">${pctEquipo!==null?pctEquipo+'%':'—'}</div>
+          <div style="font-size:9px;color:var(--muted)">del equipo completo</div>
+        </div>
+      </div>`;
+
+  filas.forEach(f=>{
+    const ancho = f.pctCump===null ? 0 : Math.max(0, Math.min(100, f.pctCump));
+    const col = colorPct(f.pctCump);
+    const falta = (f.meta && f.meta > f.ventas) ? f.meta - f.ventas : 0;
+    html += `
+      <div style="margin-bottom:13px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px;margin-bottom:5px">
+          <div style="font-size:13px;font-weight:600">${esc(String(f.nombre).split(' ').slice(0,2).join(' '))}
+            ${f.propia?'<span style="font-size:9px;font-weight:700;color:var(--brown);background:#f3f0ec;border-radius:6px;padding:2px 6px;margin-left:5px">MIS VENTAS</span>':''}</div>
+          <div style="font-size:11px;color:var(--muted)">
+            <b style="color:var(--text);font-size:13px">${fmtE(f.ventas)}</b>
+            ${f.meta?' de '+fmtE(f.meta):' · sin meta'}
+            ${falta?' <span style="color:#d97706">· faltan '+fmtE(falta)+'</span>':(f.meta?' <span style="color:#16a34a">· cumplida</span>':'')}
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="flex:1;height:13px;background:#eee9e4;border-radius:8px;overflow:hidden">
+            <div style="width:${ancho}%;height:100%;background:${col};border-radius:8px;transition:width 0.4s"></div>
+          </div>
+          <div style="font-size:13px;font-weight:800;color:${col};min-width:48px;text-align:right">${f.pctCump!==null?f.pctCump+'%':'—'}</div>
+        </div>
+      </div>`;
+  });
+
+  html += `<div style="font-size:11px;color:var(--muted);margin-top:6px;line-height:1.5">Cada meta sale del último mes cerrado de esa asesora más su % de crecimiento acordado, o del valor que hayas fijado a mano en Presupuesto ventas. Si cambias algo allá, aquí se actualiza solo.</div>
+    </div>`;
+  return html;
 }
 
 // Tarjeta de presupuesto personal (misma lógica que Reportes → Presupuesto ventas, una asesora)
@@ -11646,6 +11776,9 @@ document.getElementById('main').innerHTML = `
       </div>
       <button onclick="kpiGioMesNav(1)" ${esMesActual?'disabled':''} style="width:34px;height:34px;border:1px solid var(--border);border-radius:50%;background:${esMesActual?'#f5f3f0':'white'};cursor:${esMesActual?'default':'pointer'};display:flex;align-items:center;justify-content:center;font-size:14px;color:${esMesActual?'#ccc':'var(--brown)'}"><i class="ti ti-chevron-right"></i></button>
     </div>
+
+    <!-- Equipo: ventas y cumplimiento de meta de cada asesora -->
+    ${cardEquipoGiovanna(asesoraKpi, usuarios, anio, mes)}
 
     <!-- Ventas durante el año + Meta de ventas de Giovanna -->
     ${cardsVentasYMeta(asesoraKpi, anio)}
