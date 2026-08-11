@@ -586,6 +586,95 @@ async function sincronizarHoy() {
   cache.sincronizando = false;
 }
 
+// ─── FUENTE ÚNICA DE VERDAD ───────────────────────────────────────────────────────
+// El data.json que recibe el navegador ya viene COMPLETO: caché histórica + el tramo que
+// aún no ha entrado en ella, fusionado aquí con la MISMA función que genera todo el resto
+// (generarDataJson). El navegador no vuelve a aplicar ninguna regla de negocio.
+//
+// Por qué importa: durante meses las reglas (qué es venta, qué se descarta, cómo se netean
+// las notas de crédito) vivían escritas dos veces —una en el servidor y otra en el navegador—
+// y bastaba que una se quedara atrás para que las cifras se separaran de Contifico. Con una
+// sola implementación, esa clase de error deja de ser posible.
+const _r2 = x => Math.round((x||0)*100)/100;
+function _consolidar(lista, clave, sumar){
+  const m = {};
+  (lista||[]).forEach(x => {
+    if (!x) return;
+    const k = clave(x);
+    if (!m[k]) m[k] = { ...x };
+    else sumar(m[k], x);
+  });
+  return Object.values(m);
+}
+function fusionAditiva(base, extra){
+  const out = {};
+  Object.entries(base || {}).forEach(([v, cls]) => {
+    out[v] = (cls || []).map(c => ({ ...c }));
+  });
+  Object.entries(extra || {}).forEach(([v, cls]) => {
+    if (!out[v]) out[v] = [];
+    const porId = {}; out[v].forEach(c => { porId[c.id] = c; });
+    (cls || []).forEach(ce => {
+      const c = porId[ce.id];
+      if (!c) { out[v].push({ ...ce }); porId[ce.id] = ce; return; }
+      c.total = _r2(c.total + ce.total);
+      c.subtotal = _r2((c.subtotal||0) + (ce.subtotal||0));
+      c.num_compras = (c.num_compras||0) + (ce.num_compras||0);
+      c.saldo = _r2((c.saldo||0) + (ce.saldo||0));
+      if (ce.telefono) c.telefono = ce.telefono;
+      if (ce.direccion) c.direccion = ce.direccion;
+      if (ce.provincia) c.provincia = ce.provincia;
+      c.frecuencia = _consolidar([...(c.frecuencia||[]), ...(ce.frecuencia||[])],
+        x => x.anio+'|'+x.mes,
+        (a,b) => { a.total=_r2(a.total+b.total); a.subtotal=_r2((a.subtotal||0)+(b.subtotal||0)); a.compras=(a.compras||0)+(b.compras||0); })
+        .sort((a,b) => a.anio!==b.anio ? a.anio-b.anio : a.mes-b.mes);
+      c.frecuencia_dia = _consolidar([...(c.frecuencia_dia||[]), ...(ce.frecuencia_dia||[])],
+        x => x.anio+'|'+x.mes+'|'+x.dia,
+        (a,b) => { a.total=_r2(a.total+b.total); a.subtotal=_r2((a.subtotal||0)+(b.subtotal||0)); a.compras=(a.compras||0)+(b.compras||0); });
+      c.marcas = _consolidar([...(c.marcas||[]), ...(ce.marcas||[])],
+        x => x.marca, (a,b) => { a.total=_r2(a.total+b.total); })
+        .sort((a,b) => b.total-a.total);
+      c.marcas_anio = _consolidar([...(c.marcas_anio||[]), ...(ce.marcas_anio||[])],
+        x => x.anio+'|'+x.marca, (a,b) => { a.total=_r2(a.total+b.total); });
+      c.marcas_mes = _consolidar([...(c.marcas_mes||[]), ...(ce.marcas_mes||[])],
+        x => x.anio+'|'+x.mes+'|'+x.marca, (a,b) => { a.total=_r2(a.total+b.total); });
+      c.productos = _consolidar([...(c.productos||[]), ...(ce.productos||[])],
+        x => x.id || x.nombre, (a,b) => { a.cantidad=_r2((a.cantidad||0)+(b.cantidad||0)); a.total=_r2((a.total||0)+(b.total||0)); })
+        .sort((a,b) => b.cantidad-a.cantidad);
+      c.productos_mes = _consolidar([...(c.productos_mes||[]), ...(ce.productos_mes||[])],
+        x => x.anio+'|'+x.mes+'|'+(x.id||x.nombre),
+        (a,b) => { a.cantidad=_r2((a.cantidad||0)+(b.cantidad||0)); a.total=_r2((a.total||0)+(b.total||0)); });
+    });
+    out[v].sort((a,b) => b.total - a.total);
+  });
+  return out;
+}
+
+let DATA_SERVIDA = { clave:'', ts:0, data:null };
+async function dataCompleta(){
+  const cacheBase = DATA_CACHE || {};
+  let pend;
+  try { pend = await ventasPendientes(false); }
+  catch(e) { console.error('dataCompleta/pendientes:', e.message); return cacheBase; }
+  // Si no hay nada pendiente, el caché ya es la verdad completa
+  if (!(pend.documentos||[]).length && !(pend.nc_documentos||[]).length) return cacheBase;
+  const clave = pend.desde + '|' + pend.hasta + '|' + (DATA_CACHE_TS || '') + '|' + (pend.documentos||[]).length;
+  if (DATA_SERVIDA.data && DATA_SERVIDA.clave === clave && (Date.now() - DATA_SERVIDA.ts) < 3 * 60 * 1000) {
+    return DATA_SERVIDA.data;
+  }
+  try {
+    // MISMAS reglas que la regeneración: una sola implementación, sin margen de divergencia
+    const extra = await generarDataJson(pend.desde, pend.hasta);
+    const fusion = fusionAditiva(cacheBase, extra);
+    DATA_SERVIDA = { clave, ts: Date.now(), data: fusion };
+    console.log(`✓ data.json completo: caché + ${pend.desde}→${pend.hasta}`);
+    return fusion;
+  } catch(e) {
+    console.error('Error fusionando tramo pendiente:', e.message);
+    return cacheBase;   // degradar antes que romper
+  }
+}
+
 // ─── VENTAS PENDIENTES ────────────────────────────────────────────────────────────
 // El data.json guardado llega hasta cierta fecha de corte (app_config.data_hasta). Todo
 // lo emitido después vive solo en Contifico. Esta función trae ese tramo completo — no
@@ -1439,7 +1528,12 @@ function consolidarProductosMes(lista){
 function noEsVenta(d) {
   const t = String((d && d.tipo_documento) || '').toUpperCase().trim();
   const tr = String((d && d.tipo_registro) || '').toUpperCase().trim();
-  return t === 'COT' || t === 'PRO' || t === 'PRE' || tr === 'PRE' || tr === 'PRO' || tr === 'COT';
+  // DAC = documento de anticipo de cliente. NO es una venta: el propio reporte de Contifico
+  // lo lista aparte, en la línea "Anticipos", y no lo suma al total de ventas. Hasta ahora
+  // quedaba fuera solo porque los anticipos no llevan vendedora asignada — un accidente, no
+  // una regla. Bastaba que alguien le pusiera vendedora a uno para inflar las ventas del mes.
+  return t === 'COT' || t === 'PRO' || t === 'PRE' || t === 'DAC'
+      || tr === 'PRE' || tr === 'PRO' || tr === 'COT' || tr === 'DAC';
 }
 
 function esNotaCredito(d) {
@@ -4065,7 +4159,8 @@ const server = http.createServer(async (req, res) => {
       const anio = parseInt(urlObj.searchParams.get('anio')) || ahora.getFullYear();
       const mes = parseInt(urlObj.searchParams.get('mes')) || (ahora.getMonth() + 1); // 1-indexed, igual que frecuencia_dia
       const porDia = {}; // { dia: {total, subtotal} }
-      Object.values(DATA_CACHE||{}).forEach(clientes => {
+      const FUENTE = await dataCompleta();   // misma fuente única que /data.json
+      Object.values(FUENTE||{}).forEach(clientes => {
         (clientes||[]).forEach(cli => {
           (cli.frecuencia_dia||[]).forEach(f => {
             if (f.anio !== anio || f.mes !== mes) return;
@@ -4075,26 +4170,7 @@ const server = http.createServer(async (req, res) => {
           });
         });
       });
-      // Sumar TODO lo que el caché aún no cubre (desde su corte hasta hoy), cada factura
-      // en su propio día. Antes solo se sumaba "hoy" y los días intermedios salían en cero.
-      if (anio === ahora.getFullYear() && mes === (ahora.getMonth() + 1)) {
-        try {
-          const pend = await ventasPendientes(false);
-          const aportar = (lista, signo) => (lista || []).forEach(d => {
-            if (String(d.cliente?.ruc || d.cliente?.cedula || '').trim() === '1793143660001') return;
-            const fe = String(d.fecha_emision || '').split('/');
-            const dd = parseInt(fe[0]), mm = parseInt(fe[1]), aa = parseInt(fe[2]);
-            if (!dd || mm !== mes || aa !== anio) return;
-            const tot = parseFloat(d.total || 0);
-            const sub = parseFloat(d.subtotal || (tot/1.15) || 0);
-            if (!porDia[dd]) porDia[dd] = { total: 0, subtotal: 0 };
-            porDia[dd].total += signo * tot;
-            porDia[dd].subtotal += signo * sub;
-          });
-          aportar(pend.documentos, 1);
-          aportar(pend.nc_documentos, -1);
-        } catch(e) { console.error('ventas-mes-actual pendientes:', e.message); }
-      }
+      // Ya no hay nada que sumar aparte: dataCompleta() incluye el tramo pendiente.
       const diasArr = Object.keys(porDia).map(d=>parseInt(d)).sort((a,b)=>a-b).map(d=>({
         dia: d,
         total: Math.round(porDia[d].total*100)/100,
@@ -4273,7 +4349,7 @@ const server = http.createServer(async (req, res) => {
           // Ahora, las mismas reglas del pipeline, anotando por qué se descarta
           if (d.tipo_registro !== 'CLI') return add('proveedor_o_no_cliente', d, tot);
           if (d.anulado) return add('anulado', d, tot);
-          if (noEsVenta(d)) return add('cotizacion_proforma_o_prefactura', d, tot);
+          if (noEsVenta(d)) return add(String(d.tipo_documento||'').toUpperCase()==='DAC' ? 'anticipo_de_cliente' : 'cotizacion_proforma_o_prefactura', d, tot);
           if (!d.vendedor && !d.vendedor_id && !d.vendedor_identificacion) return add('SIN_VENDEDOR_ASIGNADO', d, tot);
           const idCli = String((d.cliente && (d.cliente.ruc || d.cliente.cedula)) || '').trim();
           if (idCli === '1793143660001') return add('autoconsumo_cosetika', d, tot);
@@ -4289,14 +4365,15 @@ const server = http.createServer(async (req, res) => {
         nC = dC.next || null; pgC++;
       }
 
-      // Lado app: lo que hoy tiene guardado DATA_CACHE para ese mes
-      let appSub = 0, appTot = 0;
-      Object.values(DATA_CACHE || {}).forEach(clientes => {
+      // Lado app: exactamente lo que recibe el navegador (caché + tramo pendiente fusionado)
+      let appSub = 0, appTot = 0, appCompras = 0;
+      const FUENTE_APP = await dataCompleta();
+      Object.values(FUENTE_APP || {}).forEach(clientes => {
         (clientes || []).forEach(c => {
           (c.frecuencia || []).forEach(f => {
             if (f.mes !== mesC) return;
             if (f.anio && f.anio !== anioC) return;
-            appSub += (f.subtotal || 0); appTot += (f.total || 0);
+            appSub += (f.subtotal || 0); appTot += (f.total || 0); appCompras += (f.compras || 0);
           });
         });
       });
@@ -4311,9 +4388,11 @@ const server = http.createServer(async (req, res) => {
           total_nc_con_iva: r2(brutoNC), subtotal_nc: r2(subNC),
           neto_con_iva: r2(brutoFac - brutoNC), neto_subtotal: r2(subFac - subNC) },
         pipeline_app: { documentos_aceptados: aceptDocs, neto_con_iva: r2(aceptTotal), neto_subtotal: r2(aceptSub) },
-        cache_guardada: { subtotal: r2(appSub), total_con_iva: r2(appTot), ultimo_dia_con_ventas: (function(){ const u = ultimoDiaEnCache(); return u ? fmtDateEC(u) : null; })() },
+        lo_que_ve_la_app: { subtotal: r2(appSub), total_con_iva: r2(appTot), facturas: appCompras,
+          ultimo_dia_en_cache: (function(){ const u = ultimoDiaEnCache(); return u ? fmtDateEC(u) : null; })() },
         diferencia_pipeline_vs_contifico: { con_iva: r2(aceptTotal - (brutoFac - brutoNC)), subtotal: r2(aceptSub - (subFac - subNC)) },
-        diferencia_cache_vs_pipeline: { subtotal: r2(appSub - aceptSub), con_iva: r2(appTot - aceptTotal) },
+        DIFERENCIA_APP_VS_CONTIFICO: { subtotal: r2(appSub - (subFac - subNC)), con_iva: r2(appTot - (brutoFac - brutoNC - 0)), facturas: appCompras - contFac },
+        cuadrado: Math.abs(appSub - (subFac - subNC)) < 0.5,
         descartados_por_razon: razones
       }, null, 2));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false, error:e.message})); }
@@ -4444,8 +4523,9 @@ const server = http.createServer(async (req, res) => {
 
   // DATA.JSON desde caché en memoria (PostgreSQL)
   if (urlPath === '/data.json') {
+    const completo = await dataCompleta();
     res.writeHead(200, {'Content-Type':'application/json'});
-    res.end(JSON.stringify(DATA_CACHE || {}));
+    res.end(JSON.stringify(completo || {}));
     return;
   }
 

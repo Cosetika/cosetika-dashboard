@@ -3982,19 +3982,10 @@ async function cargarData(){
     const r=await fetch('/data.json');
     DATA=await r.json();
 
-    // Cargar TODO lo que el data.json todavía no cubre (desde su fecha de corte hasta hoy).
-    // Antes se cargaba solo "hoy" y, si la regeneración nocturna se atrasaba, los días
-    // intermedios desaparecían de la app sin aviso.
-    try {
-      const pend = await fetch('/api/ventas-pendientes');
-      const dataPend = await pend.json();
-      window._corteCache = dataPend.corte_cache || null;
-      window._rangoPendiente = (dataPend.desde && dataPend.hasta) ? (dataPend.desde + ' → ' + dataPend.hasta) : null;
-      if(dataPend.total > 0 || (dataPend.nc_documentos||[]).length) {
-        mergearVentasHoy(dataPend.documentos || [], dataPend.nc_documentos || []);
-        console.log('Ventas pendientes cargadas:', dataPend.total, window._rangoPendiente);
-      }
-    } catch(e) { console.log('Sin data pendiente:', e.message); }
+    // /data.json ya llega COMPLETO desde el servidor (caché histórica + lo emitido después,
+    // fusionado allá con la misma función que genera todo lo demás). El navegador no aplica
+    // ninguna regla de negocio sobre las ventas: tener esas reglas escritas dos veces era
+    // justamente lo que hacía que la app se separara de Contifico cada tanto.
 
     initVendedoras();
     mostrarVentasHoy();
@@ -4081,10 +4072,13 @@ async function mostrarVentasHoy(){
   } catch(e) { console.log('Sin data hoy:', e.message); }
 }
 
-function mergearVentasHoy(docs, ncs){
-  // Suma las facturas de HOY (caché en vivo de Contifico) al DATA del año, para que
-  // gráficos y KPIs estén al día sin esperar la regeneración nocturna.
-  // OJO: la regeneración del data.json llega solo hasta AYER — así nunca se duplica.
+// OBSOLETA — no llamar. Se conserva solo como referencia histórica.
+// Esta función reimplementaba en el navegador las reglas de negocio que ya vivían en el
+// servidor (qué documento es venta, cómo se netean las notas de crédito, qué se descarta).
+// Mantener esas reglas escritas dos veces fue la causa de fondo de los desfases repetidos
+// contra Contifico: bastaba que una de las dos se quedara atrás. Hoy el servidor entrega
+// /data.json ya completo y el navegador no calcula nada.
+function mergearVentasHoy_OBSOLETA(docs, ncs){
   const hoy = new Date(new Date().toLocaleString('en-US',{timeZone:'America/Guayaquil'}));
 
   [[docs||[], 1], [ncs||[], -1]].forEach(([listaDocs, signoNC]) => listaDocs.forEach(doc => {
@@ -8347,8 +8341,8 @@ async function regenerarData(){
     // directamente la URL /api/regenerar-data?desde=01/01/AAAA&hasta=... en el navegador.
     const hoy = new Date();
     const desde = `01/01/${hoy.getFullYear()}`;
-    // Hasta AYER: las facturas de hoy viven en el caché en vivo y se suman aparte
-    // (mergearVentasHoy) — así jamás se cuentan dos veces
+    // Hasta AYER: lo posterior lo completa el servidor al servir /data.json, sumando el
+    // tramo pendiente con las mismas reglas. Nunca se cuenta dos veces.
     const ayer = new Date(hoy); ayer.setDate(hoy.getDate()-1);
     const dd = String(ayer.getDate()).padStart(2,'0');
     const mm = String(ayer.getMonth()+1).padStart(2,'0');
