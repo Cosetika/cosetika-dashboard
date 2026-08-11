@@ -11382,6 +11382,40 @@ async function cargarMetaVentasCfg(){
   }
 }
 
+// Barra de avance del mes contra la meta: cuánto lleva vendido, cuánto le falta y el
+// porcentaje cumplido al final de la barra.
+function barraAvanceMeta(nombreVend, anioM, mesM, meta, MESES_P){
+  if(meta === null || !(meta > 0)) return '';
+  const hoyB = new Date(new Date().toLocaleString('en-US',{timeZone:'America/Guayaquil'}));
+  const anioHoy = hoyB.getFullYear(), mesHoy = hoyB.getMonth()+1;
+  // Si la meta corresponde a un mes que todavía no arranca (del 25 en adelante se proyecta
+  // el siguiente), no hay avance que mostrar todavía.
+  if(anioM > anioHoy || (anioM === anioHoy && mesM > mesHoy)){
+    return '<div style="margin-top:12px;font-size:11px;color:var(--muted);text-align:center;background:#faf9f8;border:1px dashed var(--border);border-radius:10px;padding:10px">'
+      + 'Tu avance aparecerá aquí cuando empiece ' + MESES_P[mesM] + '.</div>';
+  }
+  const vendido = Math.round(ventasMesDeVendedora(nombreVend, mesM, anioM) || 0);
+  const falta = Math.max(0, meta - vendido);
+  const pctA = Math.round(vendido / meta * 1000) / 10;
+  const ancho = Math.max(0, Math.min(100, pctA));
+  const cumplida = vendido >= meta;
+  const col = cumplida ? '#16a34a' : (pctA >= 60 ? 'var(--brown)' : '#d97706');
+  const fmtB = x => '$' + Math.round(x).toLocaleString('en-US');
+  return `
+    <div style="margin-top:14px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;margin-bottom:6px">
+        <div style="font-size:11px;color:var(--muted)">Vendido en ${MESES_P[mesM]} <b style="color:${col};font-size:15px;margin-left:4px">${fmtB(vendido)}</b></div>
+        <div style="font-size:11px;color:var(--muted)">${cumplida ? '<b style="color:#16a34a">¡Meta cumplida!</b>' : 'Te falta <b style="color:var(--text);font-size:15px;margin-left:2px">'+fmtB(falta)+'</b>'}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="flex:1;height:16px;background:#eee9e4;border-radius:10px;overflow:hidden">
+          <div style="width:${ancho}%;height:100%;background:${col};border-radius:10px;transition:width 0.4s"></div>
+        </div>
+        <div style="font-size:15px;font-weight:800;color:${col};min-width:52px;text-align:right">${pctA}%</div>
+      </div>
+    </div>`;
+}
+
 // Tarjeta de presupuesto personal (misma lógica que Reportes → Presupuesto ventas, una asesora)
 function cardPresupuestoAsesora(nombreVend){
   const cfgP = window._pptoCfgKpi;
@@ -11438,6 +11472,7 @@ function cardPresupuestoAsesora(nombreVend){
           ${esManual?'<div style="font-size:9px;color:#fcd34d;font-weight:600">meta fijada</div>':''}
         </div>
       </div>
+      ${barraAvanceMeta(nombreVend, pa, pm, meta, MESES_P)}
       <div style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.5">Tu meta sale de tu último mes cerrado (${MESES_P[h2.m]}: ${fmtK(v2)}) más el incremento mensual acordado${pct!==null?' de '+pct+'%':''}. El <b>mínimo</b> es el promedio de tus 2 últimos meses: por debajo de ${fmtK(minimoP)} tu comisión baja.</div>
     </div>`;
 }
