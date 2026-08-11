@@ -245,8 +245,9 @@ async function generarDataJson(fi, ff) {
       cli.total += totalDoc; cli.subtotal += subDoc; if (signoDoc > 0) { cli.num_compras++; cli.saldo += parseFloat(doc.saldo || 0); }
       const anioDoc = parseInt((doc.fecha_emision || '').split('/')[2]) || new Date().getFullYear();
       const freqKey = `${anioDoc}-${String(mes).padStart(2,'0')}`;
-      if (!cli.frecuencia[freqKey]) cli.frecuencia[freqKey] = { anio: anioDoc, mes, total: 0, subtotal: 0, compras: 0 };
-      cli.frecuencia[freqKey].total += totalDoc; cli.frecuencia[freqKey].subtotal += subDoc; if (signoDoc > 0) cli.frecuencia[freqKey].compras++;
+      if (!cli.frecuencia[freqKey]) cli.frecuencia[freqKey] = { anio: anioDoc, mes, total: 0, subtotal: 0, compras: 0, saldo: 0 };
+      cli.frecuencia[freqKey].total += totalDoc; cli.frecuencia[freqKey].subtotal += subDoc;
+      if (signoDoc > 0) { cli.frecuencia[freqKey].compras++; cli.frecuencia[freqKey].saldo += parseFloat(doc.saldo || 0); }
       // Desglose exacto por día — para el gráfico "ventas del mes por día" (instantáneo, sin pegarle a Contifico en vivo)
       const diaDoc = parseInt((doc.fecha_emision || '').split('/')[0]) || 0;
       if (diaDoc) {
@@ -310,7 +311,7 @@ async function generarDataJson(fi, ff) {
       marcas_mes: Object.values(cli.marcasPorMes||{}).map(x => ({ anio: x.anio, mes: x.mes, marca: x.marca, total: Math.round(x.total*100)/100 })),
       productos: Object.values(cli.productos).map(p => ({ id: p.id, nombre: p.nombre, codigo: p.codigo, marca: p.marca, cantidad: Math.round(p.cantidad), total: Math.round(p.total*100)/100 })).sort((a,b) => b.cantidad-a.cantidad),
       productos_mes: Object.values(cli.productosPorMes||{}).map(x => ({ anio: x.anio, mes: x.mes, id: x.id, nombre: x.nombre, marca: x.marca, cantidad: Math.round(x.cantidad*100)/100, total: Math.round(x.total*100)/100 })),
-      frecuencia: Object.values(cli.frecuencia).map(f => ({ anio: f.anio, mes: f.mes, total: Math.round(f.total*100)/100, subtotal: Math.round(f.subtotal*100)/100, compras: f.compras })).sort((a,b) => a.anio!==b.anio ? a.anio-b.anio : a.mes-b.mes),
+      frecuencia: Object.values(cli.frecuencia).map(f => ({ anio: f.anio, mes: f.mes, total: Math.round(f.total*100)/100, subtotal: Math.round(f.subtotal*100)/100, compras: f.compras, saldo: Math.round((f.saldo||0)*100)/100 })).sort((a,b) => a.anio!==b.anio ? a.anio-b.anio : a.mes-b.mes),
       frecuencia_dia: Object.values(cli.frecuenciaPorDia||{}).map(f => ({ anio: f.anio, mes: f.mes, dia: f.dia, total: Math.round(f.total*100)/100, subtotal: Math.round(f.subtotal*100)/100, compras: f.compras }))
     })).sort((a,b) => b.total-a.total);
     // Acumular (no sobreescribir): una vendedora puede aparecer con su id real y con
@@ -606,71 +607,101 @@ function _consolidar(lista, clave, sumar){
   });
   return Object.values(m);
 }
-function fusionAditiva(base, extra){
+// REEMPLAZO DEL MES EN CURSO.
+// No intenta adivinar hasta dónde llega el caché ni pegarle encima lo que falta: borra el
+// mes completo de lo guardado y lo repone con lo que Contifico dice AHORA. Da igual si el
+// caché venía corto, adelantado o con días repetidos — el mes queda exacto por construcción.
+//
+// Los totales del cliente se DERIVAN de su detalle mensual (frecuencia, marcas_mes,
+// productos_mes) en vez de arrastrarse sumando y restando. Así no pueden acumular deriva.
+function fusionMesActual(base, extra, anio, mes){
+  const delMes = x => x && x.anio === anio && x.mes === mes;
   const out = {};
+
+  // 1) Copiar el caché SIN el mes objetivo
   Object.entries(base || {}).forEach(([v, cls]) => {
-    out[v] = (cls || []).map(c => ({ ...c }));
+    out[v] = (cls || []).map(c => ({
+      ...c,
+      frecuencia:     (c.frecuencia||[]).filter(x => !delMes(x)),
+      frecuencia_dia: (c.frecuencia_dia||[]).filter(x => !delMes(x)),
+      marcas_mes:     (c.marcas_mes||[]).filter(x => !delMes(x)),
+      productos_mes:  (c.productos_mes||[]).filter(x => !delMes(x)),
+      _saldoCache:    c.saldo || 0,
+      _codigos:       Object.fromEntries((c.productos||[]).map(p => [p.id || p.nombre, p.codigo || '']))
+    }));
   });
+
+  // 2) Reponer el mes con los datos frescos
   Object.entries(extra || {}).forEach(([v, cls]) => {
     if (!out[v]) out[v] = [];
     const porId = {}; out[v].forEach(c => { porId[c.id] = c; });
     (cls || []).forEach(ce => {
-      const c = porId[ce.id];
-      if (!c) { out[v].push({ ...ce }); porId[ce.id] = ce; return; }
-      c.total = _r2(c.total + ce.total);
-      c.subtotal = _r2((c.subtotal||0) + (ce.subtotal||0));
-      c.num_compras = (c.num_compras||0) + (ce.num_compras||0);
-      c.saldo = _r2((c.saldo||0) + (ce.saldo||0));
+      let c = porId[ce.id];
+      if (!c) {
+        c = { ...ce, frecuencia:[], frecuencia_dia:[], marcas_mes:[], productos_mes:[], _saldoCache:null,
+              _codigos: Object.fromEntries((ce.productos||[]).map(p => [p.id || p.nombre, p.codigo || ''])) };
+        out[v].push(c); porId[ce.id] = c;
+      }
+      c.nombre = ce.nombre || c.nombre;
+      if (ce.ruc) c.ruc = ce.ruc;
       if (ce.telefono) c.telefono = ce.telefono;
       if (ce.direccion) c.direccion = ce.direccion;
       if (ce.provincia) c.provincia = ce.provincia;
-      c.frecuencia = _consolidar([...(c.frecuencia||[]), ...(ce.frecuencia||[])],
-        x => x.anio+'|'+x.mes,
-        (a,b) => { a.total=_r2(a.total+b.total); a.subtotal=_r2((a.subtotal||0)+(b.subtotal||0)); a.compras=(a.compras||0)+(b.compras||0); })
-        .sort((a,b) => a.anio!==b.anio ? a.anio-b.anio : a.mes-b.mes);
-      c.frecuencia_dia = _consolidar([...(c.frecuencia_dia||[]), ...(ce.frecuencia_dia||[])],
-        x => x.anio+'|'+x.mes+'|'+x.dia,
-        (a,b) => { a.total=_r2(a.total+b.total); a.subtotal=_r2((a.subtotal||0)+(b.subtotal||0)); a.compras=(a.compras||0)+(b.compras||0); });
-      c.marcas = _consolidar([...(c.marcas||[]), ...(ce.marcas||[])],
-        x => x.marca, (a,b) => { a.total=_r2(a.total+b.total); })
-        .sort((a,b) => b.total-a.total);
-      c.marcas_anio = _consolidar([...(c.marcas_anio||[]), ...(ce.marcas_anio||[])],
-        x => x.anio+'|'+x.marca, (a,b) => { a.total=_r2(a.total+b.total); });
-      c.marcas_mes = _consolidar([...(c.marcas_mes||[]), ...(ce.marcas_mes||[])],
-        x => x.anio+'|'+x.mes+'|'+x.marca, (a,b) => { a.total=_r2(a.total+b.total); });
-      c.productos = _consolidar([...(c.productos||[]), ...(ce.productos||[])],
-        x => x.id || x.nombre, (a,b) => { a.cantidad=_r2((a.cantidad||0)+(b.cantidad||0)); a.total=_r2((a.total||0)+(b.total||0)); })
-        .sort((a,b) => b.cantidad-a.cantidad);
-      c.productos_mes = _consolidar([...(c.productos_mes||[]), ...(ce.productos_mes||[])],
-        x => x.anio+'|'+x.mes+'|'+(x.id||x.nombre),
-        (a,b) => { a.cantidad=_r2((a.cantidad||0)+(b.cantidad||0)); a.total=_r2((a.total||0)+(b.total||0)); });
+      (ce.productos||[]).forEach(p => { if (p.codigo) c._codigos[p.id || p.nombre] = p.codigo; });
+      c.frecuencia     = c.frecuencia.concat((ce.frecuencia||[]).filter(delMes));
+      c.frecuencia_dia = c.frecuencia_dia.concat((ce.frecuencia_dia||[]).filter(delMes));
+      c.marcas_mes     = c.marcas_mes.concat((ce.marcas_mes||[]).filter(delMes));
+      c.productos_mes  = c.productos_mes.concat((ce.productos_mes||[]).filter(delMes));
     });
-    out[v].sort((a,b) => b.total - a.total);
   });
+
+  // 3) Derivar todos los agregados desde el detalle mensual
+  Object.values(out).forEach(cls => cls.forEach(c => {
+    c.frecuencia.sort((a,b) => a.anio!==b.anio ? a.anio-b.anio : a.mes-b.mes);
+    c.total       = _r2(c.frecuencia.reduce((a,f) => a + (f.total||0), 0));
+    c.subtotal    = _r2(c.frecuencia.reduce((a,f) => a + (f.subtotal||0), 0));
+    c.num_compras = c.frecuencia.reduce((a,f) => a + (f.compras||0), 0);
+    // Saldo: derivado si el caché ya trae saldo por mes; si es un caché viejo que no lo
+    // tiene, se conserva el saldo guardado (se vuelve exacto tras la próxima regeneración).
+    const traeSaldo = c.frecuencia.some(f => f.saldo !== undefined);
+    c.saldo = traeSaldo ? _r2(c.frecuencia.reduce((a,f) => a + (f.saldo||0), 0))
+                        : _r2(c._saldoCache || 0);
+    c.marcas_anio = _consolidar(c.marcas_mes.map(x => ({ anio:x.anio, marca:x.marca, total:x.total })),
+      x => x.anio+'|'+x.marca, (a,b) => { a.total = _r2(a.total + b.total); });
+    c.marcas = _consolidar(c.marcas_mes.map(x => ({ marca:x.marca, total:x.total })),
+      x => x.marca, (a,b) => { a.total = _r2(a.total + b.total); }).sort((a,b) => b.total - a.total);
+    c.productos = _consolidar(c.productos_mes.map(x => ({ id:x.id, nombre:x.nombre, codigo:(c._codigos||{})[x.id||x.nombre]||'', marca:x.marca, cantidad:x.cantidad, total:x.total })),
+      x => x.id || x.nombre, (a,b) => { a.cantidad = _r2(a.cantidad + b.cantidad); a.total = _r2(a.total + b.total); })
+      .sort((a,b) => b.cantidad - a.cantidad);
+    delete c._saldoCache; delete c._codigos;
+  }));
+
+  Object.keys(out).forEach(v => out[v].sort((a,b) => b.total - a.total));
   return out;
 }
 
 let DATA_SERVIDA = { clave:'', ts:0, data:null };
 async function dataCompleta(){
   const cacheBase = DATA_CACHE || {};
-  let pend;
-  try { pend = await ventasPendientes(false); }
-  catch(e) { console.error('dataCompleta/pendientes:', e.message); return cacheBase; }
-  // Si no hay nada pendiente, el caché ya es la verdad completa
-  if (!(pend.documentos||[]).length && !(pend.nc_documentos||[]).length) return cacheBase;
-  const clave = pend.desde + '|' + pend.hasta + '|' + (DATA_CACHE_TS || '') + '|' + (pend.documentos||[]).length;
+  const hoy = nowEC();
+  const anio = hoy.getFullYear();
+  const mes = hoy.getMonth() + 1;
+  const hastaStr = fmtDateEC(hoy);
+  const clave = anio + '-' + mes + '|' + hastaStr + '|' + (DATA_CACHE_TS || '');
   if (DATA_SERVIDA.data && DATA_SERVIDA.clave === clave && (Date.now() - DATA_SERVIDA.ts) < 3 * 60 * 1000) {
     return DATA_SERVIDA.data;
   }
   try {
-    // MISMAS reglas que la regeneración: una sola implementación, sin margen de divergencia
-    const extra = await generarDataJson(pend.desde, pend.hasta);
-    const fusion = fusionAditiva(cacheBase, extra);
+    // El mes en curso se recalcula ENTERO con las mismas reglas de siempre y reemplaza al
+    // del caché. No se infiere nada sobre hasta dónde llegaba lo guardado.
+    const desdeStr = '01/' + String(mes).padStart(2,'0') + '/' + anio;
+    const mesFresco = await generarDataJson(desdeStr, hastaStr);
+    const fusion = fusionMesActual(cacheBase, mesFresco, anio, mes);
     DATA_SERVIDA = { clave, ts: Date.now(), data: fusion };
-    console.log(`✓ data.json completo: caché + ${pend.desde}→${pend.hasta}`);
+    console.log(`✓ data.json: mes ${desdeStr}→${hastaStr} reemplazado con datos frescos`);
     return fusion;
   } catch(e) {
-    console.error('Error fusionando tramo pendiente:', e.message);
+    console.error('Error recalculando el mes en curso:', e.message);
     return cacheBase;   // degradar antes que romper
   }
 }
