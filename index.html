@@ -11586,7 +11586,7 @@ function cardEquipoGiovanna(nombreVend, usuarios, anioE, mesE){
     const mi = metaDeAsesora(m.nombre, anioE, mesE);
     const meta = mi.meta;
     const pctCump = (meta && meta > 0) ? Math.round(ventas/meta*1000)/10 : null;
-    return { ...m, ventas, meta, pctCump, manual: mi.manual };
+    return { ...m, ventas, meta, pctCump, manual: mi.manual, pctIncr: mi.pct, base: mi.base };
   }).sort((a,b)=> b.ventas - a.ventas);
 
   if(!filas.length) return '';
@@ -11594,6 +11594,9 @@ function cardEquipoGiovanna(nombreVend, usuarios, anioE, mesE){
   const totalVentas = filas.reduce((a,f)=>a+f.ventas, 0);
   const totalMeta = filas.reduce((a,f)=>a+(f.meta||0), 0);
   const pctEquipo = totalMeta > 0 ? Math.round(totalVentas/totalMeta*1000)/10 : null;
+  // Incremento exigido al equipo: cuánto crece la meta total sobre la base (mes anterior)
+  const baseEquipo = filas.reduce((a,f)=>a+(f.base||0), 0);
+  const incrEquipo = (baseEquipo > 0 && totalMeta > 0) ? Math.round((totalMeta/baseEquipo-1)*1000)/10 : null;
   const faltaEquipo = Math.max(0, totalMeta - totalVentas);
 
   const fmtE = x => '$' + Math.round(x).toLocaleString('en-US');
@@ -11615,7 +11618,7 @@ function cardEquipoGiovanna(nombreVend, usuarios, anioE, mesE){
         <div style="background:#faf9f8;border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center">
           <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Meta del equipo</div>
           <div style="font-size:22px;font-weight:800;color:var(--brown)">${totalMeta?fmtE(totalMeta):'—'}</div>
-          ${totalMeta?`<div style="font-size:9px;color:var(--muted)">${faltaEquipo?'faltan '+fmtE(faltaEquipo):'cumplida'}</div>`:''}
+          ${totalMeta?`<div style="font-size:9px;color:var(--muted)">${faltaEquipo?'faltan '+fmtE(faltaEquipo):'cumplida'}${incrEquipo!==null?' · +'+incrEquipo+'%':''}</div>`:''}
         </div>
         <div style="background:${pctEquipo!==null&&pctEquipo>=100?'#f0fdf4':'#f3f0ec'};border-radius:10px;padding:12px;text-align:center">
           <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Cumplimiento</div>
@@ -11635,7 +11638,7 @@ function cardEquipoGiovanna(nombreVend, usuarios, anioE, mesE){
             ${f.propia?'<span style="font-size:9px;font-weight:700;color:var(--brown);background:#f3f0ec;border-radius:6px;padding:2px 6px;margin-left:5px">MIS VENTAS</span>':''}</div>
           <div style="font-size:11px;color:var(--muted)">
             <b style="color:var(--text);font-size:13px">${fmtE(f.ventas)}</b>
-            ${f.meta?' de '+fmtE(f.meta):' · sin meta'}
+            ${f.meta?' de '+fmtE(f.meta):' · sin meta'}${f.manual?' <span style="font-size:9px;color:var(--muted)">(fijada)</span>':(f.pctIncr!==null&&f.pctIncr!==undefined&&!isNaN(f.pctIncr)?' <span style="font-size:10px;font-weight:700;color:var(--brown)" title="Incremento exigido sobre el mes anterior">+'+f.pctIncr+'%</span>':'')}
             ${falta?' <span style="color:#d97706">· faltan '+fmtE(falta)+'</span>':(f.meta?' <span style="color:#16a34a">· cumplida</span>':'')}
           </div>
         </div>
