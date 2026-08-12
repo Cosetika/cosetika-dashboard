@@ -8872,6 +8872,22 @@ async function subirFinanzas(input, tipo){
   input.value = '';
 }
 
+async function cargarAjuste(clave, porDefecto){
+  try{
+    const r = await fetch('/api/ajuste?clave='+encodeURIComponent(clave));
+    const d = await r.json();
+    const v = parseFloat(d.valor);
+    return isFinite(v) ? v : porDefecto;
+  }catch(e){ return porDefecto; }
+}
+async function guardarAjuste(clave, valor, recargar){
+  try{
+    await fetch('/api/ajuste',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({clave,valor})});
+    window._finLead = null;
+    if(recargar) renderBalance();
+  }catch(e){}
+}
+
 async function cargarFin(tipo, anio){
   window._finCache = window._finCache || {};
   const k = tipo+'-'+(anio||'ult');
@@ -9069,6 +9085,7 @@ async function renderBalance(){
   if(!cont) return;
   cont.innerHTML = '<div style="padding:30px;text-align:center;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:22px"></i></div>';
   let D;
+  if(!window._finLead) window._finLead = await cargarAjuste('cobertura_inventario_meses', 6);
   try{ D = await cargarFin('balance', window._finAniobalance); }
   catch(e){ cont.innerHTML = '<div class="card" style="padding:24px;text-align:center;color:var(--muted)">No se pudo cargar el reporte.</div>'; return; }
   if(D.vacio){ cont.innerHTML = finCabecera('balance', D, 'Balance General'); return; }
@@ -9105,8 +9122,25 @@ async function renderBalance(){
   const ins = [];
   ins.push({tipo: liquidez>=1.5?'bien':(liquidez>=1?'ojo':'alerta'), titulo:'Liquidez',
     texto:`Razón corriente <b>${liquidez.toFixed(2)}x</b> y prueba ácida <b>${acida.toFixed(2)}x</b>. El capital de trabajo es <b>${finFmt(capTrab)}</b>. ${liquidez>=1.5?'Hay holgura de sobra para cubrir el corto plazo.':liquidez>=1?'Alcanza, pero sin margen de maniobra.':'El pasivo corriente supera al activo corriente: hay riesgo de tensión de caja.'} ${acida<1 && liquidez>=1.5?'Ojo: sin el inventario la cobertura baja a '+acida.toFixed(2)+'x, así que buena parte de esa holgura está en mercadería, no en dinero.':''}`});
-  if(diasInv!==null) ins.push({tipo: diasInv>150?'alerta':(diasInv>90?'ojo':'bien'), titulo:'El inventario es donde está atrapado el efectivo',
-    texto:`Con <b>${finFmt(inv)}</b> en stock y un costo de ventas de ${finFmt(cogsMes)} al mes, tienes <b>${Math.round(diasInv)} días</b> de inventario (${(diasInv/30).toFixed(1)} meses). ${diasInv>150?'Es muy alto para cosmética: cada mes de stock de más son dólares parados que podrían pagar deuda o financiar crecimiento. Bajarlo a 4 meses liberaría cerca de <b>'+finFmt(inv-cogsMes*4)+'</b>.':'Es un nivel manejable.'}`});
+  if(diasInv!==null){
+    // La vara no es un estándar genérico: con importación desde Europa, la cobertura
+    // necesaria es el tiempo de tránsito + un colchón de seguridad. Ese objetivo se
+    // configura abajo y es lo que decide si hay exceso o no.
+    const objMeses = window._finLead || 6;
+    const mesesInv = diasInv/30;
+    const exceso = (mesesInv - objMeses) * cogsMes;
+    const cobertura = `Tienes <b>${mesesInv.toFixed(1)} meses</b> de inventario (${finFmt(inv)} contra un costo de ventas de ${finFmt(cogsMes)} al mes), frente a un objetivo de <b>${objMeses} meses</b>.`;
+    if(mesesInv > objMeses * 1.25){
+      ins.push({tipo:'ojo', titulo:'Cobertura por encima del objetivo',
+        texto:`${cobertura} El exceso sobre el objetivo equivale a unos <b>${finFmt(exceso)}</b> inmovilizados. Antes de recortar compras conviene mirar el <b>mix</b>: el promedio esconde SKUs con 15 meses de stock junto a otros en cero. El dinero se libera afinando qué se compra, no comprando menos en general.`});
+    } else if(mesesInv < objMeses * 0.8){
+      ins.push({tipo:'alerta', titulo:'Cobertura por debajo del objetivo — riesgo de quiebre',
+        texto:`${cobertura} Con un tránsito de varios meses desde Europa, reponer lo que falte no es inmediato. Un quiebre cuesta el margen completo de la venta perdida: al ${finPct(75)} de margen bruto, cada $10.000 no vendidos son $7.500 de utilidad que no entra.`});
+    } else {
+      ins.push({tipo:'bien', titulo:'Cobertura de inventario en el rango correcto',
+        texto:`${cobertura} Es coherente con el tiempo de reposición desde Europa: suficiente para no quebrar stock sin inmovilizar de más.`});
+    }
+  }
   if(ciclo!==null) ins.push({tipo: ciclo>120?'ojo':'dato', titulo:'Ciclo de conversión de efectivo',
     texto:`Inventario ${Math.round(diasInv)} días + cobro ${Math.round(diasCxc)} días − pago a proveedores ${Math.round(diasCxp)} días = <b>${Math.round(ciclo)} días</b> desde que pagas la mercadería hasta que recuperas el dinero. ${diasCxc<20?'El cobro es rápido y ese no es el problema.':''} ${diasCxp<30?'Estás pagando a proveedores mucho más rápido de lo que rotas el inventario — ahí hay espacio para negociar plazos.':''}`});
   const deudaTotal = deudaBanco + socios;
@@ -9134,12 +9168,18 @@ async function renderBalance(){
         ${card('Capital de trabajo', finFmt(capTrab), liquidez.toFixed(2)+'x de liquidez', capTrab>=0?'#16a34a':'#dc2626')}
       </div>
       <div class="card" style="margin-bottom:12px">
-        <div class="card-title" style="margin-bottom:12px"><i class="ti ti-calculator"></i> Indicadores a ${D.meses[u]} ${D.anio}</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px">
+          <div class="card-title" style="margin-bottom:0"><i class="ti ti-calculator"></i> Indicadores a ${D.meses[u]} ${D.anio}</div>
+          <div style="font-size:11px;color:var(--muted)">Cobertura de inventario objetivo:
+            <input type="number" min="1" max="24" step="0.5" value="${window._finLead||6}" onchange="guardarAjuste('cobertura_inventario_meses',this.value,true)" style="width:52px;padding:3px 5px;font-size:12px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;font-weight:700;color:var(--brown)"> meses
+            <span title="Tiempo de tránsito desde Europa más un colchón de seguridad" style="cursor:help;color:var(--brown)"><i class="ti ti-help-circle"></i></span>
+          </div>
+        </div>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:9px">
           ${mini('Razón corriente', liquidez.toFixed(2)+'x','activo/pasivo corriente', liquidez>=1.5?'#16a34a':'#d97706')}
           ${mini('Prueba ácida', acida.toFixed(2)+'x','sin inventario', acida>=1?'#16a34a':'#d97706')}
           ${mini('Endeudamiento', finPct(endeud),'pasivo/activo', endeud<50?'#16a34a':'#d97706')}
-          ${mini('Días inventario', diasInv!==null?Math.round(diasInv):'—','rotación', diasInv!==null&&diasInv>150?'#dc2626':'var(--text)')}
+          ${mini('Meses de inventario', diasInv!==null?(diasInv/30).toFixed(1):'—','objetivo '+(window._finLead||6), diasInv!==null&&(diasInv/30)<(window._finLead||6)*0.8?'#dc2626':'var(--text)')}
           ${mini('Días de cobro', diasCxc!==null?Math.round(diasCxc):'—','cartera', diasCxc!==null&&diasCxc<30?'#16a34a':'var(--text)')}
           ${mini('Días de pago', diasCxp!==null?Math.round(diasCxp):'—','proveedores')}
           ${mini('Ciclo de efectivo', ciclo!==null?Math.round(ciclo):'—','días', ciclo!==null&&ciclo>120?'#d97706':'var(--text)')}

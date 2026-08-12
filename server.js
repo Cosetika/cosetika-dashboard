@@ -4015,6 +4015,23 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // Ajustes simples clave/valor (reutilizable). Solo admin.
+  if (urlPath === '/api/ajuste' && (req.method === 'GET' || req.method === 'POST')) {
+    if (bloquearSiNoAdmin(req, res)) return;
+    try {
+      if (req.method === 'GET') {
+        const clave = String(urlObj.searchParams.get('clave')||'');
+        const valor = await getConfigApp(clave, null);
+        res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, clave, valor}));
+      } else {
+        const b = await bodyJSON(req);
+        await setConfigApp(String(b.clave||''), String(b.valor==null?'':b.valor));
+        res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+      }
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
   if (urlPath === '/api/finanzas' && req.method === 'GET') {
     if (bloquearSiNoAdmin(req, res)) return;
     try {
