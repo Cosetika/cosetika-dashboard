@@ -11651,6 +11651,37 @@ function cardEquipoGiovanna(nombreVend, usuarios, anioE, mesE){
       </div>`;
   });
 
+  // ── Evolución mensual de las ventas del equipo ──
+  const MAX_MES = (anioE === new Date().getFullYear()) ? new Date().getMonth()+1 : 12;
+  const serieEq = Array.from({length: MAX_MES}, (_,i)=>{
+    const m = i+1;
+    const tot = miembros.reduce((a,mb)=> a + (ventasMesDeVendedora(mb.nombre, m, anioE) || 0), 0);
+    return { mes: m, total: Math.round(tot) };
+  });
+  const maxEq = Math.max(...serieEq.map(x=>x.total), 1);
+  const mejorEq = Math.max(...serieEq.map(x=>x.total));
+  html += `
+    <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:14px">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+        <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1.2px"><i class="ti ti-chart-bar" style="margin-right:6px"></i>Ventas del equipo durante ${anioE}</div>
+        <div style="font-size:10px;color:var(--muted)">sin IVA · ${miembros.length} personas</div>
+      </div>
+      <div style="display:flex;gap:6px;align-items:flex-end">
+        ${serieEq.map(x=>{
+          const h = Math.max(Math.round(x.total/maxEq*90), x.total>0?3:0);
+          const esMesVista = (x.mes === mesE);
+          const esMejor = (x.total === mejorEq && x.total > 0);
+          return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;min-width:0">
+            <span style="font-size:9px;font-weight:${esMesVista?'800':'600'};color:${esMesVista?'var(--brown)':'var(--text)'};white-space:nowrap">${x.total?fmtE(x.total):''}</span>
+            <div style="width:100%;display:flex;align-items:flex-end;height:90px">
+              <div style="width:100%;background:${esMesVista?'var(--brown)':(esMejor?'#c9a227':'#d8cbbc')};border-radius:4px 4px 0 0;height:${h}px;transition:height 0.3s"></div>
+            </div>
+            <span style="font-size:10px;font-weight:${esMesVista?'700':'400'};color:${esMesVista?'var(--brown)':'var(--muted)'}">${MESES_E[x.mes]}</span>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+
   html += `<div style="font-size:11px;color:var(--muted);margin-top:6px;line-height:1.5">Cada meta sale del último mes cerrado de esa asesora más su % de crecimiento acordado, o del valor que hayas fijado a mano en Presupuesto ventas. Si cambias algo allá, aquí se actualiza solo.</div>
     </div>`;
   return html;
@@ -11890,8 +11921,8 @@ document.getElementById('main').innerHTML = `
     <!-- Equipo: ventas y cumplimiento de meta de cada asesora -->
     ${cardEquipoGiovanna(asesoraKpi, usuarios, anio, mes)}
 
-    <!-- Ventas durante el año + Meta de ventas de Giovanna -->
-    ${cardsVentasYMeta(asesoraKpi, anio)}
+    <!-- Ventas durante el año (propias) -->
+    ${cardsVentasYMeta(asesoraKpi, anio, 'ventas')}
 
     <!-- KPIS (facturas, ticket, ventas y comisión de equipo) -->
     <div class="card" style="margin-bottom:12px">
