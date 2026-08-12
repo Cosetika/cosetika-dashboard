@@ -2616,6 +2616,15 @@ async function initDB() {
       UPDATE personas SET origen='institutos' WHERE origen IS NULL AND instituto IS NOT NULL
         AND (vendedor IS NULL OR vendedor='') AND (telefono IS NULL OR telefono='') AND (email IS NULL OR email='');
       ALTER TABLE facturas_detalle ADD COLUMN IF NOT EXISTS cedula_ruc VARCHAR(50);
+      CREATE TABLE IF NOT EXISTS finanzas_reportes (
+        id SERIAL PRIMARY KEY,
+        tipo VARCHAR(20) NOT NULL,          -- 'pyg' | 'balance'
+        anio INTEGER NOT NULL,
+        datos TEXT NOT NULL,
+        archivo VARCHAR(300),
+        actualizado_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(tipo, anio)
+      );
       CREATE TABLE IF NOT EXISTS producto_costos (
         codigo VARCHAR(100) PRIMARY KEY,
         nombre VARCHAR(500),
@@ -3933,6 +3942,93 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200,{'Content-Type':'application/json'});
       res.end(JSON.stringify({ total: cache.documentos.length, documentos: cache.documentos, nc_documentos: cache.nc_documentos || [], degradado: true, error: e.message }));
     }
+    return;
+  }
+
+  // ─── ESTADOS FINANCIEROS (PyG y Balance descargados de Contifico) ───────────────
+  // El formato de Contifico es estable: fila de meses, columna A con el código jerárquico
+  // de la cuenta, columna B con el nombre y una columna por mes. Se guarda el año completo
+  // y cada carga nueva lo reemplaza, así subir el archivo de un mes actualiza todo.
+  if (urlPath === '/api/finanzas/subir' && req.method === 'POST') {
+    if (bloquearSiNoAdmin(req, res)) return;
+    try {
+      const buf = await bodyBuffer(req);
+      const archivo = parseMultipartFile(buf, req.headers['content-type']);
+      if (!archivo) { res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'No se encontró el archivo (campo "file")'})); return; }
+      const wb = XLSX.read(archivo.buffer, { type:'buffer' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const filas = XLSX.utils.sheet_to_json(ws, { header:1, defval:null, raw:true });
+      const txt = x => String(x==null?'':x).trim();
+
+      // Tipo y periodo salen de las primeras filas del encabezado
+      let titulo = '', periodo = '';
+      for (let i = 0; i < Math.min(6, filas.length); i++) {
+        (filas[i]||[]).forEach(c => {
+          const t = txt(c);
+          if (/estado de resultados|situaci[oó]n financiera/i.test(t)) titulo = t;
+          if (/^(desde el|hasta el)/i.test(t)) periodo = t;
+        });
+      }
+      const tipo = /situaci[oó]n financiera/i.test(titulo) ? 'balance' : 'pyg';
+      const mAnio = /(\d{4})\s*$/.exec(periodo) || /(20\d{2})/.exec(periodo);
+      const anio = mAnio ? parseInt(mAnio[1]) : nowEC().getFullYear();
+
+      // Fila de meses
+      const MESES_N = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'];
+      let filaMeses = -1, colIni = -1, meses = [];
+      for (let i = 0; i < Math.min(15, filas.length); i++) {
+        const f = filas[i] || [];
+        const idx = f.findIndex(c => txt(c).toUpperCase() === 'ENERO');
+        if (idx !== -1) {
+          filaMeses = i; colIni = idx;
+          for (let c = idx; c < f.length; c++) {
+            const t = txt(f[c]).toUpperCase();
+            if (MESES_N.includes(t)) meses.push(t.charAt(0) + t.slice(1).toLowerCase());
+            else break;
+          }
+          break;
+        }
+      }
+      if (filaMeses === -1) throw new Error('No se encontró la fila de meses (Enero, Febrero, ...) en el archivo');
+
+      const num = v => { const n = parseFloat(String(v==null?'':v).replace(/[^0-9.\-]/g,'')); return isFinite(n) ? n : 0; };
+      const cuentas = []; let resultado = null;
+      for (let i = filaMeses + 1; i < filas.length; i++) {
+        const f = filas[i]; if (!f) continue;
+        const cod = txt(f[0]), nom = txt(f[1]);
+        if (!nom) continue;
+        const valores = meses.map((_,j) => num(f[colIni + j]));
+        if (!cod) { resultado = { nombre: nom, valores }; continue; }
+        cuentas.push({ codigo: cod, nombre: nom, nivel: cod.split('.').length, valores });
+      }
+      if (!cuentas.length) throw new Error('No se leyó ninguna cuenta del archivo');
+
+      const datos = { tipo, anio, titulo, periodo, meses, cuentas, resultado };
+      await pool.query(
+        `INSERT INTO finanzas_reportes(tipo, anio, datos, archivo, actualizado_at) VALUES($1,$2,$3,$4,NOW())
+         ON CONFLICT (tipo, anio) DO UPDATE SET datos=$3, archivo=$4, actualizado_at=NOW()`,
+        [tipo, anio, JSON.stringify(datos), (archivo.filename||'').substring(0,290)]
+      );
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:true, tipo, anio, cuentas: cuentas.length, meses: meses.length, titulo }));
+    } catch(e) { res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
+  if (urlPath === '/api/finanzas' && req.method === 'GET') {
+    if (bloquearSiNoAdmin(req, res)) return;
+    try {
+      const tipo = String(urlObj.searchParams.get('tipo') || 'pyg');
+      const anioQ = parseInt(urlObj.searchParams.get('anio')) || null;
+      const r = anioQ
+        ? await pool.query('SELECT * FROM finanzas_reportes WHERE tipo=$1 AND anio=$2', [tipo, anioQ])
+        : await pool.query('SELECT * FROM finanzas_reportes WHERE tipo=$1 ORDER BY anio DESC LIMIT 1', [tipo]);
+      const rAnios = await pool.query('SELECT anio FROM finanzas_reportes WHERE tipo=$1 ORDER BY anio DESC', [tipo]);
+      if (!r.rows.length) { res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, vacio:true, anios: rAnios.rows.map(x=>x.anio)})); return; }
+      const fila = r.rows[0];
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:true, anios: rAnios.rows.map(x=>x.anio), actualizado: fila.actualizado_at, archivo: fila.archivo, ...JSON.parse(fila.datos) }));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
   }
 

@@ -272,6 +272,8 @@
       <div class="nav-sub-item" id="navsub-rep-presupuesto_ventas" onclick="navGoReportes('presupuesto_ventas')"><i class="ti ti-target" style="font-size:13px"></i>Presupuesto ventas</div>
       <div class="nav-sub-item" id="navsub-rep-comisiones" onclick="navGoReportes('comisiones')"><i class="ti ti-coin" style="font-size:13px"></i>Comisiones</div>
       <div class="nav-sub-item" id="navsub-rep-promos" onclick="navGoReportes('promos')"><i class="ti ti-gift" style="font-size:13px"></i>Promociones</div>
+      <div class="nav-sub-item" id="navsub-rep-pyg" onclick="navGoReportes('pyg')"><i class="ti ti-report-money" style="font-size:13px"></i>PyG</div>
+      <div class="nav-sub-item" id="navsub-rep-balance" onclick="navGoReportes('balance')"><i class="ti ti-scale" style="font-size:13px"></i>Balance</div>
       <div class="nav-sub-item" id="navsub-rep-nomina" onclick="navGoReportes('nomina')"><i class="ti ti-users-group" style="font-size:13px"></i>Nómina</div>
       <div class="nav-sub-item" id="navsub-rep-inversiones" onclick="navGoReportes('inversiones')"><i class="ti ti-receipt" style="font-size:13px"></i>Inversiones / Viáticos</div>
     </div>
@@ -8588,12 +8590,14 @@ function renderReportes(){
   document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
   document.getElementById('navsub-rep-'+tab)?.classList.add('active');
   document.getElementById('main').innerHTML=`
-    <div class="breadcrumb" style="margin-bottom:12px"><i class="ti ti-file-analytics" style="color:var(--brown);font-size:12px"></i><span style="font-weight:500">Reportes — ${tab==='inversiones'?'Inversiones / Viáticos':tab==='presupuesto'?'Presupuesto de ventas':tab==='presupuesto_ventas'?'Presupuesto ventas':tab==='nomina'?'Nómina':tab==='promos'?'Promociones — rentabilidad':'Comisiones'}</span></div>
+    <div class="breadcrumb" style="margin-bottom:12px"><i class="ti ti-file-analytics" style="color:var(--brown);font-size:12px"></i><span style="font-weight:500">Reportes — ${tab==='inversiones'?'Inversiones / Viáticos':tab==='presupuesto'?'Presupuesto de ventas':tab==='presupuesto_ventas'?'Presupuesto ventas':tab==='nomina'?'Nómina':tab==='promos'?'Promociones — rentabilidad':tab==='pyg'?'PyG — Estado de resultados':tab==='balance'?'Balance general':'Comisiones'}</span></div>
     <div id="reportes-content"></div>`;
   if(tab==='inversiones') renderInversiones();
   else if(tab==='presupuesto' || tab==='presupuesto_ventas') renderPresupuestoVentas();
   else if(tab==='nomina') renderNomina();
   else if(tab==='promos') renderPromos();
+  else if(tab==='pyg') renderPyG();
+  else if(tab==='balance') renderBalance();
   else renderComisiones();
 }
 
@@ -8806,6 +8810,328 @@ function pintarPromos(){
     + '</div>';
 
   cont.innerHTML = html;
+}
+
+// ─── ESTADOS FINANCIEROS: PyG y Balance ───────────────────────────────────────────
+// Los dos paneles leen el archivo que Contifico exporta tal cual. Cada carga reemplaza
+// el año completo, así que subir el archivo al cerrar un mes actualiza todo el histórico.
+const MESES_FIN = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+
+function finFmt(v){
+  const n = Math.round(v||0);
+  return (n<0?'-':'') + '$' + Math.abs(n).toLocaleString('en-US');
+}
+function finPct(v){ return (isFinite(v)? (Math.round(v*10)/10).toFixed(1) : '—') + '%'; }
+function finEsc(v){ return String(v==null?'':v).replace(/</g,'&lt;'); }
+
+// Busca una cuenta por código exacto y devuelve sus valores
+function finCta(D, cod){
+  const c = (D.cuentas||[]).find(x=>x.codigo===cod);
+  return c ? c.valores : null;
+}
+// Meses con movimiento real (evita que los meses futuros en cero distorsionen todo)
+function finMesesActivos(D){
+  const ing = finCta(D,'4') || finCta(D,'1') || [];
+  const out = [];
+  (D.meses||[]).forEach((m,i)=>{ if(Math.abs(ing[i]||0) > 0.01) out.push(i); });
+  return out.length ? out : (D.meses||[]).map((_,i)=>i);
+}
+
+async function subirFinanzas(input, tipo){
+  const f = input.files && input.files[0];
+  if(!f) return;
+  const st = document.getElementById('fin-status');
+  if(st){ st.textContent = 'Procesando...'; st.style.color = 'var(--muted)'; }
+  try{
+    const fd = new FormData(); fd.append('file', f);
+    const r = await fetch('/api/finanzas/subir', { method:'POST', body: fd });
+    const d = await r.json();
+    if(!d.ok) throw new Error(d.error||'Error al procesar');
+    if(d.tipo !== tipo){
+      if(st){ st.textContent = 'Ese archivo es un '+(d.tipo==='pyg'?'Estado de Resultados':'Balance')+' — se guardó en el panel correcto.'; st.style.color='#d97706'; }
+    } else if(st){ st.textContent = d.cuentas+' cuentas · '+d.meses+' meses · '+d.anio; st.style.color = '#16a34a'; }
+    window._finCache = {};
+    setTimeout(()=>{ if(tipo==='pyg') renderPyG(); else renderBalance(); }, 900);
+  }catch(e){ if(st){ st.textContent = String(e.message||e).substring(0,140); st.style.color = '#dc2626'; } }
+  input.value = '';
+}
+
+async function cargarFin(tipo, anio){
+  window._finCache = window._finCache || {};
+  const k = tipo+'-'+(anio||'ult');
+  if(window._finCache[k]) return window._finCache[k];
+  const r = await fetch('/api/finanzas?tipo='+tipo+(anio?('&anio='+anio):''));
+  const d = await r.json();
+  window._finCache[k] = d;
+  return d;
+}
+
+function finCabecera(tipo, D, titulo){
+  const anios = D.anios || [];
+  const act = D.actualizado ? new Date(D.actualizado).toLocaleDateString('es-EC',{day:'2-digit',month:'short',year:'numeric'}) : null;
+  return `
+    <div class="card" style="margin-bottom:12px;padding:12px 16px;display:flex;flex-wrap:wrap;align-items:center;gap:12px;justify-content:space-between">
+      <div style="font-size:12px;color:var(--muted);line-height:1.5">
+        ${D.vacio ? '<b style="color:#92400e">Todavía no has subido ningún archivo.</b> Descárgalo de Contifico y súbelo aquí.'
+                  : '<b style="color:var(--text)">'+finEsc(D.periodo||'')+'</b>'+(act?' · cargado el '+act:'')}
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        ${anios.length>1?`<select onchange="window._finAnio${tipo}=parseInt(this.value);${tipo==='pyg'?'renderPyG':'renderBalance'}()" style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:white;cursor:pointer">
+          ${anios.map(a=>`<option value="${a}" ${a===D.anio?'selected':''}>${a}</option>`).join('')}
+        </select>`:''}
+        <input type="file" id="file-fin-${tipo}" accept=".xls,.xlsx" style="display:none" onchange="subirFinanzas(this,'${tipo}')">
+        <button onclick="document.getElementById('file-fin-${tipo}').click()" style="padding:7px 14px;border-radius:9px;border:1px solid var(--brown);background:var(--brown);color:white;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap"><i class="ti ti-upload" style="margin-right:5px"></i>Subir ${titulo} de Contifico</button>
+        <span id="fin-status" style="font-size:11px;color:var(--muted)"></span>
+      </div>
+    </div>`;
+}
+
+// Tabla jerárquica de cuentas, plegable por nivel
+function finTabla(D, idx, titulo, maxNivel){
+  const ms = idx.map(i=>D.meses[i]);
+  let h = `<div class="card" style="padding:0;overflow:hidden;margin-bottom:12px">
+    <div style="padding:14px 16px 10px;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px"><i class="ti ti-table" style="margin-right:6px"></i>${titulo}</div>
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px;min-width:${260+idx.length*78}px">
+    <thead><tr style="background:#faf8f6">
+      <th style="text-align:left;padding:8px 12px;font-size:10px;color:var(--muted);text-transform:uppercase;position:sticky;left:0;background:#faf8f6;min-width:230px">Cuenta</th>
+      ${ms.map(m=>`<th style="text-align:right;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;white-space:nowrap">${m.substring(0,3)}</th>`).join('')}
+      <th style="text-align:right;padding:8px 10px;font-size:10px;color:var(--muted);text-transform:uppercase">Total</th>
+    </tr></thead><tbody>`;
+  (D.cuentas||[]).forEach(c=>{
+    if(c.nivel > maxNivel) return;
+    const vals = idx.map(i=>c.valores[i]||0);
+    const tot = vals.reduce((a,b)=>a+b,0);
+    if(Math.abs(tot) < 0.01 && c.nivel > 1) return;
+    const peso = c.nivel<=2 ? 700 : (c.nivel===3?600:400);
+    const bg = c.nivel===1 ? '#f3f0ec' : (c.nivel===2 ? '#faf8f6' : 'white');
+    h += `<tr style="background:${bg};border-bottom:0.5px solid var(--border)">
+      <td style="padding:6px 12px;padding-left:${8+(c.nivel-1)*12}px;font-weight:${peso};position:sticky;left:0;background:${bg};white-space:nowrap">${finEsc(c.nombre)}</td>
+      ${vals.map(v=>`<td style="padding:6px 8px;text-align:right;white-space:nowrap;color:${v<0?'#dc2626':'var(--text)'}">${Math.abs(v)<0.01?'—':finFmt(v)}</td>`).join('')}
+      <td style="padding:6px 10px;text-align:right;font-weight:700;white-space:nowrap;color:${tot<0?'#dc2626':'var(--brown)'}">${finFmt(tot)}</td>
+    </tr>`;
+  });
+  if(D.resultado){
+    const vals = idx.map(i=>D.resultado.valores[i]||0);
+    const tot = vals.reduce((a,b)=>a+b,0);
+    h += `<tr style="background:#1a1108;color:white">
+      <td style="padding:9px 12px;font-weight:800;position:sticky;left:0;background:#1a1108">${finEsc(D.resultado.nombre)}</td>
+      ${vals.map(v=>`<td style="padding:9px 8px;text-align:right;font-weight:700;white-space:nowrap;color:${v<0?'#fca5a5':'#4ade80'}">${finFmt(v)}</td>`).join('')}
+      <td style="padding:9px 10px;text-align:right;font-weight:800;white-space:nowrap;color:${tot<0?'#fca5a5':'#4ade80'}">${finFmt(tot)}</td>
+    </tr>`;
+  }
+  return h + '</tbody></table></div></div>';
+}
+
+function finBarras(titulo, series, labels){
+  const todos = series.flatMap(s=>s.valores);
+  const max = Math.max(...todos.map(Math.abs), 1);
+  return `<div class="card" style="margin-bottom:12px">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+      <div class="card-title" style="margin-bottom:0"><i class="ti ti-chart-bar"></i> ${titulo}</div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap">${series.map(s=>`<span style="font-size:10px;color:var(--muted)"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${s.color};margin-right:4px"></span>${s.nombre}</span>`).join('')}</div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:flex-end">
+      ${labels.map((lb,i)=>`
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:4px">
+          <div style="display:flex;gap:2px;align-items:flex-end;height:110px;width:100%;justify-content:center">
+            ${series.map(s=>{
+              const v = s.valores[i]||0;
+              const hh = Math.max(Math.round(Math.abs(v)/max*105), Math.abs(v)>0?2:0);
+              return `<div title="${s.nombre}: ${finFmt(v)}" style="flex:1;max-width:16px;background:${v<0?'#dc2626':s.color};border-radius:3px 3px 0 0;height:${hh}px"></div>`;
+            }).join('')}
+          </div>
+          <span style="font-size:9px;color:var(--muted)">${lb.substring(0,3)}</span>
+        </div>`).join('')}
+    </div>
+  </div>`;
+}
+
+function finInsights(lista){
+  if(!lista.length) return '';
+  const col = {alerta:'#dc2626', ojo:'#d97706', bien:'#16a34a', dato:'var(--brown)'};
+  const ico = {alerta:'ti-alert-triangle', ojo:'ti-eye', bien:'ti-circle-check', dato:'ti-info-circle'};
+  const bg  = {alerta:'#fef2f2', ojo:'#fffbeb', bien:'#f0fdf4', dato:'#faf8f6'};
+  return `<div class="card" style="margin-bottom:12px">
+    <div class="card-title" style="margin-bottom:12px"><i class="ti ti-bulb"></i> Lectura financiera</div>
+    ${lista.map(x=>`
+      <div style="display:flex;gap:10px;padding:11px 13px;border-radius:10px;background:${bg[x.tipo]};border:1px solid ${x.tipo==='dato'?'var(--border)':col[x.tipo]}33;margin-bottom:8px">
+        <i class="ti ${ico[x.tipo]}" style="color:${col[x.tipo]};font-size:15px;flex-shrink:0;margin-top:1px"></i>
+        <div style="font-size:12px;line-height:1.55">
+          <b style="color:${col[x.tipo]}">${x.titulo}</b><br>${x.texto}
+        </div>
+      </div>`).join('')}
+  </div>`;
+}
+
+// ─── PANEL PyG ───────────────────────────────────────────────────────────────────
+async function renderPyG(){
+  const cont = document.getElementById('reportes-content');
+  if(!cont) return;
+  cont.innerHTML = '<div style="padding:30px;text-align:center;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:22px"></i></div>';
+  let D;
+  try{ D = await cargarFin('pyg', window._finAniopyg); }
+  catch(e){ cont.innerHTML = '<div class="card" style="padding:24px;text-align:center;color:var(--muted)">No se pudo cargar el reporte.</div>'; return; }
+  if(D.vacio){ cont.innerHTML = finCabecera('pyg', D, 'Estado de Resultados'); return; }
+
+  const idx = finMesesActivos(D);
+  const ing = finCta(D,'4')||[], ventaBienes = finCta(D,'4.1.1')||[], desc = finCta(D,'4.1.4')||[];
+  const costo = finCta(D,'5.1')||[], gastos = finCta(D,'5.2')||[], gVentas = finCta(D,'5.2.1.1')||[],
+        gAdm = finCta(D,'5.2.1.2')||[], gFin = finCta(D,'5.2.1.3')||[];
+  const util = (D.resultado && D.resultado.valores) || [];
+  const S = arr => idx.reduce((a,i)=>a+(arr[i]||0),0);
+
+  const tIng = S(ing), tBruto = S(ventaBienes), tDesc = Math.abs(S(desc)), tCosto = S(costo),
+        tGastos = S(gastos), tUtil = S(util), tGV = S(gVentas), tGA = S(gAdm), tGF = S(gFin);
+  const mBruto = tIng ? (tIng-tCosto)/tIng*100 : 0;
+  const mNeto  = tIng ? tUtil/tIng*100 : 0;
+  const pctDesc = tBruto ? tDesc/tBruto*100 : 0;
+  const ultimo = idx[idx.length-1], previo = idx.length>1 ? idx[idx.length-2] : null;
+
+  // Mejor y peor mes por margen
+  const porMes = idx.map(i=>({i, ing: ing[i]||0, util: util[i]||0, m: (ing[i]? (util[i]/ing[i]*100):0)}));
+  const conVenta = porMes.filter(x=>x.ing>1000);
+  const mejor = conVenta.slice().sort((a,b)=>b.m-a.m)[0];
+  const peor  = conVenta.slice().sort((a,b)=>a.m-b.m)[0];
+  const descMes = idx.map(i=>({i, p: (ventaBienes[i]? Math.abs(desc[i]||0)/ventaBienes[i]*100 : 0)}));
+  const peorDesc = descMes.slice().sort((a,b)=>b.p-a.p)[0];
+
+  const ins = [];
+  ins.push({tipo:'dato', titulo:'Rentabilidad del periodo',
+    texto:`Sobre ${finFmt(tIng)} de ingresos netos, el margen bruto es <b>${finPct(mBruto)}</b> y el neto <b>${finPct(mNeto)}</b>. La utilidad acumulada llega a <b>${finFmt(tUtil)}</b>.`});
+  if(pctDesc > 8) ins.push({tipo:'alerta', titulo:'Los descuentos se están comiendo el margen',
+    texto:`Los descuentos sobre ventas suman <b>${finFmt(tDesc)}</b>, un <b>${finPct(pctDesc)}</b> de la venta bruta. ${peorDesc && peorDesc.p>pctDesc*1.3 ? 'El peor mes fue <b>'+D.meses[peorDesc.i]+'</b> con '+finPct(peorDesc.p)+'. ' : ''}Cada punto que recuperes aquí cae directo a la utilidad: bajarlo a la mitad valdría <b>${finFmt(tDesc/2)}</b>.`});
+  else if(pctDesc > 0) ins.push({tipo:'bien', titulo:'Descuentos bajo control',
+    texto:`Representan ${finPct(pctDesc)} de la venta bruta (${finFmt(tDesc)}), un nivel razonable.`});
+  if(tGastos > 0) ins.push({tipo:'dato', titulo:'Estructura de gastos',
+    texto:`Ventas <b>${finFmt(tGV)}</b> (${finPct(tGV/tGastos*100)}) · Administrativos <b>${finFmt(tGA)}</b> (${finPct(tGA/tGastos*100)}) · Financieros <b>${finFmt(tGF)}</b> (${finPct(tGF/tGastos*100)}). Los gastos totales equivalen al <b>${finPct(tGastos/tIng*100)}</b> de los ingresos.`});
+  if(mejor && peor && mejor.i!==peor.i) ins.push({tipo:'ojo', titulo:'La rentabilidad no es pareja mes a mes',
+    texto:`El mejor mes fue <b>${D.meses[mejor.i]}</b> con ${finPct(mejor.m)} de margen neto; el más flojo, <b>${D.meses[peor.i]}</b> con ${finPct(peor.m)}. Vale la pena revisar qué cambió: ${Math.abs(mejor.m-peor.m)>10?'la brecha es grande y rara vez se explica solo por el volumen.':'la diferencia es moderada.'}`});
+  if(previo !== null){
+    const dIng = (ing[previo]? (ing[ultimo]-ing[previo])/ing[previo]*100 : 0);
+    const dUt  = (util[previo]? (util[ultimo]-util[previo])/util[previo]*100 : 0);
+    ins.push({tipo: dIng<-10?'ojo':'dato', titulo:'Último mes cerrado contra el anterior',
+      texto:`${D.meses[ultimo]}: ingresos ${finFmt(ing[ultimo])} (${dIng>=0?'+':''}${finPct(dIng)}) y utilidad ${finFmt(util[ultimo])} (${dUt>=0?'+':''}${finPct(dUt)}).`});
+  }
+  const puntoEq = mBruto>0 ? (tGastos/idx.length)/(mBruto/100) : 0;
+  if(puntoEq>0) ins.push({tipo:'dato', titulo:'Punto de equilibrio mensual',
+    texto:`Con la estructura actual necesitas facturar <b>${finFmt(puntoEq)}</b> al mes solo para cubrir gastos. El promedio del periodo es ${finFmt(tIng/idx.length)}, es decir un colchón de <b>${finPct((tIng/idx.length - puntoEq)/puntoEq*100)}</b>.`});
+
+  const card = (t,v,s,c)=>`<div class="card" style="padding:14px 16px;flex:1;min-width:150px;margin:0">
+    <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1.2px">${t}</div>
+    <div style="font-size:23px;font-weight:800;color:${c||'var(--brown)'};margin-top:4px">${v}</div>
+    <div style="font-size:11px;color:var(--muted);margin-top:2px">${s}</div></div>`;
+
+  cont.innerHTML = finCabecera('pyg', D, 'Estado de Resultados')
+    + `<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px">
+        ${card('Ingresos netos', finFmt(tIng), idx.length+' meses con movimiento')}
+        ${card('Utilidad acumulada', finFmt(tUtil), finPct(mNeto)+' de margen neto', tUtil>=0?'#16a34a':'#dc2626')}
+        ${card('Margen bruto', finPct(mBruto), 'costo de ventas '+finFmt(tCosto))}
+        ${card('Gastos totales', finFmt(tGastos), finPct(tIng?tGastos/tIng*100:0)+' de los ingresos', '#d97706')}
+      </div>`
+    + finBarras('Ingresos, costos y utilidad por mes', [
+        {nombre:'Ingresos', color:'#A0684A', valores: idx.map(i=>ing[i]||0)},
+        {nombre:'Costos y gastos', color:'#d8cbbc', valores: idx.map(i=>(costo[i]||0)+(gastos[i]||0))},
+        {nombre:'Utilidad', color:'#16a34a', valores: idx.map(i=>util[i]||0)},
+      ], idx.map(i=>D.meses[i]))
+    + finInsights(ins)
+    + finTabla(D, idx, 'Estado de resultados — detalle por mes', 4);
+}
+
+// ─── PANEL BALANCE ───────────────────────────────────────────────────────────────
+async function renderBalance(){
+  const cont = document.getElementById('reportes-content');
+  if(!cont) return;
+  cont.innerHTML = '<div style="padding:30px;text-align:center;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:22px"></i></div>';
+  let D;
+  try{ D = await cargarFin('balance', window._finAniobalance); }
+  catch(e){ cont.innerHTML = '<div class="card" style="padding:24px;text-align:center;color:var(--muted)">No se pudo cargar el reporte.</div>'; return; }
+  if(D.vacio){ cont.innerHTML = finCabecera('balance', D, 'Balance General'); return; }
+
+  const idx = finMesesActivos(D);
+  const u = idx[idx.length-1], p0 = idx[0];
+  const V = (cod,i)=>{ const c=finCta(D,cod); return c? (c[i]||0) : 0; };
+  const act = V('1',u), actC = V('1.1',u), pas = V('2',u), pasC = V('2.1',u), pat = V('3',u);
+  const efe = V('1.1.1',u), inv = V('1.1.3',u), cxc = V('1.1.2.5',u), cxp = V('2.1.3',u);
+  const deudaBanco = V('2.1.4',u), socios = V('2.2.4',u);
+  const capTrab = actC - pasC;
+  const liquidez = pasC ? actC/pasC : 0;
+  const acida = pasC ? (actC-inv)/pasC : 0;
+  const endeud = act ? pas/act*100 : 0;
+  const resultado = (D.resultado && D.resultado.valores[u]) || 0;
+  const roe = pat ? (resultado/idx.length*12)/pat*100 : 0;
+
+  // Días de inventario y cobro: necesitan el PyG del mismo año
+  let diasInv = null, diasCxc = null, diasCxp = null, cogsMes = null, ventaMes = null;
+  try{
+    const P = await cargarFin('pyg', D.anio);
+    if(!P.vacio){
+      const pidx = finMesesActivos(P);
+      const cogs = finCta(P,'5.1')||[]; const ingP = finCta(P,'4')||[];
+      const nm = pidx.length || 1;
+      cogsMes = pidx.reduce((a,i)=>a+(cogs[i]||0),0)/nm;
+      ventaMes = pidx.reduce((a,i)=>a+(ingP[i]||0),0)/nm;
+      if(cogsMes>0){ diasInv = inv/cogsMes*30; diasCxp = cxp/cogsMes*30; }
+      if(ventaMes>0){ diasCxc = cxc/ventaMes*30; }
+    }
+  }catch(e){}
+  const ciclo = (diasInv!==null && diasCxc!==null && diasCxp!==null) ? diasInv+diasCxc-diasCxp : null;
+
+  const ins = [];
+  ins.push({tipo: liquidez>=1.5?'bien':(liquidez>=1?'ojo':'alerta'), titulo:'Liquidez',
+    texto:`Razón corriente <b>${liquidez.toFixed(2)}x</b> y prueba ácida <b>${acida.toFixed(2)}x</b>. El capital de trabajo es <b>${finFmt(capTrab)}</b>. ${liquidez>=1.5?'Hay holgura de sobra para cubrir el corto plazo.':liquidez>=1?'Alcanza, pero sin margen de maniobra.':'El pasivo corriente supera al activo corriente: hay riesgo de tensión de caja.'} ${acida<1 && liquidez>=1.5?'Ojo: sin el inventario la cobertura baja a '+acida.toFixed(2)+'x, así que buena parte de esa holgura está en mercadería, no en dinero.':''}`});
+  if(diasInv!==null) ins.push({tipo: diasInv>150?'alerta':(diasInv>90?'ojo':'bien'), titulo:'El inventario es donde está atrapado el efectivo',
+    texto:`Con <b>${finFmt(inv)}</b> en stock y un costo de ventas de ${finFmt(cogsMes)} al mes, tienes <b>${Math.round(diasInv)} días</b> de inventario (${(diasInv/30).toFixed(1)} meses). ${diasInv>150?'Es muy alto para cosmética: cada mes de stock de más son dólares parados que podrían pagar deuda o financiar crecimiento. Bajarlo a 4 meses liberaría cerca de <b>'+finFmt(inv-cogsMes*4)+'</b>.':'Es un nivel manejable.'}`});
+  if(ciclo!==null) ins.push({tipo: ciclo>120?'ojo':'dato', titulo:'Ciclo de conversión de efectivo',
+    texto:`Inventario ${Math.round(diasInv)} días + cobro ${Math.round(diasCxc)} días − pago a proveedores ${Math.round(diasCxp)} días = <b>${Math.round(ciclo)} días</b> desde que pagas la mercadería hasta que recuperas el dinero. ${diasCxc<20?'El cobro es rápido y ese no es el problema.':''} ${diasCxp<30?'Estás pagando a proveedores mucho más rápido de lo que rotas el inventario — ahí hay espacio para negociar plazos.':''}`});
+  const deudaTotal = deudaBanco + socios;
+  if(deudaTotal>0) ins.push({tipo: endeud>70?'alerta':(endeud>50?'ojo':'bien'), titulo:'Endeudamiento',
+    texto:`El pasivo total es <b>${finFmt(pas)}</b>, un <b>${finPct(endeud)}</b> del activo. Deuda financiera ${finFmt(deudaBanco)} y con socios ${finFmt(socios)}. ${(()=>{ const d0=V('2.1.4',p0); return d0>deudaBanco ? 'La deuda bancaria bajó '+finFmt(d0-deudaBanco)+' en el periodo — buena señal.' : ''; })()}`});
+  ins.push({tipo:'dato', titulo:'Patrimonio y retorno',
+    texto:`El patrimonio llega a <b>${finFmt(pat)}</b> desde ${finFmt(V('3',p0))} al inicio del periodo. Con el resultado acumulado de ${finFmt(resultado)}, el ROE anualizado ronda el <b>${finPct(roe)}</b>.`});
+  if(efe < (cogsMes||0)) ins.push({tipo:'ojo', titulo:'Caja ajustada frente a la operación',
+    texto:`El efectivo disponible (<b>${finFmt(efe)}</b>) no alcanza a cubrir un mes de costo de ventas. Con tanto capital inmovilizado en inventario, conviene vigilar el calendario de pagos.`});
+
+  const card = (t,v,s,c)=>`<div class="card" style="padding:14px 16px;flex:1;min-width:150px;margin:0">
+    <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1.2px">${t}</div>
+    <div style="font-size:23px;font-weight:800;color:${c||'var(--brown)'};margin-top:4px">${v}</div>
+    <div style="font-size:11px;color:var(--muted);margin-top:2px">${s}</div></div>`;
+  const mini = (t,v,s,c)=>`<div style="background:#faf9f8;border:1px solid var(--border);border-radius:10px;padding:11px;text-align:center">
+    <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px">${t}</div>
+    <div style="font-size:18px;font-weight:800;color:${c||'var(--text)'};margin-top:2px">${v}</div>
+    <div style="font-size:9px;color:var(--muted)">${s}</div></div>`;
+
+  cont.innerHTML = finCabecera('balance', D, 'Balance General')
+    + `<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px">
+        ${card('Activos', finFmt(act), 'corriente '+finFmt(actC))}
+        ${card('Pasivos', finFmt(pas), 'corriente '+finFmt(pasC), '#d97706')}
+        ${card('Patrimonio', finFmt(pat), 'a '+D.meses[u], '#16a34a')}
+        ${card('Capital de trabajo', finFmt(capTrab), liquidez.toFixed(2)+'x de liquidez', capTrab>=0?'#16a34a':'#dc2626')}
+      </div>
+      <div class="card" style="margin-bottom:12px">
+        <div class="card-title" style="margin-bottom:12px"><i class="ti ti-calculator"></i> Indicadores a ${D.meses[u]} ${D.anio}</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:9px">
+          ${mini('Razón corriente', liquidez.toFixed(2)+'x','activo/pasivo corriente', liquidez>=1.5?'#16a34a':'#d97706')}
+          ${mini('Prueba ácida', acida.toFixed(2)+'x','sin inventario', acida>=1?'#16a34a':'#d97706')}
+          ${mini('Endeudamiento', finPct(endeud),'pasivo/activo', endeud<50?'#16a34a':'#d97706')}
+          ${mini('Días inventario', diasInv!==null?Math.round(diasInv):'—','rotación', diasInv!==null&&diasInv>150?'#dc2626':'var(--text)')}
+          ${mini('Días de cobro', diasCxc!==null?Math.round(diasCxc):'—','cartera', diasCxc!==null&&diasCxc<30?'#16a34a':'var(--text)')}
+          ${mini('Días de pago', diasCxp!==null?Math.round(diasCxp):'—','proveedores')}
+          ${mini('Ciclo de efectivo', ciclo!==null?Math.round(ciclo):'—','días', ciclo!==null&&ciclo>120?'#d97706':'var(--text)')}
+          ${mini('ROE anualizado', finPct(roe),'sobre patrimonio','#16a34a')}
+        </div>
+      </div>`
+    + finBarras('Evolución del balance', [
+        {nombre:'Activos', color:'#A0684A', valores: idx.map(i=>V('1',i))},
+        {nombre:'Pasivos', color:'#d8cbbc', valores: idx.map(i=>V('2',i))},
+        {nombre:'Patrimonio', color:'#16a34a', valores: idx.map(i=>V('3',i))},
+      ], idx.map(i=>D.meses[i]))
+    + finBarras('Dónde está el dinero', [
+        {nombre:'Efectivo', color:'#16a34a', valores: idx.map(i=>V('1.1.1',i))},
+        {nombre:'Cuentas por cobrar', color:'#2563eb', valores: idx.map(i=>V('1.1.2.5',i))},
+        {nombre:'Inventario', color:'#d97706', valores: idx.map(i=>V('1.1.3',i))},
+      ], idx.map(i=>D.meses[i]))
+    + finInsights(ins)
+    + finTabla(D, idx, 'Balance general — detalle por mes', 4);
 }
 
 // ─── NÓMINA: costo real del personal por mes y por colaboradora ──────────────
