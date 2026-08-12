@@ -6332,6 +6332,9 @@ function renderVentasPanel(){
   }).join('');
 
   document.getElementById('main').innerHTML=`
+    <!-- Objetivo mensual por equipo (misma tarjeta que ve Giovanna en sus KPIs) -->
+    <div id="ventas-objetivo-equipo"></div>
+
     <!-- Comparativo anual (movido desde Facturas) -->
     <div class="card" style="margin-bottom:12px">
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:4px">
@@ -6461,6 +6464,28 @@ function renderVentasPanel(){
     dibujarComparativoAnual('ultimos2');
     cargarYDibujarVentasMesDia();
   });
+  pintarObjetivoEquipoVentas();
+}
+
+// Objetivo mensual por equipo dentro del panel de Ventas. Reutiliza exactamente la misma
+// tarjeta (y las mismas metas) que ve Giovanna en sus KPIs, para que no puedan discrepar.
+async function pintarObjetivoEquipoVentas(){
+  const cont = document.getElementById('ventas-objetivo-equipo');
+  if(!cont) return;
+  try{
+    await cargarMetaVentasCfg();
+    if(!window._usuariosEquipo){
+      const r = await fetch('/api/usuarios');
+      const d = await r.json();
+      window._usuariosEquipo = Array.isArray(d) ? d : [];
+    }
+    const hoyV = new Date(new Date().toLocaleString('en-US',{timeZone:'America/Guayaquil'}));
+    const lider = (window._usuariosEquipo||[]).find(u=>/giovanna/i.test(u.nombre||''));
+    const html = cardEquipoGiovanna(lider ? lider.nombre : 'Giovanna', window._usuariosEquipo,
+      hoyV.getFullYear(), hoyV.getMonth()+1,
+      { forzar:true, titulo:'Objetivo mensual de ventas por equipo' });
+    cont.innerHTML = html || '';
+  }catch(e){ cont.innerHTML = ''; }
 }
 
 function toggleVendMensual(i){
@@ -11561,8 +11586,9 @@ function metaDeAsesora(nombreVend, anioM, mesM){
 // Panel de equipo para Giovanna: ventas y cumplimiento de meta de cada asesora + las suyas.
 // Las metas salen del mismo sitio que el panel Presupuesto ventas, así que cambiarlas allá
 // se refleja aquí sin tocar nada.
-function cardEquipoGiovanna(nombreVend, usuarios, anioE, mesE){
-  if(!/giovanna/i.test(String(nombreVend||''))) return '';
+function cardEquipoGiovanna(nombreVend, usuarios, anioE, mesE, opts){
+  opts = opts || {};
+  if(!opts.forzar && !/giovanna/i.test(String(nombreVend||''))) return '';
   const MESES_E = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
   const ancla = x => String(x||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase().split(/\s+/).slice(0,2).join(' ');
 
@@ -11613,7 +11639,7 @@ function cardEquipoGiovanna(nombreVend, usuarios, anioE, mesE){
   let html = `
     <div class="card" style="margin-bottom:12px">
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:14px">
-        <div class="card-title" style="margin-bottom:0"><i class="ti ti-users-group"></i> Mi equipo — ${MESES_E[mesE]} ${anioE}</div>
+        <div class="card-title" style="margin-bottom:0"><i class="ti ti-users-group"></i> ${opts.titulo || ('Mi equipo — '+MESES_E[mesE]+' '+anioE)}</div>
         <div style="font-size:10px;color:var(--muted)">Metas tomadas de Reportes → Presupuesto ventas</div>
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px">
@@ -11647,7 +11673,7 @@ function cardEquipoGiovanna(nombreVend, usuarios, anioE, mesE){
       <div style="margin-bottom:13px">
         <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px;margin-bottom:5px">
           <div style="font-size:13px;font-weight:600">${esc(String(f.nombre).split(' ').slice(0,2).join(' '))}
-            ${f.propia?'<span style="font-size:9px;font-weight:700;color:var(--brown);background:#f3f0ec;border-radius:6px;padding:2px 6px;margin-left:5px">MIS VENTAS</span>':''}</div>
+            ${f.propia?'<span style="font-size:9px;font-weight:700;color:var(--brown);background:#f3f0ec;border-radius:6px;padding:2px 6px;margin-left:5px">'+(opts.forzar?'LÍDER':'MIS VENTAS')+'</span>':''}</div>
           <div style="font-size:11px;color:var(--muted)">
             <b style="color:var(--text);font-size:13px">${fmtE(f.ventas)}</b>
             ${f.meta?' de '+fmtE(f.meta):' · sin meta'}${f.manual?' <span style="font-size:9px;color:var(--muted)">(fijada)</span>':(f.pctIncr!==null&&f.pctIncr!==undefined&&!isNaN(f.pctIncr)?' <span style="font-size:10px;font-weight:700;color:var(--brown)" title="Incremento exigido sobre el mes anterior">+'+f.pctIncr+'%</span>':'')}
