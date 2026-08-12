@@ -9109,6 +9109,7 @@ async function renderPresupuestoVentas(){
     const [rC, rU] = await Promise.all([fetch('/api/presupuesto-config'), fetch('/api/usuarios')]);
     const jC = await rC.json(); if(jC.ok && jC.config) cfg = Object.assign({pct:{},overrides:{},snapshots:{}}, jC.config);
     cfg.incentivo = Object.assign({ pct_minimo: 90, bono: 50, pct_exceso: 5, pct_bajo: 2 }, cfg.incentivo || {});
+    cfg.incentivo_lider = Object.assign({ pct_base: 1.7, pct_bajo: 1, bono: 0, pct_exceso: 0 }, cfg.incentivo_lider || {});
     const dU = await rU.json(); if(Array.isArray(dU)) usuarios = dU;
   }catch(e){}
   window._pptoCfg = cfg;
@@ -9304,7 +9305,7 @@ async function renderPresupuestoVentas(){
         <tbody>
           ${filas.map((f,fi)=>`
           <tr style="border-bottom:0.5px solid var(--border);background:${fi%2?'#f6f3ef':'white'}">
-            <td style="padding:8px 12px;font-weight:600;white-space:nowrap">${esc(f.nombre.split(' ').slice(0,2).join(' '))}${f.rol==='jefa_ventas'?' <span style="font-size:9px;color:var(--muted)">(jefa — referencia)</span>':''}${f.sinUsuario?' <span style="font-size:9px;color:#d97706">(sin usuario aún)</span>':''}</td>
+            <td style="padding:8px 12px;font-weight:600;white-space:nowrap">${esc(f.nombre.split(' ').slice(0,2).join(' '))}${f.rol==='jefa_ventas'?' <span style="font-size:9px;color:var(--muted)">(líder de equipo)</span>':''}${f.sinUsuario?' <span style="font-size:9px;color:#d97706">(sin usuario aún)</span>':''}</td>
             ${f.hist.map((h,hi)=>`<td style="padding:8px 8px;text-align:center;background:${fi%2?'#efece7':'#f3f0ec'}">
               ${h.val?`<div style="font-weight:600;color:var(--text)">${fmtP(h.val)}</div>${h.crec!==null&&(!compactoP||hi===f.hist.length-1)?`<div style="font-size:9px;font-weight:700;color:${h.crec>=0?'#16a34a':'#dc2626'}">${h.crec>0?'+':''}${h.crec}%</div>`:''}`:'<span style="color:#ccc">—</span>'}
             </td>`).join('')}
@@ -9355,6 +9356,103 @@ async function renderPresupuestoVentas(){
         </tbody>
       </table></div>
     </div>
+    ${(()=>{
+      // ── COMISIÓN DE LA LÍDER DE EQUIPO ──────────────────────────────────────────
+      // Se calcula sobre las ventas de TODO el equipo (las suyas incluidas), con su propia
+      // escala editable. El mínimo del equipo es el promedio de las ventas totales de los
+      // 2 últimos meses, la misma vara que se aplica a cada asesora.
+      if(!compactoP) return '';
+      const lid = cfg.incentivo_lider;
+      const lider = filas.find(f => /giovanna/i.test(f.nombre));
+      if(!lider) return '';
+      const snapEvalL = (cfg.snapshots || {})[evalKey] || {};
+      const metaDeFila = f => {
+        let m = snapEvalL[f.nombre] ? Math.round(snapEvalL[f.nombre]) : null;
+        if(m === null){ const mAct = f.metas[evalKey]; if(mAct) m = mAct.valor; }
+        if(m === null && f.ovMesAct !== undefined && f.ovMesAct !== null && f.ovMesAct !== '') m = Math.round(parseFloat(f.ovMesAct)||0);
+        if(m === null && f.pct !== null && f.ventasMesAnt) m = Math.round(f.ventasMesAnt * (1 + f.pct/100));
+        return m || 0;
+      };
+      const ventasEq = filas.reduce((a,f)=>a+(f.ventasEval||0), 0);
+      const minimoEq = filas.reduce((a,f)=>a+(f.minProm3||0), 0);
+      const metaEq   = filas.reduce((a,f)=>a+metaDeFila(f), 0);
+      if(!ventasEq && !metaEq) return '';
+      let nivelL, comL;
+      if(metaEq > 0 && ventasEq >= metaEq){
+        nivelL = 3;
+        comL = (lid.pct_base/100)*metaEq + lid.bono + (lid.pct_exceso/100)*(ventasEq - metaEq);
+      } else if(ventasEq >= minimoEq){
+        nivelL = 2; comL = (lid.pct_base/100)*ventasEq;
+      } else {
+        nivelL = 1; comL = (lid.pct_bajo/100)*ventasEq;
+      }
+      const ETIQ_L = ['','Bajo el mínimo del equipo → '+lid.pct_bajo+'%','Mínimo cumplido → '+lid.pct_base+'%','META DEL EQUIPO CUMPLIDA → '+lid.pct_base+'% + $'+lid.bono+' + '+lid.pct_exceso+'%'];
+      const COL_L = ['','#d97706','#2563eb','#16a34a'];
+      const fmtCL = v => '$' + (Math.round(v*100)/100).toFixed(2);
+      const pctCumpEq = metaEq>0 ? Math.round(ventasEq/metaEq*1000)/10 : null;
+      const inputL = (campo, valor, ancho) => '<input type="number" min="0" step="0.01" value="'+valor+'" onchange="guardarIncentivoLider(\''+campo+'\',this.value)" style="width:'+ancho+'px;padding:3px 5px;font-size:12px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;font-weight:700;color:var(--brown)">';
+      return `
+    <div class="card" style="margin-top:12px;padding:0;border:1px solid #e7dccd">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding:14px 16px 10px">
+        <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px"><i class="ti ti-crown" style="margin-right:6px"></i>Comisión de la líder de equipo — ${MESES_PPTO[evalSh.m]} (mes cerrado)</div>
+        <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:12px">
+          <span>Por debajo del mínimo: ${inputL('pct_bajo', lid.pct_bajo, 52)}% en comisiones</span>
+          <span>Al cumplir el mínimo: ${inputL('pct_base', lid.pct_base, 52)}% en comisiones</span>
+          <span>Bono si cumple la meta $${inputL('bono', lid.bono, 56)}</span>
+          <span>Después de la meta: ${inputL('pct_exceso', lid.pct_exceso, 52)}% en comisiones</span>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--muted);padding:0 16px 12px;line-height:1.5">
+        Se calcula sobre las <b>ventas de todo el equipo</b>, incluidas las de ${esc(lider.nombre.split(' ')[0])}. El <b>mínimo del equipo</b> es el promedio de las ventas totales de los 2 últimos meses (${fmtP(minimoEq)}); la <b>meta del equipo</b> es la suma de las metas individuales de ese mes.
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;padding:0 16px 14px">
+        <div style="background:#faf9f8;border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center">
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Mínimo del equipo</div>
+          <div style="font-size:19px;font-weight:700;color:var(--text)">${fmtP(minimoEq)}</div>
+          <div style="font-size:9px;color:var(--muted)">promedio 2 meses</div>
+        </div>
+        <div style="background:#f3f0ec;border-radius:10px;padding:12px;text-align:center">
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Ventas de ${MESES_PPTO[evalSh.m]}</div>
+          <div style="font-size:19px;font-weight:800;color:var(--brown)">${fmtP(ventasEq)}</div>
+          <div style="font-size:9px;color:var(--muted)">equipo completo</div>
+        </div>
+        <div style="background:#faf9f8;border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center">
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Meta del equipo</div>
+          <div style="font-size:19px;font-weight:700;color:var(--text)">${metaEq?fmtP(metaEq):'—'}</div>
+          <div style="font-size:9px;color:${pctCumpEq!==null&&pctCumpEq>=100?'#16a34a':'var(--muted)'}">${pctCumpEq!==null?pctCumpEq+'% cumplido':'sin metas'}</div>
+        </div>
+        <div style="background:#1a1108;border-radius:10px;padding:12px;text-align:center">
+          <div style="font-size:10px;color:rgba(255,255,255,0.7);text-transform:uppercase;letter-spacing:0.5px">Comisión a pagar</div>
+          <div style="font-size:22px;font-weight:800;color:${comL>0?'#4ade80':'white'}">${fmtCL(comL)}</div>
+          <div style="font-size:9px;color:rgba(255,255,255,0.6)">${esc(lider.nombre.split(' ').slice(0,2).join(' '))}</div>
+        </div>
+      </div>
+      <div style="padding:0 16px 14px">
+        <span style="font-size:10px;font-weight:700;color:${COL_L[nivelL]};border:1px solid ${COL_L[nivelL]};border-radius:10px;padding:3px 10px">${ETIQ_L[nivelL]}</span>
+      </div>
+      <div style="overflow-x:auto;border-top:1px solid var(--border)"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:520px">
+        <thead><tr style="background:#faf8f6">
+          <th style="text-align:left;padding:8px 12px;font-size:10px;color:var(--muted);text-transform:uppercase">Aporta al equipo</th>
+          <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Ventas ${MESES_PPTO[evalSh.m]}</th>
+          <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Meta</th>
+          <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Cumplió</th>
+        </tr></thead>
+        <tbody>
+          ${filas.map((f,fi)=>{
+            const mf = metaDeFila(f);
+            const pc = mf>0 ? Math.round(f.ventasEval/mf*1000)/10 : null;
+            return `
+          <tr style="border-bottom:0.5px solid var(--border);background:${fi%2?'#fcfbfa':'white'}">
+            <td style="padding:7px 12px;font-weight:600">${esc(f.nombre.split(' ').slice(0,2).join(' '))}${/giovanna/i.test(f.nombre)?' <span style="font-size:9px;color:var(--brown)">(líder)</span>':''}</td>
+            <td style="padding:7px 8px;text-align:center;font-weight:700">${fmtP(f.ventasEval)}</td>
+            <td style="padding:7px 8px;text-align:center;color:var(--muted)">${mf?fmtP(mf):'—'}</td>
+            <td style="padding:7px 8px;text-align:center;font-weight:700;color:${pc===null?'var(--muted)':pc>=100?'#16a34a':pc>=70?'var(--brown)':'#d97706'}">${pc!==null?pc+'%':'—'}</td>
+          </tr>`;
+          }).join('')}
+        </tbody>
+      </table></div>
+    </div>`;
+    })()}
     ${(()=>{
       const inc = cfg.incentivo;
       const PISO = 4000;
@@ -9422,9 +9520,18 @@ async function renderPresupuestoVentas(){
     ${cumplHTML}`;
 }
 
+async function guardarIncentivoLider(campo, valor){
+  const cfg = window._pptoCfg || {pct:{},overrides:{},snapshots:{}};
+  cfg.incentivo_lider = Object.assign({ pct_base: 1.7, pct_bajo: 1, bono: 0, pct_exceso: 0 }, cfg.incentivo_lider || {});
+  cfg.incentivo_lider[campo] = Math.max(0, parseFloat(valor) || 0);
+  window._pptoCfg = cfg;
+  await guardarPptoConfig();
+}
+
 async function guardarIncentivoPpto(campo, valor){
   const cfg = window._pptoCfg || {pct:{},overrides:{},snapshots:{}};
   cfg.incentivo = Object.assign({ pct_minimo: 90, bono: 50, pct_exceso: 5, pct_bajo: 2 }, cfg.incentivo || {});
+  cfg.incentivo_lider = Object.assign({ pct_base: 1.7, pct_bajo: 1, bono: 0, pct_exceso: 0 }, cfg.incentivo_lider || {});
   cfg.incentivo[campo] = Math.max(0, parseFloat(valor) || 0);
   window._pptoCfg = cfg;
   await guardarPptoConfig();
@@ -10853,7 +10960,7 @@ async function renderComisiones(){
           <tbody>
             ${jefaNombre?`
             <tr style="border-bottom:1px solid var(--border);background:rgba(160,104,74,0.06)">
-              <td style="padding:10px 12px;font-weight:700">${nombreCorto(jefaNombre)} <span style="font-size:10px;color:var(--brown);font-weight:600">JEFA</span></td>
+              <td style="padding:10px 12px;font-weight:700">${nombreCorto(jefaNombre)} <span style="font-size:10px;color:var(--brown);font-weight:600">LÍDER DE EQUIPO</span></td>
               <td style="padding:10px 12px;text-align:right;color:var(--brown);font-weight:600">${fmt(vJefa.sinIva)}</td>
               <td style="padding:10px 12px;text-align:right;color:var(--muted)">${fmt(vJefa.conIva)}</td>
               <td style="padding:10px 12px;text-align:right;color:var(--muted)">—</td>
@@ -10865,7 +10972,7 @@ async function renderComisiones(){
             </tr>`:''}
             ${filas.map(r=>`
               <tr style="border-bottom:0.5px solid var(--border)">
-                <td style="padding:9px 12px;font-weight:500">${nombreCorto(r.nombre)}${r.contribuye?'':' <span style="font-size:9px;color:var(--muted)">(no suma a jefa)</span>'}</td>
+                <td style="padding:9px 12px;font-weight:500">${nombreCorto(r.nombre)}${r.contribuye?'':' <span style="font-size:9px;color:var(--muted)">(no suma al equipo)</span>'}</td>
                 <td style="padding:9px 12px;text-align:right;color:var(--brown);font-weight:600">${fmt(r.sinIva)}</td>
                 <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(r.conIva)}</td>
                 <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(r.minimo)}</td>
@@ -11014,7 +11121,7 @@ async function editarConfigEquipo(equipoId){
       </div>
       <div style="padding:18px">
         ${jefaNombre?`
-        <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">Jefa — ${nombreCorto(jefaNombre)}</div>
+        <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">Líder de equipo — ${nombreCorto(jefaNombre)}</div>
         <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:0.5px solid var(--border);flex-wrap:wrap">
           <span style="font-size:13px;flex:1;min-width:110px">% sobre (propias + equipo ✓)</span>
           <input type="number" id="cfg-jefa-pct" value="${jefaCfg.pct_equipo}" step="0.01" style="width:55px;padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;text-align:right"/>
@@ -11246,7 +11353,7 @@ async function eliminarEquipo(id, nombre){
   } catch(e){ alert('Error: '+e.message); }
 }
 
-// ══════════ KPIs GIOVANNA (jefa de ventas) ══════════
+// ══════════ KPIs GIOVANNA (líder de equipo) ══════════
 // Ventas mensuales sin IVA de una vendedora (global — lo usan asesoras y jefa)
 function ventasMesDeVendedora(nombreVend, mes, anio){
   const clientes = DATA[nombreVend] || [];
@@ -12413,7 +12520,7 @@ async function renderKpis(){
   let asesoraKpi = window._kpiAsesora || (puedeVerTodas ? asesoras[0] : nombreResuelto);
   window._kpiAsesora = asesoraKpi;
 
-  // Panel especial de KPIs para Giovanna (jefa de ventas)
+  // Panel especial de KPIs para Giovanna (líder de equipo)
   if(/giovanna/i.test(asesoraKpi)){
     return renderKpisGiovanna(asesoraKpi, asesoras, puedeVerTodas, rol);
   }
