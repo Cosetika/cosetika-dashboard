@@ -11597,6 +11597,13 @@ function cardEquipoGiovanna(nombreVend, usuarios, anioE, mesE){
   // Incremento exigido al equipo: cuánto crece la meta total sobre la base (mes anterior)
   const baseEquipo = filas.reduce((a,f)=>a+(f.base||0), 0);
   const incrEquipo = (baseEquipo > 0 && totalMeta > 0) ? Math.round((totalMeta/baseEquipo-1)*1000)/10 : null;
+  // Mínimo del equipo: promedio de las ventas totales de los 2 meses cerrados anteriores.
+  // Misma vara que usa la comisión de la líder en Reportes → Presupuesto ventas.
+  const shiftEq = (a,m,d)=>{ m+=d; while(m>12){m-=12;a++;} while(m<1){m+=12;a--;} return {a,m}; };
+  const ventasEquipoMes = (a,m) => miembros.reduce((x,mb)=> x + (ventasMesDeVendedora(mb.nombre, m, a) || 0), 0);
+  const p1 = shiftEq(anioE, mesE, -1), p2 = shiftEq(anioE, mesE, -2);
+  const minimoEquipo = Math.round((ventasEquipoMes(p1.a,p1.m) + ventasEquipoMes(p2.a,p2.m)) / 2);
+  const faltaMin = Math.max(0, minimoEquipo - totalVentas);
   const faltaEquipo = Math.max(0, totalMeta - totalVentas);
 
   const fmtE = x => '$' + Math.round(x).toLocaleString('en-US');
@@ -11614,6 +11621,11 @@ function cardEquipoGiovanna(nombreVend, usuarios, anioE, mesE){
           <div style="font-size:10px;color:rgba(255,255,255,0.7);text-transform:uppercase;letter-spacing:0.5px">Ventas del equipo</div>
           <div style="font-size:22px;font-weight:800;color:white">${fmtE(totalVentas)}</div>
           <div style="font-size:9px;color:rgba(255,255,255,0.6)">${filas.length} personas · sin IVA</div>
+        </div>
+        <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:12px;text-align:center">
+          <div style="font-size:10px;color:#92400e;text-transform:uppercase;letter-spacing:0.5px">Mínimo del equipo</div>
+          <div style="font-size:22px;font-weight:800;color:${totalVentas>=minimoEquipo&&minimoEquipo>0?'#16a34a':'#d97706'}">${minimoEquipo?fmtE(minimoEquipo):'—'}</div>
+          <div style="font-size:9px;color:#92400e">${minimoEquipo?(faltaMin?'faltan '+fmtE(faltaMin):'superado'):'sin historial'} · prom. ${MESES_E[p2.m]}–${MESES_E[p1.m]}</div>
         </div>
         <div style="background:#faf9f8;border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center">
           <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Meta del equipo</div>
