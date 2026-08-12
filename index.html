@@ -8829,12 +8829,28 @@ function finCta(D, cod){
   const c = (D.cuentas||[]).find(x=>x.codigo===cod);
   return c ? c.valores : null;
 }
-// Meses con movimiento real (evita que los meses futuros en cero distorsionen todo)
+// Meses con movimiento real, EXCLUYENDO el mes en curso: mientras un mes no cierra, sus
+// cifras están incompletas y contaminan márgenes, ratios y promedios. Solo se incluye si
+// se activa a mano el interruptor "ver mes en curso".
+function finMesActualIdx(D){
+  const hoyF = new Date(new Date().toLocaleString('en-US',{timeZone:'America/Guayaquil'}));
+  return (D.anio === hoyF.getFullYear()) ? hoyF.getMonth() : -1;   // 0-based
+}
 function finMesesActivos(D){
   const ing = finCta(D,'4') || finCta(D,'1') || [];
+  const corte = finMesActualIdx(D);
   const out = [];
-  (D.meses||[]).forEach((m,i)=>{ if(Math.abs(ing[i]||0) > 0.01) out.push(i); });
-  return out.length ? out : (D.meses||[]).map((_,i)=>i);
+  (D.meses||[]).forEach((m,i)=>{
+    if(Math.abs(ing[i]||0) <= 0.01) return;
+    if(!window._finVerMesEnCurso && corte >= 0 && i >= corte) return;   // mes en curso y posteriores
+    out.push(i);
+  });
+  if(out.length) return out;
+  return (D.meses||[]).map((_,i)=>i).filter(i=>Math.abs(ing[i]||0) > 0.01);
+}
+function finToggleMesEnCurso(tipo){
+  window._finVerMesEnCurso = !window._finVerMesEnCurso;
+  if(tipo==='pyg') renderPyG(); else renderBalance();
 }
 
 async function subirFinanzas(input, tipo){
@@ -8874,6 +8890,16 @@ function finCabecera(tipo, D, titulo){
       <div style="font-size:12px;color:var(--muted);line-height:1.5">
         ${D.vacio ? '<b style="color:#92400e">Todavía no has subido ningún archivo.</b> Descárgalo de Contifico y súbelo aquí.'
                   : '<b style="color:var(--text)">'+finEsc(D.periodo||'')+'</b>'+(act?' · cargado el '+act:'')}
+        ${(function(){
+          const ci = finMesActualIdx(D);
+          if(D.vacio || ci < 0 || !(D.meses||[])[ci]) return '';
+          return '<br><span style="font-size:11px">'
+            + (window._finVerMesEnCurso
+                ? '<b style="color:#d97706">Incluyendo '+D.meses[ci]+', que aún está en curso</b> — las cifras están incompletas. '
+                : 'Solo meses cerrados: <b>'+D.meses[ci]+' queda fuera</b> por estar en curso. ')
+            + '<a onclick="finToggleMesEnCurso(\''+D.tipo+'\')" style="color:var(--brown);text-decoration:underline;cursor:pointer">'
+            + (window._finVerMesEnCurso ? 'volver a solo meses cerrados' : 'ver igual el mes en curso') + '</a></span>';
+        })()}
       </div>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         ${anios.length>1?`<select onchange="window._finAnio${tipo}=parseInt(this.value);${tipo==='pyg'?'renderPyG':'renderBalance'}()" style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:white;cursor:pointer">
@@ -9023,7 +9049,7 @@ async function renderPyG(){
 
   cont.innerHTML = finCabecera('pyg', D, 'Estado de Resultados')
     + `<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px">
-        ${card('Ingresos netos', finFmt(tIng), idx.length+' meses con movimiento')}
+        ${card('Ingresos netos', finFmt(tIng), idx.length+' meses cerrados · a '+D.meses[ultimo])}
         ${card('Utilidad acumulada', finFmt(tUtil), finPct(mNeto)+' de margen neto', tUtil>=0?'#16a34a':'#dc2626')}
         ${card('Margen bruto', finPct(mBruto), 'costo de ventas '+finFmt(tCosto))}
         ${card('Gastos totales', finFmt(tGastos), finPct(tIng?tGastos/tIng*100:0)+' de los ingresos', '#d97706')}
