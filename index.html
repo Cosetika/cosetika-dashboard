@@ -12007,6 +12007,19 @@ function cardEquipoGiovanna(nombreVend, usuarios, anioE, mesE, opts){
     if(miembros.some(m=>ancla(m.nombre)===ancla(real))) return;
     miembros.push({ nombre: real, propia:false });
   });
+  // Respaldo: si la lista de usuarios no llegó (por permisos o por un fallo de red), armar
+  // el equipo con las vendedoras que tienen ventas este año. Así la tarjeta nunca queda
+  // reducida a una sola persona sin explicación.
+  if(miembros.length < 2){
+    const anioR = anioE;
+    Object.keys(DATA||{}).forEach(v=>{
+      if(/nueva asesora|fernando|espindola|esp[ií]ndola/i.test(v)) return;
+      const vendio = (DATA[v]||[]).some(c=>(c.frecuencia||[]).some(f=>f.anio===anioR && (f.total||0)>0));
+      if(!vendio) return;
+      if(miembros.some(m=>ancla(m.nombre)===ancla(v))) return;
+      miembros.push({ nombre: v, propia:false });
+    });
+  }
   const realGio = (typeof resolverNombreReal === 'function' ? resolverNombreReal(nombreVend, DATA) : null) || nombreVend;
   if(!miembros.some(m=>ancla(m.nombre)===ancla(realGio))) miembros.unshift({ nombre: realGio, propia:true });
   else miembros.forEach(m=>{ if(ancla(m.nombre)===ancla(realGio)) m.propia = true; });

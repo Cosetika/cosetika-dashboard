@@ -6762,7 +6762,9 @@ const server = http.createServer(async (req, res) => {
 
   // ─── PRESUPUESTO DE VENTAS (Reportes → Presupuesto) ──
   if (urlPath === '/api/presupuesto-config' && req.method === 'GET') {
-    if (bloquearSiNoAdmin(req, res)) return;
+    // Lectura abierta a cualquier usuario con sesión: son metas de venta del equipo, no
+    // información sensible, y el panel de objetivos por equipo las necesita. Escribirlas
+    // (POST) sigue siendo exclusivo de admin.
     try {
       const raw = await getConfigApp('presupuesto_ventas', null);
       let cfg = null;
