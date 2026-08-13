@@ -587,6 +587,63 @@ async function sincronizarHoy() {
   cache.sincronizando = false;
 }
 
+// ─── CARTERA POR COBRAR (en vivo desde Contifico) ─────────────────────────────────
+// Suma el saldo pendiente de las facturas y separa lo vencido de lo que aún está en plazo,
+// usando los días de crédito de cada clienta. Se refresca dos veces al día.
+let CARTERA = { total:0, vencida:0, por_vencer:0, docs:0, clientes:[], at:null, error:null };
+async function sincronizarCartera(){
+  if (!API_KEY) return;
+  try {
+    const hoyK = nowEC();
+    const desdeD = new Date(hoyK); desdeD.setMonth(desdeD.getMonth() - 12);
+    const desde = fmtDateEC(desdeD), hasta = fmtDateEC(hoyK);
+    let url = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${desde}&fecha_final=${hasta}&page_size=100`;
+    let pg = 0; const vistos = new Set(); const porCliente = {};
+    let total = 0, vencida = 0, docs = 0;
+    while (url && pg < 400) {
+      const r = await fetch(url, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
+      if (!r.ok) break;
+      const d = await r.json();
+      (d.results || []).forEach(doc => {
+        if (doc.tipo_registro !== 'CLI' || doc.anulado || noEsVenta(doc) || esNotaCredito(doc)) return;
+        const k = doc.id || doc.documento;
+        if (vistos.has(k)) return; vistos.add(k);
+        const saldo = parseFloat(doc.saldo || 0);
+        if (!(saldo > 0.01)) return;
+        const ident = String((doc.cliente && (doc.cliente.ruc || doc.cliente.cedula)) || '').replace(/\D/g,'');
+        if (ident === '1793143660001') return;   // autoconsumo
+        const info = ident ? (CREDITO_CACHE[ident] || (ident.length===13?CREDITO_CACHE[ident.substring(0,10)]:null)) : null;
+        const dias = info && info.dias ? info.dias : 0;
+        const fe = String(doc.fecha_emision || '').split('/');
+        const fEmis = fe.length===3 ? new Date(parseInt(fe[2]), parseInt(fe[1])-1, parseInt(fe[0])) : null;
+        let estaVencida = false, diasAtraso = 0;
+        if (fEmis) {
+          const vence = new Date(fEmis); vence.setDate(vence.getDate() + dias);
+          const hoy0 = new Date(hoyK.getFullYear(), hoyK.getMonth(), hoyK.getDate());
+          if (vence < hoy0) { estaVencida = true; diasAtraso = Math.round((hoy0 - vence)/86400000); }
+        }
+        total += saldo; docs++;
+        if (estaVencida) vencida += saldo;
+        const nom = (doc.cliente && (doc.cliente.razon_social || doc.cliente.nombre_comercial)) || '—';
+        if (!porCliente[nom]) porCliente[nom] = { nombre: nom, total:0, vencido:0, docs:0, atraso:0 };
+        porCliente[nom].total += saldo; porCliente[nom].docs++;
+        if (estaVencida) { porCliente[nom].vencido += saldo; porCliente[nom].atraso = Math.max(porCliente[nom].atraso, diasAtraso); }
+      });
+      url = d.next || null; pg++;
+    }
+    const r2 = x => Math.round(x*100)/100;
+    CARTERA = {
+      total: r2(total), vencida: r2(vencida), por_vencer: r2(total - vencida), docs,
+      clientes: Object.values(porCliente).sort((a,b)=>b.total-a.total).slice(0,25)
+        .map(c=>({ ...c, total:r2(c.total), vencido:r2(c.vencido) })),
+      at: new Date().toISOString(), error: null
+    };
+    console.log(`✓ Cartera: ${docs} facturas · total ${CARTERA.total} · vencida ${CARTERA.vencida}`);
+  } catch(e) { CARTERA.error = e.message; console.error('Error cartera:', e.message); }
+}
+setTimeout(() => sincronizarCartera().catch(e=>console.error(e)), 90 * 1000);
+setInterval(() => sincronizarCartera().catch(e=>console.error(e)), 12 * 60 * 60 * 1000);  // dos veces al día
+
 // ─── FUENTE ÚNICA DE VERDAD ───────────────────────────────────────────────────────
 // El data.json que recibe el navegador ya viene COMPLETO: caché histórica + el tramo que
 // aún no ha entrado en ella, fusionado aquí con la MISMA función que genera todo el resto
@@ -4037,6 +4094,14 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200,{'Content-Type':'application/json'});
       res.end(JSON.stringify({ ok:true, tipo, anio, cuentas: cuentas.length, meses: meses.length, titulo }));
     } catch(e) { res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
+  if (urlPath === '/api/cartera' && req.method === 'GET') {
+    if (bloquearSiNoAdmin(req, res)) return;
+    if (urlObj.searchParams.get('forzar') === '1') await sincronizarCartera();
+    res.writeHead(200,{'Content-Type':'application/json'});
+    res.end(JSON.stringify({ ok:true, ...CARTERA }));
     return;
   }
 

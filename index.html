@@ -8883,6 +8883,9 @@ async function renderCaja(){
   try{ const r = await fetch('/api/caja?mes='+window._cajaMes); D = await r.json(); }
   catch(e){ cont.innerHTML='<div class="card" style="padding:24px;text-align:center;color:var(--muted)">No se pudo cargar.</div>'; return; }
   window._cajaData = D;
+  // La cartera viene sola de Contifico; si falla, el panel sigue funcionando sin ella
+  try{ const rc = await fetch('/api/cartera'); window._cartera = await rc.json(); }catch(e){ window._cartera = null; }
+  if(window._cajaCartera === undefined) window._cajaCartera = await cargarAjuste('caja_contar_cartera', 1);
   pintarCaja();
 }
 
@@ -8922,6 +8925,18 @@ async function cajaNuevoPago(){
   await cajaGuardar('/api/caja/pago', { mes_key: window._cajaMes, dia: parseInt(d.value)||1,
     concepto: c.value.trim(), monto: parseFloat(mo.value)||0, fuente: (f.value||'').trim() });
 }
+async function cajaModoCartera(v){
+  window._cajaCartera = parseFloat(v);
+  await guardarAjuste('caja_contar_cartera', v, false);
+  renderCaja();
+}
+async function cajaRefrescarCartera(){
+  const el = document.getElementById('cartera-estado');
+  if(el) el.textContent = 'Consultando Contifico...';
+  try{ const r = await fetch('/api/cartera?forzar=1'); window._cartera = await r.json(); }catch(e){}
+  pintarCaja();
+}
+
 async function cajaCopiarMesAnterior(){
   const r = await fetch('/api/caja/copiar', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({mes_key: window._cajaMes})});
   const d = await r.json();
@@ -8944,7 +8959,11 @@ function pintarCaja(){
 
   const N = v => parseFloat(v)||0;
   const totBancos = bancos.reduce((a,s)=>a+N(s.monto),0);
-  const totCobros = cobros.reduce((a,s)=>a+N(s.monto),0);
+  const cartera = window._cartera && window._cartera.ok ? window._cartera : null;
+  // 0 = no contar · 1 = solo la vencida · 2 = toda la cartera
+  const modoCart = window._cajaCartera === undefined ? 1 : window._cajaCartera;
+  const cartAporta = !cartera ? 0 : (modoCart===2 ? cartera.total : (modoCart===1 ? cartera.vencida : 0));
+  const totCobros = cobros.reduce((a,s)=>a+N(s.monto),0) + cartAporta;
   const pendientes = pagos.filter(p=>!p.pagado);
   const totPendiente = pendientes.reduce((a,p)=>a+N(p.monto),0);
   const totPagado = pagos.filter(p=>p.pagado).reduce((a,p)=>a+N(p.monto),0);
@@ -8998,7 +9017,7 @@ function pintarCaja(){
     <div style="font-size:9px;color:var(--muted)">${s}</div></div>`;
   h += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(105px,1fr));gap:8px;margin-bottom:12px">
       ${mini('En bancos', cajaFmt(totBancos), bancos.length+' cuenta'+(bancos.length!==1?'s':''), '#16a34a')}
-      ${mini('Por cobrar', cajaFmt(totCobros), 'cartera y otros')}
+      ${mini('Por cobrar', cajaFmt(totCobros), cartera?'cartera Contifico + manual':'manual')}
       ${mini('Disponible', cajaFmt(disponible), 'bancos + por cobrar', 'var(--brown)')}
       ${mini('Por pagar', cajaFmt(totPendiente), pendientes.length+' pendiente'+(pendientes.length!==1?'s':''), '#d97706')}
       ${mini('Ya pagado', cajaFmt(totPagado), 'este mes', 'var(--muted)')}
@@ -9022,7 +9041,53 @@ function pintarCaja(){
         </div>`).join('')}
     </div>`;
   h += bloqueSaldos('Saldos en bancos', bancos, 'banco', 'ti-building-bank');
-  h += bloqueSaldos('Por cobrar', cobros, 'cobro', 'ti-cash');
+  // ── Cartera automática desde Contifico ──
+  if(cartera){
+    const actC = cartera.at ? new Date(cartera.at).toLocaleString('es-EC',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
+    const top = (cartera.clientes||[]).filter(c=>c.vencido>0).slice(0,6);
+    h += `
+    <div class="card" style="margin-bottom:12px;padding:0">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:13px 15px 9px;flex-wrap:wrap;gap:8px">
+        <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1.2px"><i class="ti ti-report-money" style="margin-right:6px"></i>Cartera desde Contifico</div>
+        <div style="font-size:10px;color:var(--muted)" id="cartera-estado">${cartera.docs} facturas · actualizado ${actC}
+          <a onclick="cajaRefrescarCartera()" style="color:var(--brown);text-decoration:underline;cursor:pointer;margin-left:6px">actualizar</a></div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:9px;padding:0 15px 12px">
+        <div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:10px;padding:11px;text-align:center">
+          <div style="font-size:9px;font-weight:700;color:#991b1b;text-transform:uppercase;letter-spacing:0.8px">Vencida</div>
+          <div style="font-size:19px;font-weight:800;color:#dc2626">${cajaFmt(cartera.vencida)}</div>
+          <div style="font-size:9px;color:#991b1b">ya pasó el plazo</div>
+        </div>
+        <div style="background:#faf9f8;border:1px solid var(--border);border-radius:10px;padding:11px;text-align:center">
+          <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px">Por vencer</div>
+          <div style="font-size:19px;font-weight:800;color:var(--text)">${cajaFmt(cartera.por_vencer)}</div>
+          <div style="font-size:9px;color:var(--muted)">dentro de plazo</div>
+        </div>
+        <div style="background:#f3f0ec;border-radius:10px;padding:11px;text-align:center">
+          <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px">Cartera total</div>
+          <div style="font-size:19px;font-weight:800;color:var(--brown)">${cajaFmt(cartera.total)}</div>
+          <div style="font-size:9px;color:var(--muted)">por cobrar</div>
+        </div>
+      </div>
+      <div style="padding:0 15px 12px;font-size:11px;color:var(--muted)">
+        Contar en el disponible:
+        <select onchange="cajaModoCartera(this.value)" style="padding:5px 9px;border:1px solid var(--border);border-radius:7px;font-size:12px;background:white;cursor:pointer;margin-left:5px">
+          <option value="1" ${modoCart===1?'selected':''}>Solo la vencida</option>
+          <option value="2" ${modoCart===2?'selected':''}>Toda la cartera</option>
+          <option value="0" ${modoCart===0?'selected':''}>No contarla</option>
+        </select>
+      </div>
+      ${top.length?`<div style="border-top:0.5px solid var(--border);padding:11px 15px 13px">
+        <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:7px">A quién cobrar primero</div>
+        ${top.map(c=>`<div style="display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:0.5px solid var(--border);font-size:12px">
+          <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${cajaEsc(c.nombre)}</span>
+          <span style="white-space:nowrap"><b style="color:#dc2626">${cajaFmt(c.vencido)}</b>
+            <span style="color:var(--muted);font-size:10px"> · ${c.atraso} días · ${c.docs} fact.</span></span>
+        </div>`).join('')}
+      </div>`:''}
+    </div>`;
+  }
+  h += bloqueSaldos('Otros cobros esperados', cobros, 'cobro', 'ti-cash');
 
   // ── Alta rápida de pago ──
   h += `<div class="card" style="margin-bottom:12px">
@@ -9085,6 +9150,7 @@ function pintarCaja(){
 
   h += `<div style="font-size:11px;color:var(--muted);line-height:1.6">
       <b>Cómo funciona.</b> Actualiza los saldos de bancos cuando quieras — se guardan al salir del campo. Marca el check cuando pagues: ese monto deja de restar y el saldo proyectado se recalcula.
+      La cartera se lee sola de Contifico dos veces al día y separa lo vencido de lo que aún está en plazo; tú decides si cuenta en el disponible.
       La cifra grande de arriba compara todo lo disponible contra lo que falta pagar. El aviso del "día en que se rompe la caja" mira el orden de las fechas, no solo el total: puedes tener suficiente para el mes completo y aun así quedarte corto un día concreto.
     </div>`;
 
