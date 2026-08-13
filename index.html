@@ -1475,7 +1475,9 @@ async function renderTestersInv(){
   invPorMarca.forEach(d=>{ ((d&&d.productos)||[]).forEach(p=>{ semaforoT[p.id] = p.semaforo; }); });
   window._testersSemaforo = semaforoT;
   window._testersInvRegs = registros;
-  window._testersInvAsesoras = usuarios.filter(u=>(u.rol==='asesora'||u.rol==='jefa_ventas') && u.activo).map(u=>u.nombre);
+  // Columna OFICINA: testers que se quedan en la oficina (muestras de mostrador, capacitaciones,
+  // casas abiertas). Va siempre al final y se registra igual que el de cualquier asesora.
+  window._testersInvAsesoras = usuarios.filter(u=>(u.rol==='asesora'||u.rol==='jefa_ventas') && u.activo).map(u=>u.nombre).concat(['OFICINA']);
   if(window._tinvMarcaSel === undefined) window._tinvMarcaSel = 'TODAS';
   const marcas = ['TODAS','BIOSKIN','ERAYBA','ZIAJA','ZIAJA PRO'];
 
