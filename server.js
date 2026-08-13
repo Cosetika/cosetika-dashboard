@@ -4117,14 +4117,16 @@ const server = http.createServer(async (req, res) => {
   if (urlPath === '/api/cartera/debug' && req.method === 'GET') {
     if (bloquearSiNoAdmin(req, res)) return;
     try {
-      const meses = parseInt(urlObj.searchParams.get('meses')) || 9;
+      // Por defecto una muestra corta: alcanza para ver la forma de los datos sin esperar
+      const meses = parseInt(urlObj.searchParams.get('meses')) || 2;
+      const maxPg = parseInt(urlObj.searchParams.get('paginas')) || 12;
       const hoyK = nowEC();
       const desdeD = new Date(hoyK); desdeD.setMonth(desdeD.getMonth() - meses);
       let url = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${fmtDateEC(desdeD)}&fecha_final=${fmtDateEC(hoyK)}&page_size=100`;
       let pg = 0;
       const stats = { docs:0, cli:0, fac:0, conSaldoCampo:0, saldoNull:0, saldoMayorCero:0,
         sumaSaldo:0, sumaTotalNoPagados:0, estados:{}, tipos:{}, campos:null, ejemplos:[] };
-      while (url && pg < 400) {
+      while (url && pg < maxPg) {
         const r = await fetch(url, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
         if (!r.ok) { stats.error = 'HTTP '+r.status; break; }
         const d = await r.json();
