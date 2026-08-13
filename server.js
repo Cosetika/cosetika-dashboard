@@ -977,8 +977,8 @@ async function sincronizarPedidosWeb(opciones){
               // nombre largo dejaba el monto fuera de pantalla. El nombre pasa al cuerpo,
               // que sí admite dos líneas y no se pierde.
               enviarPushATodos({
-                title: `$${parseFloat(pedido.total||0).toFixed(2)} · APP Cosétika`,
-                body: `Nuevo pedido — ${String(pedido.cliente || '—').substring(0,90)}`,
+                title: `$${parseFloat(pedido.total||0).toFixed(2)} · Nuevo pedido`,
+                body: String(pedido.cliente || '—').substring(0,90),
                 tag: `pedido-${pedido.numeroPedido}`,
                 url: '/'
               }).catch(()=>{});
