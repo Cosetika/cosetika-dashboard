@@ -2619,6 +2619,28 @@ async function initDB() {
       UPDATE personas SET origen='institutos' WHERE origen IS NULL AND instituto IS NOT NULL
         AND (vendedor IS NULL OR vendedor='') AND (telefono IS NULL OR telefono='') AND (email IS NULL OR email='');
       ALTER TABLE facturas_detalle ADD COLUMN IF NOT EXISTS cedula_ruc VARCHAR(50);
+      CREATE TABLE IF NOT EXISTS caja_saldos (
+        id SERIAL PRIMARY KEY,
+        mes_key VARCHAR(7) NOT NULL,
+        tipo VARCHAR(10) NOT NULL DEFAULT 'banco',   -- 'banco' | 'cobro'
+        nombre VARCHAR(200) NOT NULL,
+        monto NUMERIC(14,2) NOT NULL DEFAULT 0,
+        orden INTEGER DEFAULT 0,
+        actualizado_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_caja_saldos_mes ON caja_saldos(mes_key);
+      CREATE TABLE IF NOT EXISTS caja_pagos (
+        id SERIAL PRIMARY KEY,
+        mes_key VARCHAR(7) NOT NULL,
+        dia INTEGER NOT NULL DEFAULT 1,
+        concepto VARCHAR(300) NOT NULL,
+        monto NUMERIC(14,2) NOT NULL DEFAULT 0,
+        fuente VARCHAR(120),
+        pagado BOOLEAN DEFAULT false,
+        recurrente BOOLEAN DEFAULT false,
+        actualizado_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_caja_pagos_mes ON caja_pagos(mes_key);
       CREATE TABLE IF NOT EXISTS finanzas_reportes (
         id SERIAL PRIMARY KEY,
         tipo VARCHAR(20) NOT NULL,          -- 'pyg' | 'balance'
@@ -4015,6 +4037,89 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200,{'Content-Type':'application/json'});
       res.end(JSON.stringify({ ok:true, tipo, anio, cuentas: cuentas.length, meses: meses.length, titulo }));
     } catch(e) { res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
+  // ─── FLUJO DE CAJA ──────────────────────────────────────────────────────────────
+  if (urlPath === '/api/caja' && req.method === 'GET') {
+    if (bloquearSiNoAdmin(req, res)) return;
+    try {
+      const hoyC = nowEC();
+      const mk = String(urlObj.searchParams.get('mes') || (hoyC.getFullYear()+'-'+String(hoyC.getMonth()+1).padStart(2,'0')));
+      const sal = await pool.query('SELECT * FROM caja_saldos WHERE mes_key=$1 ORDER BY tipo, orden, id', [mk]);
+      const pag = await pool.query('SELECT * FROM caja_pagos WHERE mes_key=$1 ORDER BY dia, id', [mk]);
+      const mes = await pool.query('SELECT DISTINCT mes_key FROM caja_pagos UNION SELECT DISTINCT mes_key FROM caja_saldos ORDER BY 1 DESC');
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:true, mes_key:mk, saldos:sal.rows, pagos:pag.rows, meses:mes.rows.map(x=>x.mes_key) }));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+  if (urlPath === '/api/caja/saldo' && req.method === 'POST') {
+    if (bloquearSiNoAdmin(req, res)) return;
+    try {
+      const b = await bodyJSON(req);
+      if (b.id) await pool.query('UPDATE caja_saldos SET nombre=$1, monto=$2, actualizado_at=NOW() WHERE id=$3', [String(b.nombre||'').substring(0,190), parseFloat(b.monto)||0, b.id]);
+      else await pool.query('INSERT INTO caja_saldos(mes_key,tipo,nombre,monto,orden) VALUES($1,$2,$3,$4,$5)',
+        [b.mes_key, b.tipo==='cobro'?'cobro':'banco', String(b.nombre||'').substring(0,190), parseFloat(b.monto)||0, parseInt(b.orden)||0]);
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+  if (urlPath === '/api/caja/pago' && req.method === 'POST') {
+    if (bloquearSiNoAdmin(req, res)) return;
+    try {
+      const b = await bodyJSON(req);
+      if (b.id) {
+        const campos = [], vals = []; let i = 1;
+        ['dia','concepto','monto','fuente','pagado','recurrente'].forEach(k=>{
+          if (b[k] !== undefined) {
+            campos.push(k+'=$'+i);
+            vals.push(k==='monto' ? (parseFloat(b[k])||0) : k==='dia' ? (parseInt(b[k])||1) : k==='pagado'||k==='recurrente' ? !!b[k] : String(b[k]||'').substring(0,290));
+            i++;
+          }
+        });
+        if (campos.length) { vals.push(b.id); await pool.query(`UPDATE caja_pagos SET ${campos.join(',')}, actualizado_at=NOW() WHERE id=$${i}`, vals); }
+      } else {
+        await pool.query('INSERT INTO caja_pagos(mes_key,dia,concepto,monto,fuente,pagado,recurrente) VALUES($1,$2,$3,$4,$5,$6,$7)',
+          [b.mes_key, parseInt(b.dia)||1, String(b.concepto||'').substring(0,290), parseFloat(b.monto)||0, String(b.fuente||'').substring(0,110), !!b.pagado, !!b.recurrente]);
+      }
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+  if (/^\/api\/caja\/(pago|saldo)\/\d+$/.test(urlPath) && req.method === 'DELETE') {
+    if (bloquearSiNoAdmin(req, res)) return;
+    try {
+      const partes = urlPath.split('/');
+      const tabla = partes[3] === 'pago' ? 'caja_pagos' : 'caja_saldos';
+      await pool.query(`DELETE FROM ${tabla} WHERE id=$1`, [parseInt(partes[4])]);
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+  // Copiar el mes anterior: los pagos se traen sin marcar y los bancos con su último saldo,
+  // que es lo que evita volver a teclear la misma lista cada mes.
+  if (urlPath === '/api/caja/copiar' && req.method === 'POST') {
+    if (bloquearSiNoAdmin(req, res)) return;
+    try {
+      const b = await bodyJSON(req);
+      const mk = String(b.mes_key||'');
+      const [a,m] = mk.split('-').map(Number);
+      const prevD = new Date(a, m-2, 1);
+      const prev = prevD.getFullYear()+'-'+String(prevD.getMonth()+1).padStart(2,'0');
+      const yaP = await pool.query('SELECT COUNT(*)::int AS n FROM caja_pagos WHERE mes_key=$1', [mk]);
+      const yaS = await pool.query('SELECT COUNT(*)::int AS n FROM caja_saldos WHERE mes_key=$1', [mk]);
+      let pagos = 0, saldos = 0;
+      if (yaP.rows[0].n === 0) {
+        const r = await pool.query('INSERT INTO caja_pagos(mes_key,dia,concepto,monto,fuente,pagado,recurrente) SELECT $1,dia,concepto,monto,fuente,false,recurrente FROM caja_pagos WHERE mes_key=$2 RETURNING id', [mk, prev]);
+        pagos = r.rowCount;
+      }
+      if (yaS.rows[0].n === 0) {
+        const r = await pool.query('INSERT INTO caja_saldos(mes_key,tipo,nombre,monto,orden) SELECT $1,tipo,nombre,monto,orden FROM caja_saldos WHERE mes_key=$2 RETURNING id', [mk, prev]);
+        saldos = r.rowCount;
+      }
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, desde:prev, pagos, saldos}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
   }
 
