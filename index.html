@@ -1550,15 +1550,18 @@ function pintarTestersInv(filtro){
       </thead>
       <tbody>
         ${productos.map((p,pi)=>{
+          // El stock NO limita esta pantalla: aquí se registra lo que ya se entregó a las
+          // asesoras, no lo que se puede entregar a una clienta. El semáforo se muestra solo
+          // como referencia visual y nunca bloquea el registro.
           const semT = (window._testersSemaforo||{})[p.id] || null;
-          const rojo = semT !== null && semT !== 'verde';
+          const rojo = false;
           const tagT = semT==='rojo'
             ? ' <span style="font-size:9px;color:#dc2626;font-weight:700;border:1px solid #fca5a5;border-radius:4px;padding:1px 5px;margin-left:4px;white-space:nowrap">SIN STOCK</span>'
             : (semT==='amarillo' ? ' <span style="font-size:9px;color:#d97706;font-weight:700;border:1px solid #fcd34d;border-radius:4px;padding:1px 5px;margin-left:4px;white-space:nowrap">STOCK BAJO</span>' : '');
           return `
         <tr style="border-bottom:0.5px solid var(--border);background:${pi%2?'#f6f3ef':'white'};${rojo?'opacity:0.45':''}" ${rojo?'title="Sin stock suficiente (semáforo de Proyección) — no disponible para tester"':''}>
           <td style="padding:8px 14px;position:sticky;left:0;background:${pi%2?'#f6f3ef':'white'};z-index:1">
-            <div style="font-weight:500;font-size:12px;${rojo?'color:var(--muted)':''}">${esc(p.nombre)}${rojo?tagT:''}</div>
+            <div style="font-weight:500;font-size:12px">${esc(p.nombre)}${tagT}</div>
             <div style="font-size:9px;color:var(--muted)">${esc(p.marca)}${p.codigo?' · '+esc(p.codigo):''}</div>
           </td>
           ${asesoras.map(a=>{
