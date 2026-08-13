@@ -603,10 +603,22 @@ async function sincronizarCartera(){
     let url = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${desde}&fecha_final=${hasta}&page_size=100`;
     let pg = 0; const vistos = new Set(); const porCliente = {}; const porDia = {};
     let total = 0, vencida = 0, docs = 0;
+    let fallos = 0;
     while (url && pg < 400) {
-      const r = await fetch(url, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
-      if (!r.ok) break;
-      const d = await r.json();
+      // Contifico limita las peticiones seguidas. Antes se hacía `if (!r.ok) break;` y el
+      // barrido se rendía en la primera página estrangulada, dejando la cartera con una
+      // fracción del total. Ahora se reintenta con espera creciente y solo se abandona
+      // después de tres intentos fallidos sobre la MISMA página.
+      let d = null;
+      for (let intento = 0; intento < 3 && !d; intento++) {
+        if (intento) await new Promise(res => setTimeout(res, [0, 2000, 6000][intento]));
+        try {
+          const r = await fetch(url, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
+          if (r.ok) d = await r.json();
+          else { fallos++; console.log(`Cartera: página ${pg+1} devolvió HTTP ${r.status} (intento ${intento+1})`); }
+        } catch(e) { fallos++; console.log(`Cartera: error de red en página ${pg+1}: ${e.message}`); }
+      }
+      if (!d) { console.error(`✗ Cartera incompleta: la página ${pg+1} falló tres veces`); break; }
       (d.results || []).forEach(doc => {
         if (doc.tipo_registro !== 'CLI' || doc.anulado || noEsVenta(doc) || esNotaCredito(doc)) return;
         const k = doc.id || doc.documento;
@@ -642,6 +654,7 @@ async function sincronizarCartera(){
         if (estaVencida) { porCliente[nom].vencido += saldo; porCliente[nom].atraso = Math.max(porCliente[nom].atraso, diasAtraso); }
       });
       url = d.next || null; pg++;
+      if (url) await new Promise(res => setTimeout(res, 200));   // respiro entre páginas
     }
     const r2 = x => Math.round(x*100)/100;
     CARTERA = {
@@ -651,13 +664,14 @@ async function sincronizarCartera(){
       // Calendario de vencimientos: qué se cobra cada día de aquí en adelante
       vencimientos: Object.values(porDia).sort((a,b)=>a.fecha.localeCompare(b.fecha))
         .map(d=>({ ...d, monto: r2(d.monto) })),
+      paginas: pg, reintentos: fallos, completo: !url,
       at: new Date().toISOString(), error: null
     };
-    console.log(`✓ Cartera: ${docs} facturas · total ${CARTERA.total} · vencida ${CARTERA.vencida}`);
+    console.log(`✓ Cartera: ${docs} facturas · total ${CARTERA.total} · vencida ${CARTERA.vencida} · ${pg} páginas${fallos?' ('+fallos+' reintentos)':''}`);
   } catch(e) { CARTERA.error = e.message; console.error('Error cartera:', e.message); }
   CARTERA_EN_CURSO = false;
 }
-setTimeout(() => sincronizarCartera().catch(e=>console.error(e)), 45 * 1000);
+setTimeout(() => sincronizarCartera().catch(e=>console.error(e)), 4 * 60 * 1000);
 setInterval(() => sincronizarCartera().catch(e=>console.error(e)), 12 * 60 * 60 * 1000);  // dos veces al día
 
 // ─── FUENTE ÚNICA DE VERDAD ───────────────────────────────────────────────────────
