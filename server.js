@@ -973,9 +973,12 @@ async function sincronizarPedidosWeb(opciones){
             // Solo enviar push si es un pedido GENUINAMENTE NUEVO
             if (esNuevo) {
               console.log(`🛒 Nuevo pedido #${pedido.numeroPedido} — enviando push`);
+              // El VALOR va primero en el título: en el móvil el título se recorta y un
+              // nombre largo dejaba el monto fuera de pantalla. El nombre pasa al cuerpo,
+              // que sí admite dos líneas y no se pierde.
               enviarPushATodos({
-                title: `${pedido.cliente || '—'} · $${parseFloat(pedido.total||0).toFixed(2)}`,
-                body: `Pedido #${pedido.numeroPedido}`,
+                title: `$${parseFloat(pedido.total||0).toFixed(2)} · APP Cosétika`,
+                body: `Nuevo pedido — ${String(pedido.cliente || '—').substring(0,90)}`,
                 tag: `pedido-${pedido.numeroPedido}`,
                 url: '/'
               }).catch(()=>{});
