@@ -4113,6 +4113,54 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // Diagnóstico de cartera: qué trae realmente el listado de documentos de Contifico
+  if (urlPath === '/api/cartera/debug' && req.method === 'GET') {
+    if (bloquearSiNoAdmin(req, res)) return;
+    try {
+      const meses = parseInt(urlObj.searchParams.get('meses')) || 9;
+      const hoyK = nowEC();
+      const desdeD = new Date(hoyK); desdeD.setMonth(desdeD.getMonth() - meses);
+      let url = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${fmtDateEC(desdeD)}&fecha_final=${fmtDateEC(hoyK)}&page_size=100`;
+      let pg = 0;
+      const stats = { docs:0, cli:0, fac:0, conSaldoCampo:0, saldoNull:0, saldoMayorCero:0,
+        sumaSaldo:0, sumaTotalNoPagados:0, estados:{}, tipos:{}, campos:null, ejemplos:[] };
+      while (url && pg < 400) {
+        const r = await fetch(url, { headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
+        if (!r.ok) { stats.error = 'HTTP '+r.status; break; }
+        const d = await r.json();
+        (d.results || []).forEach(doc => {
+          stats.docs++;
+          if (!stats.campos) stats.campos = Object.keys(doc).sort();
+          const t = String(doc.tipo_documento||'?');
+          stats.tipos[t] = (stats.tipos[t]||0)+1;
+          if (doc.tipo_registro !== 'CLI' || doc.anulado || noEsVenta(doc) || esNotaCredito(doc)) return;
+          stats.cli++; stats.fac++;
+          const est = String(doc.estado==null?'(null)':doc.estado);
+          stats.estados[est] = (stats.estados[est]||0)+1;
+          if (doc.saldo === undefined) return;
+          stats.conSaldoCampo++;
+          if (doc.saldo === null) { stats.saldoNull++; return; }
+          const sal = parseFloat(doc.saldo)||0;
+          if (sal > 0.01) { stats.saldoMayorCero++; stats.sumaSaldo += sal; }
+          if (est !== 'P' && est !== 'C') stats.sumaTotalNoPagados += parseFloat(doc.total)||0;
+          if (stats.ejemplos.length < 3 && sal > 0.01) stats.ejemplos.push({
+            documento: doc.documento, tipo: doc.tipo_documento, fecha: doc.fecha_emision,
+            estado: doc.estado, total: doc.total, saldo: doc.saldo,
+            cliente: (doc.cliente && doc.cliente.razon_social) || '—',
+            cobros: doc.cobros ? (Array.isArray(doc.cobros)? doc.cobros.length : 'obj') : 'sin campo'
+          });
+        });
+        url = d.next || null; pg++;
+      }
+      stats.sumaSaldo = Math.round(stats.sumaSaldo*100)/100;
+      stats.sumaTotalNoPagados = Math.round(stats.sumaTotalNoPagados*100)/100;
+      stats.paginas = pg;
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify(stats, null, 2));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+
   if (urlPath === '/api/cartera' && req.method === 'GET') {
     if (bloquearSiNoAdmin(req, res)) return;
     // Nunca bloquear la respuesta: recorrer 12 meses de facturas toma minutos y dejaría el
