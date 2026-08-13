@@ -590,12 +590,15 @@ async function sincronizarHoy() {
 // ─── CARTERA POR COBRAR (en vivo desde Contifico) ─────────────────────────────────
 // Suma el saldo pendiente de las facturas y separa lo vencido de lo que aún está en plazo,
 // usando los días de crédito de cada clienta. Se refresca dos veces al día.
-let CARTERA = { total:0, vencida:0, por_vencer:0, docs:0, clientes:[], at:null, error:null };
+let CARTERA = { total:0, vencida:0, por_vencer:0, docs:0, clientes:[], vencimientos:[], at:null, error:null };
+let CARTERA_EN_CURSO = false;
 async function sincronizarCartera(){
   if (!API_KEY) return;
+  if (CARTERA_EN_CURSO) return;      // evita que dos peticiones disparen el mismo barrido
+  CARTERA_EN_CURSO = true;
   try {
     const hoyK = nowEC();
-    const desdeD = new Date(hoyK); desdeD.setMonth(desdeD.getMonth() - 12);
+    const desdeD = new Date(hoyK); desdeD.setMonth(desdeD.getMonth() - 9);
     const desde = fmtDateEC(desdeD), hasta = fmtDateEC(hoyK);
     let url = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${desde}&fecha_final=${hasta}&page_size=100`;
     let pg = 0; const vistos = new Set(); const porCliente = {}; const porDia = {};
@@ -652,6 +655,7 @@ async function sincronizarCartera(){
     };
     console.log(`✓ Cartera: ${docs} facturas · total ${CARTERA.total} · vencida ${CARTERA.vencida}`);
   } catch(e) { CARTERA.error = e.message; console.error('Error cartera:', e.message); }
+  CARTERA_EN_CURSO = false;
 }
 setTimeout(() => sincronizarCartera().catch(e=>console.error(e)), 45 * 1000);
 setInterval(() => sincronizarCartera().catch(e=>console.error(e)), 12 * 60 * 60 * 1000);  // dos veces al día
@@ -4111,10 +4115,13 @@ const server = http.createServer(async (req, res) => {
 
   if (urlPath === '/api/cartera' && req.method === 'GET') {
     if (bloquearSiNoAdmin(req, res)) return;
-    // Si nunca se ha sincronizado (arranque reciente), hacerlo ahora en vez de devolver ceros
-    if (urlObj.searchParams.get('forzar') === '1' || !CARTERA.at) await sincronizarCartera();
+    // Nunca bloquear la respuesta: recorrer 12 meses de facturas toma minutos y dejaría el
+    // panel colgado. Se dispara en segundo plano y el frontend reintenta.
+    if (urlObj.searchParams.get('forzar') === '1' || !CARTERA.at) {
+      sincronizarCartera().catch(e=>console.error(e));
+    }
     res.writeHead(200,{'Content-Type':'application/json'});
-    res.end(JSON.stringify({ ok:true, ...CARTERA }));
+    res.end(JSON.stringify({ ok:true, sincronizando: CARTERA_EN_CURSO, ...CARTERA }));
     return;
   }
 

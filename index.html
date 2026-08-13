@@ -8883,10 +8883,19 @@ async function renderCaja(){
   try{ const r = await fetch('/api/caja?mes='+window._cajaMes); D = await r.json(); }
   catch(e){ cont.innerHTML='<div class="card" style="padding:24px;text-align:center;color:var(--muted)">No se pudo cargar.</div>'; return; }
   window._cajaData = D;
-  // La cartera viene sola de Contifico; si falla, el panel sigue funcionando sin ella
-  try{ const rc = await fetch('/api/cartera'); window._cartera = await rc.json(); }catch(e){ window._cartera = null; }
+  // La cartera viene sola de Contifico. Nunca se espera indefinidamente: si tarda o falla,
+  // el panel se pinta igual y la cartera aparece cuando esté lista.
+  try{
+    const ctrl = new AbortController();
+    const t = setTimeout(()=>ctrl.abort(), 12000);
+    const rc = await fetch('/api/cartera', {signal: ctrl.signal});
+    clearTimeout(t);
+    window._cartera = await rc.json();
+  }catch(e){ window._cartera = window._cartera || null; }
   if(window._cajaCartera === undefined) window._cajaCartera = await cargarAjuste('caja_contar_cartera', 1);
   pintarCaja();
+  // Si el servidor está recorriendo las facturas, reintentar hasta que termine
+  if(window._cartera && window._cartera.sincronizando) cajaEsperarCartera(0);
 }
 
 function cajaNavMes(delta){
@@ -8925,6 +8934,20 @@ async function cajaNuevoPago(){
   await cajaGuardar('/api/caja/pago', { mes_key: window._cajaMes, dia: parseInt(d.value)||1,
     concepto: c.value.trim(), monto: parseFloat(mo.value)||0, fuente: (f.value||'').trim() });
 }
+// Reintenta en segundo plano mientras el servidor calcula la cartera, sin bloquear el panel
+async function cajaEsperarCartera(intento){
+  if(intento > 12) return;
+  await new Promise(r=>setTimeout(r, 6000));
+  if(window._reportesTab !== 'caja') return;
+  try{
+    const r = await fetch('/api/cartera');
+    const d = await r.json();
+    window._cartera = d;
+    pintarCaja();
+    if(d.sincronizando) cajaEsperarCartera(intento+1);
+  }catch(e){ cajaEsperarCartera(intento+1); }
+}
+
 async function cajaModoCartera(v){
   window._cajaCartera = parseFloat(v);
   await guardarAjuste('caja_contar_cartera', v, false);
@@ -8959,7 +8982,9 @@ function pintarCaja(){
 
   const N = v => parseFloat(v)||0;
   const totBancos = bancos.reduce((a,s)=>a+N(s.monto),0);
-  const cartera = window._cartera && window._cartera.ok ? window._cartera : null;
+  const cartRaw = window._cartera && window._cartera.ok ? window._cartera : null;
+  const cartCalculando = !!(cartRaw && cartRaw.sincronizando && !cartRaw.at);
+  const cartera = (cartRaw && cartRaw.at) ? cartRaw : null;
   // 0 = no contar · 1 = solo la vencida · 2 = toda la cartera
   const modoCart = window._cajaCartera === undefined ? 1 : window._cajaCartera;
   const cartAporta = !cartera ? 0 : (modoCart===2 ? cartera.total : (modoCart===1 ? cartera.vencida : 0));
@@ -9103,6 +9128,12 @@ function pintarCaja(){
             <span style="color:var(--muted);font-size:10px"> · ${c.atraso} días · ${c.docs} fact.</span></span>
         </div>`).join('')}
       </div>`:''}
+    </div>`;
+  }
+  if(cartCalculando){
+    h += `<div class="card" style="margin-bottom:12px;padding:14px 16px;display:flex;align-items:center;gap:10px;font-size:12px;color:var(--muted)">
+      <i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:16px;color:var(--brown)"></i>
+      Calculando la cartera desde Contifico — recorre las facturas de los últimos meses y toma un momento. Aparece sola en cuanto termine.
     </div>`;
   }
   h += bloqueSaldos('Otros cobros esperados', cobros, 'cobro', 'ti-cash');
