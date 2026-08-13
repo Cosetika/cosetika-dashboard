@@ -8603,7 +8603,7 @@ function renderReportes(){
 
 // ─── PROMOCIONES: rentabilidad de 2+1, 3+1 y descuentos por marca/categoría ────────
 // Todo el cálculo es SIN IVA. Los pvp de Contifico ya vienen sin IVA.
-window._promoCfg = window._promoCfg || { tipo:'2+1', pvpKey:'pvp2', marca:'', categoria:'', soloConCosto:true, orden:'margen' };
+window._promoCfg = window._promoCfg || { tipo:'2+1', pvpKey:'pvp2', marca:'', categoria:'', soloConCosto:true, orden:'margen', umbral:'' };
 
 const PROMOS_TIPOS = {
   '2+1':   { paga:2, lleva:3, label:'2 + 1',  desc:'Paga 2, lleva 3' },
@@ -8698,6 +8698,11 @@ function pintarPromos(){
   });
   const ord = { margen:(a,b)=>a.margen-b.margen, nombre:(a,b)=>String(a.nombre).localeCompare(b.nombre), util:(a,b)=>b.util-a.util };
   filas.sort(ord[cfg.orden] || ord.margen);
+  // El filtro de margen afecta SOLO a la tabla: las tarjetas de arriba siguen describiendo
+  // el grupo completo, para no perder la referencia de contra qué se compara.
+  const bajoUmbral = (f,u) => f.costo>0 && (u==='perdida' ? f.util<0 : f.margen < parseFloat(u));
+  const filasVista = cfg.umbral ? filas.filter(f=>bajoUmbral(f,cfg.umbral)) : filas;
+  const cuenta30 = filas.filter(f=>bajoUmbral(f,'30')).length;
 
   const sinCosto = base.filter(p => (!cfg.marca||p.marca===cfg.marca) && (!cfg.categoria||p.categoria===cfg.categoria) && !(p.costo>0)).length;
   // Los productos sin costo NO se promedian: darían 100% de margen y falsearían todo
@@ -8736,6 +8741,14 @@ function pintarPromos(){
     +   '<option value="margen"'+(cfg.orden==='margen'?' selected':'')+'>Margen más bajo primero</option>'
     +   '<option value="util"'+(cfg.orden==='util'?' selected':'')+'>Mayor utilidad</option>'
     +   '<option value="nombre"'+(cfg.orden==='nombre'?' selected':'')+'>Nombre</option></select></div>'
+    + '<div><div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:5px">Margen promo</div>'
+    +   '<select onchange="promoSet(\'umbral\',this.value)" style="padding:6px 10px;border:1px solid '+(cfg.umbral?'var(--brown)':'var(--border)')+';border-radius:8px;font-size:12px;background:white;cursor:pointer;font-weight:'+(cfg.umbral?'700':'400')+'">'
+    +   '<option value=""'+(cfg.umbral===''?' selected':'')+'>Todos los productos</option>'
+    +   '<option value="40"'+(cfg.umbral==='40'?' selected':'')+'>Por debajo del 40%</option>'
+    +   '<option value="35"'+(cfg.umbral==='35'?' selected':'')+'>Por debajo del 35%</option>'
+    +   '<option value="30"'+(cfg.umbral==='30'?' selected':'')+'>Por debajo del 30%</option>'
+    +   '<option value="perdida"'+(cfg.umbral==='perdida'?' selected':'')+'>Solo los que dan pérdida</option>'
+    +   '</select></div>'
     + '<label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);cursor:pointer;padding-bottom:7px">'
     +   '<input type="checkbox" '+(cfg.soloConCosto?'checked':'')+' onchange="promoSet(\'soloConCosto\',this.checked)" style="cursor:pointer"> Solo con costo registrado</label>'
     + '</div></div>';
@@ -8750,7 +8763,11 @@ function pintarPromos(){
     + card('Margen con '+T.label, pct(margenProm), 'antes era '+pct(margenNormalProm), colorMargen(margenProm))
     + card('Descuento efectivo', pct(filas.length?filas[0].descEfectivo:0), T.desc, '#d97706')
     + card('Utilidad por combo', conC.length? m$(totUtil/conC.length) : '—', conC.length? 'promedio de '+conC.length+' productos con costo' : 'sin costos cargados')
-    + card('En pérdida', String(enPerdida), enPerdida? 'productos bajo costo' : 'ninguno bajo costo', enPerdida?'#dc2626':'#16a34a')
+    + '<div class="card" onclick="promoSet(\'umbral\', window._promoCfg.umbral===\'30\'?\'\':\'30\')" title="Clic para ver solo estos productos" style="padding:14px 16px;flex:1;min-width:150px;cursor:pointer;border:1px solid '+(cfg.umbral==='30'?'var(--brown)':'var(--border)')+'">'
+      + '<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1.2px">Bajo 30% de margen</div>'
+      + '<div style="font-size:24px;font-weight:700;color:'+(cuenta30?'#d97706':'#16a34a')+';margin-top:4px">'+cuenta30+'</div>'
+      + '<div style="font-size:11px;color:var(--muted);margin-top:2px">'+(cuenta30? (cfg.umbral==='30'?'mostrando solo estos':'clic para verlos') : 'ninguno bajo el umbral')
+      + (enPerdida? ' · <span style="color:#dc2626;font-weight:700">'+enPerdida+' en pérdida</span>' : '') + '</div></div>'
     + '</div>';
 
   // ── Origen de los costos + carga del Excel ──
@@ -8777,17 +8794,21 @@ function pintarPromos(){
   // ── Tabla ──
   html += '<div class="card" style="padding:0;overflow:hidden">'
     + '<div style="padding:14px 16px 10px;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px">'
-    + '<i class="ti ti-gift" style="margin-right:6px"></i>' + T.desc + ' — ' + (cfg.marca||'todas las marcas') + (cfg.categoria? ' · '+esc(cfg.categoria):'') + ' (sin IVA)</div>'
+    + '<i class="ti ti-gift" style="margin-right:6px"></i>' + T.desc + ' — ' + (cfg.marca||'todas las marcas') + (cfg.categoria? ' · '+esc(cfg.categoria):'')
+    + (cfg.umbral ? ' · <span style="color:#d97706">'+(cfg.umbral==='perdida'?'solo los que dan pérdida':'margen bajo '+cfg.umbral+'%')+' ('+filasVista.length+' de '+filas.length+')</span>' : '')
+    + ' (sin IVA)</div>'
     + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:820px">'
     + '<thead><tr style="background:#faf8f6">'
     + ['Producto','Costo u.','PVP u.','Margen normal','Cobra','Entrega','Costo combo','Utilidad','Margen promo'].map((h,i)=>
         '<th style="padding:9px 12px;text-align:'+(i===0?'left':'right')+';font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px;border-bottom:1px solid var(--border);white-space:nowrap">'+h+'</th>').join('')
     + '</tr></thead><tbody>';
 
-  if(!filas.length){
-    html += '<tr><td colspan="9" style="padding:26px;text-align:center;color:var(--muted)">No hay productos con costo para este filtro.</td></tr>';
+  if(!filasVista.length){
+    html += '<tr><td colspan="9" style="padding:26px;text-align:center;color:var(--muted)">'
+      + (cfg.umbral ? 'Ningún producto queda por debajo de ese margen con esta promoción — buena señal.' : 'No hay productos con costo para este filtro.')
+      + '</td></tr>';
   }
-  filas.forEach((f,i) => {
+  filasVista.forEach((f,i) => {
     html += '<tr style="background:'+(i%2?'#fcfbfa':'white')+'">'
       + '<td style="padding:9px 12px;border-bottom:0.5px solid var(--border)"><div style="font-weight:600;line-height:1.25">'+esc(f.nombre)+'</div>'
       +   '<div style="font-size:10px;color:var(--muted);margin-top:2px">'+esc(f.codigo)+(f.categoria?' · '+esc(f.categoria):'')+'</div></td>'
