@@ -598,7 +598,7 @@ async function sincronizarCartera(){
   CARTERA_EN_CURSO = true;
   try {
     const hoyK = nowEC();
-    const desdeD = new Date(hoyK); desdeD.setMonth(desdeD.getMonth() - 9);
+    const desdeD = new Date(hoyK); desdeD.setMonth(desdeD.getMonth() - 6);
     const desde = fmtDateEC(desdeD), hasta = fmtDateEC(hoyK);
     let url = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${desde}&fecha_final=${hasta}&page_size=100`;
     let pg = 0; const vistos = new Set(); const porCliente = {}; const porDia = {};
@@ -640,10 +640,8 @@ async function sincronizarCartera(){
           if (vence < hoy0) { estaVencida = true; diasAtraso = Math.round((hoy0 - vence)/86400000); }
           claveVence = vence.getFullYear()+'-'+String(vence.getMonth()+1).padStart(2,'0')+'-'+String(vence.getDate()).padStart(2,'0');
           if (!estaVencida) {
-            if (!porDia[claveVence]) porDia[claveVence] = { fecha: claveVence, monto: 0, docs: 0, clientes: [] };
+            if (!porDia[claveVence]) porDia[claveVence] = { fecha: claveVence, monto: 0, docs: 0 };
             porDia[claveVence].monto += saldo; porDia[claveVence].docs++;
-            const nomV = (doc.cliente && (doc.cliente.razon_social || doc.cliente.nombre_comercial)) || '—';
-            if (porDia[claveVence].clientes.length < 6) porDia[claveVence].clientes.push({ nombre: nomV, monto: Math.round(saldo*100)/100 });
           }
         }
         total += saldo; docs++;
@@ -667,12 +665,25 @@ async function sincronizarCartera(){
       paginas: pg, reintentos: fallos, completo: !url,
       at: new Date().toISOString(), error: null
     };
+    // Persistir: tras un redeploy el panel muestra la última lectura conocida en vez de ceros
+    try { await setConfigApp('cartera_cache', JSON.stringify(CARTERA)); } catch(e) {}
     console.log(`✓ Cartera: ${docs} facturas · total ${CARTERA.total} · vencida ${CARTERA.vencida} · ${pg} páginas${fallos?' ('+fallos+' reintentos)':''}`);
   } catch(e) { CARTERA.error = e.message; console.error('Error cartera:', e.message); }
   CARTERA_EN_CURSO = false;
 }
-setTimeout(() => sincronizarCartera().catch(e=>console.error(e)), 4 * 60 * 1000);
-setInterval(() => sincronizarCartera().catch(e=>console.error(e)), 12 * 60 * 60 * 1000);  // dos veces al día
+// Al arrancar se recupera la última lectura guardada; el recálculo completo corre una vez
+// al día (de madrugada) o cuando se pide a mano desde el panel.
+setTimeout(async () => {
+  try {
+    const raw = await getConfigApp('cartera_cache', null);
+    if (raw) { const c = JSON.parse(raw); if (c && c.at) { CARTERA = c; console.log(`✓ Cartera recuperada del caché: ${c.docs} facturas · ${c.at}`); } }
+  } catch(e) {}
+  if (!CARTERA.at) sincronizarCartera().catch(e=>console.error(e));
+}, 60 * 1000);
+setInterval(() => {
+  const h = nowEC().getHours();
+  if (h === 3) sincronizarCartera().catch(e=>console.error(e));   // una vez al día, 3 AM Ecuador
+}, 60 * 60 * 1000);
 
 // ─── FUENTE ÚNICA DE VERDAD ───────────────────────────────────────────────────────
 // El data.json que recibe el navegador ya viene COMPLETO: caché histórica + el tramo que
