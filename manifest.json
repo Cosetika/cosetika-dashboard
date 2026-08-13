@@ -1,0 +1,12 @@
+{
+  "name": "Cosétika",
+  "short_name": "Cosétika",
+  "description": "Panel de ventas y operaciones de Corporación Cosétika",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#1a1108",
+  "theme_color": "#1a1108",
+  "lang": "es-EC"
+}
