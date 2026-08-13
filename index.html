@@ -8968,19 +8968,34 @@ function pintarCaja(){
   const totPendiente = pendientes.reduce((a,p)=>a+N(p.monto),0);
   const totPagado = pagos.filter(p=>p.pagado).reduce((a,p)=>a+N(p.monto),0);
   const disponible = totBancos + totCobros;
-  const brecha = disponible - totPendiente;
+  const brecha = disponible - totPendiente;   // se recalcula abajo con los cobros del mes
 
-  // Proyección día a día: se arranca del saldo en bancos y se van descontando los pagos
-  // pendientes en su fecha. El primer día en rojo es el que hay que resolver.
-  let saldo = totBancos, primerRojo = null, faltanteMax = 0;
+  // Calendario de caja: mezcla en una sola línea de tiempo los pagos pendientes (salidas)
+  // y las facturas que vencen ese día (entradas). Arranca del saldo en bancos más la cartera
+  // ya vencida, si se decidió contarla.
+  const vencMes = (cartera && cartera.vencimientos ? cartera.vencimientos : [])
+    .filter(v=>{ const [a,m] = v.fecha.split('-').map(Number); return a===anioC && m===mesC; })
+    .map(v=>({ dia: parseInt(v.fecha.split('-')[2]), monto: v.monto, docs: v.docs, clientes: v.clientes||[] }));
+  const cobrosFuturosMes = vencMes.reduce((a,v)=>a+v.monto,0);
+
+  const eventos = [];
+  pendientes.forEach(p=>eventos.push({ dia:p.dia, tipo:'pago', concepto:p.concepto, monto:-N(p.monto) }));
+  if(modoCart !== 0) vencMes.forEach(v=>eventos.push({ dia:v.dia, tipo:'cobro',
+    concepto:v.docs+' factura'+(v.docs!==1?'s':'')+' por cobrar', monto:v.monto, clientes:v.clientes }));
+  eventos.sort((a,b)=> a.dia-b.dia || (a.tipo==='cobro'?-1:1));   // el cobro del día entra antes del pago
+
+  let saldo = totBancos + (modoCart===0 ? 0 : (cartera ? cartera.vencida : 0));
+  const saldoInicial = saldo;
+  let primerRojo = null, faltanteMax = 0;
   const linea = [];
-  pendientes.forEach(p=>{
-    saldo -= N(p.monto);
-    if(saldo < 0 && primerRojo === null) primerRojo = p.dia;
+  eventos.forEach(ev=>{
+    saldo += ev.monto;
+    if(saldo < 0 && primerRojo === null) primerRojo = ev.dia;
     if(saldo < 0) faltanteMax = Math.min(faltanteMax, saldo);
-    linea.push({ dia:p.dia, concepto:p.concepto, monto:N(p.monto), saldo });
+    linea.push({ ...ev, saldo });
   });
   faltanteMax = Math.abs(faltanteMax);
+  const saldoFinal = saldo;
 
   const inp = (val, oninput, extra) => `<input value="${cajaEsc(val)}" onchange="${oninput}" style="${extra||''}">`;
 
@@ -8997,14 +9012,16 @@ function pintarCaja(){
     </div>`;
 
   // ── Veredicto ──
-  const alcanza = brecha >= 0;
+  const brechaReal = saldoFinal;              // lo que queda tras cobrar y pagar todo el mes
+  const alcanza = brechaReal >= 0;
   h += `<div class="card" style="margin-bottom:12px;background:${alcanza?'#f0fdf4':'#fef2f2'};border:1px solid ${alcanza?'#86efac':'#fca5a5'}">
       <div style="text-align:center;padding:6px 0">
         <div style="font-size:11px;font-weight:700;color:${alcanza?'#166534':'#991b1b'};text-transform:uppercase;letter-spacing:1.2px">${alcanza?'La caja alcanza':'Falta dinero para cerrar el mes'}</div>
-        <div style="font-size:34px;font-weight:800;color:${alcanza?'#16a34a':'#dc2626'};line-height:1.15;margin:4px 0">${cajaFmt(Math.abs(brecha))}</div>
+        <div style="font-size:34px;font-weight:800;color:${alcanza?'#16a34a':'#dc2626'};line-height:1.15;margin:4px 0">${cajaFmt(Math.abs(brechaReal))}</div>
         <div style="font-size:12px;color:${alcanza?'#166534':'#991b1b'}">${alcanza
-          ? 'te sobra después de pagar todo lo pendiente'
-          : 'necesitas conseguir esto antes de fin de mes'}</div>
+          ? 'te sobra al cierre, contando lo que cobras y lo que pagas'
+          : 'te falta al cierre, ya contando lo que vas a cobrar'}</div>
+        ${cobrosFuturosMes>0?`<div style="font-size:11px;color:var(--muted);margin-top:6px">Incluye <b>${cajaFmt(cobrosFuturosMes)}</b> de facturas que vencen este mes</div>`:''}
         ${primerRojo!==null?`<div style="font-size:12px;color:#991b1b;margin-top:8px;background:#fff;border-radius:8px;padding:7px 10px;display:inline-block">
           <i class="ti ti-alert-triangle" style="margin-right:4px"></i>La caja se rompe el <b>día ${primerRojo}</b>${faltanteMax?' · descubierto máximo '+cajaFmt(faltanteMax):''}</div>`:''}
       </div>
@@ -9020,6 +9037,7 @@ function pintarCaja(){
       ${mini('Por cobrar', cajaFmt(totCobros), cartera?'cartera Contifico + manual':'manual')}
       ${mini('Disponible', cajaFmt(disponible), 'bancos + por cobrar', 'var(--brown)')}
       ${mini('Por pagar', cajaFmt(totPendiente), pendientes.length+' pendiente'+(pendientes.length!==1?'s':''), '#d97706')}
+      ${mini('Vence este mes', cajaFmt(cobrosFuturosMes), 'facturas por cobrar', '#2563eb')}
       ${mini('Ya pagado', cajaFmt(totPagado), 'este mes', 'var(--muted)')}
     </div>`;
 
@@ -9107,20 +9125,53 @@ function pintarCaja(){
         <span style="font-size:11px;color:var(--muted);margin-left:8px">trae bancos y pagos recurrentes sin marcar</span></div>`:''}
     </div>`;
 
+  // ── Calendario de caja: entradas y salidas en orden de fecha ──
+  if(linea.length){
+    h += `<div class="card" style="padding:0;margin-bottom:12px">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:13px 15px 9px;flex-wrap:wrap;gap:8px">
+        <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1.2px"><i class="ti ti-calendar-dollar" style="margin-right:6px"></i>Calendario de caja · ${MESES_CAJA[mesC]}</div>
+        <div style="font-size:11px;color:var(--muted)">Arranca en ${cajaFmt(saldoInicial)}</div>
+      </div>
+      <div style="max-height:420px;overflow-y:auto">`;
+    let diaPrev = null;
+    linea.forEach(ev=>{
+      const nuevoDia = ev.dia !== diaPrev; diaPrev = ev.dia;
+      const esCobro = ev.tipo==='cobro';
+      const vencidoDia = esMesActual && ev.dia < diaHoy;
+      h += `<div style="display:flex;align-items:center;gap:10px;padding:8px 14px;border-top:0.5px solid var(--border);background:${ev.saldo<0?'#fef2f2':(esCobro?'#f7fbff':'white')}">
+          <div style="width:34px;text-align:center;flex-shrink:0">
+            ${nuevoDia?`<div style="font-size:15px;font-weight:800;color:${vencidoDia?'#dc2626':'var(--text)'};line-height:1">${ev.dia}</div>
+              <div style="font-size:8px;color:var(--muted);text-transform:uppercase">${MESES_CAJA[mesC].substring(0,3)}</div>`:''}
+          </div>
+          <i class="ti ${esCobro?'ti-arrow-down-circle':'ti-arrow-up-circle'}" style="font-size:15px;flex-shrink:0;color:${esCobro?'#16a34a':'#d97706'}"></i>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:12px;font-weight:${esCobro?'600':'500'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${cajaEsc(ev.concepto)}</div>
+            ${esCobro && ev.clientes && ev.clientes.length?`<div style="font-size:9px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${ev.clientes.map(c=>cajaEsc(c.nombre.split(' ').slice(0,2).join(' '))).join(' · ')}</div>`:''}
+          </div>
+          <div style="width:92px;text-align:right;font-size:13px;font-weight:700;flex-shrink:0;color:${esCobro?'#16a34a':'#d97706'}">${esCobro?'+':''}${cajaFmt(ev.monto)}</div>
+          <div style="width:92px;text-align:right;font-size:12px;font-weight:800;flex-shrink:0;color:${ev.saldo<0?'#dc2626':'var(--muted)'}">${cajaFmt(ev.saldo)}</div>
+        </div>`;
+    });
+    h += `</div>
+      <div style="padding:10px 15px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <span style="font-size:11px;color:var(--muted)">Verde entra, ámbar sale. La última columna es lo que queda en caja después de cada movimiento.</span>
+        <span style="font-size:13px;font-weight:800;color:${saldoFinal<0?'#dc2626':'#16a34a'}">Cierre: ${cajaFmt(saldoFinal)}</span>
+      </div>
+    </div>`;
+  }
+
   // ── Lista de pagos con saldo proyectado ──
-  let saldoAcum = totBancos;
   h += `<div class="card" style="padding:0;margin-bottom:12px">
       <div style="display:flex;align-items:center;justify-content:space-between;padding:13px 15px 9px;flex-wrap:wrap;gap:8px">
         <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1.2px"><i class="ti ti-list-check" style="margin-right:6px"></i>Pagos del mes</div>
-        <div style="font-size:11px;color:var(--muted)">La columna de la derecha es lo que queda en bancos después de cada pago</div>
+        <div style="font-size:11px;color:var(--muted)">Marca el check al pagar · el calendario de arriba muestra el saldo día a día</div>
       </div>`;
   if(pagos.length===0){
     h += '<div style="padding:0 15px 16px;font-size:13px;color:var(--muted)">Todavía no hay pagos cargados este mes.</div>';
   }
   pagos.forEach(p=>{
     const monto = N(p.monto);
-    if(!p.pagado) saldoAcum -= monto;
-    const rojo = !p.pagado && saldoAcum < 0;
+    const rojo = false;
     const vencido = esMesActual && !p.pagado && p.dia < diaHoy;
     h += `
       <div style="display:flex;align-items:center;gap:9px;padding:9px 13px;border-top:0.5px solid var(--border);background:${p.pagado?'#fafafa':(rojo?'#fef2f2':'white')}">
@@ -9136,7 +9187,7 @@ function pintarCaja(){
         </div>
         <input type="number" inputmode="decimal" step="0.01" value="${monto}" onchange="cajaEditar(${p.id},'monto',this.value)"
           style="width:96px;text-align:right;border:1px solid var(--border);border-radius:8px;padding:7px 8px;font-size:14px;font-weight:700;color:${p.pagado?'var(--muted)':'var(--text)'};outline:none;flex-shrink:0">
-        <div style="width:88px;text-align:right;font-size:12px;font-weight:700;flex-shrink:0;color:${p.pagado?'#cbc5bd':(saldoAcum<0?'#dc2626':'#16a34a')}">${p.pagado?'—':cajaFmt(saldoAcum)}</div>
+
         <button onclick="cajaBorrar('pago',${p.id})" style="border:none;background:transparent;color:#d1c9c0;cursor:pointer;font-size:14px;padding:2px;flex-shrink:0"><i class="ti ti-x"></i></button>
       </div>`;
   });
