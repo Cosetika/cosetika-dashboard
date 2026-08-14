@@ -47,18 +47,24 @@
     .mobile-header-title{color:#fff;font-size:13px;font-weight:500;letter-spacing:1px}
     /* Tooltip de ayuda de los indicadores financieros */
     .fin-ayuda{position:relative}
+    /* Se abre hacia ABAJO: hacia arriba tapaba la fila de tarjetas anterior */
     .fin-ayuda .fin-tip{
-      visibility:hidden;opacity:0;position:absolute;bottom:130%;left:50%;transform:translateX(-50%);
-      width:270px;max-width:78vw;background:#1a1108;color:#fff;text-align:left;border-radius:9px;
-      padding:10px 12px;font-size:11px;font-weight:400;line-height:1.5;letter-spacing:0;
-      font-family:inherit;text-transform:none;z-index:60;transition:opacity .15s;
-      box-shadow:0 6px 22px rgba(0,0,0,0.28);pointer-events:none}
+      visibility:hidden;opacity:0;position:absolute;top:calc(100% + 9px);left:50%;transform:translateX(-50%);
+      width:250px;max-width:76vw;background:#1a1108;color:#fff;text-align:left;border-radius:9px;
+      padding:11px 13px;font-size:11px;font-weight:400;line-height:1.55;letter-spacing:0;
+      font-family:inherit;text-transform:none;z-index:200;transition:opacity .15s;
+      box-shadow:0 8px 26px rgba(0,0,0,0.34);pointer-events:none;white-space:normal}
     .fin-ayuda .fin-tip::after{
-      content:"";position:absolute;top:100%;left:50%;transform:translateX(-50%);
-      border:6px solid transparent;border-top-color:#1a1108}
+      content:"";position:absolute;bottom:100%;left:50%;transform:translateX(-50%);
+      border:6px solid transparent;border-bottom-color:#1a1108}
     .fin-ayuda:hover .fin-tip,.fin-ayuda:focus .fin-tip{visibility:visible;opacity:1}
-    @media(max-width:700px){ .fin-ayuda .fin-tip{left:auto;right:-8px;transform:none}
-      .fin-ayuda .fin-tip::after{left:auto;right:12px;transform:none} }
+    /* La tarjeta con el tooltip abierto se pone por encima de las vecinas */
+    .fin-ayuda:hover,.fin-ayuda:focus{z-index:200}
+    .fin-mini{transition:z-index 0s}
+    .fin-mini:has(.fin-ayuda:hover),.fin-mini:has(.fin-ayuda:focus){z-index:200}
+    @media(max-width:700px){
+      .fin-ayuda .fin-tip{left:50%;transform:translateX(-50%);width:230px}
+    }
     .ham-btn{background:none;border:none;color:#A0684A;cursor:pointer;padding:4px;display:flex;align-items:center;justify-content:center}
 
     /* Sub-items del sidebar */
@@ -9702,7 +9708,7 @@ async function renderBalance(){
     <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1.2px">${t}</div>
     <div style="font-size:23px;font-weight:800;color:${c||'var(--brown)'};margin-top:4px">${v}</div>
     <div style="font-size:11px;color:var(--muted);margin-top:2px">${s}</div></div>`;
-  const mini = (t,v,s,c,ayuda)=>`<div style="background:#faf9f8;border:1px solid var(--border);border-radius:10px;padding:11px;text-align:center;position:relative">
+  const mini = (t,v,s,c,ayuda)=>`<div class="fin-mini" style="background:#faf9f8;border:1px solid var(--border);border-radius:10px;padding:11px;text-align:center;position:relative">
     <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px">${t}${ayuda?
       ` <span class="fin-ayuda" tabindex="0" style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-radius:50%;border:1px solid var(--muted);color:var(--muted);font-size:9px;font-weight:700;cursor:help;vertical-align:middle;font-family:Georgia,serif;text-transform:none">i<span class="fin-tip">${ayuda}</span></span>`:''}</div>
     <div style="font-size:18px;font-weight:800;color:${c||'var(--text)'};margin-top:2px">${v}</div>
