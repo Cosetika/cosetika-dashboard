@@ -1619,7 +1619,10 @@ setTimeout(() => sincronizarInstitutos().catch(e => console.error('Error sync in
 setInterval(() => sincronizarInstitutos().catch(e => console.error('Error sync institutos:', e.message)), 12 * 60 * 60 * 1000);
 
 sincronizarHoy().catch(e => console.error('Error sync inicial:', e.message));
-setInterval(() => sincronizarHoy().catch(e => console.error('Error sync:', e.message)), 60 * 60 * 1000);
+// Cada 5 minutos: solo consulta los documentos de HOY (una o dos páginas), así que es
+// barato. Antes corría cada hora y una factura emitida en Contifico podía tardar hasta
+// 60 minutos en aparecer en la app.
+setInterval(() => sincronizarHoy().catch(e => console.error('Error sync:', e.message)), 5 * 60 * 1000);
 
 // Sync de pedidos web: revisa la casilla pedidos@cosetika.com cada 10 minutos
 setTimeout(() => sincronizarPedidosWeb().catch(e => console.error('Error sync pedidos inicial:', e.message)), 15000);
@@ -4443,6 +4446,12 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (urlPath === '/api/ventas-hoy' && req.method === 'GET') {
+    // Si el caché tiene más de 2 minutos, refrescarlo antes de responder: es una consulta
+    // corta y garantiza que una factura recién emitida se vea al abrir el panel.
+    const edad = cache.ultima_sync ? (Date.now() - new Date(cache.ultima_sync).getTime()) : Infinity;
+    if (edad > 2 * 60 * 1000 && !cache.sincronizando) {
+      try { await sincronizarHoy(); } catch(e) { console.error('sync hoy on-demand:', e.message); }
+    }
     res.writeHead(200,{'Content-Type':'application/json'});
     res.end(JSON.stringify({ total: cache.documentos.length, ultima_sync: cache.ultima_sync, sincronizando: cache.sincronizando, documentos: cache.documentos, nc_documentos: cache.nc_documentos || [] }));
     return;

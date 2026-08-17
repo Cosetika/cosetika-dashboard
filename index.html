@@ -5744,6 +5744,21 @@ function setDocTab(tab){
   renderFacturasHoy();
 }
 
+// Refresco automático mientras se está mirando Pedidos o Facturas: son las pantallas donde
+// interesa ver lo que acaba de pasar, y sin esto había que recargar la página a mano.
+if(!window._autoRefrescoDocs){
+  window._autoRefrescoDocs = setInterval(()=>{
+    if(document.hidden) return;
+    if(subtabActual !== 'facturas') return;
+    const t = window._docTab || 'pedidos';
+    if(t !== 'pedidos' && t !== 'facturas') return;
+    // No repintar si hay una fila desplegada o un campo enfocado: se perdería el estado
+    const act = document.activeElement;
+    if(act && ['INPUT','TEXTAREA','SELECT'].includes(act.tagName)) return;
+    try{ renderFacturasHoy(); }catch(e){}
+  }, 120000);
+}
+
 let FACTURAS_FECHA_SEL = null; // fecha seleccionada en Documentos > Facturas (YYYY-MM-DD)
 
 function facturasFechasNavegables(){
