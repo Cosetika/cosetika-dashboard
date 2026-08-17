@@ -4009,15 +4009,26 @@ async function toggleClienteProvincia(usuarioId, provincia, btn){
 }
 
 async function cargarData(){
-  document.getElementById('main').innerHTML='<div class="loader"><i class="ti ti-refresh"></i><p>Cargando data...</p></div>';
-  try{
-    // Cargar catálogo de productos con marcas desde Contifico
-    await cargarCatalogo();
-    // Cargar cantidad de SKU por marca (configurado manualmente en Configuración)
-    await cargarSkuPorMarcaDesdeServidor();
+  // ── Etapa 1: pintar Pedidos de inmediato ──────────────────────────────────────
+  // Pedidos es lo primero que se mira al entrar y solo necesita su propio endpoint.
+  // Antes había que esperar al catálogo y al data.json completo (varios MB) para ver algo.
+  window._docTab = 'pedidos';
+  document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
+  document.getElementById('navsub-pedidos')?.classList.add('active');
+  const _subs = document.getElementById('nav-inicio-subs');
+  const _chev = document.getElementById('nav-ventas-chevron');
+  if(_subs) _subs.style.maxHeight = '300px';
+  if(_chev) _chev.style.transform = 'rotate(90deg)';
+  try{ renderFacturasHoy(); }catch(e){}
+  const _side = document.getElementById('vend-list');
+  if(_side) _side.innerHTML = '<div style="padding:10px 14px;font-size:11px;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite;margin-right:6px"></i>Cargando ventas…</div>';
 
-    const r=await fetch('/data.json');
+  // ── Etapa 2: el resto en paralelo, sin bloquear la pantalla ───────────────────
+  try{
+    const [, r] = await Promise.all([ cargarCatalogo(), fetch('/data.json') ]);
     DATA=await r.json();
+    // Este no lo necesita nadie hasta entrar a Marcas: se carga sin esperar
+    cargarSkuPorMarcaDesdeServidor().catch(()=>{});
 
     // /data.json ya llega COMPLETO desde el servidor (caché histórica + lo emitido después,
     // fusionado allá con la misma función que genera todo lo demás). El navegador no aplica
@@ -4026,6 +4037,8 @@ async function cargarData(){
 
     initVendedoras();
     mostrarVentasHoy();
+    // Si sigue en Pedidos, repintar ahora que hay datos completos (montos, asesora, etc.)
+    if(subtabActual === 'facturas' && (window._docTab||'pedidos') === 'pedidos'){ try{ renderFacturasHoy(); }catch(e){} }
 
     // Resolver el nombre real de la asesora dentro de DATA (puede diferir del
     // nombre guardado en la tabla usuarios, ej. sin segundo apellido) y guardarlo
@@ -4040,13 +4053,12 @@ async function cargarData(){
         console.warn('No se encontró el nombre de la asesora en DATA:', usuarioLogueado.nombre);
       }
     }
-    window._docTab = 'pedidos';
-    document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
-    document.getElementById('navsub-pedidos')?.classList.add('active');
-    renderFacturasHoy();
   }catch(e){
-    document.getElementById('main').innerHTML='<div class="loader"><p>Error: '+e.message+'</p></div>';
+    console.error('Error cargando data:', e);
+    const _s2 = document.getElementById('vend-list');
+    if(_s2) _s2.innerHTML = '<div style="padding:10px 14px;font-size:11px;color:#dc2626">No se pudo cargar el histórico de ventas</div>';
   }
+  setTimeout(() => registrarPushNotifications(), 2000);
 }
 
 async function mostrarVentasHoy(){
@@ -4234,12 +4246,7 @@ function initVendedoras(){
   const chev = document.getElementById('nav-ventas-chevron');
   if(subs) subs.style.maxHeight = '300px';
   if(chev) chev.style.transform = 'rotate(90deg)';
-  window._docTab = 'pedidos';
-  document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
-  document.getElementById('navsub-pedidos')?.classList.add('active');
-  renderFacturasHoy();
-  // Activar notificaciones push
-  setTimeout(() => registrarPushNotifications(), 2000);
+  // Ya no repinta el panel: Pedidos se dibuja apenas entra la app, antes de que llegue DATA.
 }
 
 function selVendedorTodo(el){

@@ -779,6 +779,11 @@ function fusionMesActual(base, extra, anio, mes){
 }
 
 let DATA_SERVIDA = { clave:'', ts:0, data:null };
+// Recalcular el mes en curso en segundo plano, un poco antes de que expire el memo (3 min).
+// Así la petición de un usuario siempre encuentra el resultado listo en vez de esperar a
+// que se recorra Contifico — era el principal motivo de que la app tardara en abrir.
+setInterval(() => { dataCompleta().catch(e=>console.error('Precalentado data:', e.message)); }, 2 * 60 * 1000);
+setTimeout(() => { dataCompleta().catch(e=>console.error('Precalentado data:', e.message)); }, 25 * 1000);
 async function dataCompleta(){
   const cacheBase = DATA_CACHE || {};
   const hoy = nowEC();
@@ -1250,6 +1255,7 @@ let INSTITUTOS_ULTIMA_SYNC = null;
 const CAMPOS_ADICIONALES = ['adicional1_cliente','adicional2_cliente','adicional3_cliente','adicional4_cliente'];
 
 // ─── SEGURIDAD: token de sesión firmado y guardia de administrador ──────────
+const zlib = require('zlib');
 const crypto = require('crypto');
 const SESION_SECRET = process.env.SESION_SECRET || (process.env.CONTIFICO_API_KEY || 'cosetika') + '::sesion';
 function firmarSesion(u){
@@ -4936,8 +4942,19 @@ const server = http.createServer(async (req, res) => {
   // DATA.JSON desde caché en memoria (PostgreSQL)
   if (urlPath === '/data.json') {
     const completo = await dataCompleta();
-    res.writeHead(200, {'Content-Type':'application/json'});
-    res.end(JSON.stringify(completo || {}));
+    const cuerpo = JSON.stringify(completo || {});
+    // Comprimir: el histórico son varios MB de JSON y el gzip lo reduce cerca de diez veces,
+    // que es la mayor parte del tiempo de espera al abrir la app desde el móvil.
+    if (/gzip/.test(req.headers['accept-encoding'] || '')) {
+      zlib.gzip(cuerpo, (err, buf) => {
+        if (err) { res.writeHead(200, {'Content-Type':'application/json'}); res.end(cuerpo); return; }
+        res.writeHead(200, {'Content-Type':'application/json', 'Content-Encoding':'gzip', 'Vary':'Accept-Encoding'});
+        res.end(buf);
+      });
+    } else {
+      res.writeHead(200, {'Content-Type':'application/json'});
+      res.end(cuerpo);
+    }
     return;
   }
 
