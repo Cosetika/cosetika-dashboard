@@ -8191,6 +8191,21 @@ async function planAsesoraChange(asesora){
 
 
 async function guardarPlanificacion(asesora, semanaKey){
+  // Candado contra el doble envío: dos clics seguidos en Guardar mandaban dos peticiones
+  // que se entrelazaban en el servidor y duplicaban toda la planificación.
+  if(window._guardandoPlan) return;
+  window._guardandoPlan = true;
+  const btnGuardar = document.querySelector('[onclick*="guardarPlanificacion"]');
+  if(btnGuardar){ btnGuardar.disabled = true; btnGuardar.style.opacity = '0.55'; btnGuardar.style.cursor = 'wait'; }
+  const liberar = () => {
+    window._guardandoPlan = false;
+    if(btnGuardar){ btnGuardar.disabled = false; btnGuardar.style.opacity = ''; btnGuardar.style.cursor = ''; }
+  };
+  try { return await _guardarPlanificacion(asesora, semanaKey); }
+  finally { setTimeout(liberar, 600); }
+}
+
+async function _guardarPlanificacion(asesora, semanaKey){
   // Leer SIEMPRE desde el DOM — es la fuente de verdad
   const tbody = document.getElementById('plan-tbody');
   if(!tbody){ alert('Error: tabla no encontrada'); return; }

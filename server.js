@@ -4047,16 +4047,66 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   if (urlPath === '/api/planificacion' && req.method === 'POST') {
+    const cli = await pool.connect();
     try {
       const {asesora,semana,filas} = await bodyJSON(req);
       if (!asesora||!semana||!filas) throw new Error('Faltan datos');
-      await pool.query('DELETE FROM planificacion WHERE asesora=$1 AND semana=$2',[asesora,semana]);
-      for (const fila of filas) {
-        await pool.query('INSERT INTO planificacion(asesora,semana,dia,sector,cliente,coordinado,visitado_at,primera_compra_at,recompra_at,observaciones) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
+
+      // Quitar filas repetidas antes de guardar. Un mismo cliente puede aparecer dos veces
+      // legítimamente (dos visitas el mismo día), pero NO con la misma hora de visita: eso
+      // solo pasa cuando el registro se duplicó. Las filas sin visitar se respetan todas.
+      const vistas = new Set();
+      const limpias = [];
+      let quitadas = 0;
+      for (const f of filas) {
+        if (f.visitado_at) {
+          const k = [f.dia||'', f.sector||'', f.cliente||'', f.visitado_at].join('|');
+          if (vistas.has(k)) { quitadas++; continue; }
+          vistas.add(k);
+        }
+        limpias.push(f);
+      }
+
+      // Transacción: borrar e insertar tiene que ser una sola operación indivisible. Sin
+      // esto, dos guardados simultáneos (doble clic o reintento de red) se entrelazaban —
+      // ambos borraban y después ambos insertaban, dejando la planificación por duplicado.
+      await cli.query('BEGIN');
+      await cli.query('DELETE FROM planificacion WHERE asesora=$1 AND semana=$2',[asesora,semana]);
+      for (const fila of limpias) {
+        await cli.query('INSERT INTO planificacion(asesora,semana,dia,sector,cliente,coordinado,visitado_at,primera_compra_at,recompra_at,observaciones) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
           [asesora,semana,fila.dia||'',fila.sector||'',fila.cliente||'',fila.coordinado||false,fila.visitado_at||null,fila.primera_compra_at||null,fila.recompra_at||null,fila.observaciones||'']);
       }
-      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true,filas:filas.length}));
-    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+      await cli.query('COMMIT');
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true,filas:limpias.length,duplicados_quitados:quitadas}));
+    } catch(e) {
+      try { await cli.query('ROLLBACK'); } catch(e2) {}
+      res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message}));
+    } finally { cli.release(); }
+    return;
+  }
+
+  // Limpieza de duplicados ya guardados: deja una sola fila por (asesora, semana, día,
+  // sector, cliente, hora de visita). Solo toca filas con hora registrada, que son las
+  // que no pueden repetirse de forma legítima.
+  if (urlPath === '/api/planificacion/limpiar-duplicados' && req.method === 'POST') {
+    if (bloquearSiNoAdmin(req, res)) return;
+    try {
+      const r = await pool.query(`
+        DELETE FROM planificacion p
+        WHERE visitado_at IS NOT NULL AND visitado_at <> ''
+          AND EXISTS (
+            SELECT 1 FROM planificacion q
+            WHERE q.asesora = p.asesora AND q.semana = p.semana
+              AND COALESCE(q.dia,'') = COALESCE(p.dia,'')
+              AND COALESCE(q.sector,'') = COALESCE(p.sector,'')
+              AND COALESCE(q.cliente,'') = COALESCE(p.cliente,'')
+              AND q.visitado_at = p.visitado_at
+              AND q.id < p.id
+          )
+        RETURNING id`);
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:true, eliminadas: r.rowCount }));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
   }
 
@@ -4194,6 +4244,37 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200,{'Content-Type':'application/json'});
       res.end(JSON.stringify(stats, null, 2));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+
+  // Qué versión está realmente desplegada. Sirve para saber si Railway tomó el último
+  // push o sigue sirviendo un build anterior, sin tener que adivinar.
+  if (urlPath === '/api/version' && req.method === 'GET') {
+    try {
+      const info = {};
+      ['index.html','server.js','manifest.json'].forEach(f => {
+        try {
+          const st = fs.statSync(path.join(__dirname, f));
+          info[f] = { modificado: new Date(st.mtime).toISOString(), bytes: st.size };
+        } catch(e) { info[f] = 'no existe'; }
+      });
+      // Marcadores de funciones recientes: si dicen false, el archivo desplegado es viejo
+      let idx = '';
+      try { idx = fs.readFileSync(path.join(__dirname,'index.html'),'utf8'); } catch(e) {}
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({
+        ok: true,
+        arranque_servidor: new Date(Date.now() - Math.round(process.uptime()*1000)).toISOString(),
+        uptime_minutos: Math.round(process.uptime()/60),
+        archivos: info,
+        tiene: {
+          boton_imprimir_pedido: idx.includes('imprimirPedido'),
+          flujo_de_caja: idx.includes('renderCaja'),
+          panel_pyg: idx.includes('renderPyG'),
+          boton_reiniciar_prefacturas: idx.includes('Reiniciar marcas de prefactura')
+        }
+      }, null, 2));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
   }
 
