@@ -5563,9 +5563,6 @@ async function renderPedidosWeb(fechaSel){
     + '<button onclick="renderPedidosWeb(\'' + mananaNavStr + '\')" '+(sinSiguiente?'disabled style="opacity:0.3;cursor:default;"':'')+' style="width:34px;height:34px;border-radius:50%;border:1px solid var(--border);background:white;display:flex;align-items:center;justify-content:center"><i class="ti ti-chevron-right" style="font-size:16px;color:var(--muted)"></i></button>'
     + '</div>';
 
-  if((window.usuarioActual||{}).rol === 'admin' && pedidos.some(p=>p.prefactura_doc)){
-    html += '<div style="text-align:right;margin-bottom:10px"><button onclick="resetPrefacturasDia(\''+fechaSel+'\')" style="padding:5px 12px;font-size:11px;border:1px solid var(--border);background:white;color:var(--muted);border-radius:8px;cursor:pointer">Reiniciar marcas de prefactura (pruebas)</button></div>';
-  }
 
   if(pedidos.length === 0){
     html += '<div style="text-align:center;padding:40px;color:var(--muted)"><i class="ti ti-inbox" style="font-size:36px;opacity:0.3"></i><p style="margin-top:10px">Sin pedidos este día</p></div>';
@@ -5604,7 +5601,7 @@ async function renderPedidosWeb(fechaSel){
             if(p.prefactura_doc) return '<span onclick="event.stopPropagation()" style="font-size:10px;font-weight:700;color:#16a34a;border:1px solid #86efac;background:#f0fdf4;border-radius:8px;padding:3px 8px;flex-shrink:0;white-space:nowrap" title="Prefactura creada en Contifico">PRE ✓</span>';
             return '<button onclick="event.stopPropagation();crearPrefacturaPedido(\''+String(p.numero_pedido).replace(/'/g,'')+'\', this)" style="font-size:10px;font-weight:700;color:var(--brown);border:1px solid var(--border);background:white;border-radius:8px;padding:4px 9px;cursor:pointer;flex-shrink:0;white-space:nowrap" title="Crear prefactura en Contifico con los productos del pedido">Prefactura</button>';
           })()
-        + '<button onclick="event.stopPropagation();imprimirPedido(\''+String(p.numero_pedido).replace(/'/g,'')+'\')" title="Imprimir este pedido" style="width:28px;height:28px;border:1px solid var(--border);background:white;border-radius:8px;cursor:pointer;flex-shrink:0;color:var(--muted);display:inline-flex;align-items:center;justify-content:center"><i class="ti ti-printer" style="font-size:14px"></i></button>'
+        + '<button onclick="event.stopPropagation();imprimirPedido(\''+String(p.numero_pedido).replace(/'/g,'')+'\')" title="Imprimir este pedido" style="font-size:10px;font-weight:700;color:var(--brown);border:1px solid var(--border);background:white;border-radius:8px;padding:4px 9px;cursor:pointer;flex-shrink:0;white-space:nowrap;display:inline-flex;align-items:center;gap:4px"><i class="ti ti-printer" style="font-size:12px"></i>Imprimir</button>'
         + '<i class="ti ti-chevron-down" id="chev-'+prodId+'" style="font-size:14px;color:var(--muted);transition:transform 0.2s;flex-shrink:0"></i>'
         + '</div>'
         + '<div id="'+prodId+'" style="display:none;border-top:0.5px solid var(--border)">'
