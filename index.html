@@ -5554,6 +5554,7 @@ async function renderPedidosWeb(fechaSel){
     : (fechaObj.getDate()+' '+meses[fechaObj.getMonth()]+' '+fechaObj.getFullYear());
   // Sin IVA: el 'subtotal' del correo de WooCommerce viene CON IVA, así que se deriva del total (IVA 15%)
   const totalDia = pedidos.reduce((s,p)=>s+(parseFloat(p.total||0)/1.15),0);
+  window._pedidosWeb = pedidos;   // lo usa la impresión del pedido
 
   let html = '<div style="display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:20px">'
     + '<button onclick="renderPedidosWeb(\'' + ayerStr + '\')" style="width:34px;height:34px;border-radius:50%;border:1px solid var(--border);background:white;cursor:pointer;display:flex;align-items:center;justify-content:center"><i class="ti ti-chevron-left" style="font-size:16px;color:var(--muted)"></i></button>'
@@ -5603,6 +5604,7 @@ async function renderPedidosWeb(fechaSel){
             if(p.prefactura_doc) return '<span onclick="event.stopPropagation()" style="font-size:10px;font-weight:700;color:#16a34a;border:1px solid #86efac;background:#f0fdf4;border-radius:8px;padding:3px 8px;flex-shrink:0;white-space:nowrap" title="Prefactura creada en Contifico">PRE ✓</span>';
             return '<button onclick="event.stopPropagation();crearPrefacturaPedido(\''+String(p.numero_pedido).replace(/'/g,'')+'\', this)" style="font-size:10px;font-weight:700;color:var(--brown);border:1px solid var(--border);background:white;border-radius:8px;padding:4px 9px;cursor:pointer;flex-shrink:0;white-space:nowrap" title="Crear prefactura en Contifico con los productos del pedido">Prefactura</button>';
           })()
+        + '<button onclick="event.stopPropagation();imprimirPedido(\''+String(p.numero_pedido).replace(/'/g,'')+'\')" title="Imprimir este pedido" style="width:28px;height:28px;border:1px solid var(--border);background:white;border-radius:8px;cursor:pointer;flex-shrink:0;color:var(--muted);display:inline-flex;align-items:center;justify-content:center"><i class="ti ti-printer" style="font-size:14px"></i></button>'
         + '<i class="ti ti-chevron-down" id="chev-'+prodId+'" style="font-size:14px;color:var(--muted);transition:transform 0.2s;flex-shrink:0"></i>'
         + '</div>'
         + '<div id="'+prodId+'" style="display:none;border-top:0.5px solid var(--border)">'
@@ -5650,6 +5652,146 @@ async function renderPedidosWeb(fechaSel){
     });
   }
   cont.innerHTML = html;
+}
+
+// ─── IMPRESIÓN DE UN PEDIDO ───────────────────────────────────────────────────────
+// Abre una ventana con el pedido maquetado para papel A4 y lanza el diálogo de impresión.
+// Se genera aquí mismo con los datos ya cargados: no vuelve a consultar al servidor.
+function imprimirPedido(numero){
+  const p = (window._pedidosWeb||[]).find(x=>String(x.numero_pedido)===String(numero));
+  if(!p){ alert('No se encontró el pedido.'); return; }
+  const esc = v => String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const money = v => '$'+(parseFloat(v)||0).toFixed(2);
+  let prods = [];
+  try{ prods = typeof p.productos==='string' ? JSON.parse(p.productos||'[]') : (p.productos||[]); }catch(e){ prods = []; }
+
+  const total = parseFloat(p.total||0);
+  const sinIva = total/1.15, iva = total - sinIva;
+  const MESES_I = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const f = String(p.fecha||'').substring(0,10).split('-');
+  const fechaTxt = f.length===3 ? (parseInt(f[2])+' de '+MESES_I[parseInt(f[1])-1]+' de '+f[0]) : '—';
+  const impreso = new Date().toLocaleString('es-EC',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
+  const cred = p.credito;
+  const credTxt = !cred ? null : (cred.cupo>0
+    ? ('Cupo aprobado '+money(cred.cupo)+(cred.dias?' · '+cred.dias+' días plazo':''))
+    : 'Sin cupo de crédito');
+
+  const filaDato = (etq, val) => val ? `<tr><td class="et">${esc(etq)}</td><td class="vl">${esc(val)}</td></tr>` : '';
+
+  const filas = prods.length ? prods.map(pr=>{
+    const nombre = pr.nombre||pr.name||pr.producto||'—';
+    const cant = pr.cantidad||pr.qty||pr.quantity||1;
+    const tot = parseFloat(pr.total||pr.subtotal||pr.precio||pr.price||0);
+    const sku = pr.sku||pr.SKU||pr.codigo||pr.code||'';
+    const unit = cant ? tot/cant : tot;
+    return `<tr>
+      <td class="sku">${esc(sku||'—')}</td>
+      <td>${esc(nombre)}</td>
+      <td class="c">${esc(cant)}</td>
+      <td class="r">${money(unit)}</td>
+      <td class="r b">${money(tot)}</td></tr>`;
+  }).join('') : '<tr><td colspan="5" class="c vacio">Sin detalle de productos</td></tr>';
+
+  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
+<title>Pedido ${esc(p.numero_pedido)} — Cosétika</title>
+<style>
+  @page{ size:A4; margin:14mm 13mm; }
+  *{ box-sizing:border-box; }
+  body{ font-family:'Helvetica Neue',Helvetica,Arial,sans-serif; color:#2b2118; margin:0; font-size:12px; line-height:1.45; }
+  .cab{ display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid #8a5a3b; padding-bottom:14px; margin-bottom:18px; }
+  .marca{ font-size:26px; font-weight:800; letter-spacing:5px; color:#8a5a3b; }
+  .sub{ font-size:10px; color:#8b8177; letter-spacing:2.5px; text-transform:uppercase; margin-top:3px; }
+  .doc{ text-align:right; }
+  .doc .tit{ font-size:10px; letter-spacing:2px; text-transform:uppercase; color:#8b8177; }
+  .doc .num{ font-size:20px; font-weight:800; color:#2b2118; margin-top:2px; }
+  .doc .fec{ font-size:11px; color:#6b6259; margin-top:3px; }
+  .cols{ display:flex; gap:16px; margin-bottom:16px; }
+  .caja{ flex:1; border:1px solid #e4dcd2; border-radius:9px; padding:12px 14px; }
+  .caja h3{ margin:0 0 8px; font-size:9px; letter-spacing:1.6px; text-transform:uppercase; color:#8b8177; font-weight:700; }
+  table.datos{ width:100%; border-collapse:collapse; }
+  table.datos td{ padding:2.5px 0; vertical-align:top; }
+  td.et{ color:#8b8177; width:82px; font-size:11px; }
+  td.vl{ font-weight:600; font-size:11px; }
+  .nota{ background:#fdfaf6; border:1px solid #eadfd2; border-radius:9px; padding:10px 13px; margin-bottom:16px; font-size:11px; }
+  .nota b{ color:#8a5a3b; }
+  table.items{ width:100%; border-collapse:collapse; margin-bottom:14px; }
+  table.items th{ background:#f6f2ee; padding:8px 9px; text-align:left; font-size:9px; letter-spacing:1.1px; text-transform:uppercase; color:#6b6259; border-bottom:1.5px solid #e4dcd2; }
+  table.items td{ padding:8px 9px; border-bottom:1px solid #f0eae3; }
+  table.items td.sku{ font-family:'SF Mono',Menlo,monospace; font-size:10px; color:#8a5a3b; font-weight:700; white-space:nowrap; }
+  .c{ text-align:center; } .r{ text-align:right; } .b{ font-weight:700; }
+  .vacio{ color:#a89f95; padding:18px 0; }
+  .tot{ margin-left:auto; width:250px; }
+  .tot tr td{ padding:5px 0; font-size:12px; }
+  .tot tr td:last-child{ text-align:right; font-weight:600; }
+  .tot tr.grande td{ border-top:2px solid #8a5a3b; padding-top:9px; font-size:16px; font-weight:800; color:#8a5a3b; }
+  .pie{ margin-top:26px; border-top:1px solid #e4dcd2; padding-top:10px; font-size:9.5px; color:#a09689; display:flex; justify-content:space-between; }
+  @media print{ .noprint{ display:none !important; } body{ -webkit-print-color-adjust:exact; print-color-adjust:exact; } }
+  .noprint{ position:fixed; top:14px; right:14px; }
+  .noprint button{ background:#8a5a3b; color:#fff; border:none; border-radius:8px; padding:9px 18px; font-size:13px; font-weight:600; cursor:pointer; font-family:inherit; }
+</style></head><body>
+<div class="noprint"><button onclick="window.print()">Imprimir</button></div>
+
+<div class="cab">
+  <div><div class="marca">COSÉTIKA</div><div class="sub">Corporación Cosétika S.A.S.</div></div>
+  <div class="doc">
+    <div class="tit">Pedido web</div>
+    <div class="num">#${esc(p.numero_pedido)}</div>
+    <div class="fec">${esc(fechaTxt)}</div>
+  </div>
+</div>
+
+<div class="cols">
+  <div class="caja">
+    <h3>Cliente</h3>
+    <table class="datos">
+      ${filaDato('Nombre', p.cliente_nombre)}
+      ${filaDato('Cédula/RUC', String(p.cedula_ruc||'').replace(/\D/g,''))}
+      ${filaDato('Teléfono', p.telefono)}
+      ${filaDato('Email', p.email)}
+    </table>
+  </div>
+  <div class="caja">
+    <h3>Entrega</h3>
+    <table class="datos">
+      ${filaDato('Dirección', p.direccion)}
+      ${filaDato('Ciudad', p.ciudad)}
+      ${filaDato('Provincia', p.provincia_env)}
+      ${filaDato('Asesora', p.asesora)}
+      ${credTxt ? `<tr><td class="et">Crédito</td><td class="vl">${esc(credTxt)}</td></tr>` : ''}
+    </table>
+  </div>
+</div>
+
+${p.nota_cliente ? `<div class="nota"><b>Nota de la clienta:</b> ${esc(p.nota_cliente)}</div>` : ''}
+
+<table class="items">
+  <thead><tr>
+    <th style="width:78px">SKU</th><th>Producto</th>
+    <th class="c" style="width:52px">Cant.</th>
+    <th class="r" style="width:76px">P. unit.</th>
+    <th class="r" style="width:84px">Total</th>
+  </tr></thead>
+  <tbody>${filas}</tbody>
+</table>
+
+<table class="tot">
+  <tr><td>Subtotal sin IVA</td><td>${money(sinIva)}</td></tr>
+  <tr><td>IVA 15%</td><td>${money(iva)}</td></tr>
+  <tr class="grande"><td>Total</td><td>${money(total)}</td></tr>
+</table>
+
+<div class="pie">
+  <span>Impreso el ${esc(impreso)}</span>
+  <span>Cosétika — Panel de ventas</span>
+</div>
+</body></html>`;
+
+  const w = window.open('', '_blank', 'width=880,height=1000');
+  if(!w){ alert('El navegador bloqueó la ventana. Permite las ventanas emergentes para imprimir.'); return; }
+  w.document.write(html);
+  w.document.close();
+  w.focus();
+  setTimeout(()=>{ try{ w.print(); }catch(e){} }, 450);
 }
 
 async function resetPrefacturasDia(fecha){
