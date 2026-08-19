@@ -1,8 +1,17 @@
+# Configuración de build para Railway.
+#
+# El flag `--production` fue eliminado en npm 10 y hacía fallar el build en 7 segundos:
+# npm no lo reconocía y respondía con su texto de ayuda en vez de instalar nada.
+# `--omit=dev` es el reemplazo oficial y funciona en npm 7 en adelante.
+#
+# Se fija nodejs_18 explícitamente para que una actualización del builder no vuelva a
+# cambiar el entorno por debajo sin aviso.
+
 [phases.setup]
 nixPkgs = ["nodejs_18"]
 
 [phases.install]
-cmds = ["npm install --production"]
+cmds = ["npm install --omit=dev"]
 
 [start]
 cmd = "node server.js"
