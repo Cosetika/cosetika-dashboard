@@ -5888,10 +5888,14 @@ function setDocTab(tab){
 if(!window._autoRefrescoDocs){
   window._autoRefrescoDocs = setInterval(()=>{
     if(document.hidden) return;
-    if(subtabActual !== 'facturas') return;
+    // Comprobar contra el DOM, no contra una variable de estado: `subtabActual` se queda
+    // en 'facturas' al navegar a Reportes u otros paneles, y el refresco terminaba sacando
+    // al usuario de donde estaba para llevarlo a Pedidos.
+    if(!document.getElementById('doc-tab-content')) return;
     const t = window._docTab || 'pedidos';
     if(t !== 'pedidos' && t !== 'facturas') return;
-    // No repintar si hay una fila desplegada o un campo enfocado: se perdería el estado
+    // No repintar si hay un campo enfocado o una capa abierta: se perdería el estado
+    if(document.getElementById('print-overlay')) return;
     const act = document.activeElement;
     if(act && ['INPUT','TEXTAREA','SELECT'].includes(act.tagName)) return;
     try{ renderFacturasHoy(); }catch(e){}
