@@ -12074,6 +12074,11 @@ async function renderComisiones(){
   ).join('');
 
   // ── Panel por equipo ──
+  // Orden fijo de los equipos en el reporte
+  const ordenEq = nom => /ziaja|bioskin/i.test(nom||'') ? 0 : (/erayba/i.test(nom||'') ? 1 : 2);
+  equipos = equipos.slice().sort((a,b)=> ordenEq(a.nombre) - ordenEq(b.nombre));
+
+  window._comExport = { mes: mesFiltro, equipos: [], admin: [], fuera: [] };
   const panelesEquipos = equipos.map(eq => {
     const jefaNombre = eq.lider || '';
     const jefaCfg = getJefaCfg(cfg, jefaNombre);
@@ -12094,6 +12099,8 @@ async function renderComisiones(){
     const baseJefa = vJefa.sinIva + filas.filter(f=>f.contribuye).reduce((a,f)=>a+f.sinIva,0);
     const comisionJefa = baseJefa*(jefaCfg.pct_equipo/100);
     const totalJefa = comisionJefa + (jefaCfg.transporte||0);
+
+    window._comExport.equipos.push({ nombre: eq.nombre, jefaNombre, vJefa, jefaCfg, baseJefa, comisionJefa, totalJefa, filas });
 
     return `
     <div class="card" style="margin-bottom:12px">
@@ -12177,6 +12184,10 @@ async function renderComisiones(){
     const comision=base*(a.pct/100);
     return {...a, base, comision, transporte:a.transporte||0, totalPagar:comision+(a.transporte||0)};
   });
+  window._comExport.admin = filasAdmin;
+  window._comExport.totalSinIvaGlobal = totalSinIvaGlobal;
+  window._comExport.totalConIvaGlobal = totalConIvaGlobal;
+  window._comExport.fuera = fueraEquipo.map(v=>{ const x = ventasMes(v, mesFiltro); return { nombre:v, sinIva:x.sinIva, conIva:x.conIva }; });
 
   document.getElementById('reportes-content').innerHTML=`
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap;padding:12px 14px;background:white;border-radius:10px;border:1px solid var(--border)">
@@ -12189,14 +12200,14 @@ async function renderComisiones(){
       <span style="font-size:12px;font-weight:600;color:var(--brown)">s/IVA ${fmt(totalSinIvaGlobal)}</span>
       <span style="font-size:12px;color:var(--muted)">·</span>
       <span style="font-size:12px;font-weight:600">c/IVA ${fmt(totalConIvaGlobal)}</span>
+      <button onclick="exportarComisionesExcel()" style="margin-left:auto;padding:6px 13px;font-size:12px;font-weight:600;border:1px solid var(--brown);background:var(--brown);color:white;border-radius:8px;cursor:pointer;white-space:nowrap"><i class="ti ti-file-spreadsheet" style="margin-right:5px"></i>Descargar Excel</button>
     </div>
 
     ${panelesEquipos}
-    ${panelFuera}
 
-    <div class="card">
+    <div class="card" style="margin-bottom:12px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
-        <div class="card-title" style="margin-bottom:0"><i class="ti ti-briefcase"></i> Comisiones — Administrativas</div>
+        <div class="card-title" style="margin-bottom:0"><i class="ti ti-briefcase"></i> Bonificaciones administrativas</div>
         <button onclick="editarConfigAdmin()" style="padding:5px 12px;font-size:11px;border:1px solid var(--brown);background:rgba(160,104,74,0.1);color:var(--brown);border-radius:6px;cursor:pointer"><i class="ti ti-settings"></i> Editar parámetros</button>
       </div>
       <div style="font-size:11px;color:var(--muted);margin-bottom:10px;background:#faf9f8;padding:8px 12px;border-radius:6px">
@@ -12229,7 +12240,101 @@ async function renderComisiones(){
           </tbody>
         </table>
       </div>
-    </div>`;
+    </div>
+
+    ${panelFuera}`;
+}
+
+// ─── EXPORTAR COMISIONES A EXCEL ──────────────────────────────────────────────────
+// Arma un .xlsx de verdad con SheetJS (ya cargado en la página): una hoja por equipo,
+// una para las bonificaciones administrativas y otra para las ventas fuera de equipo.
+function exportarComisionesExcel(){
+  const D = window._comExport;
+  if(!D){ alert('Abre el reporte antes de exportarlo.'); return; }
+  if(typeof XLSX === 'undefined'){ alert('No se pudo cargar el generador de Excel. Revisa tu conexión.'); return; }
+
+  const MES_X = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  const anioX = new Date().getFullYear();
+  const r2 = v => Math.round((parseFloat(v)||0)*100)/100;
+  const corto = n => (typeof nombreCorto === 'function' ? nombreCorto(n) : String(n||''));
+  const wb = XLSX.utils.book_new();
+  const hojaNombre = t => String(t||'Hoja').replace(/[\\\\\/\?\*\[\]:]/g,'').substring(0,28) || 'Hoja';
+
+  // Una hoja por equipo
+  (D.equipos||[]).forEach(eq=>{
+    const aoa = [
+      ['Equipo '+eq.nombre+' — '+MES_X[D.mes]+' '+anioX],
+      [],
+      ['Persona','Rol','Subtotal s/IVA','Ventas c/IVA','Mínimo','%','Base','Comisión','Transporte','Total a pagar']
+    ];
+    if(eq.jefaNombre){
+      aoa.push([corto(eq.jefaNombre),'Líder de equipo', r2(eq.vJefa.sinIva), r2(eq.vJefa.conIva), '',
+        (eq.jefaCfg.pct_equipo||0)/100, r2(eq.baseJefa), r2(eq.comisionJefa), r2(eq.jefaCfg.transporte||0), r2(eq.totalJefa)]);
+    }
+    (eq.filas||[]).forEach(f=>{
+      aoa.push([corto(f.nombre), f.contribuye===false?'No suma al equipo':'Asesora', r2(f.sinIva), r2(f.conIva),
+        r2(f.minimo), (f.pct||0)/100, r2(f.base), r2(f.comision), r2(f.transporte), r2(f.totalPagar)]);
+    });
+    const totalEq = (eq.totalJefa||0) + (eq.filas||[]).reduce((a,f)=>a+(f.totalPagar||0),0);
+    aoa.push([]);
+    aoa.push(['TOTAL DEL EQUIPO','','','','','','','','', r2(totalEq)]);
+
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [{wch:26},{wch:18},{wch:15},{wch:14},{wch:11},{wch:8},{wch:13},{wch:12},{wch:12},{wch:14}];
+    ws['!merges'] = [{s:{r:0,c:0},e:{r:0,c:9}}];
+    aplicarFormatoCom(ws, aoa, [2,3,4,6,7,8,9], [5]);
+    XLSX.utils.book_append_sheet(wb, ws, hojaNombre(eq.nombre));
+  });
+
+  // Bonificaciones administrativas
+  if((D.admin||[]).length){
+    const aoa = [
+      ['Bonificaciones administrativas — '+MES_X[D.mes]+' '+anioX],
+      ['Calculadas sobre las ventas totales de la empresa (sin IVA): '+r2(D.totalSinIvaGlobal)],
+      [],
+      ['Persona','Ventas totales s/IVA','Mínimo','%','Base','Bonificación','Transporte','Total a pagar']
+    ];
+    D.admin.forEach(a=>{
+      aoa.push([a.nombre, r2(D.totalSinIvaGlobal), r2(a.minimo), (a.pct||0)/100, r2(a.base),
+        r2(a.comision), r2(a.transporte), r2(a.totalPagar)]);
+    });
+    aoa.push([]);
+    aoa.push(['TOTAL','','','','','','', r2(D.admin.reduce((s,a)=>s+(a.totalPagar||0),0))]);
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [{wch:26},{wch:17},{wch:11},{wch:8},{wch:13},{wch:13},{wch:12},{wch:14}];
+    ws['!merges'] = [{s:{r:0,c:0},e:{r:0,c:7}},{s:{r:1,c:0},e:{r:1,c:7}}];
+    aplicarFormatoCom(ws, aoa, [1,2,4,5,6,7], [3]);
+    XLSX.utils.book_append_sheet(wb, ws, 'Bonificaciones admin');
+  }
+
+  // Otras ventas (sin equipo)
+  if((D.fuera||[]).length){
+    const aoa = [['Otras ventas (sin equipo) — '+MES_X[D.mes]+' '+anioX], [],
+      ['Persona','Subtotal s/IVA','Ventas c/IVA']];
+    D.fuera.forEach(v=> aoa.push([corto(v.nombre), r2(v.sinIva), r2(v.conIva)]));
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [{wch:26},{wch:15},{wch:15}];
+    ws['!merges'] = [{s:{r:0,c:0},e:{r:0,c:2}}];
+    aplicarFormatoCom(ws, aoa, [1,2], []);
+    XLSX.utils.book_append_sheet(wb, ws, 'Otras ventas');
+  }
+
+  const nombre = 'Comisiones_'+MES_X[D.mes]+'_'+anioX+'.xlsx';
+  XLSX.writeFile(wb, nombre);
+}
+
+// Aplica formato de moneda y porcentaje a las columnas indicadas
+function aplicarFormatoCom(ws, aoa, colsMoneda, colsPct){
+  const rango = XLSX.utils.decode_range(ws['!ref']);
+  for(let R = rango.s.r; R <= rango.e.r; R++){
+    for(let C = rango.s.c; C <= rango.e.c; C++){
+      const dir = XLSX.utils.encode_cell({r:R, c:C});
+      const cel = ws[dir];
+      if(!cel || cel.t !== 'n') continue;
+      if(colsMoneda.includes(C)) cel.z = '"$"#,##0.00';
+      else if(colsPct.includes(C)) cel.z = '0.00%';
+    }
+  }
 }
 
 // Config helpers: valores por persona con defaults seguros
@@ -12344,7 +12449,7 @@ function editarConfigAdmin(){
   modal.innerHTML=`
     <div style="background:white;border-radius:14px;width:100%;max-width:520px;max-height:90vh;overflow-y:auto">
       <div style="padding:16px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
-        <span style="font-size:15px;font-weight:600">Parámetros — Administrativas</span>
+        <span style="font-size:15px;font-weight:600">Parámetros — Bonificaciones administrativas</span>
         <button onclick="document.getElementById('modal-com-cfg').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--muted)">×</button>
       </div>
       <div style="padding:18px">
