@@ -45,6 +45,54 @@
     .app-content{margin-left:195px;min-height:100vh;display:flex;flex-direction:column}
     .mobile-header{display:none;background:#1a1108;padding:10px 16px;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:200}
     .mobile-header-title{color:#fff;font-size:13px;font-weight:500;letter-spacing:1px}
+    /* ── Comprobante de pedido ──────────────────────────────────────────────────
+       Se muestra como capa dentro de la app (no en ventana nueva: en el móvil eso
+       dejaba al usuario atrapado sin forma de volver). Al imprimir, todo lo demás
+       se oculta y solo va al papel esta capa. */
+    #print-overlay{ position:fixed; inset:0; z-index:9000; background:#fff; overflow:auto; -webkit-overflow-scrolling:touch; }
+    #print-overlay .pv-bar{ position:sticky; top:0; z-index:2; display:flex; gap:10px; align-items:center; justify-content:space-between;
+      padding:10px 14px; background:#1a1108; color:#fff; }
+    #print-overlay .pv-bar b{ font-size:13px; font-weight:600; letter-spacing:0.3px; }
+    #print-overlay .pv-bar button{ border:none; border-radius:8px; padding:9px 16px; font-size:13px; font-weight:600; cursor:pointer; font-family:inherit; }
+    #print-overlay .pv-imp{ background:#fff; color:#1a1108; }
+    #print-overlay .pv-cerrar{ background:transparent; color:#fff; border:1px solid rgba(255,255,255,0.45) !important; }
+    #print-overlay .pv-hoja{ max-width:760px; margin:0 auto; padding:26px 22px 40px; color:#2b2118; font-size:12px; line-height:1.45; }
+    #print-overlay .cab{ display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid #8a5a3b; padding-bottom:14px; margin-bottom:18px; }
+    #print-overlay .marca{ font-size:24px; font-weight:800; letter-spacing:5px; color:#8a5a3b; }
+    #print-overlay .sub{ font-size:9px; color:#8b8177; letter-spacing:2px; text-transform:uppercase; margin-top:3px; }
+    #print-overlay .doc{ text-align:right; }
+    #print-overlay .doc .tit{ font-size:9px; letter-spacing:2px; text-transform:uppercase; color:#8b8177; }
+    #print-overlay .doc .num{ font-size:19px; font-weight:800; margin-top:2px; }
+    #print-overlay .doc .fec{ font-size:11px; color:#6b6259; margin-top:3px; }
+    #print-overlay .cols{ display:flex; gap:14px; margin-bottom:16px; flex-wrap:wrap; }
+    #print-overlay .caja{ flex:1; min-width:230px; border:1px solid #e4dcd2; border-radius:9px; padding:11px 13px; }
+    #print-overlay .caja h3{ margin:0 0 7px; font-size:9px; letter-spacing:1.5px; text-transform:uppercase; color:#8b8177; font-weight:700; }
+    #print-overlay table.datos{ width:100%; border-collapse:collapse; }
+    #print-overlay table.datos td{ padding:2.5px 0; vertical-align:top; font-size:11px; }
+    #print-overlay td.et{ color:#8b8177; width:80px; }
+    #print-overlay td.vl{ font-weight:600; }
+    #print-overlay .nota{ background:#fdfaf6; border:1px solid #eadfd2; border-radius:9px; padding:10px 12px; margin-bottom:16px; font-size:11px; }
+    #print-overlay .nota b{ color:#8a5a3b; }
+    #print-overlay table.items{ width:100%; border-collapse:collapse; margin-bottom:14px; }
+    #print-overlay table.items th{ background:#f6f2ee; padding:7px 8px; text-align:left; font-size:9px; letter-spacing:1px; text-transform:uppercase; color:#6b6259; border-bottom:1.5px solid #e4dcd2; }
+    #print-overlay table.items td{ padding:7px 8px; border-bottom:1px solid #f0eae3; font-size:11.5px; }
+    #print-overlay table.items td.sku{ font-family:Menlo,monospace; font-size:10px; color:#8a5a3b; font-weight:700; white-space:nowrap; }
+    #print-overlay .c{ text-align:center; } #print-overlay .r{ text-align:right; } #print-overlay .b{ font-weight:700; }
+    #print-overlay .vacio{ color:#a89f95; padding:16px 0; }
+    #print-overlay .tot{ margin-left:auto; width:250px; }
+    #print-overlay .tot tr td{ padding:5px 0; font-size:12px; }
+    #print-overlay .tot tr td:last-child{ text-align:right; font-weight:600; }
+    #print-overlay .tot tr.grande td{ border-top:2px solid #8a5a3b; padding-top:9px; font-size:16px; font-weight:800; color:#8a5a3b; }
+    #print-overlay .pie{ margin-top:24px; border-top:1px solid #e4dcd2; padding-top:9px; font-size:9.5px; color:#a09689; display:flex; justify-content:space-between; flex-wrap:wrap; gap:6px; }
+    @media print{
+      body.imprimiendo > *:not(#print-overlay){ display:none !important; }
+      body.imprimiendo{ background:#fff !important; }
+      #print-overlay{ position:static !important; overflow:visible !important; }
+      #print-overlay .pv-bar{ display:none !important; }
+      #print-overlay .pv-hoja{ max-width:none; padding:0; }
+      @page{ size:A4; margin:14mm 13mm; }
+    }
+
     /* Tooltip de ayuda de los indicadores financieros */
     .fin-ayuda{position:relative}
     /* Se abre hacia ABAJO: hacia arriba tapaba la fila de tarjetas anterior */
@@ -5672,123 +5720,75 @@ function imprimirPedido(numero){
   const credTxt = !cred ? null : (cred.cupo>0
     ? ('Cupo aprobado '+money(cred.cupo)+(cred.dias?' · '+cred.dias+' días plazo':''))
     : 'Sin cupo de crédito');
+  const filaDato = (etq, val) => val ? '<tr><td class="et">'+esc(etq)+'</td><td class="vl">'+esc(val)+'</td></tr>' : '';
 
-  const filaDato = (etq, val) => val ? `<tr><td class="et">${esc(etq)}</td><td class="vl">${esc(val)}</td></tr>` : '';
-
-  const filas = prods.length ? prods.map(pr=>{
+  const filas = prods.length ? prods.map(function(pr){
     const nombre = pr.nombre||pr.name||pr.producto||'—';
     const cant = pr.cantidad||pr.qty||pr.quantity||1;
     const tot = parseFloat(pr.total||pr.subtotal||pr.precio||pr.price||0);
     const sku = pr.sku||pr.SKU||pr.codigo||pr.code||'';
     const unit = cant ? tot/cant : tot;
-    return `<tr>
-      <td class="sku">${esc(sku||'—')}</td>
-      <td>${esc(nombre)}</td>
-      <td class="c">${esc(cant)}</td>
-      <td class="r">${money(unit)}</td>
-      <td class="r b">${money(tot)}</td></tr>`;
+    return '<tr><td class="sku">'+esc(sku||'—')+'</td><td>'+esc(nombre)+'</td>'
+      + '<td class="c">'+esc(cant)+'</td><td class="r">'+money(unit)+'</td>'
+      + '<td class="r b">'+money(tot)+'</td></tr>';
   }).join('') : '<tr><td colspan="5" class="c vacio">Sin detalle de productos</td></tr>';
 
-  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
-<title>Pedido ${esc(p.numero_pedido)} — Cosétika</title>
-<style>
-  @page{ size:A4; margin:14mm 13mm; }
-  *{ box-sizing:border-box; }
-  body{ font-family:'Helvetica Neue',Helvetica,Arial,sans-serif; color:#2b2118; margin:0; font-size:12px; line-height:1.45; }
-  .cab{ display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid #8a5a3b; padding-bottom:14px; margin-bottom:18px; }
-  .marca{ font-size:26px; font-weight:800; letter-spacing:5px; color:#8a5a3b; }
-  .sub{ font-size:10px; color:#8b8177; letter-spacing:2.5px; text-transform:uppercase; margin-top:3px; }
-  .doc{ text-align:right; }
-  .doc .tit{ font-size:10px; letter-spacing:2px; text-transform:uppercase; color:#8b8177; }
-  .doc .num{ font-size:20px; font-weight:800; color:#2b2118; margin-top:2px; }
-  .doc .fec{ font-size:11px; color:#6b6259; margin-top:3px; }
-  .cols{ display:flex; gap:16px; margin-bottom:16px; }
-  .caja{ flex:1; border:1px solid #e4dcd2; border-radius:9px; padding:12px 14px; }
-  .caja h3{ margin:0 0 8px; font-size:9px; letter-spacing:1.6px; text-transform:uppercase; color:#8b8177; font-weight:700; }
-  table.datos{ width:100%; border-collapse:collapse; }
-  table.datos td{ padding:2.5px 0; vertical-align:top; }
-  td.et{ color:#8b8177; width:82px; font-size:11px; }
-  td.vl{ font-weight:600; font-size:11px; }
-  .nota{ background:#fdfaf6; border:1px solid #eadfd2; border-radius:9px; padding:10px 13px; margin-bottom:16px; font-size:11px; }
-  .nota b{ color:#8a5a3b; }
-  table.items{ width:100%; border-collapse:collapse; margin-bottom:14px; }
-  table.items th{ background:#f6f2ee; padding:8px 9px; text-align:left; font-size:9px; letter-spacing:1.1px; text-transform:uppercase; color:#6b6259; border-bottom:1.5px solid #e4dcd2; }
-  table.items td{ padding:8px 9px; border-bottom:1px solid #f0eae3; }
-  table.items td.sku{ font-family:'SF Mono',Menlo,monospace; font-size:10px; color:#8a5a3b; font-weight:700; white-space:nowrap; }
-  .c{ text-align:center; } .r{ text-align:right; } .b{ font-weight:700; }
-  .vacio{ color:#a89f95; padding:18px 0; }
-  .tot{ margin-left:auto; width:250px; }
-  .tot tr td{ padding:5px 0; font-size:12px; }
-  .tot tr td:last-child{ text-align:right; font-weight:600; }
-  .tot tr.grande td{ border-top:2px solid #8a5a3b; padding-top:9px; font-size:16px; font-weight:800; color:#8a5a3b; }
-  .pie{ margin-top:26px; border-top:1px solid #e4dcd2; padding-top:10px; font-size:9.5px; color:#a09689; display:flex; justify-content:space-between; }
-  @media print{ .noprint{ display:none !important; } body{ -webkit-print-color-adjust:exact; print-color-adjust:exact; } }
-  .noprint{ position:fixed; top:14px; right:14px; }
-  .noprint button{ background:#8a5a3b; color:#fff; border:none; border-radius:8px; padding:9px 18px; font-size:13px; font-weight:600; cursor:pointer; font-family:inherit; }
-</style></head><body>
-<div class="noprint"><button onclick="window.print()">Imprimir</button></div>
+  const hoja = ''
+    + '<div class="cab">'
+    +   '<div><div class="marca">COSÉTIKA</div><div class="sub">Corporación Cosétika S.A.S.</div></div>'
+    +   '<div class="doc"><div class="tit">Pedido web</div><div class="num">#'+esc(p.numero_pedido)+'</div>'
+    +     '<div class="fec">'+esc(fechaTxt)+'</div></div>'
+    + '</div>'
+    + '<div class="cols">'
+    +   '<div class="caja"><h3>Cliente</h3><table class="datos">'
+    +     filaDato('Nombre', p.cliente_nombre)
+    +     filaDato('Cédula/RUC', String(p.cedula_ruc||'').replace(/\D/g,''))
+    +     filaDato('Teléfono', p.telefono)
+    +     filaDato('Email', p.email)
+    +   '</table></div>'
+    +   '<div class="caja"><h3>Entrega</h3><table class="datos">'
+    +     filaDato('Dirección', p.direccion)
+    +     filaDato('Ciudad', p.ciudad)
+    +     filaDato('Provincia', p.provincia_env)
+    +     filaDato('Asesora', p.asesora)
+    +     (credTxt ? '<tr><td class="et">Crédito</td><td class="vl">'+esc(credTxt)+'</td></tr>' : '')
+    +   '</table></div>'
+    + '</div>'
+    + (p.nota_cliente ? '<div class="nota"><b>Nota de la clienta:</b> '+esc(p.nota_cliente)+'</div>' : '')
+    + '<table class="items"><thead><tr>'
+    +   '<th style="width:76px">SKU</th><th>Producto</th>'
+    +   '<th class="c" style="width:50px">Cant.</th>'
+    +   '<th class="r" style="width:74px">P. unit.</th>'
+    +   '<th class="r" style="width:82px">Total</th>'
+    + '</tr></thead><tbody>'+filas+'</tbody></table>'
+    + '<table class="tot">'
+    +   '<tr><td>Subtotal sin IVA</td><td>'+money(sinIva)+'</td></tr>'
+    +   '<tr><td>IVA 15%</td><td>'+money(iva)+'</td></tr>'
+    +   '<tr class="grande"><td>Total</td><td>'+money(total)+'</td></tr>'
+    + '</table>'
+    + '<div class="pie"><span>Impreso el '+esc(impreso)+'</span><span>Cosétika — Panel de ventas</span></div>';
 
-<div class="cab">
-  <div><div class="marca">COSÉTIKA</div><div class="sub">Corporación Cosétika S.A.S.</div></div>
-  <div class="doc">
-    <div class="tit">Pedido web</div>
-    <div class="num">#${esc(p.numero_pedido)}</div>
-    <div class="fec">${esc(fechaTxt)}</div>
-  </div>
-</div>
+  cerrarImpresionPedido();
+  const ov = document.createElement('div');
+  ov.id = 'print-overlay';
+  ov.innerHTML = '<div class="pv-bar">'
+    + '<button class="pv-cerrar" onclick="cerrarImpresionPedido()">← Volver</button>'
+    + '<b>Pedido #'+esc(p.numero_pedido)+'</b>'
+    + '<button class="pv-imp" onclick="window.print()">Imprimir</button>'
+    + '</div><div class="pv-hoja">'+hoja+'</div>';
+  document.body.appendChild(ov);
+  document.body.classList.add('imprimiendo');
+  document.body.style.overflow = 'hidden';
+  // Volver con el botón atrás del teléfono en vez de quedar encerrado
+  try{ history.pushState({impresion:true}, ''); }catch(e){}
+  window.addEventListener('popstate', cerrarImpresionPedido, { once:true });
+}
 
-<div class="cols">
-  <div class="caja">
-    <h3>Cliente</h3>
-    <table class="datos">
-      ${filaDato('Nombre', p.cliente_nombre)}
-      ${filaDato('Cédula/RUC', String(p.cedula_ruc||'').replace(/\D/g,''))}
-      ${filaDato('Teléfono', p.telefono)}
-      ${filaDato('Email', p.email)}
-    </table>
-  </div>
-  <div class="caja">
-    <h3>Entrega</h3>
-    <table class="datos">
-      ${filaDato('Dirección', p.direccion)}
-      ${filaDato('Ciudad', p.ciudad)}
-      ${filaDato('Provincia', p.provincia_env)}
-      ${filaDato('Asesora', p.asesora)}
-      ${credTxt ? `<tr><td class="et">Crédito</td><td class="vl">${esc(credTxt)}</td></tr>` : ''}
-    </table>
-  </div>
-</div>
-
-${p.nota_cliente ? `<div class="nota"><b>Nota de la clienta:</b> ${esc(p.nota_cliente)}</div>` : ''}
-
-<table class="items">
-  <thead><tr>
-    <th style="width:78px">SKU</th><th>Producto</th>
-    <th class="c" style="width:52px">Cant.</th>
-    <th class="r" style="width:76px">P. unit.</th>
-    <th class="r" style="width:84px">Total</th>
-  </tr></thead>
-  <tbody>${filas}</tbody>
-</table>
-
-<table class="tot">
-  <tr><td>Subtotal sin IVA</td><td>${money(sinIva)}</td></tr>
-  <tr><td>IVA 15%</td><td>${money(iva)}</td></tr>
-  <tr class="grande"><td>Total</td><td>${money(total)}</td></tr>
-</table>
-
-<div class="pie">
-  <span>Impreso el ${esc(impreso)}</span>
-  <span>Cosétika — Panel de ventas</span>
-</div>
-</body></html>`;
-
-  const w = window.open('', '_blank', 'width=880,height=1000');
-  if(!w){ alert('El navegador bloqueó la ventana. Permite las ventanas emergentes para imprimir.'); return; }
-  w.document.write(html);
-  w.document.close();
-  w.focus();
-  setTimeout(()=>{ try{ w.print(); }catch(e){} }, 450);
+function cerrarImpresionPedido(){
+  const ov = document.getElementById('print-overlay');
+  if(ov) ov.remove();
+  document.body.classList.remove('imprimiendo');
+  document.body.style.overflow = '';
 }
 
 async function resetPrefacturasDia(fecha){
