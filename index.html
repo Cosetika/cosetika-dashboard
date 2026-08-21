@@ -2733,6 +2733,37 @@ async function actualizarEstadoBotonBackup(){
   }catch(e){ /* silencioso: si falla la consulta, el botón se queda en su estado por defecto */ }
 }
 
+async function restaurarBackupUI(btn){
+  const inp = document.getElementById('file-restaurar');
+  const el = document.getElementById('restaurar-estado');
+  const f = inp && inp.files && inp.files[0];
+  if(!f){ el.innerHTML = '<span style="color:#d97706">Elige primero el archivo de respaldo.</span>'; return; }
+
+  const escrito = prompt('Esto REEMPLAZA los datos actuales por los del archivo:\n\n'+f.name+
+    '\n\nTodo lo registrado después de esa fecha se pierde.\n\nEscribe RESTAURAR para continuar:');
+  if(String(escrito||'').toUpperCase() !== 'RESTAURAR'){ el.innerHTML = '<span style="color:var(--muted)">Cancelado.</span>'; return; }
+
+  const txt = btn.textContent;
+  btn.disabled = true; btn.style.opacity = '0.6'; btn.textContent = 'Restaurando…';
+  el.innerHTML = 'Sacando respaldo de seguridad y restaurando… no cierres esta pestaña.';
+  try{
+    const fd = new FormData(); fd.append('file', f);
+    const r = await fetch('/api/backup/restaurar?confirmar=RESTAURAR', { method:'POST', body: fd });
+    const d = await r.json();
+    if(!d.ok) throw new Error(d.error||'Error desconocido');
+    el.innerHTML = '<span style="color:#16a34a;font-weight:600">✓ Restaurado</span>'
+      + '<br>'+d.filas.toLocaleString('en-US')+' filas en '+d.restauradas.length+' tablas'
+      + (d.generado_en ? '<br>El respaldo era del '+new Date(d.generado_en).toLocaleString('es-EC') : '')
+      + (d.respaldo_previo ? '<br><span style="color:var(--muted)">Estado anterior guardado como '+d.respaldo_previo+'</span>' : '')
+      + (d.ignoradas && d.ignoradas.length ? '<br><span style="color:#d97706">Ignoradas: '+d.ignoradas.map(x=>x.tabla).join(', ')+'</span>' : '')
+      + '<br><br><b>Recarga la página</b> para ver los datos restaurados.';
+  }catch(e){
+    el.innerHTML = '<span style="color:#dc2626"><b>Falló:</b> '+String(e.message).replace(/</g,'&lt;')+'</span>'
+      + '<br><span style="color:var(--muted)">No se cambió nada: la restauración es todo o nada.</span>';
+  }
+  btn.disabled = false; btn.style.opacity = ''; btn.textContent = txt;
+}
+
 async function estadoBackupNube(){
   const el = document.getElementById('backup-nube-estado');
   if(!el) return;
@@ -3763,6 +3794,21 @@ async function renderConfig(){
           <button onclick="respaldarAhora(this)" style="padding:8px 16px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-cloud-up" style="margin-right:5px"></i>Respaldar ahora</button>
         </div>
         <div id="backup-nube-estado" style="font-size:13px;color:var(--muted)">Consultando…</div>
+
+        <details style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px">
+          <summary style="cursor:pointer;font-size:12px;font-weight:600;color:#dc2626;user-select:none">Restaurar desde un respaldo</summary>
+          <div style="font-size:12px;color:var(--muted);line-height:1.6;margin-top:10px">
+            Devuelve la base al estado del archivo que subas. <b style="color:#dc2626">Reemplaza los datos actuales</b>:
+            todo lo que haya pasado después de esa fecha se pierde. Antes de tocar nada, la app saca un respaldo
+            del estado actual, por si te arrepientes.
+            <br><br>Úsalo solo si algo salió muy mal. Para deshacer un error puntual casi siempre hay una vía menos drástica.
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:12px">
+            <input type="file" id="file-restaurar" accept=".json,.gz" style="font-size:12px">
+            <button onclick="restaurarBackupUI(this)" style="padding:7px 14px;background:#dc2626;color:white;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer">Restaurar</button>
+          </div>
+          <div id="restaurar-estado" style="margin-top:10px;font-size:12px"></div>
+        </details>
       </div>
 
       <div class="card">

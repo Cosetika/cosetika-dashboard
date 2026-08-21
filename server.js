@@ -2397,6 +2397,94 @@ setInterval(async () => {
   } catch(e) { console.error('Programador de respaldo:', e.message); }
 }, 60 * 60 * 1000);
 
+// ─── RESTAURACIÓN DESDE UN BACKUP ─────────────────────────────────────────────────
+// Devuelve la base al estado de un archivo de respaldo. Es una operación destructiva, así
+// que está protegida por tres cosas: exige rol admin, exige escribir la palabra RESTAURAR,
+// y saca un respaldo de seguridad ANTES de tocar nada, por si la restauración era un error.
+//
+// Reglas de compatibilidad, para que un backup viejo siga sirviendo aunque la app haya
+// cambiado desde entonces:
+//   · Una tabla del backup que ya no existe en la base se ignora.
+//   · Una columna que ya no existe se ignora; una columna nueva queda con su valor por defecto.
+//   · Los contadores (id automáticos) se reajustan al final para que no choquen los siguientes.
+async function restaurarBackup(datos, opciones){
+  opciones = opciones || {};
+  const soloTablas = Array.isArray(opciones.tablas) && opciones.tablas.length ? opciones.tablas : null;
+  const informe = { restauradas: [], ignoradas: [], errores: [], filas: 0 };
+
+  const tablasBackup = Object.keys(datos.tablas || {});
+  if (!tablasBackup.length) throw new Error('El archivo no contiene tablas');
+
+  // Qué tablas y columnas existen HOY en la base
+  const rT = await pool.query("SELECT tablename FROM pg_tables WHERE schemaname='public'");
+  const existentes = new Set(rT.rows.map(x => x.tablename));
+  const rC = await pool.query("SELECT table_name, column_name FROM information_schema.columns WHERE table_schema='public'");
+  const columnasDe = {};
+  rC.rows.forEach(x => { (columnasDe[x.table_name] = columnasDe[x.table_name] || new Set()).add(x.column_name); });
+
+  const objetivo = tablasBackup.filter(t => {
+    if (soloTablas && !soloTablas.includes(t)) return false;
+    if (!existentes.has(t)) { informe.ignoradas.push({ tabla: t, motivo: 'ya no existe en la base' }); return false; }
+    if (!Array.isArray(datos.tablas[t])) { informe.ignoradas.push({ tabla: t, motivo: 'el backup guardó un error para esta tabla' }); return false; }
+    return true;
+  });
+  if (!objetivo.length) throw new Error('Ninguna tabla del archivo se puede restaurar');
+
+  const cli = await pool.connect();
+  try {
+    await cli.query('BEGIN');
+    // Vaciar primero TODAS las tablas objetivo: así no importa el orden ni las relaciones
+    await cli.query('TRUNCATE ' + objetivo.map(t => '"'+t+'"').join(', ') + ' RESTART IDENTITY CASCADE');
+
+    for (const tabla of objetivo) {
+      const filas = datos.tablas[tabla];
+      if (!filas.length) { informe.restauradas.push({ tabla, filas: 0 }); continue; }
+      const cols = Object.keys(filas[0]).filter(c => columnasDe[tabla] && columnasDe[tabla].has(c));
+      if (!cols.length) { informe.ignoradas.push({ tabla, motivo: 'ninguna columna coincide' }); continue; }
+
+      const LOTE = 200;
+      for (let i = 0; i < filas.length; i += LOTE) {
+        const trozo = filas.slice(i, i + LOTE);
+        const valores = [];
+        const marcadores = trozo.map((f, fi) => '(' + cols.map((c, ci) => {
+          let v = f[c];
+          if (v && typeof v === 'object') v = JSON.stringify(v);   // json/jsonb y arrays
+          valores.push(v === undefined ? null : v);
+          return '$' + (fi*cols.length + ci + 1);
+        }).join(',') + ')').join(',');
+        await cli.query(
+          'INSERT INTO "'+tabla+'" (' + cols.map(c => '"'+c+'"').join(',') + ') VALUES ' + marcadores,
+          valores
+        );
+      }
+      informe.restauradas.push({ tabla, filas: filas.length });
+      informe.filas += filas.length;
+    }
+
+    // Reajustar los contadores automáticos para que los próximos ids no choquen
+    for (const tabla of objetivo) {
+      try {
+        await cli.query(`SELECT setval(pg_get_serial_sequence('"${tabla}"','id'),
+          GREATEST((SELECT COALESCE(MAX(id),0) FROM "${tabla}"), 1))
+          WHERE pg_get_serial_sequence('"${tabla}"','id') IS NOT NULL`);
+      } catch(e) { /* la tabla no tiene id serial */ }
+    }
+
+    await cli.query('COMMIT');
+  } catch(e) {
+    try { await cli.query('ROLLBACK'); } catch(e2) {}
+    throw e;
+  } finally { cli.release(); }
+
+  // Recargar en memoria lo que la app mantiene cacheado
+  try {
+    const rd = await pool.query("SELECT datos FROM ventas_data WHERE id_unico='principal'");
+    if (rd.rows.length) { DATA_CACHE = JSON.parse(rd.rows[0].datos); DATA_SERVIDA = { clave:'', ts:0, data:null }; }
+  } catch(e) {}
+
+  return informe;
+}
+
 async function generarBackupCompleto() {
   const backup = { generado_en: new Date().toISOString(), version: 2, tablas: {} };
   // Lista DINÁMICA: todas las tablas públicas de la BD — así el backup nunca se
@@ -7973,6 +8061,46 @@ const server = http.createServer(async (req, res) => {
 
   // DESCARGAR BACKUP DIRECTO (sin correo, ya que Railway bloquea SMTP en este plan)
   // Estado y disparo manual del backup a Drive
+  // RESTAURAR desde un archivo de respaldo (.json o .json.gz). Destructivo.
+  if (urlPath === '/api/backup/restaurar' && req.method === 'POST') {
+    if (bloquearSiNoAdmin(req, res)) return;
+    try {
+      const buf = await bodyBuffer(req);
+      const archivo = parseMultipartFile(buf, req.headers['content-type']);
+      if (!archivo) throw new Error('No se encontró el archivo (campo "file")');
+      if (String(urlObj.searchParams.get('confirmar')||'').toUpperCase() !== 'RESTAURAR') {
+        throw new Error('Falta la confirmación: hay que escribir RESTAURAR para continuar');
+      }
+
+      // Descomprimir si viene en .gz
+      let crudo = archivo.buffer;
+      if (crudo[0] === 0x1f && crudo[1] === 0x8b) {
+        crudo = await new Promise((ok, err) => zlib.gunzip(crudo, (e,b) => e ? err(e) : ok(b)));
+      }
+      let datos;
+      try { datos = JSON.parse(crudo.toString('utf8')); }
+      catch(e) { throw new Error('El archivo no es un backup válido (no se pudo leer como JSON)'); }
+      if (!datos.tablas) throw new Error('El archivo no tiene la estructura de un backup de esta app');
+
+      // Red de seguridad: respaldar el estado ACTUAL antes de sobrescribirlo
+      let seguridad = null;
+      if (b2Configurado() || driveConfigurado()) {
+        try { const r = await respaldarAutomatico(); seguridad = r.archivo || null; } catch(e) {}
+      }
+
+      const tablasParam = String(urlObj.searchParams.get('tablas')||'').split(',').map(x=>x.trim()).filter(Boolean);
+      const informe = await restaurarBackup(datos, { tablas: tablasParam });
+
+      console.log(`⚠️ RESTAURACIÓN completada: ${informe.filas} filas en ${informe.restauradas.length} tablas`);
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:true, generado_en: datos.generado_en || null, respaldo_previo: seguridad, ...informe }));
+    } catch(e) {
+      res.writeHead(400,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:false, error: e.message }));
+    }
+    return;
+  }
+
   if (urlPath === '/api/backup/nube' && req.method === 'GET') {
     if (bloquearSiNoAdmin(req, res)) return;
     res.writeHead(200,{'Content-Type':'application/json'});
