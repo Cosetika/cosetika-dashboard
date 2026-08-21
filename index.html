@@ -865,6 +865,8 @@ async function renderNsos(){
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button onclick="toggleFormNso()" style="padding:9px 14px;background:white;color:var(--text);border:1px solid var(--border);border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-plus" style="margin-right:5px"></i>Agregar NSO</button>
         ${(window.usuarioActual||{}).rol==='admin'?`<button id="nso-config-btn" onclick="toggleConfigNso()" style="padding:9px 14px;background:${window._nsoModoConfig?'#fef2f2':'white'};color:${window._nsoModoConfig?'#dc2626':'var(--text)'};border:1px solid ${window._nsoModoConfig?'#fca5a5':'var(--border)'};border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-settings" style="margin-right:5px"></i>${window._nsoModoConfig?'Salir de configurar':'Configurar'}</button>`:''}
+        <input type="file" id="file-cert-nso" accept="application/pdf" multiple style="display:none" onchange="subirCertificadosNso(this)">
+        <button onclick="document.getElementById('file-cert-nso').click()" style="padding:9px 14px;background:white;color:var(--text);border:1px solid var(--border);border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-file-upload" style="margin-right:5px"></i>Subir certificado</button>
         <button onclick="window.open('/api/nsos/descargar','_blank')" style="padding:9px 14px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-download" style="margin-right:5px"></i>Descargar Excel</button>
       </div>
     </div>
@@ -942,6 +944,9 @@ function pintarListaNsos(filtro){
           return `
           <div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:0.5px solid var(--border)">
             <span style="flex:1;font-size:12px;min-width:0">${String(n.nombre||'').replace(/</g,'&lt;')}</span>
+            ${n.tiene_certificado
+              ? `<button onclick="verCertificadoNso(${n.id})" title="Ver el certificado en PDF" style="width:26px;height:26px;border:1px solid #fca5a5;background:#fef2f2;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-file-type-pdf" style="font-size:13px;color:#dc2626"></i></button>`
+              : `<span title="Sin certificado cargado" style="width:26px;height:26px;border:1px dashed var(--border);border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0;opacity:0.45"><i class="ti ti-file-off" style="font-size:12px;color:var(--muted)"></i></span>`}
             <span style="font-size:11px;color:var(--brown);font-weight:600;white-space:nowrap;font-family:monospace">${String(n.nso||'').replace(/</g,'&lt;')}</span>
             ${n.nso?`<button onclick="copiarNso('${nsoSeguro}',this)" title="Copiar NSO" style="width:26px;height:26px;border:1px solid var(--border);background:white;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-copy" style="font-size:12px;color:var(--muted)"></i></button>`:''}
             ${(window.usuarioActual||{}).rol==='admin' && window._nsoModoConfig?`<button onclick="borrarNso(${n.id})" title="Eliminar" style="width:26px;height:26px;border:1px solid #fca5a5;background:#fef2f2;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-trash" style="font-size:11px;color:#ef4444"></i></button>`:''}
@@ -951,6 +956,46 @@ function pintarListaNsos(filtro){
 }
 
 function filtrarNsos(q){ pintarListaNsos(q); }
+
+function verCertificadoNso(id){
+  window.open('/api/nsos/'+id+'/certificado', '_blank');
+}
+
+// Sube uno o varios certificados. El nombre del archivo manda: de ahí salen el producto y
+// el código de NSO, y si esa NSO todavía no está en la lista, se agrega sola.
+async function subirCertificadosNso(input){
+  const files = Array.from(input.files||[]);
+  if(!files.length) return;
+  const st = document.getElementById('nsos-status');
+  const resultados = [];
+  for(let i=0; i<files.length; i++){
+    const f = files[i];
+    if(st) st.innerHTML = '<i class="ti ti-loader-2" style="animation:spin 1s linear infinite;margin-right:5px"></i>Subiendo '+(i+1)+' de '+files.length+': '+f.name;
+    try{
+      const fd = new FormData(); fd.append('file', f);
+      const r = await fetch('/api/nsos/certificado', { method:'POST', body: fd });
+      const d = await r.json();
+      if(!d.ok) throw new Error(d.error||'error');
+      resultados.push({ ok:true, nombre:d.nombre, nso:d.nso, creado:d.creado });
+    }catch(e){ resultados.push({ ok:false, archivo:f.name, error:String(e.message) }); }
+  }
+  input.value = '';
+  const bien = resultados.filter(r=>r.ok);
+  const nuevos = bien.filter(r=>r.creado);
+  const mal = resultados.filter(r=>!r.ok);
+  if(st){
+    st.innerHTML = (bien.length ? '<span style="color:#16a34a;font-weight:600">✓ '+bien.length+' certificado'+(bien.length!==1?'s':'')+' cargado'+(bien.length!==1?'s':'')+'</span>'
+        + (nuevos.length ? ' · '+nuevos.length+' NSO nueva'+(nuevos.length!==1?'s':'')+' agregada'+(nuevos.length!==1?'s':'')+' a la lista: '+nuevos.map(n=>n.nso).join(', ') : '') : '')
+      + (mal.length ? (bien.length?'<br>':'') + '<span style="color:#dc2626">'+mal.length+' con problema: '
+        + mal.map(m=>m.archivo+' — '+m.error).join(' · ')+'</span>' : '');
+  }
+  // Recargar la lista para ver los iconos y las NSOs nuevas
+  try{
+    const r = await fetch('/api/nsos');
+    const d = await r.json();
+    if(Array.isArray(d)){ window._nsosData = d; pintarListaNsos(document.getElementById('nsos-buscar')?.value||''); }
+  }catch(e){}
+}
 
 async function cargarNsosIniciales(btn){
   btn.disabled = true;

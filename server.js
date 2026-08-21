@@ -3025,6 +3025,10 @@ async function initDB() {
         nso VARCHAR(100),
         created_at TIMESTAMP DEFAULT NOW()
       );
+      ALTER TABLE nsos ADD COLUMN IF NOT EXISTS certificado BYTEA;
+      ALTER TABLE nsos ADD COLUMN IF NOT EXISTS cert_nombre VARCHAR(400);
+      ALTER TABLE nsos ADD COLUMN IF NOT EXISTS cert_bytes INTEGER;
+      ALTER TABLE nsos ADD COLUMN IF NOT EXISTS cert_subido_at TIMESTAMP;
       CREATE TABLE IF NOT EXISTS referidos (
         id SERIAL PRIMARY KEY,
         cliente VARCHAR(500),
@@ -6316,11 +6320,108 @@ const server = http.createServer(async (req, res) => {
   // GET /api/nsos → lista completa
   if (urlPath === '/api/nsos' && req.method === 'GET') {
     try {
-      const r = await pool.query('SELECT id, marca, nombre, nso FROM nsos ORDER BY marca, nombre');
+      const r = await pool.query(`SELECT id, marca, nombre, nso, cert_nombre, cert_bytes,
+        (certificado IS NOT NULL) AS tiene_certificado FROM nsos ORDER BY marca, nombre`);
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.rows));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
     return;
   }
+  // ─── CERTIFICADOS DE NSO EN PDF ───────────────────────────────────────────────
+  // Del nombre del archivo se deducen el producto y el código de NSO. El formato que usa
+  // Cosétika es "NOMBRE DEL PRODUCTO - NSOC12345-26EC.pdf", pero también se acepta el
+  // código en cualquier parte del nombre.
+  function datosDelCertificado(nombreArchivo){
+    const limpio = String(nombreArchivo||'').replace(/\.pdf$/i,'').trim();
+    const mNso = /(NSOC?\s*[-–]?\s*\d{3,}\s*[-–]\s*\d{2}[A-Z]{2})/i.exec(limpio)
+              || /(NSO[A-Z0-9\-–]{5,})/i.exec(limpio);
+    const nso = mNso ? mNso[1].replace(/\s+/g,'').replace(/–/g,'-').toUpperCase() : '';
+    let nombre = limpio;
+    if (nso) {
+      // Quitar el código y el separador que lo une al nombre
+      nombre = limpio.replace(mNso[1], '').replace(/[\s\-–_]+$/,'').replace(/^[\s\-–_]+/,'').trim();
+    }
+    return { nombre: nombre || limpio, nso };
+  }
+
+  // Sube (o reemplaza) el certificado. Si el NSO no existe todavía, lo crea en la lista.
+  if (urlPath === '/api/nsos/certificado' && req.method === 'POST') {
+    try {
+      const buf = await bodyBuffer(req);
+      const archivo = parseMultipartFile(buf, req.headers['content-type']);
+      if (!archivo) throw new Error('No se encontró el archivo (campo "file")');
+      if (archivo.buffer.slice(0,4).toString() !== '%PDF') throw new Error('El archivo no es un PDF');
+
+      const det = datosDelCertificado(archivo.filename);
+      const nsoParam = String(urlObj.searchParams.get('nso') || det.nso || '').trim().toUpperCase();
+      const nombreParam = String(urlObj.searchParams.get('nombre') || det.nombre || '').trim();
+      const marcaParam = String(urlObj.searchParams.get('marca') || '').trim();
+      const idParam = parseInt(urlObj.searchParams.get('id')) || null;
+      if (!nsoParam && !idParam) throw new Error('No se pudo leer el código de NSO del nombre del archivo. Renómbralo como "PRODUCTO - NSOC12345-26EC.pdf" o elige el producto de la lista.');
+
+      // Buscar a qué registro pertenece: por id, o por código de NSO
+      let fila = null;
+      if (idParam) {
+        const r = await pool.query('SELECT id, nombre, nso, marca FROM nsos WHERE id=$1', [idParam]);
+        fila = r.rows[0] || null;
+      }
+      if (!fila && nsoParam) {
+        const r = await pool.query("SELECT id, nombre, nso, marca FROM nsos WHERE UPPER(REPLACE(nso,' ','')) = $1", [nsoParam]);
+        fila = r.rows[0] || null;
+      }
+
+      let creado = false;
+      if (!fila) {
+        // NSO nueva: entra a la lista con lo que dice el nombre del archivo
+        const ins = await pool.query(
+          'INSERT INTO nsos(marca, nombre, nso) VALUES($1,$2,$3) RETURNING id, nombre, nso, marca',
+          [marcaParam || null, nombreParam || nsoParam, nsoParam]
+        );
+        fila = ins.rows[0]; creado = true;
+      }
+
+      await pool.query(
+        'UPDATE nsos SET certificado=$1, cert_nombre=$2, cert_bytes=$3, cert_subido_at=NOW() WHERE id=$4',
+        [archivo.buffer, String(archivo.filename||'certificado.pdf').substring(0,390), archivo.buffer.length, fila.id]
+      );
+
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:true, creado, id: fila.id, nombre: fila.nombre, nso: fila.nso,
+        marca: fila.marca, bytes: archivo.buffer.length }));
+    } catch(e) {
+      res.writeHead(400,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:false, error: e.message }));
+    }
+    return;
+  }
+
+  // Ver el certificado en el navegador (o descargarlo con ?descargar=1)
+  if (/^\/api\/nsos\/\d+\/certificado$/.test(urlPath) && req.method === 'GET') {
+    try {
+      const id = parseInt(urlPath.split('/')[3]);
+      const r = await pool.query('SELECT certificado, cert_nombre, nombre, nso FROM nsos WHERE id=$1', [id]);
+      const f = r.rows[0];
+      if (!f || !f.certificado) { res.writeHead(404,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:'Sin certificado'})); return; }
+      const nombreArch = f.cert_nombre || ((f.nombre||'certificado') + ' - ' + (f.nso||'') + '.pdf');
+      res.writeHead(200, {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': (urlObj.searchParams.get('descargar') ? 'attachment' : 'inline') + '; filename="' + nombreArch.replace(/"/g,'') + '"',
+        'Content-Length': f.certificado.length
+      });
+      res.end(f.certificado);
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+
+  // Quitar el certificado sin borrar el registro de NSO
+  if (/^\/api\/nsos\/\d+\/certificado$/.test(urlPath) && req.method === 'DELETE') {
+    try {
+      const id = parseInt(urlPath.split('/')[3]);
+      await pool.query('UPDATE nsos SET certificado=NULL, cert_nombre=NULL, cert_bytes=NULL, cert_subido_at=NULL WHERE id=$1', [id]);
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+
   // POST /api/nsos/bulk → carga masiva {registros:[{marca,nombre,nso}], limpiar}
   if (urlPath === '/api/nsos/bulk' && req.method === 'POST') {
     try {
@@ -6406,6 +6507,8 @@ const server = http.createServer(async (req, res) => {
       if (registros.length === 0) {
         res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'No se encontraron registros en el Excel'})); return;
       }
+      // Conservar los certificados ya cargados: se vuelven a asociar por código de NSO
+      const certs = await pool.query('SELECT nso, certificado, cert_nombre, cert_bytes, cert_subido_at FROM nsos WHERE certificado IS NOT NULL');
       await pool.query('TRUNCATE TABLE nsos RESTART IDENTITY');
       const LOTE = 200;
       for (let i = 0; i < registros.length; i += LOTE) {
@@ -6418,7 +6521,18 @@ const server = http.createServer(async (req, res) => {
         });
         await pool.query(`INSERT INTO nsos(marca,nombre,nso) VALUES ${valores.join(',')}`, params);
       }
-      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, insertados: registros.length}));
+      // Devolver cada certificado a su NSO. Sin esto, subir el Excel consolidado borraba
+      // todos los PDFs cargados, que es un trabajo que no se puede rehacer solo.
+      let recuperados = 0;
+      for (const c of certs.rows) {
+        if (!c.nso) continue;
+        const up = await pool.query(
+          "UPDATE nsos SET certificado=$1, cert_nombre=$2, cert_bytes=$3, cert_subido_at=$4 WHERE UPPER(REPLACE(nso,' ','')) = $5",
+          [c.certificado, c.cert_nombre, c.cert_bytes, c.cert_subido_at, String(c.nso).replace(/\s/g,'').toUpperCase()]
+        );
+        recuperados += up.rowCount;
+      }
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, insertados: registros.length, certificados_conservados: recuperados}));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
   }
