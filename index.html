@@ -12261,70 +12261,90 @@ function exportarComisionesExcel(){
   const anioX = new Date().getFullYear();
   const r2 = v => Math.round((parseFloat(v)||0)*100)/100;
   const corto = n => (typeof nombreCorto === 'function' ? nombreCorto(n) : String(n||''));
-  const wb = XLSX.utils.book_new();
-  const hojaNombre = t => String(t||'Hoja').replace(/[\\\\\/\?\*\[\]:]/g,'').substring(0,28) || 'Hoja';
 
-  // Una hoja por equipo
+  // Todo en una sola hoja, en el mismo orden que el panel
+  const aoa = [];
+  const filasTitulo = [], filasCabecera = [], filasTotal = [];
+  const push = f => { aoa.push(f); return aoa.length - 1; };
+
+  filasTitulo.push(push(['COMISIONES — '+MES_X[D.mes]+' '+anioX]));
+  push(['Ventas totales de la empresa: '+r2(D.totalSinIvaGlobal)+' sin IVA  ·  '+r2(D.totalConIvaGlobal)+' con IVA']);
+  push([]);
+
+  const CAB = ['Persona','Rol / detalle','Subtotal s/IVA','Ventas c/IVA','Mínimo','%','Base','Comisión','Transporte','Total a pagar'];
+  let granTotal = 0;
+
   (D.equipos||[]).forEach(eq=>{
-    const aoa = [
-      ['Equipo '+eq.nombre+' — '+MES_X[D.mes]+' '+anioX],
-      [],
-      ['Persona','Rol','Subtotal s/IVA','Ventas c/IVA','Mínimo','%','Base','Comisión','Transporte','Total a pagar']
-    ];
+    filasTitulo.push(push(['EQUIPO '+String(eq.nombre||'').toUpperCase()]));
+    filasCabecera.push(push(CAB.slice()));
     if(eq.jefaNombre){
-      aoa.push([corto(eq.jefaNombre),'Líder de equipo', r2(eq.vJefa.sinIva), r2(eq.vJefa.conIva), '',
+      push([corto(eq.jefaNombre),'Líder de equipo', r2(eq.vJefa.sinIva), r2(eq.vJefa.conIva), null,
         (eq.jefaCfg.pct_equipo||0)/100, r2(eq.baseJefa), r2(eq.comisionJefa), r2(eq.jefaCfg.transporte||0), r2(eq.totalJefa)]);
     }
     (eq.filas||[]).forEach(f=>{
-      aoa.push([corto(f.nombre), f.contribuye===false?'No suma al equipo':'Asesora', r2(f.sinIva), r2(f.conIva),
+      push([corto(f.nombre), f.contribuye===false?'Asesora (no suma al equipo)':'Asesora', r2(f.sinIva), r2(f.conIva),
         r2(f.minimo), (f.pct||0)/100, r2(f.base), r2(f.comision), r2(f.transporte), r2(f.totalPagar)]);
     });
     const totalEq = (eq.totalJefa||0) + (eq.filas||[]).reduce((a,f)=>a+(f.totalPagar||0),0);
-    aoa.push([]);
-    aoa.push(['TOTAL DEL EQUIPO','','','','','','','','', r2(totalEq)]);
-
-    const ws = XLSX.utils.aoa_to_sheet(aoa);
-    ws['!cols'] = [{wch:26},{wch:18},{wch:15},{wch:14},{wch:11},{wch:8},{wch:13},{wch:12},{wch:12},{wch:14}];
-    ws['!merges'] = [{s:{r:0,c:0},e:{r:0,c:9}}];
-    aplicarFormatoCom(ws, aoa, [2,3,4,6,7,8,9], [5]);
-    XLSX.utils.book_append_sheet(wb, ws, hojaNombre(eq.nombre));
+    granTotal += totalEq;
+    filasTotal.push(push(['Total equipo '+eq.nombre, null,null,null,null,null,null,null,null, r2(totalEq)]));
+    push([]);
   });
 
-  // Bonificaciones administrativas
   if((D.admin||[]).length){
-    const aoa = [
-      ['Bonificaciones administrativas — '+MES_X[D.mes]+' '+anioX],
-      ['Calculadas sobre las ventas totales de la empresa (sin IVA): '+r2(D.totalSinIvaGlobal)],
-      [],
-      ['Persona','Ventas totales s/IVA','Mínimo','%','Base','Bonificación','Transporte','Total a pagar']
-    ];
+    filasTitulo.push(push(['BONIFICACIONES ADMINISTRATIVAS']));
+    push(['Calculadas sobre las ventas totales de la empresa sin IVA']);
+    filasCabecera.push(push(CAB.slice()));
     D.admin.forEach(a=>{
-      aoa.push([a.nombre, r2(D.totalSinIvaGlobal), r2(a.minimo), (a.pct||0)/100, r2(a.base),
-        r2(a.comision), r2(a.transporte), r2(a.totalPagar)]);
+      push([a.nombre,'Administrativa', r2(D.totalSinIvaGlobal), null, r2(a.minimo), (a.pct||0)/100,
+        r2(a.base), r2(a.comision), r2(a.transporte), r2(a.totalPagar)]);
     });
-    aoa.push([]);
-    aoa.push(['TOTAL','','','','','','', r2(D.admin.reduce((s,a)=>s+(a.totalPagar||0),0))]);
-    const ws = XLSX.utils.aoa_to_sheet(aoa);
-    ws['!cols'] = [{wch:26},{wch:17},{wch:11},{wch:8},{wch:13},{wch:13},{wch:12},{wch:14}];
-    ws['!merges'] = [{s:{r:0,c:0},e:{r:0,c:7}},{s:{r:1,c:0},e:{r:1,c:7}}];
-    aplicarFormatoCom(ws, aoa, [1,2,4,5,6,7], [3]);
-    XLSX.utils.book_append_sheet(wb, ws, 'Bonificaciones admin');
+    const totalAdm = D.admin.reduce((s,a)=>s+(a.totalPagar||0),0);
+    granTotal += totalAdm;
+    filasTotal.push(push(['Total bonificaciones administrativas', null,null,null,null,null,null,null,null, r2(totalAdm)]));
+    push([]);
   }
 
-  // Otras ventas (sin equipo)
   if((D.fuera||[]).length){
-    const aoa = [['Otras ventas (sin equipo) — '+MES_X[D.mes]+' '+anioX], [],
-      ['Persona','Subtotal s/IVA','Ventas c/IVA']];
-    D.fuera.forEach(v=> aoa.push([corto(v.nombre), r2(v.sinIva), r2(v.conIva)]));
-    const ws = XLSX.utils.aoa_to_sheet(aoa);
-    ws['!cols'] = [{wch:26},{wch:15},{wch:15}];
-    ws['!merges'] = [{s:{r:0,c:0},e:{r:0,c:2}}];
-    aplicarFormatoCom(ws, aoa, [1,2], []);
-    XLSX.utils.book_append_sheet(wb, ws, 'Otras ventas');
+    filasTitulo.push(push(['OTRAS VENTAS (SIN EQUIPO)']));
+    push(['No generan comisión de equipo, pero suman al total de la empresa']);
+    filasCabecera.push(push(['Persona','Rol / detalle','Subtotal s/IVA','Ventas c/IVA']));
+    D.fuera.forEach(v=> push([corto(v.nombre),'Sin equipo', r2(v.sinIva), r2(v.conIva)]));
+    push([]);
   }
 
-  const nombre = 'Comisiones_'+MES_X[D.mes]+'_'+anioX+'.xlsx';
-  XLSX.writeFile(wb, nombre);
+  filasTotal.push(push(['TOTAL GENERAL A PAGAR', null,null,null,null,null,null,null,null, r2(granTotal)]));
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{wch:28},{wch:26},{wch:15},{wch:14},{wch:11},{wch:9},{wch:13},{wch:13},{wch:12},{wch:15}];
+  ws['!merges'] = [{s:{r:0,c:0},e:{r:0,c:9}},{s:{r:1,c:0},e:{r:1,c:9}}];
+
+  // Formato: moneda en las columnas de dinero, porcentaje en la de %
+  const COLS_MONEDA = [2,3,4,6,7,8,9], COL_PCT = [5];
+  const rango = XLSX.utils.decode_range(ws['!ref']);
+  for(let R=rango.s.r; R<=rango.e.r; R++){
+    for(let C=rango.s.c; C<=rango.e.c; C++){
+      const cel = ws[XLSX.utils.encode_cell({r:R,c:C})];
+      if(!cel) continue;
+      if(cel.t === 'n'){
+        if(COLS_MONEDA.includes(C)) cel.z = '"$"#,##0.00';
+        else if(COL_PCT.includes(C)) cel.z = '0.00%';
+      }
+      const esTitulo = filasTitulo.includes(R), esCab = filasCabecera.includes(R), esTot = filasTotal.includes(R);
+      if(esTitulo || esCab || esTot){
+        cel.s = cel.s || {};
+        cel.s.font = { bold:true, color:{ rgb: esTitulo ? 'FFFFFF' : '2B2118' } };
+        if(esTitulo) cel.s.fill = { fgColor:{ rgb:'8A5A3B' }, patternType:'solid' };
+        else if(esCab) cel.s.fill = { fgColor:{ rgb:'F0EAE3' }, patternType:'solid' };
+        else if(esTot) cel.s.fill = { fgColor:{ rgb:'E8F5E9' }, patternType:'solid' };
+      }
+    }
+  }
+  ws['!freeze'] = { xSplit:0, ySplit:3 };
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Comisiones');
+  XLSX.writeFile(wb, 'Comisiones_'+MES_X[D.mes]+'_'+anioX+'.xlsx');
 }
 
 // Aplica formato de moneda y porcentaje a las columnas indicadas
