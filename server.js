@@ -2373,14 +2373,28 @@ async function respaldarAutomatico(){
   return { error: 'Sin destino configurado' };
 }
 
-// Domingo a las 4 AM hora Ecuador
-setInterval(() => {
-  const h = nowEC();
-  if (h.getDay() === 0 && h.getHours() === 4) {
-    const hoyK = h.toISOString().substring(0,10);
-    if (BACKUP_ESTADO.ultimo && BACKUP_ESTADO.ultimo.substring(0,10) === hoyK) return;
+// Respaldo semanal. No se ata a una hora exacta: si el servidor estaba reiniciándose
+// justo a las 4 del domingo, esa ventana se perdería y habría que esperar otra semana.
+// En vez de eso se comprueba cada hora si ya pasaron 7 días desde el último respaldo,
+// leyendo la fecha de la BASE DE DATOS — así sobrevive a los redespliegues.
+async function tocaRespaldar(){
+  try {
+    const r = await pool.query('SELECT ultima_descarga FROM backup_registro LIMIT 1');
+    if (!r.rows.length || !r.rows[0].ultima_descarga) return true;   // nunca se hizo
+    const dias = (Date.now() - new Date(r.rows[0].ultima_descarga).getTime()) / 86400000;
+    return dias >= 7;
+  } catch(e) { return false; }
+}
+setInterval(async () => {
+  try {
+    const h = nowEC();
+    if (h.getHours() < 4) return;              // de madrugada en adelante, no a medianoche
+    if (BACKUP_ESTADO.subiendo) return;
+    if (!b2Configurado() && !driveConfigurado()) return;
+    if (!(await tocaRespaldar())) return;
+    console.log('🗄️ Respaldo semanal: han pasado 7 días o más desde el último');
     respaldarAutomatico().catch(e => console.error(e));
-  }
+  } catch(e) { console.error('Programador de respaldo:', e.message); }
 }, 60 * 60 * 1000);
 
 async function generarBackupCompleto() {
