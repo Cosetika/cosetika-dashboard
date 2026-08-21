@@ -6349,7 +6349,16 @@ const server = http.createServer(async (req, res) => {
       const buf = await bodyBuffer(req);
       const archivo = parseMultipartFile(buf, req.headers['content-type']);
       if (!archivo) throw new Error('No se encontró el archivo (campo "file")');
-      if (archivo.buffer.slice(0,4).toString() !== '%PDF') throw new Error('El archivo no es un PDF');
+      // La firma %PDF no siempre está en el byte 0: el formato permite basura previa y
+      // algunos generadores dejan saltos de línea al inicio. Se busca en el primer KB, y
+      // si no aparece pero la extensión es .pdf, se acepta igual.
+      const cabecera = archivo.buffer.slice(0, 1024).toString('latin1');
+      const pareceP = cabecera.includes('%PDF');
+      const extP = /\.pdf$/i.test(archivo.filename || '');
+      if (!pareceP && !extP) {
+        throw new Error('El archivo no parece un PDF (empieza con "' +
+          cabecera.slice(0,12).replace(/[^\x20-\x7e]/g,'·') + '")');
+      }
 
       const det = datosDelCertificado(archivo.filename);
       const nsoParam = String(urlObj.searchParams.get('nso') || det.nso || '').trim().toUpperCase();
