@@ -56,6 +56,8 @@
     #print-overlay .pv-bar button{ border:none; border-radius:8px; padding:9px 16px; font-size:13px; font-weight:600; cursor:pointer; font-family:inherit; }
     #print-overlay .pv-imp{ background:#fff; color:#1a1108; }
     #print-overlay .pv-cerrar{ background:transparent; color:#fff; border:1px solid rgba(255,255,255,0.45) !important; }
+    #print-overlay .pv-pdf{ background:transparent; color:#fff; border:1px solid rgba(255,255,255,0.45) !important; }
+    #print-overlay .pv-pdf:disabled{ opacity:0.6; cursor:wait; }
     #print-overlay .pv-hoja{ max-width:760px; margin:0 auto; padding:26px 22px 40px; color:#2b2118; font-size:12px; line-height:1.45; }
     #print-overlay .cab{ display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid #8a5a3b; padding-bottom:14px; margin-bottom:18px; }
     #print-overlay .marca{ font-size:24px; font-weight:800; letter-spacing:5px; color:#8a5a3b; }
@@ -5791,7 +5793,10 @@ function imprimirPedido(numero){
   ov.innerHTML = '<div class="pv-bar">'
     + '<button class="pv-cerrar" onclick="cerrarImpresionPedido()">← Volver</button>'
     + '<b>Pedido #'+esc(p.numero_pedido)+'</b>'
-    + '<button class="pv-imp" onclick="window.print()">Imprimir</button>'
+    + '<span style="display:flex;gap:8px">'
+    +   '<button class="pv-pdf" id="btn-pdf-pedido" onclick="descargarPedidoPDF(\''+String(p.numero_pedido).replace(/'/g,'')+'\')">Descargar PDF</button>'
+    +   '<button class="pv-imp" onclick="window.print()">Imprimir</button>'
+    + '</span>'
     + '</div><div class="pv-hoja">'+hoja+'</div>';
   document.body.appendChild(ov);
   document.body.classList.add('imprimiendo');
@@ -5799,6 +5804,59 @@ function imprimirPedido(numero){
   // Volver con el botón atrás del teléfono en vez de quedar encerrado
   try{ history.pushState({impresion:true}, ''); }catch(e){}
   window.addEventListener('popstate', cerrarImpresionPedido, { once:true });
+}
+
+// Descarga el comprobante como PDF real. Las librerías se cargan solo al pulsar el botón,
+// para no encarecer el arranque de la app: la mayoría de las veces solo se imprime.
+function _cargarScript(src){
+  return new Promise((ok, err)=>{
+    if(document.querySelector('script[src="'+src+'"]')) return ok();
+    const sc = document.createElement('script');
+    sc.src = src; sc.onload = ok; sc.onerror = () => err(new Error('No se pudo cargar '+src));
+    document.head.appendChild(sc);
+  });
+}
+
+async function descargarPedidoPDF(numero){
+  const btn = document.getElementById('btn-pdf-pedido');
+  const hoja = document.querySelector('#print-overlay .pv-hoja');
+  if(!hoja) return;
+  const original = btn ? btn.textContent : '';
+  if(btn){ btn.disabled = true; btn.textContent = 'Generando…'; }
+  try{
+    await _cargarScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
+    await _cargarScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+    const JsPDF = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
+    if(!JsPDF) throw new Error('jsPDF no disponible');
+
+    const lienzo = await html2canvas(hoja, { scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false });
+    const pdf = new JsPDF({ unit:'mm', format:'a4', orientation:'portrait' });
+    const anchoPag = 210, altoPag = 297, margen = 10;
+    const anchoImg = anchoPag - margen*2;
+    const altoImg = lienzo.height * anchoImg / lienzo.width;
+    const img = lienzo.toDataURL('image/jpeg', 0.94);
+
+    if(altoImg <= altoPag - margen*2){
+      pdf.addImage(img, 'JPEG', margen, margen, anchoImg, altoImg);
+    } else {
+      // Comprobantes largos: se reparte en varias páginas desplazando la imagen
+      let restante = altoImg, y = margen, pagina = 0;
+      const utilPag = altoPag - margen*2;
+      while(restante > 0){
+        if(pagina) pdf.addPage();
+        pdf.addImage(img, 'JPEG', margen, y - pagina*utilPag, anchoImg, altoImg);
+        restante -= utilPag; pagina++;
+      }
+    }
+    pdf.save('Pedido_'+String(numero).replace(/[^A-Za-z0-9]/g,'')+'_Cosetika.pdf');
+    if(btn){ btn.textContent = 'Descargado ✓'; setTimeout(()=>{ btn.textContent = original; btn.disabled = false; }, 1800); }
+  }catch(e){
+    console.error('PDF:', e);
+    if(btn){ btn.textContent = original; btn.disabled = false; }
+    if(confirm('No se pudo generar el PDF (revisa tu conexión).\n\n¿Abrir el diálogo de impresión? Ahí puedes elegir "Guardar como PDF" en Destino.')){
+      window.print();
+    }
+  }
 }
 
 function cerrarImpresionPedido(){
