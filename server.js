@@ -2258,13 +2258,128 @@ async function limpiarBackupsViejos(token, carpeta){
   } catch(e) { console.error('Limpieza de backups:', e.message); }
 }
 
+// ─── BACKUP A BACKBLAZE B2 ────────────────────────────────────────────────────────
+// Alternativa a Drive sin OAuth: dos claves y listo. No hay pantalla de consentimiento
+// ni permisos que caduquen, así que el respaldo no se rompe solo con el tiempo.
+const B2_KEY_ID = process.env.B2_KEY_ID || '';
+const B2_APP_KEY = process.env.B2_APP_KEY || '';
+const B2_BUCKET = process.env.B2_BUCKET || '';           // nombre del bucket
+const B2_CONSERVAR = parseInt(process.env.B2_CONSERVAR || '12');
+function b2Configurado(){ return !!(B2_KEY_ID && B2_APP_KEY); }
+
+async function b2Auth(){
+  const basico = Buffer.from(B2_KEY_ID + ':' + B2_APP_KEY).toString('base64');
+  const r = await fetch('https://api.backblazeb2.com/b2api/v3/b2_authorize_account', {
+    headers: { Authorization: 'Basic ' + basico }
+  });
+  const d = await r.json();
+  if (!r.ok || !d.authorizationToken) throw new Error('B2 rechazó las claves: ' + (d.message || r.status));
+  const api = (d.apiInfo && d.apiInfo.storageApi) || d;
+  return {
+    token: d.authorizationToken,
+    apiUrl: api.apiUrl,
+    // Si la clave está restringida a un bucket, B2 ya lo indica y no hay que buscarlo
+    bucketId: (api.bucketId || (d.allowed && d.allowed.bucketId)) || null,
+    bucketName: (api.bucketName || (d.allowed && d.allowed.bucketName)) || null,
+    accountId: d.accountId
+  };
+}
+
+async function b2BucketId(a){
+  if (a.bucketId) return a.bucketId;
+  if (!B2_BUCKET) throw new Error('Falta B2_BUCKET (nombre del bucket) o una clave restringida a un bucket');
+  const r = await fetch(a.apiUrl + '/b2api/v3/b2_list_buckets', {
+    method:'POST', headers:{ Authorization: a.token, 'Content-Type':'application/json' },
+    body: JSON.stringify({ accountId: a.accountId, bucketName: B2_BUCKET })
+  });
+  const d = await r.json();
+  const b = (d.buckets || [])[0];
+  if (!b) throw new Error('No se encontró el bucket "' + B2_BUCKET + '"');
+  return b.bucketId;
+}
+
+async function subirBackupB2(){
+  if (!b2Configurado()) { BACKUP_ESTADO.error = 'Faltan las claves de Backblaze'; return BACKUP_ESTADO; }
+  if (BACKUP_ESTADO.subiendo) return BACKUP_ESTADO;
+  BACKUP_ESTADO.subiendo = true;
+  try {
+    const a = await b2Auth();
+    const bucketId = await b2BucketId(a);
+
+    const backup = await generarBackupCompleto();
+    const crudo = Buffer.from(JSON.stringify(backup), 'utf8');
+    const comprimido = await new Promise((ok, err) => zlib.gzip(crudo, { level: 9 }, (e, b) => e ? err(e) : ok(b)));
+    const fecha = fmtDateEC(nowEC()).split('/').reverse().join('-');
+    const nombre = `backup_cosetika_${fecha}.json.gz`;
+    const sha1 = crypto.createHash('sha1').update(comprimido).digest('hex');
+
+    const ru = await fetch(a.apiUrl + '/b2api/v3/b2_get_upload_url', {
+      method:'POST', headers:{ Authorization: a.token, 'Content-Type':'application/json' },
+      body: JSON.stringify({ bucketId })
+    });
+    const du = await ru.json();
+    if (!ru.ok || !du.uploadUrl) throw new Error('B2 no dio URL de subida: ' + (du.message || ru.status));
+
+    const up = await fetch(du.uploadUrl, {
+      method:'POST',
+      headers:{
+        Authorization: du.authorizationToken,
+        'X-Bz-File-Name': encodeURIComponent(nombre),
+        'Content-Type': 'application/gzip',
+        'Content-Length': String(comprimido.length),
+        'X-Bz-Content-Sha1': sha1
+      },
+      body: comprimido
+    });
+    const res = await up.json();
+    if (!up.ok || !res.fileId) throw new Error('B2 rechazó el archivo: ' + (res.message || up.status));
+
+    await registrarDescargaBackup();
+    BACKUP_ESTADO = { destino:'Backblaze B2', ultimo: new Date().toISOString(), archivo: nombre,
+      bytes: comprimido.length, crudo_bytes: crudo.length, error: null, subiendo: false };
+    console.log(`✓ Backup en B2: ${nombre} (${(comprimido.length/1048576).toFixed(1)} MB de ${(crudo.length/1048576).toFixed(1)} MB)`);
+    await limpiarBackupsB2(a, bucketId);
+    return BACKUP_ESTADO;
+  } catch(e) {
+    BACKUP_ESTADO.error = e.message; BACKUP_ESTADO.subiendo = false;
+    console.error('✗ Backup a B2:', e.message);
+    return BACKUP_ESTADO;
+  }
+}
+
+async function limpiarBackupsB2(a, bucketId){
+  try {
+    const r = await fetch(a.apiUrl + '/b2api/v3/b2_list_file_versions', {
+      method:'POST', headers:{ Authorization: a.token, 'Content-Type':'application/json' },
+      body: JSON.stringify({ bucketId, prefix: 'backup_cosetika_', maxFileCount: 200 })
+    });
+    const d = await r.json();
+    const files = (d.files || []).sort((x,y) => String(y.fileName).localeCompare(String(x.fileName)));
+    for (const f of files.slice(B2_CONSERVAR)) {
+      await fetch(a.apiUrl + '/b2api/v3/b2_delete_file_version', {
+        method:'POST', headers:{ Authorization: a.token, 'Content-Type':'application/json' },
+        body: JSON.stringify({ fileName: f.fileName, fileId: f.fileId })
+      });
+      console.log('🗑️ Backup antiguo eliminado de B2: ' + f.fileName);
+    }
+  } catch(e) { console.error('Limpieza B2:', e.message); }
+}
+
+// Usa el destino que esté configurado: Backblaze si hay claves, si no Drive
+async function respaldarAutomatico(){
+  if (b2Configurado()) return subirBackupB2();
+  if (driveConfigurado()) return subirBackupADrive();
+  console.log('⚠️ Backup automático inactivo: no hay destino configurado');
+  return { error: 'Sin destino configurado' };
+}
+
 // Domingo a las 4 AM hora Ecuador
 setInterval(() => {
   const h = nowEC();
   if (h.getDay() === 0 && h.getHours() === 4) {
     const hoyK = h.toISOString().substring(0,10);
     if (BACKUP_ESTADO.ultimo && BACKUP_ESTADO.ultimo.substring(0,10) === hoyK) return;
-    subirBackupADrive().catch(e => console.error(e));
+    respaldarAutomatico().catch(e => console.error(e));
   }
 }, 60 * 60 * 1000);
 
@@ -7844,20 +7959,23 @@ const server = http.createServer(async (req, res) => {
 
   // DESCARGAR BACKUP DIRECTO (sin correo, ya que Railway bloquea SMTP en este plan)
   // Estado y disparo manual del backup a Drive
-  if (urlPath === '/api/backup/drive' && req.method === 'GET') {
+  if (urlPath === '/api/backup/nube' && req.method === 'GET') {
     if (bloquearSiNoAdmin(req, res)) return;
     res.writeHead(200,{'Content-Type':'application/json'});
-    res.end(JSON.stringify({ ok:true, configurado: driveConfigurado(), carpeta: GD_CARPETA, conservar: GD_CONSERVAR, ...BACKUP_ESTADO }));
+    res.end(JSON.stringify({ ok:true,
+      destino: b2Configurado() ? 'Backblaze B2' : (driveConfigurado() ? 'Google Drive' : null),
+      configurado: b2Configurado() || driveConfigurado(),
+      conservar: b2Configurado() ? B2_CONSERVAR : GD_CONSERVAR, ...BACKUP_ESTADO }));
     return;
   }
-  if (urlPath === '/api/backup/drive' && req.method === 'POST') {
+  if (urlPath === '/api/backup/nube' && req.method === 'POST') {
     if (bloquearSiNoAdmin(req, res)) return;
-    if (!driveConfigurado()) {
+    if (!b2Configurado() && !driveConfigurado()) {
       res.writeHead(400,{'Content-Type':'application/json'});
-      res.end(JSON.stringify({ ok:false, error:'Faltan GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET o GOOGLE_REFRESH_TOKEN en las variables de Railway' }));
+      res.end(JSON.stringify({ ok:false, error:'No hay destino configurado. Faltan las variables B2_KEY_ID y B2_APP_KEY en Railway.' }));
       return;
     }
-    const r = await subirBackupADrive();
+    const r = await respaldarAutomatico();
     res.writeHead(r.error?500:200,{'Content-Type':'application/json'});
     res.end(JSON.stringify({ ok: !r.error, ...r }));
     return;
