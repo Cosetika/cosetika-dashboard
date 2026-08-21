@@ -2149,6 +2149,125 @@ async function guardarInventarioEnDB(data) {
 // Lista de respaldo por si falla la consulta dinámica de tablas
 const TABLAS_BACKUP = ['inventario_data', 'usuarios', 'visitas', 'planificacion', 'asesor_zonas', 'asesor_provincias', 'ventas_data'];
 
+// ─── BACKUP AUTOMÁTICO A GOOGLE DRIVE ─────────────────────────────────────────────
+// Railway no ofrece copias de la base en el plan actual y bloquea el SMTP saliente, así
+// que la app se respalda sola: genera el volcado, lo comprime y lo sube a una carpeta de
+// Drive. Se usa OAuth con refresh token — no caduca mientras no se revoque el permiso.
+const GD_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
+const GD_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
+const GD_REFRESH_TOKEN = process.env.GOOGLE_REFRESH_TOKEN || '';
+const GD_CARPETA = process.env.GOOGLE_DRIVE_CARPETA || 'Backups Cosétika App';
+const GD_CONSERVAR = parseInt(process.env.GOOGLE_DRIVE_CONSERVAR || '12');   // cuántos backups guardar
+let GD_TOKEN = { valor: null, expira: 0 };
+let BACKUP_ESTADO = { ultimo: null, archivo: null, bytes: 0, error: null, subiendo: false };
+
+function driveConfigurado(){ return !!(GD_CLIENT_ID && GD_CLIENT_SECRET && GD_REFRESH_TOKEN); }
+
+async function driveToken(){
+  if (GD_TOKEN.valor && Date.now() < GD_TOKEN.expira - 60000) return GD_TOKEN.valor;
+  const body = new URLSearchParams({
+    client_id: GD_CLIENT_ID, client_secret: GD_CLIENT_SECRET,
+    refresh_token: GD_REFRESH_TOKEN, grant_type: 'refresh_token'
+  });
+  const r = await fetch('https://oauth2.googleapis.com/token', {
+    method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body
+  });
+  const d = await r.json();
+  if (!r.ok || !d.access_token) throw new Error('Google rechazó el refresh token: ' + (d.error_description || d.error || r.status));
+  GD_TOKEN = { valor: d.access_token, expira: Date.now() + (d.expires_in||3600)*1000 };
+  return GD_TOKEN.valor;
+}
+
+// Carpeta de destino: se crea una vez y su id queda guardado. Con el permiso drive.file
+// la app solo ve lo que ella misma crea, así que no puede tocar el resto de tu Drive.
+async function driveCarpeta(token){
+  const guardada = await getConfigApp('drive_carpeta_id', null);
+  if (guardada) {
+    const chk = await fetch('https://www.googleapis.com/drive/v3/files/'+guardada+'?fields=id,trashed',
+      { headers:{ Authorization:'Bearer '+token } });
+    if (chk.ok) { const j = await chk.json(); if (!j.trashed) return guardada; }
+  }
+  const crear = await fetch('https://www.googleapis.com/drive/v3/files?fields=id', {
+    method:'POST', headers:{ Authorization:'Bearer '+token, 'Content-Type':'application/json' },
+    body: JSON.stringify({ name: GD_CARPETA, mimeType: 'application/vnd.google-apps.folder' })
+  });
+  const j = await crear.json();
+  if (!crear.ok || !j.id) throw new Error('No se pudo crear la carpeta en Drive: ' + JSON.stringify(j).substring(0,200));
+  await setConfigApp('drive_carpeta_id', j.id);
+  console.log('✓ Carpeta de backups creada en Drive: ' + GD_CARPETA);
+  return j.id;
+}
+
+async function subirBackupADrive(){
+  if (!driveConfigurado()) { BACKUP_ESTADO.error = 'Faltan las credenciales de Google Drive'; return BACKUP_ESTADO; }
+  if (BACKUP_ESTADO.subiendo) return BACKUP_ESTADO;
+  BACKUP_ESTADO.subiendo = true;
+  try {
+    const token = await driveToken();
+    const carpeta = await driveCarpeta(token);
+    const backup = await generarBackupCompleto();
+    const crudo = Buffer.from(JSON.stringify(backup), 'utf8');
+    // Comprimir: el volcado en JSON pesa decenas de MB y en gzip baja alrededor de diez veces
+    const comprimido = await new Promise((ok, err) => zlib.gzip(crudo, { level: 9 }, (e, b) => e ? err(e) : ok(b)));
+    const fecha = fmtDateEC(nowEC()).split('/').reverse().join('-');
+    const nombre = `backup_cosetika_${fecha}.json.gz`;
+
+    const limite = '-----cosetika' + Date.now();
+    const meta = JSON.stringify({ name: nombre, parents: [carpeta],
+      description: 'Backup automático · ' + Object.keys(backup.tablas||{}).length + ' tablas · ' + new Date().toISOString() });
+    const cuerpo = Buffer.concat([
+      Buffer.from('--'+limite+'\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n'+meta+'\r\n'),
+      Buffer.from('--'+limite+'\r\nContent-Type: application/gzip\r\n\r\n'),
+      comprimido,
+      Buffer.from('\r\n--'+limite+'--')
+    ]);
+    const up = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,size', {
+      method:'POST',
+      headers:{ Authorization:'Bearer '+token, 'Content-Type':'multipart/related; boundary='+limite },
+      body: cuerpo
+    });
+    const res = await up.json();
+    if (!up.ok || !res.id) throw new Error('Drive rechazó la subida: ' + JSON.stringify(res).substring(0,220));
+
+    await registrarDescargaBackup();
+    BACKUP_ESTADO = { ultimo: new Date().toISOString(), archivo: nombre, bytes: comprimido.length,
+      crudo_bytes: crudo.length, error: null, subiendo: false, carpeta };
+    console.log(`✓ Backup en Drive: ${nombre} (${(comprimido.length/1048576).toFixed(1)} MB comprimidos, ${(crudo.length/1048576).toFixed(1)} MB en crudo)`);
+    await limpiarBackupsViejos(token, carpeta);
+    return BACKUP_ESTADO;
+  } catch(e) {
+    BACKUP_ESTADO.error = e.message; BACKUP_ESTADO.subiendo = false;
+    console.error('✗ Backup a Drive:', e.message);
+    return BACKUP_ESTADO;
+  }
+}
+
+// Deja solo los últimos N backups: sin esto la carpeta crece sin control
+async function limpiarBackupsViejos(token, carpeta){
+  try {
+    const q = encodeURIComponent(`'${carpeta}' in parents and trashed=false`);
+    const r = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&fields=files(id,name,createdTime)&pageSize=100`,
+      { headers:{ Authorization:'Bearer '+token } });
+    const d = await r.json();
+    const files = (d.files||[]);
+    if (files.length <= GD_CONSERVAR) return;
+    for (const f of files.slice(GD_CONSERVAR)) {
+      await fetch('https://www.googleapis.com/drive/v3/files/'+f.id, { method:'DELETE', headers:{ Authorization:'Bearer '+token } });
+      console.log('🗑️ Backup antiguo eliminado de Drive: ' + f.name);
+    }
+  } catch(e) { console.error('Limpieza de backups:', e.message); }
+}
+
+// Domingo a las 4 AM hora Ecuador
+setInterval(() => {
+  const h = nowEC();
+  if (h.getDay() === 0 && h.getHours() === 4) {
+    const hoyK = h.toISOString().substring(0,10);
+    if (BACKUP_ESTADO.ultimo && BACKUP_ESTADO.ultimo.substring(0,10) === hoyK) return;
+    subirBackupADrive().catch(e => console.error(e));
+  }
+}, 60 * 60 * 1000);
+
 async function generarBackupCompleto() {
   const backup = { generado_en: new Date().toISOString(), version: 2, tablas: {} };
   // Lista DINÁMICA: todas las tablas públicas de la BD — así el backup nunca se
@@ -7724,6 +7843,26 @@ const server = http.createServer(async (req, res) => {
   }
 
   // DESCARGAR BACKUP DIRECTO (sin correo, ya que Railway bloquea SMTP en este plan)
+  // Estado y disparo manual del backup a Drive
+  if (urlPath === '/api/backup/drive' && req.method === 'GET') {
+    if (bloquearSiNoAdmin(req, res)) return;
+    res.writeHead(200,{'Content-Type':'application/json'});
+    res.end(JSON.stringify({ ok:true, configurado: driveConfigurado(), carpeta: GD_CARPETA, conservar: GD_CONSERVAR, ...BACKUP_ESTADO }));
+    return;
+  }
+  if (urlPath === '/api/backup/drive' && req.method === 'POST') {
+    if (bloquearSiNoAdmin(req, res)) return;
+    if (!driveConfigurado()) {
+      res.writeHead(400,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:false, error:'Faltan GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET o GOOGLE_REFRESH_TOKEN en las variables de Railway' }));
+      return;
+    }
+    const r = await subirBackupADrive();
+    res.writeHead(r.error?500:200,{'Content-Type':'application/json'});
+    res.end(JSON.stringify({ ok: !r.error, ...r }));
+    return;
+  }
+
   if (urlPath === '/api/backup/descargar' && req.method === 'GET') {
     try {
       const backup = await generarBackupCompleto();
