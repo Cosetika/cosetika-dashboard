@@ -942,8 +942,16 @@ function pintarListaNsos(filtro){
         ${items.map(n=>{
           const nsoSeguro = String(n.nso||'').replace(/[^A-Za-z0-9\-]/g,'');
           return `
-          <div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:0.5px solid var(--border)">
-            <span style="flex:1;font-size:12px;min-width:0">${String(n.nombre||'').replace(/</g,'&lt;')}</span>
+          <div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:0.5px solid var(--border);flex-wrap:wrap">
+            <span style="flex:1;font-size:12px;min-width:140px">${String(n.nombre||'').replace(/</g,'&lt;')}</span>
+            <input type="text" value="${String(n.etiqueta||'').replace(/"/g,'&quot;')}" placeholder="Etiqueta / comentario"
+              onchange="guardarEtiquetaNso(${n.id}, this)"
+              style="flex:1;min-width:130px;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;outline:none;background:#fdfcfb"
+              onfocus="this.style.borderColor='var(--brown)';this.style.background='white'" onblur="this.style.borderColor='var(--border)'">
+            <input type="file" id="etq-${n.id}" accept="application/pdf" style="display:none" onchange="subirEtiquetaPdf(${n.id}, this)">
+            ${n.tiene_etiqueta_pdf
+              ? `<button onclick="window.open('/api/nsos/${n.id}/etiqueta-pdf','_blank')" title="Ver la etiqueta en PDF · doble clic para reemplazarla" ondblclick="document.getElementById('etq-${n.id}').click()" style="width:26px;height:26px;border:1px solid #93c5fd;background:#eff6ff;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-tag" style="font-size:13px;color:#2563eb"></i></button>`
+              : `<button onclick="document.getElementById('etq-${n.id}').click()" title="Subir la etiqueta en PDF" style="width:26px;height:26px;border:1px dashed var(--border);background:white;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-tag" style="font-size:12px;color:var(--muted)"></i></button>`}
             ${n.tiene_certificado
               ? `<button onclick="verCertificadoNso(${n.id})" title="Ver el certificado en PDF" style="width:26px;height:26px;border:1px solid #fca5a5;background:#fef2f2;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-file-type-pdf" style="font-size:13px;color:#dc2626"></i></button>`
               : `<span title="Sin certificado cargado" style="width:26px;height:26px;border:1px dashed var(--border);border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0;opacity:0.45"><i class="ti ti-file-off" style="font-size:12px;color:var(--muted)"></i></span>`}
@@ -956,6 +964,45 @@ function pintarListaNsos(filtro){
 }
 
 function filtrarNsos(q){ pintarListaNsos(q); }
+
+async function guardarEtiquetaNso(id, input){
+  const original = input.style.borderColor;
+  try{
+    const r = await fetch('/api/nsos/'+id+'/etiqueta', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ etiqueta: input.value })
+    });
+    const d = await r.json();
+    if(!d.ok) throw new Error(d.error||'error');
+    const fila = (window._nsosData||[]).find(x=>x.id===id);
+    if(fila) fila.etiqueta = input.value;
+    input.style.borderColor = '#16a34a';
+    setTimeout(()=>{ input.style.borderColor = original || 'var(--border)'; }, 900);
+  }catch(e){
+    input.style.borderColor = '#dc2626';
+    alert('No se pudo guardar la etiqueta: '+e.message);
+  }
+}
+
+async function subirEtiquetaPdf(id, input){
+  const f = input.files && input.files[0];
+  if(!f) return;
+  const st = document.getElementById('nsos-status');
+  if(st) st.innerHTML = '<i class="ti ti-loader-2" style="animation:spin 1s linear infinite;margin-right:5px"></i>Subiendo etiqueta…';
+  try{
+    const fd = new FormData(); fd.append('file', f);
+    const r = await fetch('/api/nsos/'+id+'/etiqueta-pdf', { method:'POST', body: fd });
+    const d = await r.json();
+    if(!d.ok) throw new Error(d.error||'error');
+    if(st) st.innerHTML = '<span style="color:#16a34a;font-weight:600">✓ Etiqueta cargada</span>';
+    const fila = (window._nsosData||[]).find(x=>x.id===id);
+    if(fila) fila.tiene_etiqueta_pdf = true;
+    pintarListaNsos(document.getElementById('nsos-buscar')?.value||'');
+  }catch(e){
+    if(st) st.innerHTML = '<span style="color:#dc2626">No se pudo subir la etiqueta: '+String(e.message).replace(/</g,'&lt;')+'</span>';
+  }
+  input.value = '';
+}
 
 function verCertificadoNso(id){
   window.open('/api/nsos/'+id+'/certificado', '_blank');

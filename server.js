@@ -3025,6 +3025,11 @@ async function initDB() {
         nso VARCHAR(100),
         created_at TIMESTAMP DEFAULT NOW()
       );
+      ALTER TABLE nsos ADD COLUMN IF NOT EXISTS etiqueta TEXT;
+      ALTER TABLE nsos ADD COLUMN IF NOT EXISTS etiqueta_pdf BYTEA;
+      ALTER TABLE nsos ADD COLUMN IF NOT EXISTS etq_nombre VARCHAR(400);
+      ALTER TABLE nsos ADD COLUMN IF NOT EXISTS etq_bytes INTEGER;
+      ALTER TABLE nsos ADD COLUMN IF NOT EXISTS etq_subido_at TIMESTAMP;
       ALTER TABLE nsos ADD COLUMN IF NOT EXISTS certificado BYTEA;
       ALTER TABLE nsos ADD COLUMN IF NOT EXISTS cert_nombre VARCHAR(400);
       ALTER TABLE nsos ADD COLUMN IF NOT EXISTS cert_bytes INTEGER;
@@ -6320,12 +6325,67 @@ const server = http.createServer(async (req, res) => {
   // GET /api/nsos → lista completa
   if (urlPath === '/api/nsos' && req.method === 'GET') {
     try {
-      const r = await pool.query(`SELECT id, marca, nombre, nso, cert_nombre, cert_bytes,
-        (certificado IS NOT NULL) AS tiene_certificado FROM nsos ORDER BY marca, nombre`);
+      const r = await pool.query(`SELECT id, marca, nombre, nso, cert_nombre, cert_bytes, etiqueta,
+        (certificado IS NOT NULL) AS tiene_certificado,
+        (etiqueta_pdf IS NOT NULL) AS tiene_etiqueta_pdf, etq_nombre, etq_bytes
+        FROM nsos ORDER BY marca, nombre`);
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.rows));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
     return;
   }
+  // ─── ETIQUETA: comentario y PDF por producto ──────────────────────────────────
+  // La etiqueta es otro documento distinto del certificado de NSO, así que vive aparte.
+  if (/^\/api\/nsos\/\d+\/etiqueta$/.test(urlPath) && req.method === 'POST') {
+    try {
+      const id = parseInt(urlPath.split('/')[3]);
+      const b = await bodyJSON(req);
+      await pool.query('UPDATE nsos SET etiqueta=$1 WHERE id=$2', [String(b.etiqueta||'').substring(0,2000), id]);
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
+  if (/^\/api\/nsos\/\d+\/etiqueta-pdf$/.test(urlPath) && req.method === 'POST') {
+    try {
+      const id = parseInt(urlPath.split('/')[3]);
+      const buf = await bodyBuffer(req);
+      const archivo = parseMultipartFile(buf, req.headers['content-type']);
+      if (!archivo) throw new Error('No se encontró el archivo (campo "file")');
+      const cab = archivo.buffer.slice(0, 1024).toString('latin1');
+      if (!cab.includes('%PDF') && !/\.pdf$/i.test(archivo.filename||'')) throw new Error('El archivo no parece un PDF');
+      await pool.query('UPDATE nsos SET etiqueta_pdf=$1, etq_nombre=$2, etq_bytes=$3, etq_subido_at=NOW() WHERE id=$4',
+        [archivo.buffer, String(archivo.filename||'etiqueta.pdf').substring(0,390), archivo.buffer.length, id]);
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, bytes: archivo.buffer.length}));
+    } catch(e) { res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
+  if (/^\/api\/nsos\/\d+\/etiqueta-pdf$/.test(urlPath) && req.method === 'GET') {
+    try {
+      const id = parseInt(urlPath.split('/')[3]);
+      const r = await pool.query('SELECT etiqueta_pdf, etq_nombre, nombre FROM nsos WHERE id=$1', [id]);
+      const f = r.rows[0];
+      if (!f || !f.etiqueta_pdf) { res.writeHead(404,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:'Sin etiqueta'})); return; }
+      res.writeHead(200, {
+        'Content-Type':'application/pdf',
+        'Content-Disposition': (urlObj.searchParams.get('descargar') ? 'attachment' : 'inline') +
+          '; filename="' + String(f.etq_nombre || ('etiqueta - ' + (f.nombre||'') + '.pdf')).replace(/"/g,'') + '"',
+        'Content-Length': f.etiqueta_pdf.length
+      });
+      res.end(f.etiqueta_pdf);
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+
+  if (/^\/api\/nsos\/\d+\/etiqueta-pdf$/.test(urlPath) && req.method === 'DELETE') {
+    try {
+      const id = parseInt(urlPath.split('/')[3]);
+      await pool.query('UPDATE nsos SET etiqueta_pdf=NULL, etq_nombre=NULL, etq_bytes=NULL, etq_subido_at=NULL WHERE id=$1', [id]);
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+
   // ─── CERTIFICADOS DE NSO EN PDF ───────────────────────────────────────────────
   // Del nombre del archivo se deducen el producto y el código de NSO. El formato que usa
   // Cosétika es "NOMBRE DEL PRODUCTO - NSOC12345-26EC.pdf", pero también se acepta el
@@ -6517,7 +6577,9 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'No se encontraron registros en el Excel'})); return;
       }
       // Conservar los certificados ya cargados: se vuelven a asociar por código de NSO
-      const certs = await pool.query('SELECT nso, certificado, cert_nombre, cert_bytes, cert_subido_at FROM nsos WHERE certificado IS NOT NULL');
+      const certs = await pool.query(`SELECT nso, certificado, cert_nombre, cert_bytes, cert_subido_at,
+        etiqueta, etiqueta_pdf, etq_nombre, etq_bytes, etq_subido_at
+        FROM nsos WHERE certificado IS NOT NULL OR etiqueta_pdf IS NOT NULL OR (etiqueta IS NOT NULL AND etiqueta <> '')`);
       await pool.query('TRUNCATE TABLE nsos RESTART IDENTITY');
       const LOTE = 200;
       for (let i = 0; i < registros.length; i += LOTE) {
@@ -6536,8 +6598,12 @@ const server = http.createServer(async (req, res) => {
       for (const c of certs.rows) {
         if (!c.nso) continue;
         const up = await pool.query(
-          "UPDATE nsos SET certificado=$1, cert_nombre=$2, cert_bytes=$3, cert_subido_at=$4 WHERE UPPER(REPLACE(nso,' ','')) = $5",
-          [c.certificado, c.cert_nombre, c.cert_bytes, c.cert_subido_at, String(c.nso).replace(/\s/g,'').toUpperCase()]
+          `UPDATE nsos SET certificado=$1, cert_nombre=$2, cert_bytes=$3, cert_subido_at=$4,
+             etiqueta=$5, etiqueta_pdf=$6, etq_nombre=$7, etq_bytes=$8, etq_subido_at=$9
+           WHERE UPPER(REPLACE(nso,' ','')) = $10`,
+          [c.certificado, c.cert_nombre, c.cert_bytes, c.cert_subido_at,
+           c.etiqueta, c.etiqueta_pdf, c.etq_nombre, c.etq_bytes, c.etq_subido_at,
+           String(c.nso).replace(/\s/g,'').toUpperCase()]
         );
         recuperados += up.rowCount;
       }
