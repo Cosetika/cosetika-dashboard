@@ -5446,7 +5446,7 @@ async function abrirEnvioCorreos(fecha){
         <input type="email" value="${esc(e.email||'')}" placeholder="correo@ejemplo.com"
           onchange="window._envCorreos.envios[${i}].email=this.value.trim();window._envCorreos.envios[${i}].marcado=!!this.value.trim()"
           style="width:100%;min-width:190px;font-size:11px;padding:5px 8px;border:1px solid ${e.email?'var(--border)':'#fcd34d'};border-radius:6px;outline:none">
-        ${e.fuente?`<div style="font-size:9px;color:var(--muted);margin-top:2px">de ${esc(e.fuente)}${e.coincide && e.coincide!==e.destinatario?' · '+esc(e.coincide):''}</div>`:''}
+        ${e.fuente?`<div style="font-size:9px;color:var(--muted);margin-top:2px">de ${esc(e.fuente)}${e.coincide && e.coincide!==e.destinatario?' · <b>'+esc(e.coincide)+'</b>':''}${e.cedula?' · '+esc(e.cedula):''}</div>`:''}
       </td>
       <td style="padding:7px 9px;text-align:center;font-size:10px;white-space:nowrap">
         ${e.ya_enviado?`<span style="color:#16a34a;font-weight:700">✓ enviado</span>`:(e.email?'<span style="color:var(--muted)">listo</span>':'<span style="color:#d97706;font-weight:600">falta correo</span>')}

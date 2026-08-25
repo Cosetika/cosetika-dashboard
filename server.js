@@ -3814,33 +3814,77 @@ const server = http.createServer(async (req, res) => {
   const normNom = x => String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
     .toUpperCase().replace(/[^A-Z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
 
+  // Busca el correo de la persona a la que va la guía.
+  //
+  // El manifiesto de Servientrega NO trae cédula, solo el nombre del destinatario — y lo
+  // escribe completo y en otro orden del que usa la clienta al comprar ("APELLIDO APELLIDO
+  // NOMBRE" contra "Nombre Apellido"). Por eso la coincidencia exacta fallaba en la mitad
+  // de los casos.
+  //
+  // Estrategia: comparar por PALABRAS. Se prioriza los pedidos web recientes, donde hay
+  // pocos candidatos (los de las últimas semanas) y por tanto dos apellidos coincidentes
+  // ya son prueba suficiente. Después el directorio completo de Contifico, donde al haber
+  // miles de registros se exige más coincidencia para no equivocarse de persona.
+  const _normN = x => String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .toUpperCase().replace(/[^A-Z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
+  const _tokens = x => _normN(x).split(' ').filter(t => t.length >= 3);
+
+  let _cacheCand = null, _cacheCandTs = 0;
+  async function candidatosCorreo(){
+    if (_cacheCand && (Date.now() - _cacheCandTs) < 60000) return _cacheCand;
+    const rp = await pool.query(
+      `SELECT cliente_nombre AS nombre, email, cedula_ruc FROM pedidos_web
+       WHERE email IS NOT NULL AND email <> '' AND fecha >= (CURRENT_DATE - 30)
+       ORDER BY id DESC`);
+    const rc = await pool.query(
+      `SELECT razon_social AS nombre, email, COALESCE(cedula, ruc) AS cedula_ruc FROM personas
+       WHERE email IS NOT NULL AND email <> ''`);
+    _cacheCand = {
+      pedidos: rp.rows.map(x => ({ ...x, toks: _tokens(x.nombre) })),
+      personas: rc.rows.map(x => ({ ...x, toks: _tokens(x.nombre) }))
+    };
+    _cacheCandTs = Date.now();
+    return _cacheCand;
+  }
+
+  function _mejorPorTokens(lista, toks, minCoincidencias){
+    if (!toks.length) return null;
+    let mejor = null, mejorPuntaje = 0, empatados = 0;
+    for (const c of lista) {
+      if (!c.toks.length) continue;
+      let p = 0;
+      for (const t of toks) if (c.toks.includes(t)) p++;
+      if (p > mejorPuntaje) { mejorPuntaje = p; mejor = c; empatados = 1; }
+      else if (p === mejorPuntaje && p > 0) empatados++;
+    }
+    // Si dos personas distintas empatan con el mismo puntaje, no se arriesga: mejor pedir
+    // el correo a mano que mandarle la guía a quien no es.
+    if (!mejor || mejorPuntaje < minCoincidencias || empatados > 1) return null;
+    return { registro: mejor, puntaje: mejorPuntaje };
+  }
+
   async function buscarCorreoDe(destinatario, razonSocial){
-    const candidatos = [destinatario, razonSocial].filter(Boolean);
-    for (const nom of candidatos) {
-      const n = normNom(nom);
-      if (!n) continue;
-      // 1) Directorio de Contifico, por nombre completo
-      const r1 = await pool.query(
-        `SELECT email, razon_social FROM personas
-         WHERE email IS NOT NULL AND email <> ''
-           AND UPPER(TRANSLATE(razon_social,'ÁÉÍÓÚÜÑáéíóúüñ','AEIOUUNAEIOUUN')) = $1 LIMIT 1`, [n]);
-      if (r1.rows.length) return { email: r1.rows[0].email, fuente: 'Contifico', coincide: r1.rows[0].razon_social };
-      // 2) Pedidos web (el correo que la clienta escribió al comprar)
-      const r2 = await pool.query(
-        `SELECT email, cliente_nombre FROM pedidos_web
-         WHERE email IS NOT NULL AND email <> ''
-           AND UPPER(TRANSLATE(cliente_nombre,'ÁÉÍÓÚÜÑáéíóúüñ','AEIOUUNAEIOUUN')) = $1
-         ORDER BY id DESC LIMIT 1`, [n]);
-      if (r2.rows.length) return { email: r2.rows[0].email, fuente: 'Pedido web', coincide: r2.rows[0].cliente_nombre };
-      // 3) Nombre + primer apellido, para diferencias de escritura
-      const corto = n.split(' ').slice(0,2).join(' ');
-      if (corto.length > 5) {
-        const r3 = await pool.query(
-          `SELECT email, razon_social FROM personas
-           WHERE email IS NOT NULL AND email <> ''
-             AND UPPER(TRANSLATE(razon_social,'ÁÉÍÓÚÜÑáéíóúüñ','AEIOUUNAEIOUUN')) LIKE $1 LIMIT 2`, [corto+'%']);
-        if (r3.rows.length === 1) return { email: r3.rows[0].email, fuente: 'Contifico (parcial)', coincide: r3.rows[0].razon_social };
-      }
+    const cand = await candidatosCorreo();
+    const nombres = [destinatario, razonSocial].filter(Boolean);
+    for (const nom of nombres) {
+      const toks = _tokens(nom);
+      if (!toks.length) continue;
+
+      // 1) Pedidos web recientes: pocos candidatos, basta con 2 palabras coincidentes
+      const h1 = _mejorPorTokens(cand.pedidos, toks, 2);
+      if (h1) return { email: h1.registro.email, fuente: 'Pedido web',
+        coincide: h1.registro.nombre, cedula: h1.registro.cedula_ruc || null };
+
+      // 2) Directorio de Contifico: exacto primero
+      const nEx = _normN(nom);
+      const ex = cand.personas.find(p => _normN(p.nombre) === nEx);
+      if (ex) return { email: ex.email, fuente: 'Contifico', coincide: ex.nombre, cedula: ex.cedula_ruc || null };
+
+      // 3) Directorio de Contifico por palabras: al ser miles, se exige más evidencia
+      const minC = toks.length >= 4 ? 3 : 2;
+      const h3 = _mejorPorTokens(cand.personas, toks, minC);
+      if (h3) return { email: h3.registro.email, fuente: 'Contifico (por nombre)',
+        coincide: h3.registro.nombre, cedula: h3.registro.cedula_ruc || null };
     }
     return null;
   }
@@ -3857,12 +3901,13 @@ const server = http.createServer(async (req, res) => {
       const lista = [];
       for (const e of r.rows) {
         let email = e.email_destino || null, fuente = e.email_destino ? 'guardado' : null, coincide = null;
+        let cedula = null;
         if (!email) {
           const hit = await buscarCorreoDe(e.destinatario, e.razon_social);
-          if (hit) { email = hit.email; fuente = hit.fuente; coincide = hit.coincide; }
+          if (hit) { email = hit.email; fuente = hit.fuente; coincide = hit.coincide; cedula = hit.cedula; }
         }
         lista.push({ guia: e.guia, destinatario: e.destinatario, razon_social: e.razon_social,
-          ciudad: e.ciudad, email, fuente, coincide, ya_enviado: !!e.email_enviado_at,
+          ciudad: e.ciudad, email, fuente, coincide, cedula, ya_enviado: !!e.email_enviado_at,
           enviado_at: e.email_enviado_at });
       }
       res.writeHead(200,{'Content-Type':'application/json'});
