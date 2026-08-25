@@ -410,34 +410,61 @@ function resolverInventarioContraCatalogo(filasProducto) {
   return { productos, sinMatch };
 }
 
-// Rotación mensual: promedio de los últimos 3 meses cerrados antes de la fecha de corte.
-// "Cerrado" = mes completo, no el mes actual si está en curso.
-function calcularRotacionMensual(fechaCorte) {
+// Rotación mensual promedio.
+//
+// Por defecto usa los últimos meses CERRADOS, pero puede incluir el mes en curso
+// proyectado a mes completo (regla de tres sobre los días transcurridos). Esto último
+// hace falta para decidir promociones a mitad de mes: sin ello, a fines de agosto la
+// rotación seguía mirando mayo, junio y julio, ignorando por completo lo que estaba
+// pasando ahora — justo lo que cambia cuando se ajustan precios o entra una línea nueva.
+//
+// La proyección solo se aplica después del día 8: antes, dos o tres días de ventas
+// multiplicados por diez producen cifras disparatadas.
+function calcularRotacionMensual(fechaCorte, opciones) {
+  opciones = opciones || {};
+  const nMeses = [2,3,4,6].includes(parseInt(opciones.meses)) ? parseInt(opciones.meses) : 3;
+  const incluirActual = !!opciones.incluirMesActual;
   const [anioCorte, mesCorte] = fechaCorte.split('-').map(Number);
 
-  // Construir los 3 meses cerrados anteriores al mes de corte
-  const meses3 = [];
+  const hoyEcR = nowEC();
+  const esMesEnCursoElCorte = (hoyEcR.getFullYear() === anioCorte && (hoyEcR.getMonth()+1) === mesCorte);
+  const diaHoy = hoyEcR.getDate();
+  const diasDelMes = new Date(anioCorte, mesCorte, 0).getDate();
+  // Factor de la regla de tres: cuánto representaría el mes completo al ritmo actual
+  const factorProyeccion = (diaHoy >= 8 ? diasDelMes / diaHoy : null);
+  const usarActual = incluirActual && esMesEnCursoElCorte && factorProyeccion !== null;
+
+  // Meses cerrados anteriores. Si se incluye el mes en curso, ocupa uno de los espacios.
+  const cerrados = [];
   let a = anioCorte, m = mesCorte;
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < (usarActual ? nMeses - 1 : nMeses); i++) {
     m -= 1;
     if (m === 0) { m = 12; a -= 1; }
-    meses3.push({ anio: a, mes: m });
+    cerrados.push({ anio: a, mes: m });
   }
 
   const acumulado = {};
   Object.values(DATA_CACHE||{}).forEach(clientes => {
     (clientes||[]).forEach(cli => {
       (cli.productos_mes||[]).forEach(pm => {
-        if (!meses3.some(x => x.anio===pm.anio && x.mes===pm.mes)) return;
         const key = pm.id || pm.nombre;
-        acumulado[key] = (acumulado[key]||0) + (pm.cantidad||0);
+        if (cerrados.some(x => x.anio===pm.anio && x.mes===pm.mes)) {
+          acumulado[key] = (acumulado[key]||0) + (pm.cantidad||0);
+        } else if (usarActual && pm.anio===anioCorte && pm.mes===mesCorte) {
+          acumulado[key] = (acumulado[key]||0) + (pm.cantidad||0) * factorProyeccion;
+        }
       });
     });
   });
 
+  const divisor = usarActual ? nMeses : cerrados.length;
   const rotacion = {};
-  Object.entries(acumulado).forEach(([id, total]) => { rotacion[id] = total / 3; });
-  console.log(`Rotación: últimos 3 meses cerrados (${meses3.map(x=>x.mes+'/'+x.anio).join(', ')})`);
+  Object.entries(acumulado).forEach(([id, total]) => { rotacion[id] = total / divisor; });
+  console.log(`Rotación: ${cerrados.map(x=>x.mes+'/'+x.anio).join(', ')}`
+    + (usarActual ? ` + ${mesCorte}/${anioCorte} proyectado (día ${diaHoy} de ${diasDelMes}, ×${factorProyeccion.toFixed(2)})` : '')
+    + ` · promedio de ${divisor}`);
+  rotacion.__meta = { meses: divisor, incluye_mes_actual: usarActual,
+    factor: usarActual ? Math.round(factorProyeccion*100)/100 : null, dia: diaHoy, dias_mes: diasDelMes };
   return rotacion;
 }
 
@@ -6954,8 +6981,13 @@ const server = http.createServer(async (req, res) => {
       // Rotación mensual (misma que Proyección)
       let rotacion = {};
       try {
-        const fc = (INVENTARIO_CACHE && INVENTARIO_CACHE.fecha_corte) || new Date().toLocaleDateString('en-CA',{timeZone:'America/Guayaquil'});
-        rotacion = calcularRotacionMensual(fc);
+        // Para caducidades el corte relevante es HOY, no la fecha del Excel de inventario:
+        // se está decidiendo qué promocionar ahora.
+        const fc = new Date().toLocaleDateString('en-CA',{timeZone:'America/Guayaquil'});
+        rotacion = calcularRotacionMensual(fc, {
+          meses: parseInt(urlObj.searchParams.get('meses')) || 3,
+          incluirMesActual: urlObj.searchParams.get('proyectar') === '1'
+        });
       } catch(e) {}
       const hoyMs = new Date(new Date().toLocaleDateString('en-CA',{timeZone:'America/Guayaquil'}) + 'T12:00:00').getTime();
       // Agrupar lotes por producto
@@ -7026,7 +7058,7 @@ const server = http.createServer(async (req, res) => {
         };
       }).sort((a,b) => String(a.nombre||'').localeCompare(String(b.nombre||'')));
       res.writeHead(200,{'Content-Type':'application/json'});
-      res.end(JSON.stringify({ productos }));
+      res.end(JSON.stringify({ productos, rotacion_meta: rotacion.__meta || null }));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
     return;
   }
