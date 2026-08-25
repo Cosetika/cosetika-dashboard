@@ -486,18 +486,29 @@ function calcularSemaforo(marca, coberturaMeses) {
 // Construye la lista completa de inventario por marca: todos los productos del catálogo
 // de esa marca, con su inventario actual (0 si no está en el Excel cargado), rotación
 // mensual, cobertura en meses, y semáforo.
-function construirInventarioPorMarca(marcaFiltro) {
+function construirInventarioPorMarca(marcaFiltro, opciones) {
   if (!INVENTARIO_CACHE) return { fecha_corte: null, productos: [] };
-  const rotacion = calcularRotacionMensual(INVENTARIO_CACHE.fecha_corte);
+  opciones = opciones || {};
+  // La rotación se mide contra HOY cuando se pide incluir el mes en curso: el Excel de
+  // inventario puede tener una fecha de corte anterior y no debe fijar el calendario.
+  const refFecha = opciones.incluirMesActual
+    ? new Date().toLocaleDateString('en-CA',{timeZone:'America/Guayaquil'})
+    : INVENTARIO_CACHE.fecha_corte;
+  const rotacion = calcularRotacionMensual(refFecha, opciones);
+  const meta = rotacion.__meta || {};
 
-  // Calcular los 3 meses cerrados para mostrar ventas individuales
-  const [anioCorte, mesCorte] = INVENTARIO_CACHE.fecha_corte.split('-').map(Number);
+  // Meses que se muestran como columnas de ventas: los cerrados del cálculo, y si se
+  // incluye el mes en curso, ese va al final marcado como proyectado.
+  const [anioCorte, mesCorte] = refFecha.split('-').map(Number);
+  const nCols = meta.meses || 3;
   const meses3 = [];
   let a = anioCorte, m = mesCorte;
-  for(let i = 0; i < 3; i++){
+  const cerradosAMostrar = meta.incluye_mes_actual ? nCols - 1 : nCols;
+  for(let i = 0; i < cerradosAMostrar; i++){
     m -= 1; if(m === 0){ m = 12; a -= 1; }
     meses3.unshift({ anio: a, mes: m }); // orden cronológico
   }
+  if (meta.incluye_mes_actual) meses3.push({ anio: anioCorte, mes: mesCorte, enCurso: true });
 
   // Acumular ventas por producto por mes
   const ventasMes = {}; // { prodId: { 'anio-mes': cantidad } }
@@ -531,7 +542,8 @@ function construirInventarioPorMarca(marcaFiltro) {
     // Ventas de cada uno de los 3 meses cerrados
     const vm = ventasMes[id] || {};
     const ventas3 = meses3.map(x => ({
-      label: MESES_LABEL[x.mes],
+      label: MESES_LABEL[x.mes] + (x.enCurso ? '*' : ''),
+      en_curso: !!x.enCurso,
       cantidad: Math.round(vm[`${x.anio}-${x.mes}`] || 0)
     }));
 
@@ -549,7 +561,9 @@ function construirInventarioPorMarca(marcaFiltro) {
     };
   }).sort((a,b) => a.cobertura_meses - b.cobertura_meses);
 
-  return { fecha_corte: INVENTARIO_CACHE.fecha_corte, productos: lista, meses3labels: meses3.map(x=>MESES_LABEL[x.mes]) };
+  return { fecha_corte: INVENTARIO_CACHE.fecha_corte, productos: lista,
+    meses3labels: meses3.map(x=>MESES_LABEL[x.mes] + (x.enCurso ? '*' : '')),
+    rotacion_meta: meta };
 }
 
 async function sincronizarHoy() {
@@ -8270,7 +8284,10 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ ok:false, error: 'Falta el parámetro marca' }));
         return;
       }
-      const resultado = construirInventarioPorMarca(marca);
+      const resultado = construirInventarioPorMarca(marca, {
+        meses: parseInt(urlObj.searchParams.get('meses')) || 3,
+        incluirMesActual: urlObj.searchParams.get('proyectar') === '1'
+      });
       res.writeHead(200, {'Content-Type':'application/json'});
       res.end(JSON.stringify({ ok:true, marca, ...resultado }));
     } catch(e) {

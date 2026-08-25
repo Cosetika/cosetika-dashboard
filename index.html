@@ -2613,7 +2613,18 @@ async function renderInventario(){
             ${m}
           </button>`).join('')}
       </div>
-      <div style="display:flex;align-items:center;gap:10px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);white-space:nowrap">Rotación:
+          <select onchange="window._invMeses=parseInt(this.value);renderInventario('${marca}')" style="padding:6px 9px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:white;cursor:pointer">
+            <option value="2" ${window._invMeses===2?'selected':''}>últimos 2 meses</option>
+            <option value="3" ${(window._invMeses===undefined||window._invMeses===3)?'selected':''}>últimos 3 meses</option>
+            <option value="6" ${window._invMeses===6?'selected':''}>últimos 6 meses</option>
+          </select>
+        </label>
+        <label title="Incluye lo vendido en el mes en curso, proyectado a mes completo con regla de tres" style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);cursor:pointer;white-space:nowrap">
+          <input type="checkbox" ${window._invProyectar?'checked':''} onchange="window._invProyectar=this.checked;renderInventario('${marca}')" style="cursor:pointer">
+          Incluir mes en curso
+        </label>
         <span id="inv-upload-status" style="font-size:12px;color:var(--muted)"></span>
         <button id="inv-actualizar-btn" onclick="actualizarProyeccionAhora()" style="padding:7px 14px;font-size:12px;border-radius:8px;border:none;background:var(--brown);color:white;cursor:pointer;display:flex;align-items:center;gap:6px;font-weight:500">
           <i class="ti ti-refresh" style="font-size:14px"></i> Actualizar
@@ -2626,7 +2637,9 @@ async function renderInventario(){
   `;
 
   try{
-    const r = await fetch(`/api/inventario?marca=${encodeURIComponent(marca)}`);
+    if(window._invMeses === undefined) window._invMeses = 3;
+    if(window._invProyectar === undefined) window._invProyectar = false;
+    const r = await fetch(`/api/inventario?marca=${encodeURIComponent(marca)}&meses=${window._invMeses}&proyectar=${window._invProyectar?'1':'0'}`);
     const data = await r.json();
     renderInventarioContenido(data, marca);
   }catch(e){
@@ -2637,6 +2650,16 @@ async function renderInventario(){
 function renderInventarioContenido(data, marca){
   const cont = document.getElementById('inventario-contenido');
   if(!cont) return;
+  const leyendaRot = (function(){
+    const m = data.rotacion_meta;
+    if(!m) return '';
+    return '<div style="font-size:11px;color:var(--muted);margin-bottom:10px;background:#faf9f8;border:1px solid var(--border);border-radius:8px;padding:8px 12px">'
+      + '<i class="ti ti-calculator" style="margin-right:5px"></i>Rotación = promedio de <b>'+m.meses+' meses</b>'
+      + (m.incluye_mes_actual
+          ? '. El mes en curso entra proyectado: lo vendido hasta el día '+m.dia+' × '+m.dias_mes+'/'+m.dia+' = mes completo estimado (factor ×'+m.factor+'). La columna marcada con * es ese mes.'
+          : ', solo meses cerrados. Lo vendido este mes todavía no cuenta.')
+      + '</div>';
+  })();
 
   if(!data.ok || !data.fecha_corte){
     cont.innerHTML = `
@@ -2670,6 +2693,7 @@ function renderInventarioContenido(data, marca){
     <div style="display:flex;align-items:center;justify-content:flex-end;margin-bottom:10px">
       <span style="font-size:12px;color:var(--muted)"><i class="ti ti-calendar" style="font-size:13px;vertical-align:-2px;margin-right:4px"></i>Corte: ${fechaCorteFmt}</span>
     </div>
+    ${leyendaRot}
 
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px">
       <div style="background:#f7f5f1;border-radius:10px;padding:14px">
