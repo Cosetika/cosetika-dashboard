@@ -628,6 +628,42 @@ async function sincronizarHoy() {
   cache.sincronizando = false;
 }
 
+// Correo que recibe la clienta con su número de guía.
+function plantillaCorreoGuia(nombre, guia, ciudad){
+  const esc = v => String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return `<!DOCTYPE html><html lang="es"><body style="margin:0;padding:0;background:#f6f3ef;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f6f3ef;padding:28px 12px">
+    <tr><td align="center">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:14px;overflow:hidden;box-shadow:0 2px 14px rgba(0,0,0,0.06)">
+        <tr><td style="background:#1a1108;padding:22px 26px;text-align:center">
+          <div style="color:#ffffff;font-size:22px;font-weight:800;letter-spacing:6px">COSÉTIKA</div>
+        </td></tr>
+        <tr><td style="padding:28px 26px 8px">
+          <p style="margin:0 0 14px;font-size:16px;color:#2b2118">Hola ${esc(nombre)},</p>
+          <p style="margin:0 0 20px;font-size:14px;line-height:1.6;color:#5b5248">
+            Tu pedido ya salió de nuestra bodega y está en camino${ciudad ? ' hacia ' + esc(ciudad) : ''}.
+            Puedes seguirlo con este número de guía:
+          </p>
+          <div style="background:#faf7f4;border:1px solid #e7dccd;border-radius:11px;padding:18px;text-align:center;margin-bottom:20px">
+            <div style="font-size:10px;letter-spacing:2px;text-transform:uppercase;color:#8b8177;margin-bottom:6px">Número de guía · Servientrega</div>
+            <div style="font-size:26px;font-weight:800;color:#8a5a3b;letter-spacing:1px">${esc(guia)}</div>
+          </div>
+          <p style="margin:0 0 22px;font-size:14px;line-height:1.6;color:#5b5248">
+            Ingresa ese número en <a href="https://www.servientrega.com.ec/" style="color:#8a5a3b;font-weight:600">servientrega.com.ec</a> para ver dónde está tu envío.
+          </p>
+          <p style="margin:0 0 6px;font-size:14px;line-height:1.6;color:#5b5248">
+            Gracias por confiar en nosotros. Cualquier novedad con tu pedido, respóndenos este correo.
+          </p>
+        </td></tr>
+        <tr><td style="padding:18px 26px 26px;border-top:1px solid #f0eae3;text-align:center">
+          <div style="font-size:12px;color:#8b8177">Corporación Cosétika S.A.S.</div>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`;
+}
+
 // ─── CARTERA POR COBRAR (en vivo desde Contifico) ─────────────────────────────────
 // Suma el saldo pendiente de las facturas y separa lo vencido de lo que aún está en plazo,
 // usando los días de crédito de cada clienta. Se refresca dos veces al día.
@@ -2939,6 +2975,9 @@ async function initDB() {
         created_at TIMESTAMP DEFAULT NOW(),
         UNIQUE(guia, fecha)
       );
+      ALTER TABLE envios_servientrega ADD COLUMN IF NOT EXISTS email_destino VARCHAR(255);
+      ALTER TABLE envios_servientrega ADD COLUMN IF NOT EXISTS email_enviado_at TIMESTAMP;
+      ALTER TABLE envios_servientrega ADD COLUMN IF NOT EXISTS email_error TEXT;
       CREATE INDEX IF NOT EXISTS idx_envios_fecha ON envios_servientrega(fecha);
       CREATE INDEX IF NOT EXISTS idx_envios_destinatario ON envios_servientrega(LOWER(destinatario));
       CREATE INDEX IF NOT EXISTS idx_envios_razon_social ON envios_servientrega(LOWER(razon_social));
@@ -3764,6 +3803,122 @@ const server = http.createServer(async (req, res) => {
   }
 
   // ENVÍOS SERVIENTREGA — manifiestos diarios de guías
+  // ─── AVISO DE GUÍA POR CORREO ─────────────────────────────────────────────────
+  // Railway bloquea el SMTP saliente en este plan, así que el envío va por API HTTPS.
+  const MAIL_API_KEY = process.env.RESEND_API_KEY || '';
+  const MAIL_REMITENTE = process.env.EMAIL_REMITENTE || '';        // ej. envios@cosetika.com
+  const MAIL_NOMBRE = process.env.EMAIL_NOMBRE || 'Cosétika';
+  const MAIL_COPIA = process.env.EMAIL_COPIA || '';                 // opcional, copia interna
+  function correoConfigurado(){ return !!(MAIL_API_KEY && MAIL_REMITENTE); }
+
+  const normNom = x => String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .toUpperCase().replace(/[^A-Z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
+
+  async function buscarCorreoDe(destinatario, razonSocial){
+    const candidatos = [destinatario, razonSocial].filter(Boolean);
+    for (const nom of candidatos) {
+      const n = normNom(nom);
+      if (!n) continue;
+      // 1) Directorio de Contifico, por nombre completo
+      const r1 = await pool.query(
+        `SELECT email, razon_social FROM personas
+         WHERE email IS NOT NULL AND email <> ''
+           AND UPPER(TRANSLATE(razon_social,'ÁÉÍÓÚÜÑáéíóúüñ','AEIOUUNAEIOUUN')) = $1 LIMIT 1`, [n]);
+      if (r1.rows.length) return { email: r1.rows[0].email, fuente: 'Contifico', coincide: r1.rows[0].razon_social };
+      // 2) Pedidos web (el correo que la clienta escribió al comprar)
+      const r2 = await pool.query(
+        `SELECT email, cliente_nombre FROM pedidos_web
+         WHERE email IS NOT NULL AND email <> ''
+           AND UPPER(TRANSLATE(cliente_nombre,'ÁÉÍÓÚÜÑáéíóúüñ','AEIOUUNAEIOUUN')) = $1
+         ORDER BY id DESC LIMIT 1`, [n]);
+      if (r2.rows.length) return { email: r2.rows[0].email, fuente: 'Pedido web', coincide: r2.rows[0].cliente_nombre };
+      // 3) Nombre + primer apellido, para diferencias de escritura
+      const corto = n.split(' ').slice(0,2).join(' ');
+      if (corto.length > 5) {
+        const r3 = await pool.query(
+          `SELECT email, razon_social FROM personas
+           WHERE email IS NOT NULL AND email <> ''
+             AND UPPER(TRANSLATE(razon_social,'ÁÉÍÓÚÜÑáéíóúüñ','AEIOUUNAEIOUUN')) LIKE $1 LIMIT 2`, [corto+'%']);
+        if (r3.rows.length === 1) return { email: r3.rows[0].email, fuente: 'Contifico (parcial)', coincide: r3.rows[0].razon_social };
+      }
+    }
+    return null;
+  }
+
+  // Previsualización: qué se enviaría y a quién. NO envía nada.
+  if (urlPath === '/api/envios/preparar-correos' && req.method === 'GET') {
+    if (bloquearSiNoAdmin(req, res)) return;
+    try {
+      const fecha = urlObj.searchParams.get('fecha');
+      if (!fecha) throw new Error('Falta la fecha');
+      const r = await pool.query(
+        `SELECT guia, destinatario, razon_social, ciudad, email_destino, email_enviado_at
+         FROM envios_servientrega WHERE fecha=$1 ORDER BY id ASC`, [fecha]);
+      const lista = [];
+      for (const e of r.rows) {
+        let email = e.email_destino || null, fuente = e.email_destino ? 'guardado' : null, coincide = null;
+        if (!email) {
+          const hit = await buscarCorreoDe(e.destinatario, e.razon_social);
+          if (hit) { email = hit.email; fuente = hit.fuente; coincide = hit.coincide; }
+        }
+        lista.push({ guia: e.guia, destinatario: e.destinatario, razon_social: e.razon_social,
+          ciudad: e.ciudad, email, fuente, coincide, ya_enviado: !!e.email_enviado_at,
+          enviado_at: e.email_enviado_at });
+      }
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:true, configurado: correoConfigurado(), remitente: MAIL_REMITENTE, fecha, envios: lista }));
+    } catch(e) { res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
+  // Envío real. Recibe la lista ya revisada por la persona.
+  if (urlPath === '/api/envios/enviar-correos' && req.method === 'POST') {
+    if (bloquearSiNoAdmin(req, res)) return;
+    try {
+      if (!correoConfigurado()) throw new Error('Faltan RESEND_API_KEY o EMAIL_REMITENTE en las variables de Railway');
+      const { fecha, envios } = await bodyJSON(req);
+      if (!fecha || !Array.isArray(envios)) throw new Error('Faltan datos');
+      const resultados = [];
+      for (const e of envios) {
+        const email = String(e.email||'').trim();
+        if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+          resultados.push({ guia: e.guia, ok:false, error:'Correo inválido o vacío' });
+          continue;
+        }
+        const nombre = String(e.destinatario || e.razon_social || 'Hola').split(' ').slice(0,2).join(' ');
+        const html = plantillaCorreoGuia(nombre, e.guia, e.ciudad);
+        try {
+          const r = await fetch('https://api.resend.com/emails', {
+            method:'POST',
+            headers:{ Authorization: 'Bearer ' + MAIL_API_KEY, 'Content-Type':'application/json' },
+            body: JSON.stringify({
+              from: MAIL_NOMBRE + ' <' + MAIL_REMITENTE + '>',
+              to: [email],
+              ...(MAIL_COPIA ? { bcc: [MAIL_COPIA] } : {}),
+              subject: 'Tu pedido está en camino · Guía ' + e.guia,
+              html
+            })
+          });
+          const d = await r.json();
+          if (!r.ok) throw new Error(d.message || ('HTTP ' + r.status));
+          await pool.query(
+            'UPDATE envios_servientrega SET email_destino=$1, email_enviado_at=NOW(), email_error=NULL WHERE guia=$2 AND fecha=$3',
+            [email, e.guia, fecha]);
+          resultados.push({ guia: e.guia, ok:true, email });
+        } catch(err) {
+          await pool.query('UPDATE envios_servientrega SET email_destino=$1, email_error=$2 WHERE guia=$3 AND fecha=$4',
+            [email, String(err.message).substring(0,400), e.guia, fecha]);
+          resultados.push({ guia: e.guia, ok:false, email, error: err.message });
+        }
+      }
+      const bien = resultados.filter(x=>x.ok).length;
+      console.log(`✉️ Guías enviadas por correo: ${bien}/${resultados.length} (${fecha})`);
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:true, enviados: bien, total: resultados.length, resultados }));
+    } catch(e) { res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
   // GET /api/envios?fecha=YYYY-MM-DD  → envíos de un día específico
   if (urlPath === '/api/envios' && req.method === 'GET') {
     try {
