@@ -7554,6 +7554,18 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // Mapa ligero de cupos por cédula/RUC, para mostrar el crédito actual en la ficha
+  // de cada clienta sin tener que consultar Contifico una por una.
+  if (urlPath === '/api/creditos-mapa' && req.method === 'GET') {
+    const mapa = {};
+    Object.entries(CREDITO_CACHE || {}).forEach(([k, v]) => {
+      if (v && v.cupo > 0) mapa[k] = { cupo: v.cupo, dias: v.dias || 0 };
+    });
+    res.writeHead(200, {'Content-Type':'application/json'});
+    res.end(JSON.stringify({ ok:true, total: Object.keys(mapa).length, mapa }));
+    return;
+  }
+
   if (urlPath === '/api/creditos/sync') {
     sincronizarCreditos().catch(e=>console.error(e));
     res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, msg:'Sincronizando créditos desde Contifico'}));

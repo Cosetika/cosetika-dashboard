@@ -4321,6 +4321,8 @@ async function cargarData(){
     DATA=await r.json();
     // Este no lo necesita nadie hasta entrar a Marcas: se carga sin esperar
     cargarSkuPorMarcaDesdeServidor().catch(()=>{});
+    // Cupos de crédito por cédula, para la sugerencia de crédito en la ficha de clientas
+    fetch('/api/creditos-mapa').then(r=>r.json()).then(d=>{ if(d.ok) window._creditoPorCedula = d.mapa; }).catch(()=>{});
 
     // /data.json ya llega COMPLETO desde el servidor (caché histórica + lo emitido después,
     // fusionado allá con la misma función que genera todo lo demás). El navegador no aplica
@@ -5413,6 +5415,89 @@ async function navEnvios(dir){
 async function seleccionarFechaEnvios(fecha){
   ENVIOS_FECHA_SEL = fecha;
   await renderEnviosContenido();
+}
+
+// ─── CRÉDITO SUGERIDO ─────────────────────────────────────────────────────────────
+// Con 30 días de plazo, lo que una clienta puede deber a la vez es aproximadamente lo
+// que compra en un mes. Pero muchas compran salteado —un mes sí, otro no—, y ahí el
+// promedio mensual subestima su compra típica y el cupo se les queda corto.
+//
+// Por eso se toma el MAYOR de dos medidas sobre los últimos 6 meses:
+//   · promedio mensual → capta a quien compra seguido (dos o tres veces al mes)
+//   · ticket promedio  → capta a quien compra salteado pero fuerte
+// El resultado se redondea a múltiplos de 50 y se acota entre el mínimo y el máximo.
+const CREDITO_MIN = 200, CREDITO_MAX = 500, CREDITO_MESES = 6;
+
+function calcularCreditoSugerido(frecuencia){
+  const hoy = new Date(new Date().toLocaleString('en-US',{timeZone:'America/Guayaquil'}));
+  // Ventana de los últimos N meses cerrados + el actual
+  const ventana = [];
+  for(let i = 0; i < CREDITO_MESES; i++){
+    const d = new Date(hoy.getFullYear(), hoy.getMonth() - i, 1);
+    ventana.push({ anio: d.getFullYear(), mes: d.getMonth() + 1 });
+  }
+  let total = 0, compras = 0, mesesConCompra = 0;
+  ventana.forEach(v => {
+    const f = (frecuencia||[]).find(x => x.mes === v.mes && (x.anio||hoy.getFullYear()) === v.anio);
+    if(f && (f.total||0) > 0){
+      total += f.total || 0;
+      compras += f.compras || 0;
+      mesesConCompra++;
+    }
+  });
+  if(total <= 0) return null;
+
+  const promMensual = total / CREDITO_MESES;      // incluye los meses sin compra
+  const ticketProm  = compras > 0 ? total / compras : total;
+  const base = Math.max(promMensual, ticketProm);
+  const redondeado = Math.round(base / 50) * 50;
+  const sugerido = Math.min(CREDITO_MAX, Math.max(CREDITO_MIN, redondeado));
+
+  return {
+    sugerido, base: Math.round(base), promMensual: Math.round(promMensual),
+    ticketProm: Math.round(ticketProm), total: Math.round(total), compras,
+    mesesConCompra, meses: CREDITO_MESES,
+    topeAplicado: redondeado > CREDITO_MAX ? 'max' : (redondeado < CREDITO_MIN ? 'min' : null)
+  };
+}
+
+function bloqueCreditoSugerido(c){
+  const r = calcularCreditoSugerido(c.frecuencia);
+  if(!r) return '';
+  const cred = (window._creditoPorCedula || {})[String(c.ruc||'').replace(/\D/g,'')] || null;
+  const actual = cred && cred.cupo > 0 ? cred.cupo : null;
+  const dif = actual !== null ? r.sugerido - actual : null;
+
+  return `
+    <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px">
+      <div style="font-size:11px;font-weight:600;color:var(--muted);margin-bottom:9px;text-transform:uppercase;letter-spacing:0.5px"><i class="ti ti-credit-card"></i> Crédito sugerido</div>
+      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+        <div style="background:#f7f0ea;border:1px solid #e7dccd;border-radius:11px;padding:11px 16px;text-align:center;min-width:110px">
+          <div style="font-size:9px;color:#8b8177;text-transform:uppercase;letter-spacing:1px">Sugerido</div>
+          <div style="font-size:25px;font-weight:800;color:var(--brown);line-height:1.15">$${r.sugerido}</div>
+          ${r.topeAplicado==='max'?'<div style="font-size:9px;color:#d97706">tope máximo</div>'
+            : r.topeAplicado==='min'?'<div style="font-size:9px;color:var(--muted)">mínimo</div>' : ''}
+        </div>
+        ${actual !== null ? `
+        <div style="text-align:center;min-width:100px">
+          <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Cupo actual</div>
+          <div style="font-size:20px;font-weight:700">$${Math.round(actual)}</div>
+          ${dif !== 0 ? `<div style="font-size:10px;font-weight:700;color:${dif>0?'#16a34a':'#d97706'}">${dif>0?'subir':'bajar'} $${Math.abs(dif)}</div>` : '<div style="font-size:10px;color:#16a34a">está bien</div>'}
+        </div>` : `
+        <div style="text-align:center;min-width:100px">
+          <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Cupo actual</div>
+          <div style="font-size:14px;font-weight:600;color:var(--muted);margin-top:4px">sin crédito</div>
+        </div>`}
+        <div style="flex:1;min-width:180px;font-size:11px;color:var(--muted);line-height:1.6">
+          Compró <b>${fmt(r.total)}</b> en ${r.meses} meses (${r.compras} factura${r.compras!==1?'s':''} en ${r.mesesConCompra} mes${r.mesesConCompra!==1?'es':''}).<br>
+          Promedio mensual <b>${fmt(r.promMensual)}</b> · ticket promedio <b>${fmt(r.ticketProm)}</b>.
+        </div>
+      </div>
+      <div style="font-size:10px;color:#a09689;margin-top:9px;line-height:1.5">
+        Se toma el mayor entre el promedio mensual y el ticket promedio, redondeado a $50, con mínimo de $${CREDITO_MIN} y máximo de $${CREDITO_MAX}.
+        Es una referencia, no una regla: revisa el historial de pago antes de subirle el cupo a alguien.
+      </div>
+    </div>`;
 }
 
 // ─── AVISO DE GUÍA POR CORREO ─────────────────────────────────────────────────────
@@ -7585,6 +7670,7 @@ function selCliente(nombre){
             </div>`).join('') : '<p style="font-size:12px;color:var(--muted)">Sin historial</p>';
         })()}
         <div style="margin-top:8px;font-size:11px;color:var(--muted)">Total: <strong>${c.num_compras}</strong> facturas · <strong style="color:var(--brown)">${fmt(c.total)}</strong></div>
+        ${bloqueCreditoSugerido(c)}
         ${(c.marcas||[]).length?`
         <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:10px">
           <div style="font-size:11px;font-weight:600;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px"><i class="ti ti-tag"></i> Marcas compradas</div>
@@ -7927,6 +8013,7 @@ function selClienteProvincia(nombre, provincia){
             </div>`).join('') : '<p style="font-size:12px;color:var(--muted)">Sin historial</p>';
         })()}
         <div style="margin-top:8px;font-size:11px;color:var(--muted)">Total: <strong>${c.num_compras}</strong> facturas · <strong style="color:var(--brown)">${fmt(c.total)}</strong></div>
+        ${bloqueCreditoSugerido(c)}
         ${(c.marcas||[]).length?`
         <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:10px">
           <div style="font-size:11px;font-weight:600;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px"><i class="ti ti-tag"></i> Marcas compradas</div>
