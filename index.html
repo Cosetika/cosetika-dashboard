@@ -4322,7 +4322,18 @@ async function cargarData(){
     // Este no lo necesita nadie hasta entrar a Marcas: se carga sin esperar
     cargarSkuPorMarcaDesdeServidor().catch(()=>{});
     // Cupos de crédito por cédula, para la sugerencia de crédito en la ficha de clientas
-    fetch('/api/creditos-mapa').then(r=>r.json()).then(d=>{ if(d.ok) window._creditoPorCedula = d.mapa; }).catch(()=>{});
+    fetch('/api/creditos-mapa').then(r=>r.json()).then(d=>{
+      if(!d.ok) return;
+      window._creditoPorCedula  = d.mapa || {};
+      window._comercialPorCedula = d.comerciales || {};
+      window._comercialPorNombre = d.comerciales_nombre || {};
+      // Pedidos se pinta apenas abre la app, casi siempre antes de que llegue este
+      // mapa, así que se repinta para que salga el nombre comercial.
+      if(document.getElementById('doc-tab-content') && window._pedidosFecha
+         && typeof renderPedidosWeb==='function'){
+        try { renderPedidosWeb(window._pedidosFecha); } catch(e){}
+      }
+    }).catch(()=>{});
 
     // /data.json ya llega COMPLETO desde el servidor (caché histórica + lo emitido después,
     // fusionado allá con la misma función que genera todo lo demás). El navegador no aplica
@@ -5417,6 +5428,44 @@ async function seleccionarFechaEnvios(fecha){
   await renderEnviosContenido();
 }
 
+// ─── NOMBRE COMERCIAL ─────────────────────────────────────────────────────────────
+// En Contifico cada cliente tiene razón social y nombre comercial. La razón social es
+// el nombre legal (a veces el de la dueña), pero al local se le conoce por el comercial.
+// Se muestra en letra chica junto al nombre y también cuenta para la búsqueda.
+function comercialDe(identificacion, nombre){
+  const m = window._comercialPorCedula || {};
+  const d = String(identificacion||'').replace(/\D/g,'');
+  if(d){
+    if(m[d]) return m[d];
+    if(d.length===13 && m[d.substring(0,10)]) return m[d.substring(0,10)];
+  }
+  const n = String(nombre||'').trim().toUpperCase();
+  if(n && (window._comercialPorNombre||{})[n]) return window._comercialPorNombre[n];
+  return '';
+}
+
+// Texto plano, para meterlo en data-nombre y que la búsqueda lo encuentre
+function comercialBuscable(identificacion, nombre){
+  const c = comercialDe(identificacion, nombre);
+  return c ? ' ' + c.toLowerCase() : '';
+}
+
+function escC(t){ return String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// Línea aparte, para tarjetas y encabezados
+function lineaComercial(identificacion, nombre, tam){
+  const c = comercialDe(identificacion, nombre);
+  if(!c) return '';
+  return '<div style="font-size:'+(tam||11)+'px;color:var(--muted);line-height:1.25;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="Nombre comercial: '+escC(c)+'"><i class="ti ti-building-store" style="font-size:'+(tam||11)+'px;margin-right:3px"></i>'+escC(c)+'</div>';
+}
+
+// En la misma línea, para listas de barras donde no cabe otro renglón
+function comercialInline(identificacion, nombre){
+  const c = comercialDe(identificacion, nombre);
+  if(!c) return '';
+  return ' <span style="font-size:10px;color:var(--muted);font-weight:400">· '+escC(c)+'</span>';
+}
+
 // ─── CRÉDITO SUGERIDO ─────────────────────────────────────────────────────────────
 // Con 30 días de plazo, lo que una clienta puede deber a la vez es aproximadamente lo
 // que compra en un mes. Pero muchas compran salteado —un mes sí, otro no—, y ahí el
@@ -5462,7 +5511,12 @@ function calcularCreditoSugerido(frecuencia){
 }
 
 function bloqueCreditoSugerido(c){
-  const r = calcularCreditoSugerido(c.frecuencia);
+  try { return _bloqueCreditoSugerido(c); }
+  catch(e){ console.error('crédito sugerido:', e); return ''; }
+}
+
+function _bloqueCreditoSugerido(c){
+  const r = calcularCreditoSugerido((c||{}).frecuencia);
   if(!r) return '';
   const cred = (window._creditoPorCedula || {})[String(c.ruc||'').replace(/\D/g,'')] || null;
   const actual = cred && cred.cupo > 0 ? cred.cupo : null;
@@ -6078,6 +6132,7 @@ async function renderPedidosWeb(fechaSel){
         + '<div onclick="togglePedidoDetalle(\'' + prodId + '\')" style="display:flex;align-items:center;gap:10px;padding:13px 16px;cursor:pointer;flex-wrap:wrap" onmouseover="this.style.background=&quot;#faf9f8&quot;" onmouseout="this.style.background=&quot;white&quot;">'
         + '<div style="font-size:13px;font-weight:600;color:var(--muted);flex-shrink:0;min-width:90px">#'+p.numero_pedido+'</div>'
         + '<div style="flex:1;min-width:150px"><div style="font-size:13px;font-weight:500;white-space:normal;word-break:break-word;line-height:1.3">'+( p.cliente_nombre||'—')+'</div>'
+        + lineaComercial(p.cedula_ruc, p.cliente_nombre)
         + '<div style="font-size:10px;margin-top:3px;display:flex;align-items:center;flex-wrap:wrap;gap:6px">'
         + (p.asesora
             ? '<span style="color:var(--muted)"><i class="ti ti-user" style="font-size:9px"></i> '+String(p.asesora).split(' ').slice(0,2).join(' ')+'</span>'
@@ -7549,8 +7604,8 @@ function renderVendedor(nombre){
       </div>
       <div id="cli-list-vend">
         ${clientes.map(c=>`
-          <div class="hbar cli-item-vend" data-nombre="${c.nombre.toLowerCase()}" onclick="selCliente('${c.nombre.replace(/'/g,"\\'").replace(/"/g,'\\"')}')">
-            <span class="hbar-lbl" title="${c.nombre}">${c.nombre}</span>
+          <div class="hbar cli-item-vend" data-nombre="${c.nombre.toLowerCase()}${comercialBuscable(c.ruc||c.cedula, c.nombre)}" onclick="selCliente('${c.nombre.replace(/'/g,"\\'").replace(/"/g,'\\"')}')">
+            <span class="hbar-lbl" title="${c.nombre}">${c.nombre}${comercialInline(c.ruc||c.cedula, c.nombre)}</span>
             <div class="hbar-track"><div class="hbar-fill" style="width:${pct(totalesPorCliente[c.nombre],maxTotal)}%;background:${getVendColor(nombre)}"></div></div>
             <span class="hbar-val">${fmt(totalesPorCliente[c.nombre])}</span>
           </div>`).join('')}
@@ -7630,6 +7685,7 @@ function selCliente(nombre){
           ${(parseFloat(c.saldo)||0) > 0.009 ? `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;font-size:11px;font-weight:700;border-radius:12px;background:#fef2f2;color:#dc2626;border:1px solid #fca5a5;white-space:nowrap"><i class="ti ti-alert-circle" style="font-size:12px"></i>Saldo: $${(Math.round((parseFloat(c.saldo)||0)*100)/100).toFixed(2)}</span>` : ''}
           <button onclick="toggleInfoCliente('info-${c.id}','${(c.nombre||'')}','${(c.ruc||c.cedula||'')}')" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;font-size:11px;border:1px solid var(--border);border-radius:12px;background:white;cursor:pointer;color:var(--muted)"><i class="ti ti-info-circle" style="font-size:12px"></i> Info</button>
         </div>
+        ${lineaComercial(c.ruc||c.cedula, c.nombre, 12)}
         <div class="cli-sub">Total: <strong style="color:var(--brown)">${fmt(c.total)}</strong> · ${c.num_compras} facturas · ${vendActual}</div>
         <div id="info-${c.id}" style="display:none;margin-top:8px;background:#faf9f8;border:1px solid var(--border);border-radius:8px;padding:10px 12px">
           ${c.ruc?`<div style="font-size:12px;margin-bottom:4px"><i class="ti ti-id-badge" style="color:var(--brown);margin-right:5px"></i><strong>RUC/Cédula:</strong> ${c.ruc}</div>`:''}
@@ -7925,7 +7981,7 @@ async function renderProvincias(provSeleccionada){
         <div id="cli-list-prov">
           ${provData.map(c=>`
             <div class="hbar" onclick="selClienteProvincia('${c.nombre.replace(/'/g,"\\'").replace(/"/g,'\\"')}','${provSeleccionada.replace(/'/g,"\\'")}')">
-              <span class="hbar-lbl" title="${c.nombre}">${c.nombre}</span>
+              <span class="hbar-lbl" title="${c.nombre}">${c.nombre}${comercialInline(c.ruc||c.cedula, c.nombre)}</span>
               <div class="hbar-track" title="Asesora: ${nombreCorto(c.vendedor||'')}"><div class="hbar-fill" style="width:${pct(c.total,maxCli)}%;background:${getVendColor(c.vendedor)}"></div></div>
               <span class="hbar-val">${fmt(c.total)}</span>
             </div>`).join('')}
@@ -7973,6 +8029,7 @@ function selClienteProvincia(nombre, provincia){
           ${(parseFloat(c.saldo)||0) > 0.009 ? `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;font-size:11px;font-weight:700;border-radius:12px;background:#fef2f2;color:#dc2626;border:1px solid #fca5a5;white-space:nowrap"><i class="ti ti-alert-circle" style="font-size:12px"></i>Saldo: $${(Math.round((parseFloat(c.saldo)||0)*100)/100).toFixed(2)}</span>` : ''}
           <button onclick="toggleInfoCliente('info-p-${c.id}','${(c.nombre||"")}','${(c.ruc||c.cedula||"")}')" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;font-size:11px;border:1px solid var(--border);border-radius:12px;background:white;cursor:pointer;color:var(--muted)"><i class="ti ti-info-circle" style="font-size:12px"></i> Info</button>
         </div>
+        ${lineaComercial(c.ruc||c.cedula, c.nombre, 12)}
         <div class="cli-sub">Total: <strong style="color:var(--brown)">${fmt(c.total)}</strong> · ${c.num_compras} facturas · ${vendNombre}</div>
         <div id="info-p-${c.id}" style="display:none;margin-top:8px;background:#faf9f8;border:1px solid var(--border);border-radius:8px;padding:10px 12px">
           ${c.ruc?`<div style="font-size:12px;margin-bottom:4px"><i class="ti ti-id-badge" style="color:var(--brown);margin-right:5px"></i><strong>RUC/Cédula:</strong> ${c.ruc}</div>`:''}

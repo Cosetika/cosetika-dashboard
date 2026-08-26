@@ -1452,6 +1452,12 @@ setInterval(() => completarPedidosDesdeWoo(20).catch(e=>console.error(e)), 60 * 
 
 // ─── CRÉDITO DE CLIENTES (cupo y días) desde Contifico ──────────────────────
 let CREDITO_CACHE = {};
+// Nombre comercial de Contifico. Se llena en el mismo barrido de personas que hace
+// sincronizarCreditos(), así que no cuesta ni una llamada extra a la API.
+// Se guarda por cédula/RUC y también por razón social, porque hay paneles que solo
+// tienen el nombre del cliente a mano.
+let COMERCIAL_CACHE = {};        // digitos -> nombre comercial
+let COMERCIAL_POR_NOMBRE = {};   // razón social en mayúsculas -> nombre comercial
 let CREDITO_SYNC_AT = null;
 let CREDITO_SYNC_LOG = { estado:'sin correr', paginas:0, personas:0, error:null };
 async function sincronizarCreditos(){
@@ -1469,7 +1475,18 @@ async function sincronizarCreditos(){
       pag++;
     }
     const mapa = {};
+    const comercial = {}, comercialNom = {};
     personas.forEach(p => {
+      // Solo interesa cuando aporta algo distinto a la razón social
+      const nc = String(p.nombre_comercial || '').trim();
+      const rs = String(p.razon_social || '').trim();
+      if (nc && nc.toUpperCase() !== rs.toUpperCase()) {
+        [p.cedula, p.ruc].forEach(v => {
+          const d = String(v || '').replace(/\D/g, '');
+          if (d) { comercial[d] = nc; if (d.length === 13) comercial[d.substring(0,10)] = nc; }
+        });
+        if (rs) comercialNom[rs.toUpperCase()] = nc;
+      }
       const info = {
         cupo: parseFloat(p.cupo_credito) || 0,
         dias: parseInt(p.dias_credito) || 0,
@@ -1481,6 +1498,11 @@ async function sincronizarCreditos(){
         if (d) { mapa[d] = info; if (d.length === 13) mapa[d.substring(0,10)] = info; }
       });
     });
+    if (Object.keys(comercial).length || Object.keys(comercialNom).length) {
+      COMERCIAL_CACHE = comercial;
+      COMERCIAL_POR_NOMBRE = comercialNom;
+      console.log(`✓ Nombres comerciales: ${Object.keys(comercialNom).length} clientes`);
+    }
     if (Object.keys(mapa).length) {
       CREDITO_CACHE = mapa;
       CREDITO_SYNC_AT = new Date().toISOString();
@@ -7562,7 +7584,8 @@ const server = http.createServer(async (req, res) => {
       if (v && v.cupo > 0) mapa[k] = { cupo: v.cupo, dias: v.dias || 0 };
     });
     res.writeHead(200, {'Content-Type':'application/json'});
-    res.end(JSON.stringify({ ok:true, total: Object.keys(mapa).length, mapa }));
+    res.end(JSON.stringify({ ok:true, total: Object.keys(mapa).length, mapa,
+      comerciales: COMERCIAL_CACHE, comerciales_nombre: COMERCIAL_POR_NOMBRE }));
     return;
   }
 
