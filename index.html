@@ -5351,6 +5351,7 @@ function filaEnvioHtml(e, i, mostrarFecha){
             style="width:26px;height:26px;border-radius:6px;border:1px solid var(--border);background:white;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted);transition:all 0.15s;flex-shrink:0">
             <i class="ti ti-copy"></i>
           </button>
+          ${botonRastreo(e.guia)}
         </div>
       </td>
     </tr>`;
@@ -5435,6 +5436,25 @@ async function navEnvios(dir){
 async function seleccionarFechaEnvios(fecha){
   ENVIOS_FECHA_SEL = fecha;
   await renderEnviosContenido();
+}
+
+// ─── RASTREO SERVIENTREGA ─────────────────────────────────────────────────────────
+// Mismo enlace directo que va en el correo de la clienta: abre el rastreo con la guía
+// ya cargada, sin tener que escribirla.
+function urlRastreoGuia(guia){
+  const g = String(guia||'').trim().replace(/[^A-Za-z0-9]/g,'');
+  return 'https://www.servientrega.com.ec/Tracking/?guia=' + encodeURIComponent(g) + '&tipo=GUIA';
+}
+
+function abrirRastreo(guia, ev){
+  if(ev) ev.stopPropagation();
+  window.open(urlRastreoGuia(guia), '_blank', 'noopener');
+}
+
+function botonRastreo(guia){
+  return '<button onclick="abrirRastreo(\''+String(guia||'').replace(/\\/g,'').replace(/'/g,"")+'\', event)" title="Rastrear en Servientrega"'
+    + ' style="width:26px;height:26px;border-radius:6px;border:1px solid var(--border);background:white;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;font-size:12px;color:var(--brown);transition:all 0.15s;flex-shrink:0">'
+    + '<i class="ti ti-map-pin-search"></i></button>';
 }
 
 // ─── NOMBRE COMERCIAL ─────────────────────────────────────────────────────────────
@@ -5588,7 +5608,8 @@ async function abrirEnvioCorreos(fecha){
         <input type="checkbox" ${(e.email && !e.ya_enviado)?'checked':''} ${e.ya_enviado?'disabled':''}
           onchange="window._envCorreos.envios[${i}].marcado=this.checked" style="width:17px;height:17px;accent-color:#16a34a;cursor:pointer">
       </td>
-      <td style="padding:7px 9px;font-family:monospace;font-size:11px;color:var(--brown);font-weight:700;white-space:nowrap">${esc(e.guia)}</td>
+      <td style="padding:7px 9px;font-family:monospace;font-size:11px;font-weight:700;white-space:nowrap">
+        <a href="${urlRastreoGuia(e.guia)}" target="_blank" rel="noopener" title="Rastrear en Servientrega" style="color:var(--brown);text-decoration:none;border-bottom:1px dotted var(--brown)">${esc(e.guia)}</a></td>
       <td style="padding:7px 9px;font-size:12px">${esc(e.destinatario||e.razon_social||'—')}
         ${e.ciudad?`<div style="font-size:10px;color:var(--muted)">${esc(e.ciudad)}</div>`:''}</td>
       <td style="padding:7px 9px">
@@ -5769,6 +5790,7 @@ async function renderEnviosContenido(){
                       style="width:26px;height:26px;border-radius:6px;border:1px solid var(--border);background:white;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted);transition:all 0.15s;flex-shrink:0">
                       <i class="ti ti-copy"></i>
                     </button>
+                    ${botonRastreo(e.guia)}
                   </div>
                 </td>
               </tr>`).join('')}

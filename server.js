@@ -629,8 +629,17 @@ async function sincronizarHoy() {
 }
 
 // Correo que recibe la clienta con su número de guía.
+// Enlace directo al rastreo de Servientrega con la guía ya cargada: la clienta
+// abre el link y ve el estado del paquete sin tener que copiar ni escribir nada.
+function urlRastreo(guia){
+  const g = String(guia||'').trim().replace(/[^A-Za-z0-9]/g, '');
+  return 'https://www.servientrega.com.ec/Tracking/?guia=' + encodeURIComponent(g) + '&tipo=GUIA';
+}
+
 function plantillaCorreoGuia(nombre, guia, ciudad){
   const esc = v => String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const link = urlRastreo(guia);
+  const linkAttr = link.replace(/&/g, '&amp;');   // válido dentro de href
   return `<!DOCTYPE html><html lang="es"><body style="margin:0;padding:0;background:#f6f3ef;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f6f3ef;padding:28px 12px">
     <tr><td align="center">
@@ -641,15 +650,21 @@ function plantillaCorreoGuia(nombre, guia, ciudad){
         <tr><td style="padding:28px 26px 8px">
           <p style="margin:0 0 14px;font-size:16px;color:#2b2118">Hola ${esc(nombre)},</p>
           <p style="margin:0 0 20px;font-size:14px;line-height:1.6;color:#5b5248">
-            Tu pedido ya salió de nuestra bodega y está en camino${ciudad ? ' hacia ' + esc(ciudad) : ''}.
+            Tu pedido ya salió de nuestra oficina y está en camino${ciudad ? ' hacia ' + esc(ciudad) : ''}.
             Puedes seguirlo con este número de guía:
           </p>
           <div style="background:#faf7f4;border:1px solid #e7dccd;border-radius:11px;padding:18px;text-align:center;margin-bottom:20px">
             <div style="font-size:10px;letter-spacing:2px;text-transform:uppercase;color:#8b8177;margin-bottom:6px">Número de guía · Servientrega</div>
             <div style="font-size:26px;font-weight:800;color:#8a5a3b;letter-spacing:1px">${esc(guia)}</div>
           </div>
-          <p style="margin:0 0 22px;font-size:14px;line-height:1.6;color:#5b5248">
-            Ingresa ese número en <a href="https://www.servientrega.com.ec/" style="color:#8a5a3b;font-weight:600">servientrega.com.ec</a> para ver dónde está tu envío.
+          <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 18px">
+            <tr><td align="center">
+              <a href="${linkAttr}" target="_blank" style="display:inline-block;background:#8a5a3b;color:#ffffff;text-decoration:none;font-size:15px;font-weight:700;letter-spacing:0.5px;padding:15px 34px;border-radius:10px">RASTREAR MI PEDIDO</a>
+            </td></tr>
+          </table>
+          <p style="margin:0 0 22px;font-size:13px;line-height:1.6;color:#8b8177;text-align:center">
+            El botón abre el rastreo con tu guía ya cargada, no tienes que escribir nada.<br>
+            Si no te funciona, copia este enlace: <a href="${linkAttr}" style="color:#8a5a3b">${link}</a>
           </p>
           <p style="margin:0 0 6px;font-size:14px;line-height:1.6;color:#5b5248">
             Gracias por confiar en nosotros. Cualquier novedad con tu pedido, respóndenos este correo.
