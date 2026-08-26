@@ -150,6 +150,7 @@
       .row2{grid-template-columns:1fr}
       .hbar-lbl{width:90px;min-width:90px}
       .hbar-val{min-width:50px}
+      .hbar-cli .hbar-lbl{width:150px;min-width:150px}
     }
     /* Ocultar nav vieja */
     .header,.mods,.submenu{display:none!important}
@@ -185,6 +186,13 @@
     .hbar-fill{height:100%;border-radius:3px;background:#5a8fa3;transition:width 0.4s;max-width:100%}
     .hbar-fill.brown{background:var(--brown)}
     .hbar-val{font-size:11px;color:var(--muted);min-width:60px;max-width:70px;text-align:right;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    /* Listas de clientes: la etiqueta manda más que la barra, porque hay que leer
+       el nombre legal y el comercial completos. La barra se hace más finita. */
+    .hbar-cli{padding:4px}
+    .hbar-cli .hbar-lbl{width:270px;min-width:270px;text-align:left;white-space:normal;overflow:visible}
+    .hbar-cli .hbar-track{height:10px}
+    .cli-nom{display:block;font-size:11.5px;font-weight:500;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .cli-com{display:block;font-size:10px;color:var(--muted);line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
     .prod-row{display:flex;align-items:center;gap:6px;margin-bottom:5px;overflow:hidden}
     .prod-name{font-size:11px;color:var(--text);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
@@ -235,6 +243,7 @@
       .row2{grid-template-columns:1fr}
       .hbar-lbl{width:90px;min-width:90px}
       .hbar-val{min-width:50px}
+      .hbar-cli .hbar-lbl{width:150px;min-width:150px}
     }
   </style>
 </head>
@@ -5459,11 +5468,12 @@ function lineaComercial(identificacion, nombre, tam){
   return '<div style="font-size:'+(tam||11)+'px;color:var(--muted);line-height:1.25;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="Nombre comercial: '+escC(c)+'"><i class="ti ti-building-store" style="font-size:'+(tam||11)+'px;margin-right:3px"></i>'+escC(c)+'</div>';
 }
 
-// En la misma línea, para listas de barras donde no cabe otro renglón
-function comercialInline(identificacion, nombre){
+// Etiqueta de dos renglones para las listas de clientes: arriba el nombre legal,
+// abajo el comercial. Siempre visible, no solo al buscar.
+function etiquetaCliente(identificacion, nombre){
   const c = comercialDe(identificacion, nombre);
-  if(!c) return '';
-  return ' <span style="font-size:10px;color:var(--muted);font-weight:400">· '+escC(c)+'</span>';
+  return '<span class="cli-nom">'+escC(nombre)+'</span>'
+       + (c ? '<span class="cli-com">'+escC(c)+'</span>' : '');
 }
 
 // ─── CRÉDITO SUGERIDO ─────────────────────────────────────────────────────────────
@@ -7604,8 +7614,8 @@ function renderVendedor(nombre){
       </div>
       <div id="cli-list-vend">
         ${clientes.map(c=>`
-          <div class="hbar cli-item-vend" data-nombre="${c.nombre.toLowerCase()}${comercialBuscable(c.ruc||c.cedula, c.nombre)}" onclick="selCliente('${c.nombre.replace(/'/g,"\\'").replace(/"/g,'\\"')}')">
-            <span class="hbar-lbl" title="${c.nombre}">${c.nombre}${comercialInline(c.ruc||c.cedula, c.nombre)}</span>
+          <div class="hbar hbar-cli cli-item-vend" data-nombre="${c.nombre.toLowerCase()}${comercialBuscable(c.ruc||c.cedula, c.nombre)}" onclick="selCliente('${c.nombre.replace(/'/g,"\\'").replace(/"/g,'\\"')}')">
+            <span class="hbar-lbl" title="${c.nombre}">${etiquetaCliente(c.ruc||c.cedula, c.nombre)}</span>
             <div class="hbar-track"><div class="hbar-fill" style="width:${pct(totalesPorCliente[c.nombre],maxTotal)}%;background:${getVendColor(nombre)}"></div></div>
             <span class="hbar-val">${fmt(totalesPorCliente[c.nombre])}</span>
           </div>`).join('')}
@@ -7980,8 +7990,8 @@ async function renderProvincias(provSeleccionada){
         </div>
         <div id="cli-list-prov">
           ${provData.map(c=>`
-            <div class="hbar" onclick="selClienteProvincia('${c.nombre.replace(/'/g,"\\'").replace(/"/g,'\\"')}','${provSeleccionada.replace(/'/g,"\\'")}')">
-              <span class="hbar-lbl" title="${c.nombre}">${c.nombre}${comercialInline(c.ruc||c.cedula, c.nombre)}</span>
+            <div class="hbar hbar-cli" onclick="selClienteProvincia('${c.nombre.replace(/'/g,"\\'").replace(/"/g,'\\"')}','${provSeleccionada.replace(/'/g,"\\'")}')">
+              <span class="hbar-lbl" title="${c.nombre}">${etiquetaCliente(c.ruc||c.cedula, c.nombre)}</span>
               <div class="hbar-track" title="Asesora: ${nombreCorto(c.vendedor||'')}"><div class="hbar-fill" style="width:${pct(c.total,maxCli)}%;background:${getVendColor(c.vendedor)}"></div></div>
               <span class="hbar-val">${fmt(c.total)}</span>
             </div>`).join('')}
