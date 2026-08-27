@@ -11364,6 +11364,9 @@ async function guardarIncentivoPpto(campo, valor){
 
 async function guardarPptoConfig(){
   try{
+    // Los KPIs leen esta misma configuración desde su propia copia; se refresca aquí
+    // para que un cambio de bono o de % se vea al instante en las tarjetas de las asesoras.
+    window._pptoCfgKpi = window._pptoCfg;
     const r = await fetch('/api/presupuesto-config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({config:window._pptoCfg})});
     const j = await r.json();
     if(!j.ok) throw new Error(j.error||'error');
@@ -13787,6 +13790,21 @@ function cardPresupuestoAsesora(nombreVend, anioSel, mesSel){
         </div>
       </div>
       ${barraAvanceMeta(nombreVend, pa, pm, meta, MESES_P, minimoP)}
+      ${(()=>{
+        if(!meta || !(meta > 0)) return '';
+        // Cuánto ganaría de más si llega justo a la meta: entra el bono y cambia el tramo.
+        const comAhora = rCom.comision;
+        const comEnMeta = comisionDeAsesora(Math.max(vendido, meta), meta, minimoP, inc).comision;
+        const gana = Math.round((comEnMeta - comAhora) * 100) / 100;
+        if(vendido >= meta){
+          return `<div style="margin-top:12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:10px 12px;font-size:12px;color:#1e40af">
+            <b>Ya tienes el bono de $${inc.bono}</b> por cumplir la meta. De aquí en adelante te llevas <b>${inc.pct_exceso}%</b> de todo lo que vendas por encima: cada $100 más son $${(inc.pct_exceso).toFixed(2).replace('.00','')} extra.
+          </div>`;
+        }
+        return `<div style="margin-top:12px;background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:10px 12px;font-size:12px;color:#92400e">
+          <i class="ti ti-gift" style="margin-right:5px"></i>Al llegar a la meta se suma un <b>bono de $${inc.bono}</b>${gana>0?` — tu comisión pasaría de <b>$${comAhora.toFixed(2)}</b> a <b>$${comEnMeta.toFixed(2)}</b>, son <b>$${gana.toFixed(2)}</b> más`:''}. Te faltan <b>${fmtK(meta - vendido)}</b>.
+        </div>`;
+      })()}
       <div style="font-size:11px;color:var(--muted);margin-top:12px;line-height:1.5">
         Tu meta sale de ${MESES_P[h2.m]} (${fmtK(v2)}) más el incremento acordado${pct!==null&&pct!==undefined&&!isNaN(pct)?' de '+pct+'%':''}.
         El <b>mínimo</b> es el promedio de ${MESES_P[h1.m]} y ${MESES_P[h2.m]}: por debajo de ${fmtK(minimoP)} tu comisión baja.
