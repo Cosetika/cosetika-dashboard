@@ -11031,13 +11031,37 @@ async function renderPresupuestoVentas(){
     const minProm3 = Math.round(prom3Sum / 2);
     // Ventas del mes evaluado: en vivo si es el mes en curso; cerradas si es un mes pasado
     const ventasEval = evalKey === mkDe(anioAct, mesAct) ? realActual : Math.round(vm[evalKey] || 0);
-    return { nombre:a.nombre, rol:a.rol, sinUsuario:a.sinUsuario, k, base, sugerido, pct, metas, realActual, uplift:upliftAse, hist, crecProm, ventasMesAnt, ovMesAct, minProm3, ventasEval, baseUlt: (compactoP ? baseUltimo : base) || 0 };
+    // ── Mes en curso: mínimo, ventas y meta — exactamente lo que ve la asesora en sus KPIs
+    const mkAct = mkDe(anioAct, mesAct);
+    const prevAct  = mesShiftK2(anioAct, mesAct, -1);
+    const prev2Act = mesShiftK2(anioAct, mesAct, -2);
+    const baseAct = Math.round(vm[mkDe(prevAct.a, prevAct.m)] || 0);
+    // Mínimo: promedio de los 2 meses anteriores, con el piso de $4.000
+    const minimoAct = Math.max(4000, Math.round(((vm[mkDe(prevAct.a, prevAct.m)]||0) + (vm[mkDe(prev2Act.a, prev2Act.m)]||0)) / 2));
+    const ovAct = ov[mkAct];
+    let metaAct = null, metaActManual = false;
+    if(ovAct !== undefined && ovAct !== null && ovAct !== ''){ metaAct = Math.round(parseFloat(ovAct)||0); metaActManual = true; }
+    else if(pct !== null && baseAct) metaAct = Math.round(baseAct * (1 + pct/100));
+    const incrAct = (metaAct !== null && baseAct) ? metaAct - baseAct : null;
+    return { nombre:a.nombre, rol:a.rol, sinUsuario:a.sinUsuario, k, base, sugerido, pct, metas, realActual, uplift:upliftAse, hist, crecProm, ventasMesAnt, ovMesAct, minProm3, ventasEval, baseUlt: (compactoP ? baseUltimo : base) || 0,
+             mkAct, baseAct, minimoAct, metaAct, metaActManual, incrAct };
   });
 
   // Snapshot del mes actual (para cumplimiento cuando cierre)
   const snapKey = ventana[0].key; // congela la meta del mes proyectado mientras está vigente
   const snapAct = {};
   filas.forEach(f=>{ const m = f.metas[snapKey]; if(m) snapAct[f.nombre] = m.valor; });
+  // La meta del MES EN CURSO también se congela, que es la que se liquida al cerrar el mes
+  if(compactoP){
+    const mkActG = mkDe(anioAct, mesAct);
+    const snapEnCurso = {};
+    filas.forEach(f=>{ if(f.metaAct) snapEnCurso[f.nombre] = f.metaAct; });
+    cfg.snapshots = cfg.snapshots || {};
+    if(Object.keys(snapEnCurso).length && JSON.stringify(cfg.snapshots[mkActG]||{}) !== JSON.stringify(snapEnCurso)){
+      cfg.snapshots[mkActG] = snapEnCurso;
+      fetch('/api/presupuesto-config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({config:cfg})}).catch(()=>{});
+    }
+  }
   cfg.snapshots = cfg.snapshots || {};
   if(JSON.stringify(cfg.snapshots[snapKey]||{}) !== JSON.stringify(snapAct)){
     cfg.snapshots[snapKey] = snapAct;
@@ -11074,27 +11098,41 @@ async function renderPresupuestoVentas(){
   cont.innerHTML = `
 
     <div class="card" style="padding:0">
-      <div style="padding:14px 16px 10px;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px"><i class="ti ti-target-arrow" style="margin-right:6px"></i>${compactoP ? 'Presupuesto ventas — 2 últimos meses + mes proyectado (sin IVA)' : 'Presupuesto — mes en curso + 3 proyectados (sin IVA)'}</div>
-      ${compactoP && mkProyectado.length ? `<div style="padding:0 16px 10px;font-size:11px;color:var(--muted);line-height:1.5">* ${MESES_PPTO[parseInt(mkProyectado[0].split('-')[1])]} todavía está en curso: se muestra proyectado a mes completo con regla de tres, y esa es la base de la meta. Es el mismo número que ve cada asesora en sus KPIs.</div>` : ''}
+      <div style="padding:14px 16px 10px;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px"><i class="ti ti-target-arrow" style="margin-right:6px"></i>${compactoP ? 'Presupuesto ventas — mínimo, mes en curso y meta (sin IVA)' : 'Presupuesto — mes en curso + 3 proyectados (sin IVA)'}</div>
+      ${compactoP ? `<div style="padding:0 16px 10px;font-size:11px;color:var(--muted);line-height:1.5">El <b>mínimo</b> es el promedio de los 2 meses anteriores (piso $4.000) y la <b>meta</b> sale del mes anterior más el % que fijes. Son los mismos números que ve cada asesora en sus KPIs.</div>` : ''}
       <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:820px">
         <thead><tr style="border-bottom:1px solid var(--border)">
           <th style="text-align:left;padding:8px 12px;font-size:10px;color:var(--muted);text-transform:uppercase;${compactoP?'width:22%':''}">Asesora</th>
-          ${mesesHist.map(mk=>{
-            const proy = factorMk(mk) !== 1;
-            return `<th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;background:#f3f0ec">${MESES_PPTO[parseInt(mk.split('-')[1])]} ${mk.substring(2,4)}${proy?' *':''}<br><span style="font-weight:400;letter-spacing:0">${proy?'mes en curso proyectado':'histórico'}</span></th>`;
-          }).join('')}
+          ${compactoP ? `
+          <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;background:#f3f0ec">Mínimo<br><span style="font-weight:400;letter-spacing:0">prom. ${MESES_PPTO[mesShiftK2(anioAct,mesAct,-2).m]}–${MESES_PPTO[mesShiftK2(anioAct,mesAct,-1).m]}</span></th>
+          <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;background:#f3f0ec">Mes en curso<br><span style="font-weight:400;letter-spacing:0">${MESES_PPTO[mesAct]} ${String(anioAct).substring(2)}</span></th>`
+          : mesesHist.map(mk=>`<th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;background:#f3f0ec">${MESES_PPTO[parseInt(mk.split('-')[1])]} ${mk.substring(2,4)}<br><span style="font-weight:400;letter-spacing:0">histórico</span></th>`).join('')}
           ${compactoP?'':`<th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;background:#f3f0ec">Crec.<br>prom. ${HIST_N}m</th>`}
           ${compactoP?'':`<th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Base<br>(prom. 3m)</th>`}
           <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">${compactoP?'% Incremento mensual':'% mensual'}</th>
           ${compactoP?'<th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Valor<br>incremento</th>':''}
-          ${ventana.map(v=>`<th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">${MESES_PPTO[v.mes]} ${String(v.anio).substring(2)}${compactoP?'<br><span style="color:#16a34a">proyectado</span>':(v.key===mkDe(anioAct,mesAct)?'<br><span style="color:#16a34a">(en curso)</span>':'')}</th>`).join('')}
+          ${compactoP
+            ? `<th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Meta ${MESES_PPTO[mesAct]} ${String(anioAct).substring(2)}</th>`
+            : ventana.map(v=>`<th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">${MESES_PPTO[v.mes]} ${String(v.anio).substring(2)}${v.key===mkDe(anioAct,mesAct)?'<br><span style="color:#16a34a">(en curso)</span>':''}</th>`).join('')}
         </tr></thead>
         <tbody>
           ${filas.map((f,fi)=>`
           <tr style="border-bottom:0.5px solid var(--border);background:${fi%2?'#f6f3ef':'white'}">
             <td style="padding:8px 12px;font-weight:600;white-space:nowrap">${esc(f.nombre.split(' ').slice(0,2).join(' '))}${f.rol==='jefa_ventas'?' <span style="font-size:9px;color:var(--muted)">(líder de equipo)</span>':''}${f.sinUsuario?' <span style="font-size:9px;color:#d97706">(sin usuario aún)</span>':''}</td>
-            ${f.hist.map((h,hi)=>`<td style="padding:8px 8px;text-align:center;background:${fi%2?'#efece7':'#f3f0ec'}">
-              ${h.val?`<div style="font-weight:600;color:var(--text)">${fmtP(h.val)}</div>${h.crec!==null&&(!compactoP||hi===f.hist.length-1)?`<div style="font-size:9px;font-weight:700;color:${h.crec>=0?'#16a34a':'#dc2626'}">${h.crec>0?'+':''}${h.crec}%</div>`:''}`:'<span style="color:#ccc">—</span>'}
+            ${compactoP ? (()=>{
+              const sobreMin = f.realActual >= f.minimoAct;
+              const pctMeta = (f.metaAct && f.metaAct>0) ? Math.round(f.realActual/f.metaAct*100) : null;
+              const colV = (f.metaAct && f.realActual>=f.metaAct) ? '#2563eb' : (sobreMin ? '#16a34a' : '#eab308');
+              return `<td style="padding:8px 8px;text-align:center;background:${fi%2?'#efece7':'#f3f0ec'}">
+                <div style="font-weight:600;color:var(--text)">${fmtP(f.minimoAct)}</div>
+                <div style="font-size:9px;font-weight:700;color:${sobreMin?'#16a34a':'#b45309'}">${sobreMin?'superado':'faltan '+fmtP(f.minimoAct-f.realActual)}</div>
+              </td>
+              <td style="padding:8px 8px;text-align:center;background:${fi%2?'#efece7':'#f3f0ec'}">
+                <div style="font-weight:800;font-size:13px;color:${colV}">${fmtP(f.realActual)}</div>
+                ${pctMeta!==null?`<div style="font-size:9px;font-weight:700;color:${colV}">${pctMeta}% de la meta</div>`:''}
+              </td>`;
+            })() : f.hist.map(h=>`<td style="padding:8px 8px;text-align:center;background:${fi%2?'#efece7':'#f3f0ec'}">
+              ${h.val?`<div style="font-weight:600;color:var(--text)">${fmtP(h.val)}</div>${h.crec!==null?`<div style="font-size:9px;font-weight:700;color:${h.crec>=0?'#16a34a':'#dc2626'}">${h.crec>0?'+':''}${h.crec}%</div>`:''}`:'<span style="color:#ccc">—</span>'}
             </td>`).join('')}
             ${compactoP?'':`<td style="padding:8px 8px;text-align:center;background:${fi%2?'#efece7':'#f3f0ec'}">${f.crecProm!==null?`<span style="font-weight:800;font-size:13px;color:${f.crecProm>=0?'#16a34a':'#dc2626'}">${f.crecProm>0?'+':''}${f.crecProm}%</span>`:'<span style="color:#ccc">—</span>'}</td>`}
             ${compactoP?'':`<td style="padding:8px 8px;text-align:center;color:var(--muted)">${f.base?fmtP(f.base):'—'}</td>`}
@@ -11102,12 +11140,11 @@ async function renderPresupuestoVentas(){
               <input type="number" step="0.5" value="${f.pct!==null?f.pct:''}" placeholder="—" onchange="guardarPctPpto('${f.nombre.replace(/'/g,"\\'")}',this.value)" style="width:52px;padding:3px 4px;font-size:11px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;font-weight:700;color:var(--brown)">%
               ${compactoP?'':`<div style="font-size:9px;color:var(--muted);margin-top:2px;cursor:pointer" onclick="guardarPctPpto('${f.nombre.replace(/'/g,"\\'")}',${f.sugerido})" title="Aplicar sugerido">sug: <span style="color:#2563eb;font-weight:600">${f.sugerido}%</span></div>`}
             </td>
-            ${compactoP?(()=>{
-              const m0 = f.metas[ventana[0].key];
-              const inc0 = (m0 && f.baseUlt) ? m0.valor - f.baseUlt : null;
-              return `<td style="padding:8px 8px;text-align:center;font-weight:700;color:${inc0===null?'#ccc':(inc0>=0?'#16a34a':'#dc2626')}">${inc0===null?'—':(inc0<0?'-':'+')+fmtP(Math.abs(inc0)).substring(0)}</td>`;
-            })():''}
-            ${ventana.map(v=>{
+            ${compactoP?`<td style="padding:8px 8px;text-align:center;font-weight:700;color:${f.incrAct===null?'#ccc':(f.incrAct>=0?'#16a34a':'#dc2626')}">${f.incrAct===null?'—':(f.incrAct<0?'-':'+')+fmtP(Math.abs(f.incrAct))}</td>`:''}
+            ${compactoP ? `<td style="padding:8px 8px;text-align:center;cursor:pointer" onclick="editarMetaPpto('${f.nombre.replace(/'/g,"\\'")}','${f.mkAct}',${f.metaAct||0})">
+              ${f.metaAct?`<div style="font-weight:700;${f.metaActManual?'background:#fef3c7;border-radius:5px;padding:1px 5px;display:inline-block':''}">${fmtP(f.metaAct)}</div>`:'<span style="color:#ccc">—</span>'}
+              ${(f.metaAct && f.realActual < f.metaAct)?`<div style="font-size:9px;color:#d97706">faltan ${fmtP(f.metaAct-f.realActual)}</div>`:(f.metaAct?'<div style="font-size:9px;color:#16a34a">cumplida</div>':'')}
+            </td>` : ventana.map(v=>{
               const m = f.metas[v.key];
               const esActual = v.key===mkDe(anioAct,mesAct);
               let inner;
@@ -11124,7 +11161,12 @@ async function renderPresupuestoVentas(){
           </tr>`).join('')}
           <tr style="border-top:2px solid var(--border);background:#faf9f8">
             <td style="padding:9px 12px;font-weight:700">TOTAL</td>
-            ${mesesHist.map((mk,ix)=>{
+            ${compactoP ? (()=>{
+              const totMin = filas.reduce((x,f)=>x+(f.minimoAct||0),0);
+              const totVen = filas.reduce((x,f)=>x+(f.realActual||0),0);
+              return `<td style="padding:9px 8px;text-align:center;font-weight:700;color:var(--muted);background:#f3f0ec">${fmtP(totMin)}</td>
+                      <td style="padding:9px 8px;text-align:center;font-weight:800;color:var(--text);background:#f3f0ec">${fmtP(totVen)}</td>`;
+            })() : mesesHist.map((mk,ix)=>{
               const tot = filas.reduce((x,f)=>x+((f.hist[ix]&&f.hist[ix].val)||0),0);
               return `<td style="padding:9px 8px;text-align:center;font-weight:700;color:var(--muted);background:#f3f0ec">${tot?fmtP(tot):'—'}</td>`;
             }).join('')}
@@ -11132,10 +11174,11 @@ async function renderPresupuestoVentas(){
             ${compactoP?'':`<td style="padding:9px 8px;text-align:center;font-weight:700;color:var(--muted)">${fmtP(filas.reduce((x,f)=>x+(f.base||0),0))}</td>`}
             <td></td>
             ${compactoP?(()=>{
-              const totInc = filas.reduce((x,f)=>{ const m0=f.metas[ventana[0].key]; return x + ((m0&&f.baseUlt)?(m0.valor-f.baseUlt):0); },0);
+              const totInc = filas.reduce((x,f)=>x+(f.incrAct||0),0);
               return `<td style="padding:9px 8px;text-align:center;font-weight:700;color:${totInc>=0?'#16a34a':'#dc2626'}">${totInc>=0?'+':'-'}${fmtP(Math.abs(totInc))}</td>`;
             })():''}
-            ${ventana.map(v=>{
+            ${compactoP ? `<td style="padding:9px 8px;text-align:center;font-weight:700;color:var(--brown)">${fmtP(filas.reduce((x,f)=>x+(f.metaAct||0),0))}</td>`
+              : ventana.map(v=>{
               const tot = filas.reduce((x,f)=>x+((f.metas[v.key]&&f.metas[v.key].valor)||0),0);
               return `<td style="padding:9px 8px;text-align:center;font-weight:700;color:var(--brown)">${tot?fmtP(tot):'—'}</td>`;
             }).join('')}
