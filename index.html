@@ -13415,34 +13415,51 @@ function pctPorDefecto(nombre){
 
 // Barra de avance del mes contra la meta: cuánto lleva vendido, cuánto le falta y el
 // porcentaje cumplido al final de la barra.
-function barraAvanceMeta(nombreVend, anioM, mesM, meta, MESES_P){
+function barraAvanceMeta(nombreVend, anioM, mesM, meta, MESES_P, minimo){
   if(meta === null || !(meta > 0)) return '';
   const hoyB = new Date(new Date().toLocaleString('en-US',{timeZone:'America/Guayaquil'}));
   const anioHoy = hoyB.getFullYear(), mesHoy = hoyB.getMonth()+1;
-  // Si la meta corresponde a un mes que todavía no arranca (del 25 en adelante se proyecta
-  // el siguiente), no hay avance que mostrar todavía.
   if(anioM > anioHoy || (anioM === anioHoy && mesM > mesHoy)){
     return '<div style="margin-top:12px;font-size:11px;color:var(--muted);text-align:center;background:#faf9f8;border:1px dashed var(--border);border-radius:10px;padding:10px">'
       + 'Tu avance aparecerá aquí cuando empiece ' + MESES_P[mesM] + '.</div>';
   }
   const vendido = Math.round(ventasMesDeVendedora(nombreVend, mesM, anioM) || 0);
-  const falta = Math.max(0, meta - vendido);
+  const min = (minimo > 0) ? minimo : 0;
   const pctA = Math.round(vendido / meta * 1000) / 10;
   const ancho = Math.max(0, Math.min(100, pctA));
+  const pctMin = (min > 0 && min < meta) ? (min / meta * 100) : null;
+
+  // Tres tramos: ámbar mientras no llega al mínimo, marrón entre el mínimo y la meta,
+  // verde al alcanzarla. El 100% de la barra es la meta.
+  const bajoMin  = min > 0 && vendido < min;
   const cumplida = vendido >= meta;
-  const col = cumplida ? '#16a34a' : (pctA >= 60 ? 'var(--brown)' : '#d97706');
+  const col = cumplida ? '#16a34a' : (bajoMin ? '#d97706' : 'var(--brown)');
+  const etiqueta = cumplida ? '¡Meta cumplida!' : (bajoMin ? 'Aún bajo el mínimo' : 'Sobre el mínimo, rumbo a la meta');
+  const falta = cumplida ? 0 : Math.max(0, meta - vendido);
+  const faltaMin = bajoMin ? Math.max(0, min - vendido) : 0;
+  const exceso = cumplida ? vendido - meta : 0;
   const fmtB = x => '$' + Math.round(x).toLocaleString('en-US');
+
   return `
-    <div style="margin-top:14px">
-      <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;margin-bottom:6px">
-        <div style="font-size:11px;color:var(--muted)">Vendido en ${MESES_P[mesM]} <b style="color:${col};font-size:15px;margin-left:4px">${fmtB(vendido)}</b></div>
-        <div style="font-size:11px;color:var(--muted)">${cumplida ? '<b style="color:#16a34a">¡Meta cumplida!</b>' : 'Te falta <b style="color:var(--text);font-size:15px;margin-left:2px">'+fmtB(falta)+'</b>'}</div>
+    <div style="margin-top:16px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;margin-bottom:7px">
+        <div style="font-size:11px;color:var(--muted)">Vendido en ${MESES_P[mesM]} <b style="color:${col};font-size:16px;margin-left:4px">${fmtB(vendido)}</b></div>
+        <div style="font-size:11px;color:var(--muted)">
+          ${cumplida ? '<b style="color:#16a34a">¡Meta cumplida!</b>' + (exceso > 0 ? ' · ' + fmtB(exceso) + ' por encima' : '')
+            : (bajoMin ? 'Para el mínimo te falta <b style="color:#d97706;font-size:15px">'+fmtB(faltaMin)+'</b>'
+                       : 'Para la meta te falta <b style="color:var(--text);font-size:15px">'+fmtB(falta)+'</b>')}
+        </div>
       </div>
       <div style="display:flex;align-items:center;gap:10px">
-        <div style="flex:1;height:16px;background:#eee9e4;border-radius:10px;overflow:hidden">
+        <div style="flex:1;position:relative;height:18px;background:#eee9e4;border-radius:10px;overflow:hidden">
           <div style="width:${ancho}%;height:100%;background:${col};border-radius:10px;transition:width 0.4s"></div>
+          ${pctMin !== null ? `<div title="Mínimo ${fmtB(min)}" style="position:absolute;top:0;left:${pctMin}%;width:2px;height:100%;background:${vendido>=min?'rgba(255,255,255,0.85)':'#b9ada0'}"></div>` : ''}
         </div>
-        <div style="font-size:15px;font-weight:800;color:${col};min-width:52px;text-align:right">${pctA}%</div>
+        <div style="font-size:16px;font-weight:800;color:${col};min-width:54px;text-align:right">${pctA}%</div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:5px">
+        <span>${etiqueta}</span>
+        <span>${pctMin !== null ? 'La rayita es el mínimo (' + fmtB(min) + ') · ' : ''}100% = meta ${fmtB(meta)}</span>
       </div>
     </div>`;
 }
@@ -13653,58 +13670,47 @@ function cardEquipoGiovanna(nombreVend, usuarios, anioE, mesE, opts){
 }
 
 // Tarjeta de presupuesto personal (misma lógica que Reportes → Presupuesto ventas, una asesora)
-function cardPresupuestoAsesora(nombreVend){
+function cardPresupuestoAsesora(nombreVend, anioSel, mesSel){
   const cfgP = window._pptoCfgKpi;
   if(!cfgP) return '';
   const hoyP = new Date(new Date().toLocaleString('en-US',{timeZone:'America/Guayaquil'}));
-  const anioA = hoyP.getFullYear(), mesA = hoyP.getMonth()+1;
   const shift = (a,m,d)=>{ m+=d; while(m>12){m-=12;a++;} while(m<1){m+=12;a--;} return {a,m}; };
   const MESES_P = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-  // Mes proyectado: del 1 al 24 el mes en curso; desde el 25, el siguiente
-  let pa = anioA, pm = mesA;
-  if(hoyP.getDate() >= 25){ const sh = shift(pa,pm,1); pa = sh.a; pm = sh.m; }
-  const h1 = shift(pa,pm,-2), h2 = shift(pa,pm,-1), h0 = shift(pa,pm,-3);
-  // Mismo criterio que Presupuesto ventas: el mes base se proyecta si sigue en curso
-  const fMes = (a,m) => (factorProyeccionMes(a,m) || 1);
-  const v = (a,m) => Math.round((ventasMesDeVendedora(nombreVend, m, a) || 0) * fMes(a,m));
-  const vAntes = v(h0.a,h0.m), v1 = v(h1.a,h1.m), v2 = v(h2.a,h2.m);
-  const v2Proyectado = fMes(h2.a,h2.m) !== 1;
-  const crec1 = vAntes > 100 ? Math.round((v1-vAntes)/vAntes*1000)/10 : null;
-  const crec2 = v1 > 100 ? Math.round((v2-v1)/v1*1000)/10 : null;
-  // % y meta manual de la configuración
-  const anclaP = x => String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().split(/\s+/).slice(0,2).join(' ');
-  const kPct = Object.keys(cfgP.pct||{}).find(k=>anclaP(k)===anclaP(nombreVend));
-  const pct = kPct !== undefined ? parseFloat(cfgP.pct[kPct]) : null;
-  const kOv = Object.keys(cfgP.overrides||{}).find(k=>anclaP(k)===anclaP(nombreVend));
-  const mkP = (a,m)=>a+'-'+String(m).padStart(2,'0');
-  const ovMes = kOv !== undefined ? (cfgP.overrides[kOv]||{})[mkP(pa,pm)] : undefined;
-  let meta = null, esManual = false;
-  if(ovMes !== undefined && ovMes !== null && ovMes !== ''){ meta = Math.round(parseFloat(ovMes)||0); esManual = true; }
-  else if(pct !== null && v2) meta = Math.round(v2 * (1 + pct/100));
-  const incremento = (meta !== null && v2) ? meta - v2 : null;
-  // Mínimo para cobrar comisión: promedio de los 2 últimos meses cerrados (piso $4.000)
+  // El mes de la tarjeta es el que se está viendo en el panel (por defecto, el actual).
+  // Nada de adelantarse al mes siguiente: la asesora quiere ver cómo va ESTE mes.
+  const pa = anioSel || hoyP.getFullYear();
+  const pm = mesSel  || (hoyP.getMonth()+1);
+  const h1 = shift(pa,pm,-2), h2 = shift(pa,pm,-1);
+  const v = (a,m) => Math.round(ventasMesDeVendedora(nombreVend, m, a) || 0);
+  const v1 = v(h1.a,h1.m), v2 = v(h2.a,h2.m);
+
+  // Meta: misma definición que usa el panel Presupuesto ventas (mes anterior + %),
+  // respetando una meta fijada a mano si existe.
+  const mi = metaDeAsesora(nombreVend, pa, pm) || {};
+  const meta = mi.meta, esManual = !!mi.manual, pct = mi.pct;
+
+  // Mínimo para cobrar comisión: promedio de los DOS meses anteriores (piso $4.000)
   const minimoP = Math.max(Math.round((v1 + v2) / 2), 4000);
+  const vendido = Math.round(ventasMesDeVendedora(nombreVend, pm, pa) || 0);
   const fmtK = x => '$' + Math.round(x).toLocaleString('en-US');
-  if(meta === null && !v1 && !v2) return '';
+  if(meta === null && !v1 && !v2 && !vendido) return '';
+
+  const bajoMin = vendido < minimoP;
+  const cumplida = meta && vendido >= meta;
+  const colV = cumplida ? '#16a34a' : (bajoMin ? '#d97706' : 'var(--brown)');
+
   return `
     <div class="card" style="margin-bottom:12px">
       <div class="card-title" style="margin-bottom:12px"><i class="ti ti-target-arrow"></i> Mi presupuesto — ${MESES_P[pm]} ${pa}</div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">
         <div style="background:#f3f0ec;border-radius:10px;padding:12px;text-align:center">
-          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">${MESES_P[h2.m]} ${String(h2.a).substring(2)}${v2Proyectado?' *':''}</div>
-          <div style="font-size:19px;font-weight:700;color:var(--text)">${fmtK(v2)}</div>
-          ${v2Proyectado?'<div style="font-size:9px;color:var(--muted)">proyectado a mes completo</div>':''}
-          ${crec2!==null?`<div style="font-size:10px;font-weight:700;color:${crec2>=0?'#16a34a':'#dc2626'}">${crec2>0?'+':''}${crec2}%</div>`:''}
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Vendido en ${MESES_P[pm]}</div>
+          <div style="font-size:22px;font-weight:800;color:${colV}">${fmtK(vendido)}</div>
         </div>
         <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:12px;text-align:center">
           <div style="font-size:10px;color:#92400e;text-transform:uppercase;letter-spacing:0.5px">Mínimo a cumplir</div>
-          <div style="font-size:19px;font-weight:800;color:#d97706">${fmtK(minimoP)}</div>
+          <div style="font-size:22px;font-weight:800;color:#d97706">${fmtK(minimoP)}</div>
           <div style="font-size:9px;color:#92400e">para tu comisión</div>
-        </div>
-        <div style="background:#faf9f8;border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center">
-          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Incremento pedido</div>
-          <div style="font-size:19px;font-weight:800;color:var(--brown)">${pct!==null?pct+'%':'—'}</div>
-          ${incremento!==null?`<div style="font-size:10px;font-weight:700;color:#16a34a">${incremento>=0?'+':''}${fmtK(incremento)}</div>`:''}
         </div>
         <div style="background:#1a1108;border-radius:10px;padding:12px;text-align:center">
           <div style="font-size:10px;color:rgba(255,255,255,0.7);text-transform:uppercase;letter-spacing:0.5px">Mi meta ${MESES_P[pm]}</div>
@@ -13712,8 +13718,11 @@ function cardPresupuestoAsesora(nombreVend){
           ${esManual?'<div style="font-size:9px;color:#fcd34d;font-weight:600">meta fijada</div>':''}
         </div>
       </div>
-      ${barraAvanceMeta(nombreVend, pa, pm, meta, MESES_P)}
-      <div style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.5">Tu meta sale de ${MESES_P[h2.m]} (${fmtK(v2)}${v2Proyectado?', proyectado a mes completo con lo que llevas vendido':''}) más el incremento mensual acordado${pct!==null?' de '+pct+'%':''}. El <b>mínimo</b> es el promedio de tus 2 últimos meses: por debajo de ${fmtK(minimoP)} tu comisión baja.</div>
+      ${barraAvanceMeta(nombreVend, pa, pm, meta, MESES_P, minimoP)}
+      <div style="font-size:11px;color:var(--muted);margin-top:12px;line-height:1.5">
+        Tu meta sale de ${MESES_P[h2.m]} (${fmtK(v2)}) más el incremento acordado${pct!==null&&pct!==undefined&&!isNaN(pct)?' de '+pct+'%':''}.
+        El <b>mínimo</b> es el promedio de ${MESES_P[h1.m]} y ${MESES_P[h2.m]}: por debajo de ${fmtK(minimoP)} tu comisión baja.
+      </div>
     </div>`;
 }
 
@@ -14751,7 +14760,7 @@ async function renderKpis(){
     </div>
 
     <!-- 1) Mi presupuesto · 2) Meta de ventas · 3) Ventas durante el año -->
-    ${cardPresupuestoAsesora(asesoraKpi)}
+    ${cardPresupuestoAsesora(asesoraKpi, anioFiltro, mesFiltro)}
     ${cardsVentasYMeta(asesoraKpi, anioFiltro, 'meta')}
     ${cardsVentasYMeta(asesoraKpi, anioFiltro, 'ventas')}
 
