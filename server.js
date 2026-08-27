@@ -149,6 +149,16 @@ async function sincronizarCatalogo() {
           pvp2: parseFloat(p.pvp2) || 0,
           pvp3: parseFloat(p.pvp3) || 0,
           pvp4: parseFloat(p.pvp4) || 0,
+          // Contifico valida que el precio enviado coincida EXACTO con uno de los precios
+          // del producto ("el precio de venta no está entre los disponibles"). Un 54.350
+          // convertido a número se vuelve 54.35 y deja de coincidir, así que se guarda
+          // también el texto tal cual vino de la API y ese es el que se manda.
+          pvp_txt: {
+            pvp1: (p.pvp1 == null ? null : String(p.pvp1)),
+            pvp2: (p.pvp2 == null ? null : String(p.pvp2)),
+            pvp3: (p.pvp3 == null ? null : String(p.pvp3)),
+            pvp4: (p.pvp4 == null ? null : String(p.pvp4))
+          },
           iva:  (p.porcentaje_iva === 0 ? 0 : 15),
           // Costo: Contifico expone el campo con distintos nombres según la versión de la
           // ficha. Tomamos el primero con valor y dejamos anotado cuál fue, para poder
@@ -4203,6 +4213,40 @@ const server = http.createServer(async (req, res) => {
   // Permite marcar manualmente un pedido como facturado (por si el cruce automático no
   // lo detecta, ej. el nombre en Contifico es muy distinto al de la web)
   // CREAR PREFACTURA EN CONTIFICO desde un pedido web (María José solo revisa y factura)
+  // Auditoría de precios del catálogo: qué productos tienen listas vacías o precios
+  // con más decimales de los que Contifico admite. Sirve para limpiar de una sola vez
+  // en vez de descubrirlos uno por uno al facturar.
+  if (urlPath === '/api/productos/precios-auditoria' && req.method === 'GET') {
+    try {
+      const soloActivos = urlObj.searchParams.get('todos') !== '1';
+      const listas = ['pvp1','pvp2','pvp3','pvp4'];
+      const decimalesDe = v => {
+        const t = String(v);
+        const i = t.indexOf('.');
+        return i < 0 ? 0 : (t.length - i - 1);
+      };
+      const sinPrecio = [], conDecimales = [];
+      Object.entries(catalogoProductos || {}).forEach(([id, p]) => {
+        if (soloActivos && p.estado && p.estado.toUpperCase() !== 'A') return;
+        const faltan = listas.filter(k => !(p[k] > 0));
+        const sobran = listas.filter(k => p[k] > 0 && decimalesDe(p[k]) > DECIMALES_PRECIO);
+        if (faltan.length) sinPrecio.push({ codigo:p.codigo, nombre:p.nombre, marca:p.marca, sin_precio_en:faltan, precios:{pvp1:p.pvp1,pvp2:p.pvp2,pvp3:p.pvp3,pvp4:p.pvp4} });
+        if (sobran.length) conDecimales.push({ codigo:p.codigo, nombre:p.nombre, marca:p.marca, con_exceso_de_decimales:sobran.map(k => k+'='+p[k]) });
+      });
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({
+        ok:true,
+        decimales_configurados: DECIMALES_PRECIO,
+        catalogo_sincronizado: catalogoSyncedAt,
+        productos_revisados: Object.keys(catalogoProductos||{}).length,
+        resumen: `${sinPrecio.length} producto(s) con alguna lista vacía · ${conDecimales.length} con más de ${DECIMALES_PRECIO} decimales`,
+        con_lista_vacia: sinPrecio.sort((a,b)=>String(a.codigo).localeCompare(String(b.codigo))),
+        con_exceso_de_decimales: conDecimales.sort((a,b)=>String(a.codigo).localeCompare(String(b.codigo)))
+      }, null, 2));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
   // Diagnóstico de precios de una prefactura: ?numero=17355
   // Compara, producto por producto, lo que tiene el caché contra lo que Contifico
   // responde EN VIVO, y muestra qué lista de precios le toca a la clienta. Sirve para
@@ -4270,7 +4314,7 @@ const server = http.createServer(async (req, res) => {
           producto_id: pid || null,
           precio_en_cache: pid ? (cache[pvpKey] || 0) : null,
           precio_en_vivo: enVivoLista,
-          se_enviaria: pid ? redondearPrecio(enVivoLista || cache[pvpKey] || cache.pvp1 || 0) : null,
+          se_enviaria: pid ? ((vivo && vivo[pvpKey] != null) ? String(vivo[pvpKey]) : (enVivoLista || cache[pvpKey] || cache.pvp1 || 0)) : null,
           problema: !pid ? 'No cruza por SKU con Contifico'
                   : (enVivoLista === 0 ? `El producto NO tiene precio en ${pvpKey.toUpperCase()}, que es la lista de esta clienta`
                   : (errorVivo ? 'No se pudo consultar en vivo: ' + errorVivo : null)),
@@ -4413,7 +4457,11 @@ const server = http.createServer(async (req, res) => {
         // Si se mandan más (antes iban 4), al convertir la prefactura en factura Contifico
         // vuelve a validar el precio contra su configuración y la rechaza.
         const precioLista = info[pvpKey] || 0;
-        const precioBase = redondearPrecio(precioLista || info.pvp1 || info.pvp2 || info.pvp3 || info.pvp4 || 0);
+        // NO se redondea: va el mismo texto que tiene Contifico. Redondear rompe la
+        // validación de "precio entre los disponibles" cuando la lista usa 3 decimales.
+        const precioTxt = (info.pvp_txt && info.pvp_txt[pvpKey]) || null;
+        const precioBase = precioLista || info.pvp1 || info.pvp2 || info.pvp3 || info.pvp4 || 0;
+        const precioEnviar = (precioLista && precioTxt) ? precioTxt : precioBase;
         // Aviso explícito: el producto no tiene precio en la lista de ESTA clienta.
         // Antes se caía a otra lista en silencio y el error recién salía al facturar.
         if (!precioLista) {
@@ -4426,7 +4474,7 @@ const server = http.createServer(async (req, res) => {
         const det = {
           producto_id: match.id,
           cantidad: qty,
-          precio: precioBase,
+          precio: precioEnviar,
           porcentaje_iva: ivaProd,
           porcentaje_descuento: desc,
           base_cero: 0,
