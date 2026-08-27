@@ -10945,7 +10945,16 @@ async function renderPresupuestoVentas(){
   }
   // Históricos: SIEMPRE meses cerrados (el mes en curso jamás aparece como histórico;
   // al cambiar de mes, el que cerró entra solo — ej: el 1 de agosto julio pasa al histórico)
-  const mesesHist = mesesCerrados.slice(-HIST_N);
+  // Panel compacto: los históricos son los DOS meses anteriores al proyectado, aunque el
+  // último siga en curso (se proyecta a mes completo). Antes tomaba los 2 últimos meses
+  // cerrados, así que el 27 de agosto proyectaba septiembre sobre julio y no coincidía
+  // con la meta que veía la asesora en sus KPIs.
+  const mesesHist = compactoP
+    ? [mesShiftK2(ventana[0].anio, ventana[0].mes, -2), mesShiftK2(ventana[0].anio, ventana[0].mes, -1)].map(x=>mkDe(x.a, x.m))
+    : mesesCerrados.slice(-HIST_N);
+  // Factor de regla de tres del mes (1 si ya cerró). Misma función que usan los KPIs.
+  const factorMk = mk => { const p = mk.split('-').map(Number); return (factorProyeccionMes(p[0], p[1]) || 1); };
+  const mkProyectado = mesesHist.filter(mk => factorMk(mk) !== 1);
 
   // Uplift ERAYBA octubre: aporte mensual promedio por producto ERAYBA × 11 productos × factor prudente 0.8
   const mesesConErayba = Object.keys(eraybaMes).length || 1;
@@ -10983,7 +10992,8 @@ async function renderPresupuestoVentas(){
     const metas = {};
     // Una meta manual se vuelve la NUEVA BASE: los meses siguientes crecen con el % desde ahí
     // En el panel compacto la base es el ÚLTIMO mes cerrado (vendió 10.000 + 10% → meta 11.000)
-    const baseUltimo = Math.round(vm[mesesHist[mesesHist.length-1]] || 0);
+    const mkUlt = mesesHist[mesesHist.length-1];
+    const baseUltimo = Math.round((vm[mkUlt] || 0) * factorMk(mkUlt));
     let refCrec = (compactoP ? baseUltimo : base) || 0;
     ventana.forEach((v,i)=>{
       if(ov[v.key] !== undefined && ov[v.key] !== null && ov[v.key] !== ''){
@@ -11001,13 +11011,13 @@ async function renderPresupuestoVentas(){
     const realActual = Math.round(vm[mkDe(anioAct,mesAct)]||0);
     // Histórico: últimos 3 meses cerrados con % de crecimiento vs el mes anterior
     const hist = mesesHist.map((mk,ix)=>{
-      const val = Math.round(vm[mk]||0);
+      const val = Math.round((vm[mk]||0) * factorMk(mk));
       const [pha, phm] = mk.split('-').map(Number);
       const prevSh = mesShiftK2(pha, phm, -1);
       const prevKey = ix > 0 ? mesesHist[ix-1] : mkDe(prevSh.a, prevSh.m);
-      const prev = prevKey ? Math.round(vm[prevKey]||0) : 0;
+      const prev = prevKey ? Math.round((vm[prevKey]||0) * factorMk(prevKey)) : 0;
       const crec = prev > 100 ? Math.round((val-prev)/prev*1000)/10 : null;
-      return { mk, val, crec };
+      return { mk, val, crec, proyectado: factorMk(mk) !== 1 };
     });
     const crecsHist = hist.map(h=>h.crec).filter(c=>c!==null);
     const crecProm = crecsHist.length ? Math.round(crecsHist.reduce((x,y)=>x+y,0)/crecsHist.length*10)/10 : null;
@@ -11065,10 +11075,14 @@ async function renderPresupuestoVentas(){
 
     <div class="card" style="padding:0">
       <div style="padding:14px 16px 10px;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px"><i class="ti ti-target-arrow" style="margin-right:6px"></i>${compactoP ? 'Presupuesto ventas — 2 últimos meses + mes proyectado (sin IVA)' : 'Presupuesto — mes en curso + 3 proyectados (sin IVA)'}</div>
+      ${compactoP && mkProyectado.length ? `<div style="padding:0 16px 10px;font-size:11px;color:var(--muted);line-height:1.5">* ${MESES_PPTO[parseInt(mkProyectado[0].split('-')[1])]} todavía está en curso: se muestra proyectado a mes completo con regla de tres, y esa es la base de la meta. Es el mismo número que ve cada asesora en sus KPIs.</div>` : ''}
       <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:820px">
         <thead><tr style="border-bottom:1px solid var(--border)">
           <th style="text-align:left;padding:8px 12px;font-size:10px;color:var(--muted);text-transform:uppercase;${compactoP?'width:22%':''}">Asesora</th>
-          ${mesesHist.map(mk=>`<th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;background:#f3f0ec">${MESES_PPTO[parseInt(mk.split('-')[1])]} ${mk.substring(2,4)}<br><span style="font-weight:400;letter-spacing:0">histórico</span></th>`).join('')}
+          ${mesesHist.map(mk=>{
+            const proy = factorMk(mk) !== 1;
+            return `<th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;background:#f3f0ec">${MESES_PPTO[parseInt(mk.split('-')[1])]} ${mk.substring(2,4)}${proy?' *':''}<br><span style="font-weight:400;letter-spacing:0">${proy?'mes en curso proyectado':'histórico'}</span></th>`;
+          }).join('')}
           ${compactoP?'':`<th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;background:#f3f0ec">Crec.<br>prom. ${HIST_N}m</th>`}
           ${compactoP?'':`<th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Base<br>(prom. 3m)</th>`}
           <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">${compactoP?'% Incremento mensual':'% mensual'}</th>
@@ -13437,12 +13451,39 @@ function barraAvanceMeta(nombreVend, anioM, mesM, meta, MESES_P){
 // override manual si existe, si no el último mes cerrado más su % de crecimiento.
 // Se centraliza aquí para que el panel de Giovanna y la tarjeta personal no puedan
 // divergir: una sola definición de "meta".
+// ─── BASE DE LAS METAS (regla única) ──────────────────────────────────────────────
+// Los paneles Presupuesto ventas y KPIs calculaban la meta cada uno por su cuenta y
+// terminaban dando cifras distintas para el mismo mes. Ahora los dos preguntan aquí.
+//
+// La meta de un mes sale del mes inmediatamente anterior. Si ese mes todavía está en
+// curso (pasa desde el 25, cuando ya se arma el presupuesto del mes que viene), se lo
+// proyecta a mes completo con regla de tres: lo vendido ÷ días transcurridos × días del
+// mes. Así la meta no espera al cierre y casi no se mueve cuando el mes cierra.
+// Antes del día 8 la proyección es demasiado ruidosa, así que se usa el mes cerrado anterior.
+function factorProyeccionMes(anio, mes){
+  const hoy = new Date(new Date().toLocaleString('en-US',{timeZone:'America/Guayaquil'}));
+  if(anio !== hoy.getFullYear() || mes !== (hoy.getMonth()+1)) return 1;   // mes ya cerrado
+  const dia = hoy.getDate();
+  const diasMes = new Date(anio, mes, 0).getDate();
+  if(dia >= diasMes) return 1;      // último día: ya es el mes completo
+  if(dia < 8) return null;          // muy temprano para proyectar
+  return diasMes / dia;
+}
+
+function mesBaseDeMeta(anioProy, mesProy){
+  const sh = (a,m,d)=>{ m+=d; while(m>12){m-=12;a++;} while(m<1){m+=12;a--;} return {a,m}; };
+  let p = sh(anioProy, mesProy, -1);
+  let f = factorProyeccionMes(p.a, p.m);
+  if(f === null){ p = sh(p.a, p.m, -1); f = 1; }   // mes en curso recién empezado
+  return { anio:p.a, mes:p.m, factor:f, proyectado: f !== 1 };
+}
+
 function metaDeAsesora(nombreVend, anioM, mesM){
   const cfgP = window._pptoCfgKpi || {};
   const shiftM = (a,m,d)=>{ m+=d; while(m>12){m-=12;a++;} while(m<1){m+=12;a--;} return {a,m}; };
   const ancla = x => String(x||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase().split(/\s+/).slice(0,2).join(' ');
-  const prev = shiftM(anioM, mesM, -1);
-  const base = Math.round(ventasMesDeVendedora(nombreVend, prev.m, prev.a) || 0);
+  const mb = mesBaseDeMeta(anioM, mesM);
+  const base = Math.round((ventasMesDeVendedora(nombreVend, mb.mes, mb.anio) || 0) * mb.factor);
   const kPct = Object.keys(cfgP.pct||{}).find(k=>ancla(k)===ancla(nombreVend));
   let pct = kPct !== undefined ? parseFloat(cfgP.pct[kPct]) : null;
   if(pct === null || isNaN(pct)) pct = pctPorDefecto(nombreVend);
@@ -13623,8 +13664,11 @@ function cardPresupuestoAsesora(nombreVend){
   let pa = anioA, pm = mesA;
   if(hoyP.getDate() >= 25){ const sh = shift(pa,pm,1); pa = sh.a; pm = sh.m; }
   const h1 = shift(pa,pm,-2), h2 = shift(pa,pm,-1), h0 = shift(pa,pm,-3);
-  const v = (a,m) => Math.round(ventasMesDeVendedora(nombreVend, m, a) || 0);
+  // Mismo criterio que Presupuesto ventas: el mes base se proyecta si sigue en curso
+  const fMes = (a,m) => (factorProyeccionMes(a,m) || 1);
+  const v = (a,m) => Math.round((ventasMesDeVendedora(nombreVend, m, a) || 0) * fMes(a,m));
   const vAntes = v(h0.a,h0.m), v1 = v(h1.a,h1.m), v2 = v(h2.a,h2.m);
+  const v2Proyectado = fMes(h2.a,h2.m) !== 1;
   const crec1 = vAntes > 100 ? Math.round((v1-vAntes)/vAntes*1000)/10 : null;
   const crec2 = v1 > 100 ? Math.round((v2-v1)/v1*1000)/10 : null;
   // % y meta manual de la configuración
@@ -13647,8 +13691,9 @@ function cardPresupuestoAsesora(nombreVend){
       <div class="card-title" style="margin-bottom:12px"><i class="ti ti-target-arrow"></i> Mi presupuesto — ${MESES_P[pm]} ${pa}</div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px">
         <div style="background:#f3f0ec;border-radius:10px;padding:12px;text-align:center">
-          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">${MESES_P[h2.m]} ${String(h2.a).substring(2)}</div>
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">${MESES_P[h2.m]} ${String(h2.a).substring(2)}${v2Proyectado?' *':''}</div>
           <div style="font-size:19px;font-weight:700;color:var(--text)">${fmtK(v2)}</div>
+          ${v2Proyectado?'<div style="font-size:9px;color:var(--muted)">proyectado a mes completo</div>':''}
           ${crec2!==null?`<div style="font-size:10px;font-weight:700;color:${crec2>=0?'#16a34a':'#dc2626'}">${crec2>0?'+':''}${crec2}%</div>`:''}
         </div>
         <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:12px;text-align:center">
@@ -13668,7 +13713,7 @@ function cardPresupuestoAsesora(nombreVend){
         </div>
       </div>
       ${barraAvanceMeta(nombreVend, pa, pm, meta, MESES_P)}
-      <div style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.5">Tu meta sale de tu último mes cerrado (${MESES_P[h2.m]}: ${fmtK(v2)}) más el incremento mensual acordado${pct!==null?' de '+pct+'%':''}. El <b>mínimo</b> es el promedio de tus 2 últimos meses: por debajo de ${fmtK(minimoP)} tu comisión baja.</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.5">Tu meta sale de ${MESES_P[h2.m]} (${fmtK(v2)}${v2Proyectado?', proyectado a mes completo con lo que llevas vendido':''}) más el incremento mensual acordado${pct!==null?' de '+pct+'%':''}. El <b>mínimo</b> es el promedio de tus 2 últimos meses: por debajo de ${fmtK(minimoP)} tu comisión baja.</div>
     </div>`;
 }
 
