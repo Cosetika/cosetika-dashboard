@@ -98,6 +98,14 @@ let cache = { documentos: [], ultima_sync: null, sincronizando: false };
 
 // ─── CATÁLOGO PRODUCTOS ───────────────────────────────────────
 let catalogoProductos = {};
+// Decimales con los que Contifico está configurado para los precios de venta.
+// Se cambió de 3 a 2 en agosto 2026; si vuelve a cambiar, se ajusta con la variable
+// CONTIFICO_DECIMALES en Railway sin tocar código.
+const DECIMALES_PRECIO = Math.min(6, Math.max(0, parseInt(process.env.CONTIFICO_DECIMALES) || 2));
+function redondearPrecio(v){
+  const f = Math.pow(10, DECIMALES_PRECIO);
+  return Math.round((parseFloat(v) || 0) * f) / f;
+}
 let catalogoSyncedAt = null;
 
 let categoriasContifico = {};
@@ -4195,6 +4203,96 @@ const server = http.createServer(async (req, res) => {
   // Permite marcar manualmente un pedido como facturado (por si el cruce automático no
   // lo detecta, ej. el nombre en Contifico es muy distinto al de la web)
   // CREAR PREFACTURA EN CONTIFICO desde un pedido web (María José solo revisa y factura)
+  // Diagnóstico de precios de una prefactura: ?numero=17355
+  // Compara, producto por producto, lo que tiene el caché contra lo que Contifico
+  // responde EN VIVO, y muestra qué lista de precios le toca a la clienta. Sirve para
+  // ver de un vistazo cuál producto no tiene precio configurado.
+  if (urlPath === '/api/prefactura/diagnostico' && req.method === 'GET') {
+    try {
+      if (!API_KEY) throw new Error('CONTIFICO_API_KEY no configurada');
+      const numero = String(urlObj.searchParams.get('numero') || '').trim();
+      if (!numero) throw new Error('Falta ?numero=');
+      let WOO_URL = (process.env.WOO_URL || '').trim();
+      const mU = WOO_URL.match(/https?:\/\/[^\s"']+/);
+      WOO_URL = (mU ? mU[0] : WOO_URL).replace(/\/+$/, '');
+      const WOO_CK = process.env.WOO_CK || process.env.WC_CONSUMER_KEY || '';
+      const WOO_CS = process.env.WOO_CS || process.env.WC_CONSUMER_SECRET || '';
+      const wR = await fetch(`${WOO_URL}/wp-json/wc/v3/orders/${encodeURIComponent(numero)}?consumer_key=${encodeURIComponent(WOO_CK)}&consumer_secret=${encodeURIComponent(WOO_CS)}`, { headers: { 'Accept':'application/json' } });
+      if (!wR.ok) throw new Error('WooCommerce respondió ' + wR.status);
+      const orden = await wR.json();
+
+      // Lista de precios de la clienta
+      const bill = orden.billing || {};
+      const ced = String(orden.meta_data?.find(m => /cedula|identificacion|ruc|dni/i.test(m.key||''))?.value || bill.company || '').replace(/\D/g,'');
+      let persona = null;
+      if (ced) {
+        for (const campo of (ced.length === 13 ? ['ruc','cedula'] : ['cedula','ruc'])) {
+          try {
+            const rr = await fetch(`https://api.contifico.com/sistema/api/v1/persona/?${campo}=${ced}&page_size=5`, { headers: { 'Authorization': API_KEY, 'Accept':'application/json' } });
+            if (!rr.ok) continue;
+            const dd = await rr.json();
+            const lista = Array.isArray(dd) ? dd : (dd.results || []);
+            if (lista.length) { persona = lista[0]; break; }
+          } catch(e) {}
+        }
+      }
+      const PVP_DEF = (process.env.CONTIFICO_PVP_WEB || 'pvp1').toLowerCase().replace(/[^a-z0-9]/g,'');
+      const pvpPer = String((persona && persona.pvp_default) || '').toLowerCase().replace(/[^a-z0-9]/g,'');
+      const pvpKey = /^pvp[1-4]$/.test(pvpPer) ? pvpPer : PVP_DEF;
+
+      const porSku = {};
+      Object.entries(catalogoProductos || {}).forEach(([id, info]) => {
+        const c = String(info.codigo || '').trim().toUpperCase();
+        if (c) porSku[c] = id;
+      });
+
+      const lineas = [];
+      for (const it of (orden.line_items || [])) {
+        const sku = String(it.sku || '').trim().toUpperCase();
+        const pid = sku ? porSku[sku] : null;
+        const cache = pid ? (catalogoProductos[pid] || {}) : {};
+        let vivo = null, errorVivo = null;
+        if (pid) {
+          try {
+            const rp = await fetch(`https://api.contifico.com/sistema/api/v1/producto/${pid}/`, { headers: { 'Authorization': API_KEY, 'Accept':'application/json' } });
+            if (rp.ok) {
+              const p = await rp.json();
+              vivo = { pvp1:p.pvp1, pvp2:p.pvp2, pvp3:p.pvp3, pvp4:p.pvp4, iva:p.porcentaje_iva, estado:p.estado, nombre:p.nombre };
+            } else errorVivo = 'HTTP ' + rp.status;
+          } catch(e) { errorVivo = e.message; }
+        }
+        const enVivoLista = vivo ? parseFloat(vivo[pvpKey]) || 0 : null;
+        lineas.push({
+          sku: sku || '(sin SKU)',
+          nombre: it.name,
+          cantidad: it.quantity,
+          cruza_con_contifico: !!pid,
+          producto_id: pid || null,
+          precio_en_cache: pid ? (cache[pvpKey] || 0) : null,
+          precio_en_vivo: enVivoLista,
+          se_enviaria: pid ? redondearPrecio(enVivoLista || cache[pvpKey] || cache.pvp1 || 0) : null,
+          problema: !pid ? 'No cruza por SKU con Contifico'
+                  : (enVivoLista === 0 ? `El producto NO tiene precio en ${pvpKey.toUpperCase()}, que es la lista de esta clienta`
+                  : (errorVivo ? 'No se pudo consultar en vivo: ' + errorVivo : null)),
+          todas_las_listas_en_vivo: vivo ? { pvp1:vivo.pvp1, pvp2:vivo.pvp2, pvp3:vivo.pvp3, pvp4:vivo.pvp4 } : null,
+          estado_producto: vivo ? vivo.estado : null
+        });
+      }
+      const conProblema = lineas.filter(l => l.problema);
+      res.writeHead(200, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({
+        ok: true, pedido: numero,
+        cliente: persona ? { razon_social: persona.razon_social, cedula: persona.cedula || persona.ruc, pvp_default: persona.pvp_default } : { aviso: 'No se encontró la persona en Contifico con cédula ' + (ced||'(vacía)') },
+        lista_de_precios_usada: pvpKey,
+        decimales_configurados: DECIMALES_PRECIO,
+        catalogo_sincronizado: catalogoSyncedAt,
+        resumen: conProblema.length ? `${conProblema.length} producto(s) con problema de precio` : 'Todos los productos tienen precio en la lista de la clienta',
+        lineas
+      }, null, 2));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false, error:e.message})); }
+    return;
+  }
+
   if (/^\/api\/pedidos-web\/[^/]+\/prefactura$/.test(urlPath) && req.method === 'POST') {
     try {
       let WOO_URL = (process.env.WOO_URL || '').trim();
@@ -4284,6 +4382,10 @@ const server = http.createServer(async (req, res) => {
       }
 
       // 4) Cruzar productos por SKU contra el catálogo de Contifico
+      // El catálogo se sincroniza una vez al día. Si cambiaron precios en Contifico
+      // esta mañana, el caché los ignoraría, así que se refresca antes de facturar.
+      const edadCat = catalogoSyncedAt ? (Date.now() - new Date(catalogoSyncedAt).getTime()) : Infinity;
+      if (edadCat > 60 * 60 * 1000) { try { await sincronizarCatalogo(); } catch(e) {} }
       const porSku = {};
       Object.entries(catalogoProductos || {}).forEach(([id, info]) => {
         const c = String(info.codigo || '').trim().toUpperCase();
@@ -4307,8 +4409,16 @@ const server = http.createServer(async (req, res) => {
         // Precio de LISTA de Contifico según el PVP de la clienta.
         // Los pvp de Contifico ya vienen SIN IVA → se envían tal cual (no dividir por 1.15)
         const ivaProd = (info.iva === 0) ? 0 : 15;
-        const precioBase = Math.round((info[pvpKey] || info.pvp1 || info.pvp2 || info.pvp3 || info.pvp4 || 0) * 10000) / 10000;
-        if (!precioBase) { sinPrecio.push(`${info.nombre || sku} (sin PVP en Contifico)`); }
+        // El precio se manda con los MISMOS decimales que tiene configurado Contifico.
+        // Si se mandan más (antes iban 4), al convertir la prefactura en factura Contifico
+        // vuelve a validar el precio contra su configuración y la rechaza.
+        const precioLista = info[pvpKey] || 0;
+        const precioBase = redondearPrecio(precioLista || info.pvp1 || info.pvp2 || info.pvp3 || info.pvp4 || 0);
+        // Aviso explícito: el producto no tiene precio en la lista de ESTA clienta.
+        // Antes se caía a otra lista en silencio y el error recién salía al facturar.
+        if (!precioLista) {
+          sinPrecio.push(`${info.nombre || sku} — sin precio en ${pvpKey.toUpperCase()}` + (precioBase ? ` (se usó otra lista: $${precioBase})` : ' (sin ningún PVP)'));
+        }
         // Regalos / promos: el pedido trae $0 → va el precio de lista con 100% de descuento
         const esRegalo = totalLinea <= 0.009;
         const desc = esRegalo ? 100 : 0;
