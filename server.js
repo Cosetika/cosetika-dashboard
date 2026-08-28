@@ -5067,7 +5067,13 @@ const server = http.createServer(async (req, res) => {
           boton_imprimir_pedido: idx.includes('imprimirPedido'),
           flujo_de_caja: idx.includes('renderCaja'),
           panel_pyg: idx.includes('renderPyG'),
-          boton_reiniciar_prefacturas: idx.includes('Reiniciar marcas de prefactura')
+          boton_reiniciar_prefacturas: idx.includes('Reiniciar marcas de prefactura'),
+          escalera_de_comision: idx.includes('escaleraAsesora'),
+          nombre_comercial: idx.includes('comercialDe'),
+          credito_sugerido: idx.includes('calcularCreditoSugerido'),
+          rastreo_servientrega: idx.includes('urlRastreoGuia'),
+          // Si sale true, el botón Configurar de los KPIs de asesoras TODAVÍA está
+          boton_configurar_kpis_asesora: idx.includes('configurarKpiAsesora(\'')
         }
       }, null, 2));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
