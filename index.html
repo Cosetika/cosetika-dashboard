@@ -11024,10 +11024,11 @@ async function renderPresupuestoVentas(){
     const shAnt = mesShiftK2(evalSh.a, evalSh.m, -1);
     const ventasMesAnt = Math.round(vm[mkDe(shAnt.a, shAnt.m)] || 0);
     const ovMesAct = ov[evalKey];
-    // Mínimo de comisiones: promedio de los 2 últimos meses cerrados INCLUYENDO el evaluado
-    // (jun+jul para liquidar julio) — vara más exigente, decidido por Fernando
+    // Mínimo de comisiones: promedio de los 2 meses ANTERIORES al evaluado
+    // (jun+jul para liquidar agosto). Es el mismo número que la asesora ve en sus KPIs:
+    // si se incluyera el mes evaluado, el mínimo se movería con su propio desempeño.
     let prom3Sum = 0;
-    for(let d3 = 0; d3 <= 1; d3++){ const sh3 = mesShiftK2(evalSh.a, evalSh.m, -d3); prom3Sum += vm[mkDe(sh3.a, sh3.m)] || 0; }
+    for(let d3 = 1; d3 <= 2; d3++){ const sh3 = mesShiftK2(evalSh.a, evalSh.m, -d3); prom3Sum += vm[mkDe(sh3.a, sh3.m)] || 0; }
     const minProm3 = Math.round(prom3Sum / 2);
     // Ventas del mes evaluado: en vivo si es el mes en curso; cerradas si es un mes pasado
     const ventasEval = evalKey === mkDe(anioAct, mesAct) ? realActual : Math.round(vm[evalKey] || 0);
@@ -13456,6 +13457,77 @@ function pctPorDefecto(nombre){
 
 // Barra de avance del mes contra la meta: cuánto lleva vendido, cuánto le falta y el
 // porcentaje cumplido al final de la barra.
+// ─── ESCALERA DE COMISIÓN ─────────────────────────────────────────────────────────
+// Muestra los tres tramos con los números reales de la persona, para que se vea qué
+// gana hoy y cuánto más ganaría con las mismas ventas si cruza al siguiente tramo.
+function incentivoLiderCfg(){
+  return Object.assign({ pct_base:1.7, pct_bajo:1, bono:0, pct_exceso:0 },
+                       (window._pptoCfgKpi || {}).incentivo_lider || {});
+}
+
+function escaleraHTML(titulo, tramos, nivelActual){
+  const fmtD = x => '$' + (Math.round(x*100)/100).toFixed(2);
+  const fmtM = x => '$' + Math.round(x).toLocaleString('en-US');
+  return `
+    <div style="margin-top:14px;border:1px solid var(--border);border-radius:11px;overflow:hidden">
+      <div style="background:#faf9f8;padding:8px 12px;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px">${titulo}</div>
+      ${tramos.map((t,i)=>{
+        const activo = i === nivelActual;
+        return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:9px 12px;border-top:1px solid var(--border);background:${activo?t.bg:'white'}">
+          <div style="min-width:0;flex:1">
+            <div style="font-size:12px;font-weight:${activo?'800':'600'};color:${activo?t.color:'var(--text)'}">${t.titulo}${activo?' <span style="font-size:9px;font-weight:800;background:'+t.color+';color:white;border-radius:6px;padding:1px 6px;margin-left:4px">AQUÍ ESTÁS</span>':''}</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:2px">${t.formula}</div>
+          </div>
+          <div style="font-size:16px;font-weight:800;color:${activo?t.color:'var(--muted)'};white-space:nowrap">${fmtD(t.valor)}</div>
+        </div>`;
+      }).join('')}
+    </div>`;
+}
+
+// Escalera de una asesora. Las comisiones se calculan sobre lo que pasa del piso.
+function escaleraAsesora(vendido, minimo, meta, inc){
+  if(!(meta > 0)) return '';
+  const fmtM = x => '$' + Math.round(x).toLocaleString('en-US');
+  const sobrePiso = Math.max(0, vendido - PISO_COMISION);
+  const r = comisionDeAsesora(vendido, meta, minimo, inc);
+  const comMeta = comisionDeAsesora(Math.max(vendido, meta), meta, minimo, inc).comision;
+  const tramos = [
+    { titulo:'Bajo el mínimo de ' + fmtM(r.minimo),
+      formula:'(' + fmtM(vendido) + ' − ' + fmtM(PISO_COMISION) + ' de piso) × ' + inc.pct_bajo + '%',
+      valor:(inc.pct_bajo/100) * sobrePiso, color:'#b45309', bg:'#fffbeb' },
+    { titulo:'Llegando al mínimo de ' + fmtM(r.minimo),
+      formula:'(' + fmtM(vendido) + ' − ' + fmtM(PISO_COMISION) + ' de piso) × 3%',
+      valor:0.03 * sobrePiso, color:'#16a34a', bg:'#f0fdf4' },
+    { titulo:'Cumpliendo la meta de ' + fmtM(meta),
+      formula:'(' + fmtM(meta) + ' − ' + fmtM(PISO_COMISION) + ') × 3% + bono $' + inc.bono + (vendido>meta?' + '+inc.pct_exceso+'% de lo que la supere':''),
+      valor:comMeta, color:'#2563eb', bg:'#eff6ff' }
+  ];
+  // nivel 0 y 1 del cálculo son "sin comisión" y "bajo el mínimo": los dos caen en el primer tramo
+  const nivelVisual = r.nivel <= 1 ? 0 : r.nivel - 1;
+  return escaleraHTML('Cómo se calcula tu comisión', tramos, nivelVisual);
+}
+
+// Escalera de la líder: se calcula sobre las ventas del equipo, sin piso.
+function escaleraLider(ventasEq, minimoEq, metaEq, lid){
+  if(!(metaEq > 0)) return '';
+  const fmtM = x => '$' + Math.round(x).toLocaleString('en-US');
+  const cumplida = ventasEq >= metaEq;
+  const tramos = [
+    { titulo:'Bajo el mínimo de ' + fmtM(minimoEq),
+      formula:fmtM(ventasEq) + ' del equipo × ' + lid.pct_bajo + '%',
+      valor:(lid.pct_bajo/100) * ventasEq, color:'#b45309', bg:'#fffbeb' },
+    { titulo:'Llegando al mínimo de ' + fmtM(minimoEq),
+      formula:fmtM(ventasEq) + ' del equipo × ' + lid.pct_base + '%',
+      valor:(lid.pct_base/100) * ventasEq, color:'#16a34a', bg:'#f0fdf4' },
+    { titulo:'Cumpliendo la meta de ' + fmtM(metaEq),
+      formula:fmtM(metaEq) + ' × ' + lid.pct_base + '% + bono $' + lid.bono + (cumplida && ventasEq>metaEq ? ' + ' + lid.pct_exceso + '% de lo que la supere' : ''),
+      valor:(lid.pct_base/100)*metaEq + lid.bono + (cumplida ? (lid.pct_exceso/100)*(ventasEq-metaEq) : 0),
+      color:'#2563eb', bg:'#eff6ff' }
+  ];
+  const nivel = cumplida ? 2 : (ventasEq >= minimoEq ? 1 : 0);
+  return escaleraHTML('Cómo se calcula la comisión de la líder', tramos, nivel);
+}
+
 // ─── BARRA DE AVANCE MÍNIMO → META ────────────────────────────────────────────────
 // Amarillo mientras no se alcanza el mínimo · verde pasado el mínimo · azul al superar
 // la meta. El 100% de la barra siempre es la meta. La usan la tarjeta de cada asesora
@@ -13666,8 +13738,20 @@ function cardEquipoGiovanna(nombreVend, usuarios, anioE, mesE, opts){
         </div>
       </div>
       ${barraTriColor(totalVentas, minimoEquipo, totalMeta, 'Vendido por el equipo en '+MESES_E[mesE])}
-      <div style="height:6px"></div>
-      <div style="border-top:1px solid var(--border);margin:14px 0 14px"></div>`;
+      ${(()=>{
+        const lid = incentivoLiderCfg();
+        if(!(totalMeta > 0)) return '';
+        const cumpl = totalVentas >= totalMeta;
+        const com = cumpl ? (lid.pct_base/100)*totalMeta + lid.bono + (lid.pct_exceso/100)*(totalVentas-totalMeta)
+                  : (totalVentas >= minimoEquipo ? (lid.pct_base/100)*totalVentas : (lid.pct_bajo/100)*totalVentas);
+        const colC = cumpl ? '#2563eb' : (totalVentas >= minimoEquipo ? '#16a34a' : '#b45309');
+        return `<div style="margin-top:14px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:11px;padding:12px;text-align:center">
+          <div style="font-size:10px;color:#166534;text-transform:uppercase;letter-spacing:0.5px">Comisión generada${opts.forzar?'':' — '+esc(String(nombreVend).split(' ')[0])}</div>
+          <div style="font-size:26px;font-weight:800;color:${colC}">$${(Math.round(com*100)/100).toFixed(2)}</div>
+          <div style="font-size:10px;color:#166534">sobre las ventas de todo el equipo</div>
+        </div>` + escaleraLider(totalVentas, minimoEquipo, totalMeta, lid);
+      })()}
+      <div style="border-top:1px solid var(--border);margin:16px 0 14px"></div>`;
 
   filas.forEach(f=>{
     const ancho = f.pctCump===null ? 0 : Math.max(0, Math.min(100, f.pctCump));
@@ -13805,11 +13889,10 @@ function cardPresupuestoAsesora(nombreVend, anioSel, mesSel){
           <i class="ti ti-gift" style="margin-right:5px"></i>Al llegar a la meta se suma un <b>bono de $${inc.bono}</b>${gana>0?` — tu comisión pasaría de <b>$${comAhora.toFixed(2)}</b> a <b>$${comEnMeta.toFixed(2)}</b>, son <b>$${gana.toFixed(2)}</b> más`:''}. Te faltan <b>${fmtK(meta - vendido)}</b>.
         </div>`;
       })()}
+      ${escaleraAsesora(vendido, minimoP, meta, inc)}
       <div style="font-size:11px;color:var(--muted);margin-top:12px;line-height:1.5">
         Tu meta sale de ${MESES_P[h2.m]} (${fmtK(v2)}) más el incremento acordado${pct!==null&&pct!==undefined&&!isNaN(pct)?' de '+pct+'%':''}.
-        El <b>mínimo</b> es el promedio de ${MESES_P[h1.m]} y ${MESES_P[h2.m]}: por debajo de ${fmtK(minimoP)} tu comisión baja.
-        Las comisiones se calculan sobre lo que pasa de $4.000: bajo el mínimo <b>${inc.pct_bajo}%</b>, cumpliendo el mínimo <b>3%</b>,
-        y al llegar a la meta 3% hasta la meta más <b>$${inc.bono}</b> de bono y <b>${inc.pct_exceso}%</b> de todo lo que la supere.${esMesEnCurso?' El mes sigue abierto, así que la comisión se va moviendo.':''}
+        El <b>mínimo</b> es el promedio de ${MESES_P[h1.m]} y ${MESES_P[h2.m]}.${esMesEnCurso?' El mes sigue abierto, así que la comisión se va moviendo.':''}
       </div>
     </div>`;
 }
@@ -14830,10 +14913,8 @@ async function renderKpis(){
       </div>
       <div style="display:flex;align-items:center;gap:8px">
         ${selectorAsesora}
-        ${(window.usuarioActual||{}).rol==='admin'?`
-        <button onclick="configurarKpiAsesora('${asesoraKpi.replace(/'/g,"\\'")}', ${visitasMeta})" style="padding:6px 14px;background:#1a1108;color:white;border:none;border-radius:8px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:5px">
-          <i class="ti ti-settings"></i> Configurar
-        </button>`:''}
+        <!-- El botón Configurar se quitó: metas, mínimos y comisiones se manejan
+             en Reportes → Presupuesto ventas, que es la única fuente. -->
       </div>
     </div>
 
