@@ -1393,7 +1393,22 @@ function bloquearSiNoAdmin(req, res){
   const s = leerSesion(req);
   if (s && s.rol === 'admin') return false;
   res.writeHead(403, {'Content-Type':'application/json'});
-  res.end(JSON.stringify({ ok:false, error:'Acceso restringido: solo el administrador puede ver esta información' }));
+  res.end(JSON.stringify({ ok:false, error:'Acceso restringido: solo el administrador puede ver esta información',
+                           tu_rol: (s && s.rol) || 'sin sesión' }));
+  return true;
+}
+
+// Igual que la anterior, pero para tareas operativas que no son solo del admin.
+// El mensaje dice qué rol tiene la persona y cuáles se necesitan, para no tener que
+// adivinar cuando alguien reporta "no me deja".
+function bloquearSiNoRol(req, res, roles){
+  const s = leerSesion(req);
+  const permitidos = ['admin'].concat(roles || []);
+  if (s && permitidos.includes(s.rol)) return false;
+  res.writeHead(403, {'Content-Type':'application/json'});
+  res.end(JSON.stringify({ ok:false,
+    error: 'Tu usuario (' + ((s && s.rol) || 'sin sesión') + ') no tiene permiso para esto. Se necesita: ' + permitidos.join(' o ') + '.',
+    tu_rol: (s && s.rol) || 'sin sesión', roles_permitidos: permitidos }));
   return true;
 }
 
@@ -3946,7 +3961,7 @@ const server = http.createServer(async (req, res) => {
 
   // Previsualización: qué se enviaría y a quién. NO envía nada.
   if (urlPath === '/api/envios/preparar-correos' && req.method === 'GET') {
-    if (bloquearSiNoAdmin(req, res)) return;
+    if (bloquearSiNoRol(req, res, ['administrativo','jefa_ventas'])) return;
     try {
       const fecha = urlObj.searchParams.get('fecha');
       if (!fecha) throw new Error('Falta la fecha');
@@ -3973,7 +3988,7 @@ const server = http.createServer(async (req, res) => {
 
   // Envío real. Recibe la lista ya revisada por la persona.
   if (urlPath === '/api/envios/enviar-correos' && req.method === 'POST') {
-    if (bloquearSiNoAdmin(req, res)) return;
+    if (bloquearSiNoRol(req, res, ['administrativo','jefa_ventas'])) return;
     try {
       if (!correoConfigurado()) throw new Error('Faltan RESEND_API_KEY o EMAIL_REMITENTE en las variables de Railway');
       const { fecha, envios } = await bodyJSON(req);
