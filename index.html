@@ -13741,6 +13741,12 @@ function cardEquipoGiovanna(nombreVend, usuarios, anioE, mesE, opts){
       ${(()=>{
         const lid = incentivoLiderCfg();
         if(!(totalMeta > 0)) return '';
+        // La comisión de la líder es asunto suyo y del admin. En el panel de Ventas
+        // (opts.forzar) esta tarjeta la ven todas las asesoras, así que ahí no va.
+        const uAct = window.usuarioActual || {};
+        const anclaU = x => String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().split(/\s+/).slice(0,2).join(' ');
+        const esElla = anclaU(uAct.nombre) === anclaU(nombreVend);
+        if(opts.forzar || !(uAct.rol === 'admin' || esElla)) return '';
         const cumpl = totalVentas >= totalMeta;
         const com = cumpl ? (lid.pct_base/100)*totalMeta + lid.bono + (lid.pct_exceso/100)*(totalVentas-totalMeta)
                   : (totalVentas >= minimoEquipo ? (lid.pct_base/100)*totalVentas : (lid.pct_bajo/100)*totalVentas);
