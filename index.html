@@ -9921,6 +9921,20 @@ function pintarCaja(){
           <div style="font-size:9px;color:var(--muted)">por cobrar</div>
         </div>
       </div>
+      ${cartera.antiguedad ? `
+      <div style="padding:0 15px 12px">
+        <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px">Antigüedad · igual que el reporte de Contifico</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:6px">
+          ${[['Por vencer','por_vencer','var(--text)'],['Vencido 30','vencido_30','#d97706'],['Vencido 60','vencido_60','#ea580c'],['Vencido 90','vencido_90','#dc2626'],['Vencido 120','vencido_120','#b91c1c'],['Más de 120','vencido_mas_120','#7f1d1d']]
+            .map(([lbl,k,col])=>`<div style="background:#faf9f8;border:1px solid var(--border);border-radius:8px;padding:7px 6px;text-align:center">
+              <div style="font-size:8.5px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">${lbl}</div>
+              <div style="font-size:13px;font-weight:700;color:${(cartera.antiguedad[k]||0)>0?col:'#ccc'}">${cajaFmt(cartera.antiguedad[k]||0)}</div>
+            </div>`).join('')}
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-top:6px;line-height:1.5">
+          Se leen los últimos ${cartera.meses_leidos||24} meses de facturas.${cartera.dia_cerrado?' El día ya cerró (después de las '+(cartera.hora_cierre||18)+':00), así que lo que vencía hoy cuenta como vencido.':''}
+        </div>
+      </div>` : ''}
       <div style="padding:0 15px 12px;font-size:11px;color:var(--muted)">
         Contar en el disponible:
         <select onchange="cajaModoCartera(this.value)" style="padding:5px 9px;border:1px solid var(--border);border-radius:7px;font-size:12px;background:white;cursor:pointer;margin-left:5px">

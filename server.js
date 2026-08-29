@@ -708,8 +708,16 @@ async function sincronizarCartera(){
   CARTERA_EN_CURSO = true;
   try {
     const hoyK = nowEC();
-    const desdeD = new Date(hoyK); desdeD.setMonth(desdeD.getMonth() - 6);
+    // Contifico reporta TODA la cartera pendiente, sin importar la antigüedad. Con una
+    // ventana de 6 meses las facturas viejas quedaban fuera y el total no cuadraba.
+    const MESES_CARTERA = Math.max(6, parseInt(process.env.CARTERA_MESES) || 24);
+    const desdeD = new Date(hoyK); desdeD.setMonth(desdeD.getMonth() - MESES_CARTERA);
     const desde = fmtDateEC(desdeD), hasta = fmtDateEC(hoyK);
+    // El día se da por cerrado a esta hora: a partir de ahí, lo que vencía hoy ya no se
+    // cuenta como "por cobrar hoy" sino como vencido, y sale del calendario de caja.
+    const HORA_CIERRE = Math.min(23, Math.max(0, parseInt(process.env.CARTERA_CIERRE_HORA) || 18));
+    const diaCerrado = hoyK.getHours() >= HORA_CIERRE;
+    const antig = { por_vencer:0, d1_30:0, d31_60:0, d61_90:0, d91_120:0, d120_mas:0 };
     let url = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${desde}&fecha_final=${hasta}&page_size=100`;
     let pg = 0; const vistos = new Set(); const porCliente = {}; const porDia = {};
     let total = 0, vencida = 0, docs = 0;
@@ -747,13 +755,22 @@ async function sincronizarCartera(){
         if (fEmis) {
           const vence = new Date(fEmis); vence.setDate(vence.getDate() + dias);
           const hoy0 = new Date(hoyK.getFullYear(), hoyK.getMonth(), hoyK.getDate());
-          if (vence < hoy0) { estaVencida = true; diasAtraso = Math.round((hoy0 - vence)/86400000); }
+          // Después de la hora de cierre, lo que vencía hoy ya cuenta como vencido
+          const corte = new Date(hoy0); if (diaCerrado) corte.setDate(corte.getDate() + 1);
+          if (vence < corte) { estaVencida = true; diasAtraso = Math.max(0, Math.round((hoy0 - vence)/86400000)); }
           claveVence = vence.getFullYear()+'-'+String(vence.getMonth()+1).padStart(2,'0')+'-'+String(vence.getDate()).padStart(2,'0');
           if (!estaVencida) {
             if (!porDia[claveVence]) porDia[claveVence] = { fecha: claveVence, monto: 0, docs: 0 };
             porDia[claveVence].monto += saldo; porDia[claveVence].docs++;
           }
         }
+        // Tramos de antigüedad, para poder comparar contra el reporte de Contifico
+        if (!estaVencida) antig.por_vencer += saldo;
+        else if (diasAtraso <= 30) antig.d1_30 += saldo;
+        else if (diasAtraso <= 60) antig.d31_60 += saldo;
+        else if (diasAtraso <= 90) antig.d61_90 += saldo;
+        else if (diasAtraso <= 120) antig.d91_120 += saldo;
+        else antig.d120_mas += saldo;
         total += saldo; docs++;
         if (estaVencida) vencida += saldo;
         const nom = (doc.cliente && (doc.cliente.razon_social || doc.cliente.nombre_comercial)) || '—';
@@ -772,6 +789,11 @@ async function sincronizarCartera(){
       // Calendario de vencimientos: qué se cobra cada día de aquí en adelante
       vencimientos: Object.values(porDia).sort((a,b)=>a.fecha.localeCompare(b.fecha))
         .map(d=>({ ...d, monto: r2(d.monto) })),
+      antiguedad: {
+        por_vencer: r2(antig.por_vencer), vencido_30: r2(antig.d1_30), vencido_60: r2(antig.d31_60),
+        vencido_90: r2(antig.d61_90), vencido_120: r2(antig.d91_120), vencido_mas_120: r2(antig.d120_mas)
+      },
+      meses_leidos: MESES_CARTERA, dia_cerrado: diaCerrado, hora_cierre: HORA_CIERRE,
       paginas: pg, reintentos: fallos, completo: !url,
       at: new Date().toISOString(), error: null
     };
@@ -790,10 +812,23 @@ setTimeout(async () => {
   } catch(e) {}
   if (!CARTERA.at) sincronizarCartera().catch(e=>console.error(e));
 }, 60 * 1000);
+// Sincronización diaria a las 18:10 de Ecuador, cuando ya cerró el día de cobros.
+// Se revisa cada 5 minutos y se marca el día para que no corra dos veces.
+let CARTERA_ULTIMO_DIA_AUTO = null;
 setInterval(() => {
-  const h = nowEC().getHours();
-  if (h === 3) sincronizarCartera().catch(e=>console.error(e));   // una vez al día, 3 AM Ecuador
-}, 60 * 60 * 1000);
+  const n = nowEC();
+  const hora = parseInt(process.env.CARTERA_SYNC_HORA);
+  const min  = parseInt(process.env.CARTERA_SYNC_MIN);
+  const H = isNaN(hora) ? 18 : hora, M = isNaN(min) ? 10 : min;
+  const clave = n.getFullYear()+'-'+n.getMonth()+'-'+n.getDate();
+  const minutosAhora = n.getHours()*60 + n.getMinutes();
+  const minutosMeta  = H*60 + M;
+  if (CARTERA_ULTIMO_DIA_AUTO !== clave && minutosAhora >= minutosMeta && minutosAhora < minutosMeta + 30) {
+    CARTERA_ULTIMO_DIA_AUTO = clave;
+    console.log(`⏰ Cartera: sincronización automática de las ${String(H).padStart(2,'0')}:${String(M).padStart(2,'0')}`);
+    sincronizarCartera().catch(e=>console.error(e));
+  }
+}, 5 * 60 * 1000);
 
 // ─── FUENTE ÚNICA DE VERDAD ───────────────────────────────────────────────────────
 // El data.json que recibe el navegador ya viene COMPLETO: caché histórica + el tramo que
