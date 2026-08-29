@@ -710,7 +710,9 @@ async function sincronizarCartera(){
     const hoyK = nowEC();
     // Contifico reporta TODA la cartera pendiente, sin importar la antigüedad. Con una
     // ventana de 6 meses las facturas viejas quedaban fuera y el total no cuadraba.
-    const MESES_CARTERA = Math.max(6, parseInt(process.env.CARTERA_MESES) || 24);
+    // 6 meses cubre hasta ~150 días de atraso, que es donde está el 98% de la cartera.
+    // Se puede subir con CARTERA_MESES en Railway si el total deja de cuadrar con Contifico.
+    const MESES_CARTERA = Math.max(3, parseInt(process.env.CARTERA_MESES) || 6);
     const desdeD = new Date(hoyK); desdeD.setMonth(desdeD.getMonth() - MESES_CARTERA);
     const desde = fmtDateEC(desdeD), hasta = fmtDateEC(hoyK);
     // El día se da por cerrado a esta hora: a partir de ahí, lo que vencía hoy ya no se
@@ -799,7 +801,8 @@ async function sincronizarCartera(){
     };
     // Persistir: tras un redeploy el panel muestra la última lectura conocida en vez de ceros
     try { await setConfigApp('cartera_cache', JSON.stringify(CARTERA)); } catch(e) {}
-    console.log(`✓ Cartera: ${docs} facturas · total ${CARTERA.total} · vencida ${CARTERA.vencida} · ${pg} páginas${fallos?' ('+fallos+' reintentos)':''}`);
+    console.log(`✓ Cartera: ${docs} facturas · total ${CARTERA.total} · vencida ${CARTERA.vencida} · ${pg} páginas · ${MESES_CARTERA} meses${fallos?' ('+fallos+' reintentos)':''}`);
+    if (antig.d120_mas > 0) console.log(`  ⚠ Hay ${r2(antig.d120_mas)} con más de 120 días: si no cuadra con Contifico, sube CARTERA_MESES.`);
   } catch(e) { CARTERA.error = e.message; console.error('Error cartera:', e.message); }
   CARTERA_EN_CURSO = false;
 }

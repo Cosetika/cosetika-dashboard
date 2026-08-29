@@ -9932,7 +9932,7 @@ function pintarCaja(){
             </div>`).join('')}
         </div>
         <div style="font-size:10px;color:var(--muted);margin-top:6px;line-height:1.5">
-          Se leen los últimos ${cartera.meses_leidos||24} meses de facturas.${cartera.dia_cerrado?' El día ya cerró (después de las '+(cartera.hora_cierre||18)+':00), así que lo que vencía hoy cuenta como vencido.':''}
+          Se leen los últimos ${cartera.meses_leidos||6} meses de facturas${(cartera.antiguedad.vencido_mas_120||0)>0?', y ya hay saldo con más de 120 días: si el total no cuadra con Contifico, hay facturas más viejas fuera de esa ventana':''}.${cartera.dia_cerrado?' El día ya cerró (después de las '+(cartera.hora_cierre||18)+':00), así que lo que vencía hoy cuenta como vencido.':''}
         </div>
       </div>` : ''}
       <div style="padding:0 15px 12px;font-size:11px;color:var(--muted)">
