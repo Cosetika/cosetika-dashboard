@@ -13546,7 +13546,7 @@ function escaleraLider(ventasEq, minimoEq, metaEq, lid){
 // Amarillo mientras no se alcanza el mínimo · verde pasado el mínimo · azul al superar
 // la meta. El 100% de la barra siempre es la meta. La usan la tarjeta de cada asesora
 // y la del equipo de Giovanna, para que se lean igual.
-function barraTriColor(vendido, minimo, meta, etiquetaIzq){
+function barraTriColor(vendido, minimo, meta, etiquetaIzq, sinLeyenda){
   if(!(meta > 0)) return '';
   const fmtB = x => '$' + Math.round(x).toLocaleString('en-US');
   const pct = Math.round(vendido / meta * 1000) / 10;
@@ -13574,10 +13574,10 @@ function barraTriColor(vendido, minimo, meta, etiquetaIzq){
         </div>
         <div style="font-size:16px;font-weight:800;color:${col};min-width:54px;text-align:right">${pct}%</div>
       </div>
-      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:5px">
+      ${sinLeyenda ? '' : `<div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:5px">
         <span>${estado}</span>
         <span>${pctMin !== null ? 'La rayita es el mínimo (' + fmtB(min) + ') · ' : ''}100% = meta ${fmtB(meta)}</span>
-      </div>
+      </div>`}
     </div>`;
 }
 
@@ -13694,12 +13694,17 @@ function cardEquipoGiovanna(nombreVend, usuarios, anioE, mesE, opts){
   if(!miembros.some(m=>ancla(m.nombre)===ancla(realGio))) miembros.unshift({ nombre: realGio, propia:true });
   else miembros.forEach(m=>{ if(ancla(m.nombre)===ancla(realGio)) m.propia = true; });
 
+  // Mínimo de cada una: promedio de sus 2 meses anteriores, con el piso de $4.000.
+  // Misma definición que su tarjeta de KPIs, para que el color coincida en los dos lados.
+  const shMin = (a,mm,d)=>{ mm+=d; while(mm>12){mm-=12;a++;} while(mm<1){mm+=12;a--;} return {a,m:mm}; };
   const filas = miembros.map(m=>{
     const ventas = Math.round(ventasMesDeVendedora(m.nombre, mesE, anioE) || 0);
     const mi = metaDeAsesora(m.nombre, anioE, mesE);
     const meta = mi.meta;
+    const p1 = shMin(anioE, mesE, -1), p2 = shMin(anioE, mesE, -2);
+    const minimo = Math.max(PISO_COMISION, Math.round(((ventasMesDeVendedora(m.nombre, p1.m, p1.a)||0) + (ventasMesDeVendedora(m.nombre, p2.m, p2.a)||0)) / 2));
     const pctCump = (meta && meta > 0) ? Math.round(ventas/meta*1000)/10 : null;
-    return { ...m, ventas, meta, pctCump, manual: mi.manual, pctIncr: mi.pct, base: mi.base };
+    return { ...m, ventas, meta, minimo, pctCump, manual: mi.manual, pctIncr: mi.pct, base: mi.base };
   }).sort((a,b)=> b.ventas - a.ventas);
 
   if(!filas.length) return '';
@@ -13751,7 +13756,7 @@ function cardEquipoGiovanna(nombreVend, usuarios, anioE, mesE, opts){
           <div style="font-size:9px;color:var(--muted)">del equipo completo</div>
         </div>
       </div>
-      ${barraTriColor(totalVentas, minimoEquipo, totalMeta, 'Vendido por el equipo en '+MESES_E[mesE])}
+      ${barraTriColor(totalVentas, minimoEquipo, totalMeta, 'Vendido por el equipo en '+MESES_E[mesE], !!opts.forzar)}
       ${(()=>{
         const lid = incentivoLiderCfg();
         if(!(totalMeta > 0)) return '';
@@ -13775,7 +13780,12 @@ function cardEquipoGiovanna(nombreVend, usuarios, anioE, mesE, opts){
 
   filas.forEach(f=>{
     const ancho = f.pctCump===null ? 0 : Math.max(0, Math.min(100, f.pctCump));
-    const col = colorPct(f.pctCump);
+    // Amarillo bajo el mínimo · verde pasado el mínimo · azul al superar la meta.
+    // Idéntico a la barra de su tarjeta de KPIs.
+    const bajoMinF = f.minimo > 0 && f.ventas < f.minimo;
+    const cumpleF  = f.meta && f.ventas >= f.meta;
+    const col = cumpleF ? '#2563eb' : (bajoMinF ? '#eab308' : '#16a34a');
+    const pctMinF = (f.meta && f.minimo > 0 && f.minimo < f.meta) ? (f.minimo / f.meta * 100) : null;
     const falta = (f.meta && f.meta > f.ventas) ? f.meta - f.ventas : 0;
     html += `
       <div style="margin-bottom:13px">
@@ -13785,12 +13795,13 @@ function cardEquipoGiovanna(nombreVend, usuarios, anioE, mesE, opts){
           <div style="font-size:11px;color:var(--muted)">
             <b style="color:var(--text);font-size:13px">${fmtE(f.ventas)}</b>
             ${f.meta?' de '+fmtE(f.meta):' · sin meta'}${f.manual?' <span style="font-size:9px;color:var(--muted)">(fijada)</span>':(f.pctIncr!==null&&f.pctIncr!==undefined&&!isNaN(f.pctIncr)?' <span style="font-size:10px;font-weight:700;color:var(--brown)" title="Incremento exigido sobre el mes anterior">+'+f.pctIncr+'%</span>':'')}
-            ${falta?' <span style="color:#d97706">· faltan '+fmtE(falta)+'</span>':(f.meta?' <span style="color:#16a34a">· cumplida</span>':'')}
+            ${falta?' <span style="color:'+(bajoMinF?'#b45309':'#16a34a')+'">· faltan '+fmtE(falta)+'</span>':(f.meta?' <span style="color:#2563eb;font-weight:700">· meta cumplida</span>':'')}
           </div>
         </div>
         <div style="display:flex;align-items:center;gap:10px">
-          <div style="flex:1;height:13px;background:#eee9e4;border-radius:8px;overflow:hidden">
+          <div style="flex:1;position:relative;height:13px;background:#eee9e4;border-radius:8px;overflow:hidden">
             <div style="width:${ancho}%;height:100%;background:${col};border-radius:8px;transition:width 0.4s"></div>
+            ${pctMinF !== null ? `<div title="Mínimo ${fmtE(f.minimo)}" style="position:absolute;top:0;left:${pctMinF}%;width:2px;height:100%;background:${f.ventas>=f.minimo?'rgba(255,255,255,0.9)':'#8b8177'}"></div>` : ''}
           </div>
           <div style="font-size:13px;font-weight:800;color:${col};min-width:48px;text-align:right">${f.pctCump!==null?f.pctCump+'%':'—'}</div>
         </div>
