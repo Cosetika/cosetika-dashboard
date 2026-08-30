@@ -654,6 +654,25 @@ function urlRastreo(guia){
   return 'https://www.servientrega.com.ec/Tracking/?guia=' + encodeURIComponent(g) + '&tipo=GUIA';
 }
 
+// Versión en texto plano del mismo correo. Enviar solo HTML es una de las señales que
+// más pesa en los filtros de spam: los correos legítimos casi siempre llevan las dos.
+function textoCorreoGuia(nombre, guia, ciudad){
+  return [
+    'Hola ' + nombre + ',',
+    '',
+    'Tu pedido ya salió de nuestra oficina y está en camino' + (ciudad ? ' hacia ' + ciudad : '') + '.',
+    '',
+    'Número de guía (Servientrega): ' + guia,
+    'Rastrea tu envío aquí: ' + urlRastreo(guia),
+    '',
+    'El enlace abre el rastreo con tu guía ya cargada, no tienes que escribir nada.',
+    '',
+    'Gracias por confiar en nosotros. Cualquier novedad con tu pedido, responde a este correo.',
+    '',
+    'Corporación Cosétika S.A.S.'
+  ].join('\n');
+}
+
 function plantillaCorreoGuia(nombre, guia, ciudad){
   const esc = v => String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   const link = urlRastreo(guia);
@@ -4048,8 +4067,14 @@ const server = http.createServer(async (req, res) => {
               from: MAIL_NOMBRE + ' <' + MAIL_REMITENTE + '>',
               to: [email],
               ...(MAIL_COPIA ? { bcc: [MAIL_COPIA] } : {}),
-              subject: 'Tu pedido está en camino · Guía ' + e.guia,
-              html
+              // Una dirección real de respuesta: los buzones desconfían de lo que no
+              // se puede contestar. Con EMAIL_RESPUESTA se puede apuntar a otro correo.
+              reply_to: process.env.EMAIL_RESPUESTA || MAIL_REMITENTE,
+              subject: 'Tu pedido de Cosétika ya está en camino · Guía ' + e.guia,
+              html,
+              text: textoCorreoGuia(nombre, e.guia, e.ciudad),
+              // Evita que Gmail agrupe y recorte correos distintos como si fueran uno
+              headers: { 'X-Entity-Ref-ID': String(e.guia) }
             })
           });
           const d = await r.json();
