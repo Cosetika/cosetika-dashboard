@@ -721,6 +721,130 @@ function plantillaCorreoGuia(nombre, guia, ciudad){
 // usando los días de crédito de cada clienta. Se refresca dos veces al día.
 let CARTERA = { total:0, vencida:0, por_vencer:0, docs:0, clientes:[], vencimientos:[], at:null, error:null };
 let CARTERA_EN_CURSO = false;
+// ─── COMPORTAMIENTO DE PAGO ───────────────────────────────────────────────────────
+// Guarda la foto diaria del saldo de cada factura. Una factura que ayer tenía saldo y
+// hoy ya no, se pagó entre ayer y hoy: esa es la fecha de pago.
+//
+// Las facturas que ya estaban pagadas la primera vez que las vemos entran marcadas como
+// NO medibles, porque no sabemos cuándo se pagaron y meterlas al promedio lo falsearía.
+function fmtISO_EC(d){
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
+async function registrarFotoDePagos(docs, hoyISO){
+  if (!Array.isArray(docs) || !docs.length) return { pendientes: 0, pagadas_hoy: 0 };
+  const pendientes = docs.filter(d => d.pendiente);
+  const pagadas    = docs.filter(d => !d.pendiente);
+
+  // 1) Facturas CON saldo: se registran o se refrescan, y queda anotado el primer día
+  //    que las vimos pendientes. Ese "primer día" es lo que después permite afirmar
+  //    que el paso a cero fue un pago y no simplemente que empezamos a mirar tarde.
+  for (let i = 0; i < pendientes.length; i += 200) {
+    const lote = pendientes.slice(i, i + 200);
+    const vals = [], params = [];
+    lote.forEach((d, j) => {
+      const b = j * 8;
+      vals.push(`($${b+1},$${b+2},$${b+3},$${b+4},$${b+5}::date,$${b+6},$${b+7},$${b+8}::date,NULL,NULL,true,NOW())`);
+      params.push(d.id, d.ident, String(d.nombre).substring(0,300), d.documento, d.emision, d.dias, d.total, hoyISO);
+    });
+    await pool.query(`
+      INSERT INTO facturas_pago
+        (documento_id, identificacion, cliente, documento, fecha_emision, dias_credito, total,
+         visto_pendiente_at, pagado_at, dias_en_pagar, medible, actualizado)
+      VALUES ${vals.join(',')}
+      ON CONFLICT (documento_id) DO UPDATE SET
+        identificacion = EXCLUDED.identificacion,
+        cliente        = EXCLUDED.cliente,
+        total          = EXCLUDED.total,
+        dias_credito   = EXCLUDED.dias_credito,
+        visto_pendiente_at = COALESCE(facturas_pago.visto_pendiente_at, EXCLUDED.visto_pendiente_at),
+        medible        = true,
+        actualizado    = NOW()`, params);
+  }
+
+  // 2) Facturas SIN saldo que nunca habíamos visto: se anotan como NO medibles. Ya estaban
+  //    pagadas antes de que empezáramos a mirar, así que no sabemos cuánto se demoraron y
+  //    meterlas al promedio lo falsearía.
+  for (let i = 0; i < pagadas.length; i += 200) {
+    const lote = pagadas.slice(i, i + 200);
+    const vals = [], params = [];
+    lote.forEach((d, j) => {
+      const b = j * 7;
+      vals.push(`($${b+1},$${b+2},$${b+3},$${b+4},$${b+5}::date,$${b+6},$${b+7},NULL,NULL,NULL,false,NOW())`);
+      params.push(d.id, d.ident, String(d.nombre).substring(0,300), d.documento, d.emision, d.dias, d.total);
+    });
+    await pool.query(`
+      INSERT INTO facturas_pago
+        (documento_id, identificacion, cliente, documento, fecha_emision, dias_credito, total,
+         visto_pendiente_at, pagado_at, dias_en_pagar, medible, actualizado)
+      VALUES ${vals.join(',')}
+      ON CONFLICT (documento_id) DO NOTHING`, params);
+  }
+
+  // 3) El pago propiamente dicho: las que ayer tenían saldo y hoy ya no.
+  //    La condición visto_pendiente_at IS NOT NULL es la que impide contar como "pagada hoy"
+  //    una factura que ya venía pagada de antes.
+  let pagadasHoy = 0;
+  const ids = pagadas.map(d => d.id);
+  for (let i = 0; i < ids.length; i += 500) {
+    const r = await pool.query(`
+      UPDATE facturas_pago
+         SET pagado_at = $1::date,
+             dias_en_pagar = ($1::date - fecha_emision),
+             actualizado = NOW()
+       WHERE documento_id = ANY($2::varchar[])
+         AND visto_pendiente_at IS NOT NULL
+         AND pagado_at IS NULL
+      RETURNING documento_id`, [hoyISO, ids.slice(i, i + 500)]);
+    pagadasHoy += r.rowCount;
+  }
+  if (pagadasHoy) console.log(`💵 Pagos detectados: ${pagadasHoy} factura(s) pasaron a saldo cero`);
+  return { pendientes: pendientes.length, pagadas_hoy: pagadasHoy };
+}
+
+// Resumen por clienta: cuánto se demora en pagar y con qué semáforo.
+// Verde hasta 5 días de gracia · naranja hasta 10 · rojo de ahí en adelante.
+const PAGO_GRACIA_VERDE = 5, PAGO_GRACIA_NARANJA = 10;
+let PAGOS_RESUMEN = { at: null, mapa: {} };
+
+async function resumenComportamientoPago(){
+  const r = await pool.query(`
+    SELECT identificacion,
+           MAX(cliente) AS cliente,
+           COUNT(*) FILTER (WHERE pagado_at IS NOT NULL) AS pagadas,
+           ROUND(AVG(dias_en_pagar) FILTER (WHERE pagado_at IS NOT NULL))::int AS dias_promedio,
+           MAX(dias_en_pagar) FILTER (WHERE pagado_at IS NOT NULL) AS dias_max,
+           ROUND(AVG(dias_credito))::int AS plazo,
+           COUNT(*) FILTER (WHERE pagado_at IS NOT NULL AND dias_en_pagar > dias_credito + $1) AS tarde,
+           COUNT(*) FILTER (WHERE pagado_at IS NULL AND visto_pendiente_at IS NOT NULL) AS pendientes,
+           MAX(pagado_at) AS ultimo_pago
+    FROM facturas_pago
+    WHERE identificacion IS NOT NULL AND identificacion <> ''
+    GROUP BY identificacion`, [PAGO_GRACIA_VERDE]);
+
+  const mapa = {};
+  r.rows.forEach(x => {
+    const pagadas = parseInt(x.pagadas) || 0;
+    if (!pagadas) return;                       // sin ninguna factura medida, no hay dato
+    const plazo = parseInt(x.plazo) || 30;
+    const prom = parseInt(x.dias_promedio) || 0;
+    const atraso = prom - plazo;
+    const color = atraso <= PAGO_GRACIA_VERDE ? 'verde'
+                : atraso <= PAGO_GRACIA_NARANJA ? 'naranja' : 'rojo';
+    const info = {
+      dias_promedio: prom, dias_max: parseInt(x.dias_max) || prom, plazo,
+      atraso_promedio: atraso, pagadas, tarde: parseInt(x.tarde) || 0,
+      pendientes: parseInt(x.pendientes) || 0,
+      ultimo_pago: x.ultimo_pago ? String(x.ultimo_pago).substring(0,10) : null,
+      color, cliente: x.cliente
+    };
+    const d = String(x.identificacion).replace(/\D/g,'');
+    if (d) { mapa[d] = info; if (d.length === 13) mapa[d.substring(0,10)] = info; }
+  });
+  PAGOS_RESUMEN = { at: new Date().toISOString(), mapa };
+  return PAGOS_RESUMEN;
+}
+
 async function sincronizarCartera(){
   if (!API_KEY) return;
   if (CARTERA_EN_CURSO) return;      // evita que dos peticiones disparen el mismo barrido
@@ -741,6 +865,7 @@ async function sincronizarCartera(){
     const antig = { por_vencer:0, d1_30:0, d31_60:0, d61_90:0, d91_120:0, d120_mas:0 };
     let url = `https://api.contifico.com/sistema/api/v2/documento/?fecha_inicial=${desde}&fecha_final=${hasta}&page_size=100`;
     let pg = 0; const vistos = new Set(); const porCliente = {}; const porDia = {};
+    const paraPagos = [];   // foto del saldo de cada factura, para medir días de pago
     let total = 0, vencida = 0, docs = 0;
     let fallos = 0;
     while (url && pg < 400) {
@@ -763,10 +888,26 @@ async function sincronizarCartera(){
         const k = doc.id || doc.documento;
         if (vistos.has(k)) return; vistos.add(k);
         const saldo = parseFloat(doc.saldo || 0);
-        if (!(saldo > 0.01)) return;
         const ident = String((doc.cliente && (doc.cliente.ruc || doc.cliente.cedula)) || '').replace(/\D/g,'');
         if (ident === '1793143660001') return;   // autoconsumo
         const info = ident ? (CREDITO_CACHE[ident] || (ident.length===13?CREDITO_CACHE[ident.substring(0,10)]:null)) : null;
+        // Foto del saldo de TODAS las facturas, pagadas o no: así se puede detectar el día
+        // en que una pasa de tener saldo a cero, que es el día en que la clienta pagó.
+        if (ident) {
+          const fe0 = String(doc.fecha_emision || '').split('/');
+          if (fe0.length === 3) {
+            paraPagos.push({
+              id: String(k), ident,
+              nombre: (doc.cliente && (doc.cliente.razon_social || doc.cliente.nombre_comercial)) || '—',
+              documento: String(doc.documento || '').substring(0,60),
+              emision: `${fe0[2]}-${fe0[1]}-${fe0[0]}`,
+              dias: (info && info.dias > 0) ? info.dias : 30,
+              total: parseFloat(doc.total || 0),
+              pendiente: saldo > 0.01
+            });
+          }
+        }
+        if (!(saldo > 0.01)) return;
         // Regla del negocio: toda clienta con crédito paga a 30 días. Si Contifico tiene un
         // plazo distinto para alguien, manda el de Contifico.
         const dias = (info && info.dias > 0) ? info.dias : 30;
@@ -820,6 +961,10 @@ async function sincronizarCartera(){
     };
     // Persistir: tras un redeploy el panel muestra la última lectura conocida en vez de ceros
     try { await setConfigApp('cartera_cache', JSON.stringify(CARTERA)); } catch(e) {}
+    try {
+      await registrarFotoDePagos(paraPagos, fmtISO_EC(hoyK));
+      await resumenComportamientoPago();
+    } catch(e) { console.error('Pagos:', e.message); }
     console.log(`✓ Cartera: ${docs} facturas · total ${CARTERA.total} · vencida ${CARTERA.vencida} · ${pg} páginas · ${MESES_CARTERA} meses${fallos?' ('+fallos+' reintentos)':''}`);
     if (antig.d120_mas > 0) console.log(`  ⚠ Hay ${r2(antig.d120_mas)} con más de 120 días: si no cuadra con Contifico, sube CARTERA_MESES.`);
   } catch(e) { CARTERA.error = e.message; console.error('Error cartera:', e.message); }
@@ -833,6 +978,7 @@ setTimeout(async () => {
     if (raw) { const c = JSON.parse(raw); if (c && c.at) { CARTERA = c; console.log(`✓ Cartera recuperada del caché: ${c.docs} facturas · ${c.at}`); } }
   } catch(e) {}
   if (!CARTERA.at) sincronizarCartera().catch(e=>console.error(e));
+  try { await resumenComportamientoPago(); } catch(e) {}
 }, 60 * 1000);
 // Sincronización diaria a las 18:10 de Ecuador, cuando ya cerró el día de cobros.
 // Se revisa cada 5 minutos y se marca el día para que no corra dos veces.
@@ -3257,6 +3403,26 @@ async function initDB() {
       ALTER TABLE referidos ADD COLUMN IF NOT EXISTS bono_at VARCHAR(30);
       ALTER TABLE referidos ADD COLUMN IF NOT EXISTS primera_compra BOOLEAN DEFAULT false;
       ALTER TABLE referidos ADD COLUMN IF NOT EXISTS primera_compra_at VARCHAR(30);
+      -- Cuánto se demora cada clienta en pagar. Se llena solo: la sincronización de
+      -- cartera guarda una foto diaria del saldo de cada factura, y el día que el saldo
+      -- pasa de algo a cero es el día que pagó.
+      CREATE TABLE IF NOT EXISTS facturas_pago (
+        documento_id VARCHAR(64) PRIMARY KEY,
+        identificacion VARCHAR(20),
+        cliente VARCHAR(300),
+        documento VARCHAR(60),
+        fecha_emision DATE,
+        dias_credito INT DEFAULT 30,
+        total NUMERIC(14,2) DEFAULT 0,
+        visto_pendiente_at DATE,      -- primera vez que la vimos con saldo
+        pagado_at DATE,               -- día en que el saldo llegó a cero
+        dias_en_pagar INT,            -- pagado_at - fecha_emision
+        medible BOOLEAN DEFAULT true, -- false = ya estaba pagada antes de empezar a medir
+        actualizado TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_fpago_ident ON facturas_pago(identificacion);
+      CREATE INDEX IF NOT EXISTS idx_fpago_pagado ON facturas_pago(pagado_at);
+
       CREATE TABLE IF NOT EXISTS personas (
         id SERIAL PRIMARY KEY,
         cedula VARCHAR(50),
@@ -5135,6 +5301,7 @@ const server = http.createServer(async (req, res) => {
           nombre_comercial: idx.includes('comercialDe'),
           credito_sugerido: idx.includes('calcularCreditoSugerido'),
           rastreo_servientrega: idx.includes('urlRastreoGuia'),
+          comportamiento_de_pago: idx.includes('badgePago'),
           // Si sale true, el botón Configurar de los KPIs de asesoras TODAVÍA está
           boton_configurar_kpis_asesora: idx.includes('configurarKpiAsesora(\'')
         }
@@ -7829,6 +7996,30 @@ const server = http.createServer(async (req, res) => {
       const lim = parseInt(urlObj.searchParams.get('limite')) || 50;
       const r = await completarPedidosDesdeWoo(lim);
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
+  // Comportamiento de pago por clienta: días promedio y semáforo.
+  // El mapa completo lo carga la app una vez y lo usa en Pedidos y en la ficha del cliente.
+  if (urlPath === '/api/comportamiento-pago' && req.method === 'GET') {
+    try {
+      const ced = String(urlObj.searchParams.get('cedula') || '').replace(/\D/g,'');
+      if (!PAGOS_RESUMEN.at || urlObj.searchParams.get('refrescar') === '1') await resumenComportamientoPago();
+      if (ced) {
+        const info = PAGOS_RESUMEN.mapa[ced] || (ced.length===13 ? PAGOS_RESUMEN.mapa[ced.substring(0,10)] : null) || null;
+        // Detalle factura por factura, para poder auditar el promedio
+        const det = await pool.query(
+          `SELECT documento, TO_CHAR(fecha_emision,'YYYY-MM-DD') AS emision,
+                  TO_CHAR(pagado_at,'YYYY-MM-DD') AS pagado, dias_en_pagar, dias_credito, total, medible
+           FROM facturas_pago WHERE identificacion LIKE $1 ORDER BY fecha_emision DESC LIMIT 40`,
+          [ced.substring(0,10) + '%']);
+        res.writeHead(200,{'Content-Type':'application/json'});
+        res.end(JSON.stringify({ ok:true, cedula: ced, resumen: info, facturas: det.rows }, null, 2));
+        return;
+      }
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:true, at: PAGOS_RESUMEN.at, total: Object.keys(PAGOS_RESUMEN.mapa).length, mapa: PAGOS_RESUMEN.mapa }));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
   }

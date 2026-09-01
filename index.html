@@ -4336,6 +4336,7 @@ async function cargarData(){
       window._creditoPorCedula  = d.mapa || {};
       window._comercialPorCedula = d.comerciales || {};
       window._comercialPorNombre = d.comerciales_nombre || {};
+      fetch('/api/comportamiento-pago').then(r2=>r2.json()).then(p=>{ if(p.ok) window._pagoPorCedula = p.mapa || {}; }).catch(()=>{});
       // Pedidos se pinta apenas abre la app, casi siempre antes de que llegue este
       // mapa, así que se repinta para que salga el nombre comercial.
       if(document.getElementById('doc-tab-content') && window._pedidosFecha
@@ -5457,6 +5458,30 @@ function botonRastreo(guia){
     + '<i class="ti ti-map-pin-search"></i></button>';
 }
 
+// ─── COMPORTAMIENTO DE PAGO ───────────────────────────────────────────────────────
+// Cuánto se demora esta clienta en pagar, medido de sus facturas anteriores: el servidor
+// mira el saldo de cada factura todos los días y anota el día en que llega a cero.
+// Verde hasta 5 días de gracia sobre el plazo · naranja hasta 10 · rojo de ahí arriba.
+function pagoDe(identificacion){
+  const m = window._pagoPorCedula || {};
+  const d = String(identificacion||'').replace(/\D/g,'');
+  if(!d) return null;
+  return m[d] || (d.length===13 ? m[d.substring(0,10)] : null) || null;
+}
+
+function badgePago(identificacion, compacto){
+  const p = pagoDe(identificacion);
+  if(!p) return '';
+  const COL = { verde:{bg:'#f0fdf4',bd:'#bbf7d0',tx:'#166534',ic:'ti-check'},
+                naranja:{bg:'#fff7ed',bd:'#fed7aa',tx:'#c2410c',ic:'ti-clock-exclamation'},
+                rojo:{bg:'#fef2f2',bd:'#fca5a5',tx:'#b91c1c',ic:'ti-alert-triangle'} }[p.color];
+  const detalle = p.tarde > 0 ? ` · ${p.tarde} de ${p.pagadas} tarde` : ` · ${p.pagadas} factura${p.pagadas!==1?'s':''}`;
+  const pend = p.pendientes > 0 ? ` · ${p.pendientes} pendiente${p.pendientes!==1?'s':''}` : '';
+  return `<span title="Plazo ${p.plazo} días · promedio ${p.dias_promedio} · máximo ${p.dias_max}"
+    style="display:inline-flex;align-items:center;gap:4px;background:${COL.bg};border:1px solid ${COL.bd};color:${COL.tx};border-radius:12px;padding:2px 9px;font-size:${compacto?10:11}px;font-weight:600;white-space:nowrap">
+    <i class="ti ${COL.ic}" style="font-size:${compacto?11:12}px"></i>Paga a ${p.dias_promedio} días${compacto?'':detalle+pend}</span>`;
+}
+
 // ─── NOMBRE COMERCIAL ─────────────────────────────────────────────────────────────
 // En Contifico cada cliente tiene razón social y nombre comercial. La razón social es
 // el nombre legal (a veces el de la dueña), pero al local se le conoce por el comercial.
@@ -5555,6 +5580,7 @@ function _bloqueCreditoSugerido(c){
   return `
     <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px">
       <div style="font-size:11px;font-weight:600;color:var(--muted);margin-bottom:9px;text-transform:uppercase;letter-spacing:0.5px"><i class="ti ti-credit-card"></i> Crédito sugerido</div>
+      ${badgePago(c.ruc || c.cedula) ? '<div style="margin-bottom:9px">' + badgePago(c.ruc || c.cedula) + '</div>' : ''}
       <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
         <div style="background:#f7f0ea;border:1px solid #e7dccd;border-radius:11px;padding:11px 16px;text-align:center;min-width:110px">
           <div style="font-size:9px;color:#8b8177;text-transform:uppercase;letter-spacing:1px">Sugerido</div>
@@ -6165,6 +6191,7 @@ async function renderPedidosWeb(fechaSel){
         + '<div style="font-size:13px;font-weight:600;color:var(--muted);flex-shrink:0;min-width:90px">#'+p.numero_pedido+'</div>'
         + '<div style="flex:1;min-width:150px"><div style="font-size:13px;font-weight:500;white-space:normal;word-break:break-word;line-height:1.3">'+( p.cliente_nombre||'—')+'</div>'
         + lineaComercial(p.cedula_ruc, p.cliente_nombre)
+        + (badgePago(p.cedula_ruc) ? '<div style="margin-top:4px">' + badgePago(p.cedula_ruc) + '</div>' : '')
         + '<div style="font-size:10px;margin-top:3px;display:flex;align-items:center;flex-wrap:wrap;gap:6px">'
         + (p.asesora
             ? '<span style="color:var(--muted)"><i class="ti ti-user" style="font-size:9px"></i> '+String(p.asesora).split(' ').slice(0,2).join(' ')+'</span>'
