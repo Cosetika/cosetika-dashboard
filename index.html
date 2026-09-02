@@ -10922,7 +10922,7 @@ async function renderPresupuestoVentas(){
   try{
     const [rC, rU] = await Promise.all([fetch('/api/presupuesto-config'), fetch('/api/usuarios')]);
     const jC = await rC.json(); if(jC.ok && jC.config) cfg = Object.assign({pct:{},overrides:{},snapshots:{}}, jC.config);
-    cfg.incentivo = Object.assign({ pct_minimo: 90, bono: 50, pct_exceso: 5, pct_bajo: 2, pct_normal: 3 }, cfg.incentivo || {});
+    cfg.incentivo = Object.assign({ pct_minimo: 90, bono: 50, pct_exceso: 5, pct_bajo: 2, pct_normal: 3, piso: 4000 }, cfg.incentivo || {});
     cfg.incentivo_lider = Object.assign({ pct_base: 1.7, pct_bajo: 1, bono: 0, pct_exceso: 0 }, cfg.incentivo_lider || {});
     const dU = await rU.json(); if(Array.isArray(dU)) usuarios = dU;
   }catch(e){}
@@ -10945,6 +10945,7 @@ async function renderPresupuestoVentas(){
   }
   window._pptoCfg = cfg;
   window._pptoCfgKpi = cfg;
+  aplicarPisoComision();
 
   // Asesoras activas + Giovanna (referencia) + nombres solo-override (ej: Mayra antes de crear su usuario)
   let asesoras = usuarios.filter(u=>(u.rol==='asesora'||u.rol==='jefa_ventas') && u.activo).map(u=>({nombre:u.nombre, rol:u.rol}));
@@ -10996,12 +10997,18 @@ async function renderPresupuestoVentas(){
   { let a=anioAct, m=mesAct; for(let i=0;i<PROJ_N;i++){ ventana.push({key:mkDe(a,m), anio:a, mes:m}); m++; if(m>12){m=1;a++;} } }
   const mesShiftK2 = (a,m,d)=>{ m+=d; while(m>12){m-=12;a++;} while(m<1){m+=12;a--;} return {a,m}; };
   if (compactoP) {
-    // Panel compacto: se revisa a principios de mes → proyecta el MES VENIDERO
-    // (desde el día 25 ya apunta al mes siguiente; del 1 al 24, al mes en curso)
-    let pa = anioAct, pm = mesAct;
-    if (hoyP.getDate() >= 25) { const sh = mesShiftK2(pa, pm, 1); pa = sh.a; pm = sh.m; }
-    ventana.length = 0; ventana.push({ key: mkDe(pa, pm), anio: pa, mes: pm });
+    // El panel se para en un mes concreto. Todo lo que se ve y todo lo que se edita
+    // pertenece a ESE mes: así, cambiar un porcentaje hoy no reescribe lo ya pagado.
+    if (window._pptoAnioSel === undefined) { window._pptoAnioSel = anioAct; window._pptoMesSel = mesAct; }
+    ventana.length = 0;
+    ventana.push({ key: mkDe(window._pptoAnioSel, window._pptoMesSel), anio: window._pptoAnioSel, mes: window._pptoMesSel });
   }
+  const selAnio = compactoP ? ventana[0].anio : anioAct;
+  const selMes  = compactoP ? ventana[0].mes  : mesAct;
+  const selKey  = mkDe(selAnio, selMes);
+  const selEnCurso = (selAnio === anioAct && selMes === mesAct);
+  // Lo que se edita en pantalla se guarda contra este mes
+  window._pptoMesEdit = compactoP ? selKey : null;
   // Históricos: SIEMPRE meses cerrados (el mes en curso jamás aparece como histórico;
   // al cambiar de mes, el que cerró entra solo — ej: el 1 de agosto julio pasa al histórico)
   // Panel compacto: los históricos son los DOS meses anteriores al proyectado, aunque el
@@ -11009,7 +11016,7 @@ async function renderPresupuestoVentas(){
   // cerrados, así que el 27 de agosto proyectaba septiembre sobre julio y no coincidía
   // con la meta que veía la asesora en sus KPIs.
   const mesesHist = compactoP
-    ? [mesShiftK2(ventana[0].anio, ventana[0].mes, -2), mesShiftK2(ventana[0].anio, ventana[0].mes, -1)].map(x=>mkDe(x.a, x.m))
+    ? [mesShiftK2(selAnio, selMes, -2), mesShiftK2(selAnio, selMes, -1)].map(x=>mkDe(x.a, x.m))
     : mesesCerrados.slice(-HIST_N);
   // Factor de regla de tres del mes (1 si ya cerró). Misma función que usan los KPIs.
   const factorMk = mk => { const p = mk.split('-').map(Number); return (factorProyeccionMes(p[0], p[1]) || 1); };
@@ -11025,7 +11032,7 @@ async function renderPresupuestoVentas(){
   // Cálculo por asesora
   // Mes que EVALÚAN las comisiones: en el panel compacto, el mes anterior al proyectado
   // (el 1 de agosto evalúa julio completo — para liquidar); en el panel grande, el mes actual
-  const evalSh = compactoP ? mesShiftK2(ventana[0].anio, ventana[0].mes, -1) : { a: anioAct, m: mesAct };
+  const evalSh = compactoP ? { a: selAnio, m: selMes } : { a: anioAct, m: mesAct };
   const evalKey = mkDe(evalSh.a, evalSh.m);
   const filas = asesoras.map(a=>{
     const k = pptoAncla(a.nombre);
@@ -11067,7 +11074,7 @@ async function renderPresupuestoVentas(){
       if(v.anio === 2026 && v.mes >= 10) mostrar += upliftAse; // empuje ERAYBA desde octubre
       metas[v.key] = {valor: Math.round(mostrar), manual:false};
     });
-    const realActual = Math.round(vm[mkDe(anioAct,mesAct)]||0);
+    const realActual = Math.round(vm[selKey]||0);
     // Histórico: últimos 3 meses cerrados con % de crecimiento vs el mes anterior
     const hist = mesesHist.map((mk,ix)=>{
       const val = Math.round((vm[mk]||0) * factorMk(mk));
@@ -11092,12 +11099,12 @@ async function renderPresupuestoVentas(){
     // Ventas del mes evaluado: en vivo si es el mes en curso; cerradas si es un mes pasado
     const ventasEval = evalKey === mkDe(anioAct, mesAct) ? realActual : Math.round(vm[evalKey] || 0);
     // ── Mes en curso: mínimo, ventas y meta — exactamente lo que ve la asesora en sus KPIs
-    const mkAct = mkDe(anioAct, mesAct);
-    const prevAct  = mesShiftK2(anioAct, mesAct, -1);
-    const prev2Act = mesShiftK2(anioAct, mesAct, -2);
+    const mkAct = selKey;
+    const prevAct  = mesShiftK2(selAnio, selMes, -1);
+    const prev2Act = mesShiftK2(selAnio, selMes, -2);
     const baseAct = Math.round(vm[mkDe(prevAct.a, prevAct.m)] || 0);
     // Mínimo: promedio de los 2 meses anteriores, con el piso de $4.000
-    const minimoAct = Math.max(4000, Math.round(((vm[mkDe(prevAct.a, prevAct.m)]||0) + (vm[mkDe(prev2Act.a, prev2Act.m)]||0)) / 2));
+    const minimoAct = Math.max(PISO_COMISION, Math.round(((vm[mkDe(prevAct.a, prevAct.m)]||0) + (vm[mkDe(prev2Act.a, prev2Act.m)]||0)) / 2));
     const ovAct = ov[mkAct];
     let metaAct = null, metaActManual = false;
     if(ovAct !== undefined && ovAct !== null && ovAct !== ''){ metaAct = Math.round(parseFloat(ovAct)||0); metaActManual = true; }
@@ -11113,7 +11120,7 @@ async function renderPresupuestoVentas(){
   filas.forEach(f=>{ const m = f.metas[snapKey]; if(m) snapAct[f.nombre] = m.valor; });
   // La meta del MES EN CURSO también se congela, que es la que se liquida al cerrar el mes
   if(compactoP){
-    const mkActG = mkDe(anioAct, mesAct);
+    const mkActG = selKey;
     const snapEnCurso = {};
     filas.forEach(f=>{ if(f.metaAct) snapEnCurso[f.nombre] = f.metaAct; });
     cfg.snapshots = cfg.snapshots || {};
@@ -11159,20 +11166,29 @@ async function renderPresupuestoVentas(){
 
     <div class="card" style="padding:0">
       <div style="padding:14px 16px 10px;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px"><i class="ti ti-target-arrow" style="margin-right:6px"></i>${compactoP ? 'Presupuesto ventas — mínimo, mes en curso y meta (sin IVA)' : 'Presupuesto — mes en curso + 3 proyectados (sin IVA)'}</div>
-      ${compactoP ? `<div style="padding:0 16px 10px;font-size:11px;color:var(--muted);line-height:1.5">El <b>mínimo</b> es el promedio de los 2 meses anteriores (piso $4.000) y la <b>meta</b> sale del mes anterior más el % que fijes. Son los mismos números que ve cada asesora en sus KPIs.</div>` : ''}
+      ${compactoP ? `
+      <div style="display:flex;align-items:center;justify-content:center;gap:14px;padding:2px 16px 12px">
+        <button onclick="pptoMesNav(-1)" style="width:32px;height:32px;border:1px solid var(--border);border-radius:50%;background:white;cursor:pointer;color:var(--brown)"><i class="ti ti-chevron-left"></i></button>
+        <div style="text-align:center;min-width:150px">
+          <div style="font-size:16px;font-weight:700">${MESES_PPTO[selMes]} ${selAnio}</div>
+          <div style="font-size:10px;color:var(--muted)">${selEnCurso?'mes en curso':'mes cerrado'}${((cfg.mensual||{})[selKey])?' · con ajustes propios':''}</div>
+        </div>
+        <button onclick="pptoMesNav(1)" ${selEnCurso?'disabled':''} style="width:32px;height:32px;border:1px solid var(--border);border-radius:50%;background:${selEnCurso?'#f5f3f0':'white'};cursor:${selEnCurso?'default':'pointer'};color:${selEnCurso?'#ccc':'var(--brown)'}"><i class="ti ti-chevron-right"></i></button>
+      </div>` : ''}
+      ${compactoP ? `<div style="padding:0 16px 10px;font-size:11px;color:var(--muted);line-height:1.5">Lo que edites aquí (porcentajes, piso, bono, metas) se guarda <b>solo para ${MESES_PPTO[selMes]} ${selAnio}</b>; los demás meses no se tocan. El <b>mínimo</b> es el promedio de los 2 meses anteriores (piso ${fmtP(PISO_COMISION)}) y la <b>meta</b> sale del mes anterior más el % que fijes. Son los mismos números que ve cada asesora en sus KPIs.</div>` : ''}
       <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:820px">
         <thead><tr style="border-bottom:1px solid var(--border)">
           <th style="text-align:left;padding:8px 12px;font-size:10px;color:var(--muted);text-transform:uppercase;${compactoP?'width:22%':''}">Asesora</th>
           ${compactoP ? `
-          <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;background:#f3f0ec">Mínimo<br><span style="font-weight:400;letter-spacing:0">prom. ${MESES_PPTO[mesShiftK2(anioAct,mesAct,-2).m]}–${MESES_PPTO[mesShiftK2(anioAct,mesAct,-1).m]}</span></th>
-          <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;background:#f3f0ec">Mes en curso<br><span style="font-weight:400;letter-spacing:0">${MESES_PPTO[mesAct]} ${String(anioAct).substring(2)}</span></th>`
+          <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;background:#f3f0ec">Mínimo<br><span style="font-weight:400;letter-spacing:0">prom. ${MESES_PPTO[mesShiftK2(selAnio,selMes,-2).m]}–${MESES_PPTO[mesShiftK2(selAnio,selMes,-1).m]}</span></th>
+          <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;background:#f3f0ec">${selEnCurso?'Mes en curso':'Ventas del mes'}<br><span style="font-weight:400;letter-spacing:0">${MESES_PPTO[selMes]} ${String(selAnio).substring(2)}</span></th>`
           : mesesHist.map(mk=>`<th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;background:#f3f0ec">${MESES_PPTO[parseInt(mk.split('-')[1])]} ${mk.substring(2,4)}<br><span style="font-weight:400;letter-spacing:0">histórico</span></th>`).join('')}
           ${compactoP?'':`<th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase;background:#f3f0ec">Crec.<br>prom. ${HIST_N}m</th>`}
           ${compactoP?'':`<th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Base<br>(prom. 3m)</th>`}
           <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">${compactoP?'% Incremento mensual':'% mensual'}</th>
           ${compactoP?'<th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Valor<br>incremento</th>':''}
           ${compactoP
-            ? `<th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Meta ${MESES_PPTO[mesAct]} ${String(anioAct).substring(2)}</th>`
+            ? `<th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Meta ${MESES_PPTO[selMes]} ${String(selAnio).substring(2)}</th>`
             : ventana.map(v=>`<th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">${MESES_PPTO[v.mes]} ${String(v.anio).substring(2)}${v.key===mkDe(anioAct,mesAct)?'<br><span style="color:#16a34a">(en curso)</span>':''}</th>`).join('')}
         </tr></thead>
         <tbody>
@@ -11347,7 +11363,7 @@ async function renderPresupuestoVentas(){
     })()}
     ${(()=>{
       const inc = cfg.incentivo;
-      const PISO = 4000;
+      const PISO = PISO_COMISION;
       const mesActKey = mkDe(anioAct, mesAct);
       const snapEval = (cfg.snapshots || {})[evalKey] || {};
       const filasCom = filas.map(f => {
@@ -11363,7 +11379,7 @@ async function renderPresupuestoVentas(){
       // Misma función que usa la tarjeta de KPIs de cada asesora
       const calcCom = (ventas, meta, minAnt, nombre) => comisionDeAsesora(ventas, meta, minAnt, incentivoDe(nombre));
       const fmtC = v => '$' + (Math.round(v*100)/100).toFixed(2);
-      const nivelesDe = ip => ['Sin comisión (no llegó a $4.000)',
+      const nivelesDe = ip => ['Sin comisión (no llegó a '+fmtP(PISO_COMISION)+')',
         'Bajo su mínimo → '+ip.pct_bajo+'%',
         'Mínimo cumplido → '+ip.pct_normal+'%',
         'META CUMPLIDA → '+ip.pct_normal+'% + $'+ip.bono+' + '+ip.pct_exceso+'%'];
@@ -11373,13 +11389,14 @@ async function renderPresupuestoVentas(){
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding:14px 16px 10px">
         <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px"><i class="ti ti-coin" style="margin-right:6px"></i>Comisiones a pagar — ${MESES_PPTO[evalSh.m]} (mes cerrado)</div>
         <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:12px">
+          <span title="Debajo de este monto no hay comisión para nadie">Comisión desde $<input type="number" min="0" step="100" value="${inc.piso}" onchange="guardarIncentivoPpto('piso',this.value)" style="width:70px;padding:3px 5px;font-size:12px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;font-weight:700;color:var(--brown)"> de ventas</span>
           <span>Por debajo del mínimo: <input type="number" min="0" max="100" step="0.5" value="${inc.pct_bajo}" onchange="guardarIncentivoPpto('pct_bajo',this.value)" style="width:52px;padding:3px 5px;font-size:12px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;font-weight:700;color:var(--brown)">% en comisiones</span>
           <span>Al cumplir el mínimo: <input type="number" min="0" max="100" step="0.5" value="${inc.pct_normal}" onchange="guardarIncentivoPpto('pct_normal',this.value)" style="width:52px;padding:3px 5px;font-size:12px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;font-weight:700;color:var(--brown)">% en comisiones</span>
           <span>Bono si cumple la meta $<input type="number" min="0" value="${inc.bono}" onchange="guardarIncentivoPpto('bono',this.value)" style="width:56px;padding:3px 5px;font-size:12px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;font-weight:700;color:var(--brown)"></span>
           <span>Después de la meta: <input type="number" min="0" max="100" step="0.5" value="${inc.pct_exceso}" onchange="guardarIncentivoPpto('pct_exceso',this.value)" style="width:52px;padding:3px 5px;font-size:12px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;font-weight:700;color:var(--brown)">% en comisiones</span>
         </div>
       </div>
-      <div style="font-size:11px;color:var(--muted);padding:0 16px 10px;line-height:1.5">Piso $4.000 (debajo no hay comisión). El <b>mínimo</b> de cada asesora es su <b>promedio de ventas de los últimos 2 meses</b>. Los porcentajes de arriba son los generales; los de cada fila mandan sobre ellos, porque no todas cobran igual. Superando la meta se suma <b>bono $${inc.bono}</b> + <b>${inc.pct_exceso}%</b> de todo lo que exceda la meta.</div>
+      <div style="font-size:11px;color:var(--muted);padding:0 16px 10px;line-height:1.5">Piso ${fmtP(inc.piso)} (debajo no hay comisión). El <b>mínimo</b> de cada asesora es su <b>promedio de ventas de los últimos 2 meses</b>. Los porcentajes de arriba son los generales; los de cada fila mandan sobre ellos, porque no todas cobran igual. Superando la meta se suma <b>bono $${inc.bono}</b> + <b>${inc.pct_exceso}%</b> de todo lo que exceda la meta.</div>
       <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:700px">
         <thead><tr style="border-bottom:1px solid var(--border)">
           <th style="text-align:left;padding:8px 12px;font-size:10px;color:var(--muted);text-transform:uppercase">Asesora</th>
@@ -11422,12 +11439,45 @@ async function renderPresupuestoVentas(){
 
 // Porcentaje de comisión propio de una asesora (bajo el mínimo y normal). Se guarda en
 // la config del Presupuesto, que es de donde leen los KPIs y el panel de Comisiones.
+// Navegar entre meses en Presupuesto ventas
+function pptoMesNav(d){
+  const hoy = new Date(new Date().toLocaleString('en-US',{timeZone:'America/Guayaquil'}));
+  let a = window._pptoAnioSel, m = window._pptoMesSel + d;
+  while(m > 12){ m -= 12; a++; } while(m < 1){ m += 12; a--; }
+  // No se navega al futuro: no hay ventas que mostrar
+  if (a > hoy.getFullYear() || (a === hoy.getFullYear() && m > hoy.getMonth()+1)) return;
+  window._pptoAnioSel = a; window._pptoMesSel = m;
+  renderPresupuestoVentas();
+}
+
+// Deja preparado el bloque del mes que se está editando. La primera vez copia los valores
+// que ese mes tenía vigentes, para que quede congelado tal cual estaba y los cambios
+// posteriores en los generales no lo muevan.
+function prepararMesEdicion(cfg){
+  const mk = window._pptoMesEdit;
+  if (!mk) return null;
+  cfg.mensual = cfg.mensual || {};
+  if (!cfg.mensual[mk]) {
+    cfg.mensual[mk] = {
+      pct: Object.assign({}, cfg.pct || {}),
+      pct_comision: JSON.parse(JSON.stringify(cfg.pct_comision || {})),
+      incentivo: Object.assign({}, cfg.incentivo || {}),
+      incentivo_lider: Object.assign({}, cfg.incentivo_lider || {})
+    };
+  }
+  const b = cfg.mensual[mk];
+  b.pct = b.pct || {}; b.pct_comision = b.pct_comision || {};
+  b.incentivo = b.incentivo || {}; b.incentivo_lider = b.incentivo_lider || {};
+  return b;
+}
+
 async function guardarPctComision(nombre, campo, valor){
   const cfg = window._pptoCfg || {pct:{},overrides:{},snapshots:{}};
-  cfg.pct_comision = cfg.pct_comision || {};
-  const k = Object.keys(cfg.pct_comision).find(x => anclaPct(x) === anclaPct(nombre)) || nombre;
-  cfg.pct_comision[k] = Object.assign({}, cfg.pct_comision[k] || {});
-  cfg.pct_comision[k][campo] = Math.max(0, Math.min(100, parseFloat(valor) || 0));
+  const destino = prepararMesEdicion(cfg) || cfg;
+  destino.pct_comision = destino.pct_comision || {};
+  const k = Object.keys(destino.pct_comision).find(x => anclaPct(x) === anclaPct(nombre)) || nombre;
+  destino.pct_comision[k] = Object.assign({}, destino.pct_comision[k] || {});
+  destino.pct_comision[k][campo] = Math.max(0, Math.min(100, parseFloat(valor) || 0));
   window._pptoCfg = cfg;
   await guardarPptoConfig();
 }
@@ -11435,16 +11485,20 @@ async function guardarPctComision(nombre, campo, valor){
 async function guardarIncentivoLider(campo, valor){
   const cfg = window._pptoCfg || {pct:{},overrides:{},snapshots:{}};
   cfg.incentivo_lider = Object.assign({ pct_base: 1.7, pct_bajo: 1, bono: 0, pct_exceso: 0 }, cfg.incentivo_lider || {});
-  cfg.incentivo_lider[campo] = Math.max(0, parseFloat(valor) || 0);
+  const destino = prepararMesEdicion(cfg) || cfg;
+  destino.incentivo_lider = Object.assign({}, cfg.incentivo_lider, destino.incentivo_lider || {});
+  destino.incentivo_lider[campo] = Math.max(0, parseFloat(valor) || 0);
   window._pptoCfg = cfg;
   await guardarPptoConfig();
 }
 
 async function guardarIncentivoPpto(campo, valor){
   const cfg = window._pptoCfg || {pct:{},overrides:{},snapshots:{}};
-  cfg.incentivo = Object.assign({ pct_minimo: 90, bono: 50, pct_exceso: 5, pct_bajo: 2, pct_normal: 3 }, cfg.incentivo || {});
+  cfg.incentivo = Object.assign({ pct_minimo: 90, bono: 50, pct_exceso: 5, pct_bajo: 2, pct_normal: 3, piso: 4000 }, cfg.incentivo || {});
   cfg.incentivo_lider = Object.assign({ pct_base: 1.7, pct_bajo: 1, bono: 0, pct_exceso: 0 }, cfg.incentivo_lider || {});
-  cfg.incentivo[campo] = Math.max(0, parseFloat(valor) || 0);
+  const destino = prepararMesEdicion(cfg) || cfg;
+  destino.incentivo = Object.assign({}, cfg.incentivo, destino.incentivo || {});
+  destino.incentivo[campo] = Math.max(0, parseFloat(valor) || 0);
   window._pptoCfg = cfg;
   await guardarPptoConfig();
 }
@@ -11454,6 +11508,7 @@ async function guardarPptoConfig(){
     // Los KPIs leen esta misma configuración desde su propia copia; se refresca aquí
     // para que un cambio de bono o de % se vea al instante en las tarjetas de las asesoras.
     window._pptoCfgKpi = window._pptoCfg;
+    aplicarPisoComision();
     const r = await fetch('/api/presupuesto-config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({config:window._pptoCfg})});
     const j = await r.json();
     if(!j.ok) throw new Error(j.error||'error');
@@ -11464,9 +11519,11 @@ async function guardarPptoConfig(){
 async function guardarPctPpto(nombre, valor){
   const cfg = window._pptoCfg || {pct:{},overrides:{},snapshots:{}};
   cfg.pct = cfg.pct || {};
-  const key = Object.keys(cfg.pct).find(n=>pptoAncla(n)===pptoAncla(nombre)) || nombre;
-  if(valor === '' || valor === null) delete cfg.pct[key];
-  else cfg.pct[key] = Math.max(-50, Math.min(100, parseFloat(valor)||0));
+  const destino = prepararMesEdicion(cfg) || cfg;
+  destino.pct = destino.pct || {};
+  const key = Object.keys(destino.pct).find(n=>pptoAncla(n)===pptoAncla(nombre)) || nombre;
+  if(valor === '' || valor === null) delete destino.pct[key];
+  else destino.pct[key] = Math.max(-50, Math.min(100, parseFloat(valor)||0));
   window._pptoCfg = cfg;
   await guardarPptoConfig();
 }
@@ -12923,7 +12980,7 @@ async function renderComisiones(){
             <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Mínimo</th>
             <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Meta</th>
             <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--muted)">Tramo alcanzado</th>
-            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)"  title="Lo que pasa de $4.000 y genera comisión">Base</th>
+            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)"  title="Lo que pasa del piso y genera comisión">Base</th>
             <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Comisión</th>
             <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Transporte</th>
             <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Total</th>
@@ -13076,7 +13133,7 @@ function exportarComisionesExcel(){
   push(['Ventas totales de la empresa: '+r2(D.totalSinIvaGlobal)+' sin IVA  ·  '+r2(D.totalConIvaGlobal)+' con IVA']);
   push([]);
 
-  const CAB = ['Persona','Rol / detalle','Subtotal s/IVA','Ventas c/IVA','Mínimo','Meta','Tramo alcanzado','Base (sobre $4.000)','Comisión','Transporte','Total a pagar'];
+  const CAB = ['Persona','Rol / detalle','Subtotal s/IVA','Ventas c/IVA','Mínimo','Meta','Tramo alcanzado','Base (sobre el piso)','Comisión','Transporte','Total a pagar'];
   let granTotal = 0;
 
   (D.equipos||[]).forEach(eq=>{
@@ -13580,6 +13637,7 @@ async function cargarMetaVentasCfg(){
       if(d2.ok) window._pptoCfgKpi = d2.config || {};
     }catch(e){ window._pptoCfgKpi = {}; }
   }
+  aplicarPisoComision();
 }
 
 // % de crecimiento mensual por defecto cuando todavía no se ha configurado uno a mano.
@@ -13708,10 +13766,33 @@ function barraTriColor(vendido, minimo, meta, etiquetaIzq, sinLeyenda){
 // ─── COMISIÓN DE LA ASESORA (regla única) ─────────────────────────────────────────
 // La usan el panel Presupuesto ventas y la tarjeta de KPIs, para que no puedan dar
 // números distintos por el mismo mes.
-const PISO_COMISION = 4000;
-function incentivoCfg(){
-  return Object.assign({ pct_minimo:90, bono:50, pct_exceso:5, pct_bajo:2, pct_normal:3 },
-                       (window._pptoCfgKpi || {}).incentivo || {});
+// Piso de comisión: por debajo de este monto no se gana nada. Se configura en
+// Reportes → Presupuesto ventas, así que si mañana pasa de $4.000 a $5.000 no hay que
+// tocar código. aplicarPisoComision() lo refresca cada vez que se carga o guarda la config.
+let PISO_COMISION = 4000;
+function aplicarPisoComision(){
+  const cfgP = window._pptoCfgKpi || window._pptoCfg || {};
+  const v = parseFloat(((cfgP.incentivo || {}).piso));
+  PISO_COMISION = (!isNaN(v) && v >= 0) ? v : 4000;
+  return PISO_COMISION;
+}
+// La configuración puede tener valores propios por mes. Cuando se edita algo estando
+// parado en un mes, se guarda SOLO para ese mes: cambiar el piso hoy no puede reescribir
+// lo que ya se pagó en meses anteriores.
+//   cfg.mensual['2026-08'] = { pct:{...}, pct_comision:{...}, incentivo:{...} }
+// Un mes sin valores propios hereda los generales.
+function mesKeyDe(anio, mes){ return anio + '-' + String(mes).padStart(2,'0'); }
+
+function cfgDelMes(mesKey){
+  const cfgP = window._pptoCfgKpi || window._pptoCfg || {};
+  const propio = (cfgP.mensual || {})[mesKey] || {};
+  return { general: cfgP, propio };
+}
+
+function incentivoCfg(mesKey){
+  const { general, propio } = cfgDelMes(mesKey);
+  return Object.assign({ pct_minimo:90, bono:50, pct_exceso:5, pct_bajo:2, pct_normal:3, piso:4000 },
+                       general.incentivo || {}, propio.incentivo || {});
 }
 
 // Ancla de nombre: primeras dos palabras en mayúsculas y sin tildes. Es como se guardan
@@ -13723,10 +13804,10 @@ function anclaPct(x){
 
 // Porcentajes de comisión de UNA persona. Si no tiene nada propio, hereda los generales.
 // Karen cobra 4% donde las demás cobran 3%, y eso se configura en Presupuesto ventas.
-function incentivoDe(nombre){
-  const base = incentivoCfg();
-  const cfgP = window._pptoCfgKpi || window._pptoCfg || {};
-  const tabla = cfgP.pct_comision || {};
+function incentivoDe(nombre, mesKey){
+  const base = incentivoCfg(mesKey);
+  const { general, propio: pMes } = cfgDelMes(mesKey);
+  const tabla = Object.assign({}, general.pct_comision || {}, pMes.pct_comision || {});
   const k = Object.keys(tabla).find(x => anclaPct(x) === anclaPct(nombre));
   const propio = k ? (tabla[k] || {}) : {};
   const num = (v, d) => { const n = parseFloat(v); return isNaN(n) ? d : n; };
@@ -13740,15 +13821,16 @@ function incentivoDe(nombre){
 function comisionDeAsesora(ventas, meta, minimoBruto, inc){
   inc = inc || incentivoCfg();
   const pN = (inc.pct_normal !== undefined ? inc.pct_normal : 3) / 100;
-  const minimo = Math.max(minimoBruto || 0, PISO_COMISION);
+  const piso = (inc.piso !== undefined && !isNaN(parseFloat(inc.piso))) ? parseFloat(inc.piso) : PISO_COMISION;
+  const minimo = Math.max(minimoBruto || 0, piso);
   // base = lo que pasa del piso y genera comisión al porcentaje principal.
   // Al cumplir la meta, la base se corta en la meta y lo de arriba va como exceso.
-  if(ventas <= PISO_COMISION) return { minimo, nivel:0, base:0, exceso:0, comision:0 };
-  if(ventas < minimo)         return { minimo, nivel:1, base:ventas - PISO_COMISION, exceso:0,
-                                       comision:(inc.pct_bajo/100) * (ventas - PISO_COMISION) };
-  if(!meta || ventas < meta)  return { minimo, nivel:2, base:ventas - PISO_COMISION, exceso:0,
-                                       comision: pN * (ventas - PISO_COMISION) };
-  const baseMeta = Math.max(0, meta - PISO_COMISION), exceso = ventas - meta;
+  if(ventas <= piso) return { minimo, nivel:0, base:0, exceso:0, comision:0 };
+  if(ventas < minimo)         return { minimo, nivel:1, base:ventas - piso, exceso:0,
+                                       comision:(inc.pct_bajo/100) * (ventas - piso) };
+  if(!meta || ventas < meta)  return { minimo, nivel:2, base:ventas - piso, exceso:0,
+                                       comision: pN * (ventas - piso) };
+  const baseMeta = Math.max(0, meta - piso), exceso = ventas - meta;
   return { minimo, nivel:3, base:baseMeta, exceso,
            comision: pN * baseMeta + inc.bono + (inc.pct_exceso/100) * exceso };
 }
@@ -13795,10 +13877,12 @@ function metaDeAsesora(nombreVend, anioM, mesM){
   const cfgP = window._pptoCfgKpi || {};
   const shiftM = (a,m,d)=>{ m+=d; while(m>12){m-=12;a++;} while(m<1){m+=12;a--;} return {a,m}; };
   const ancla = x => String(x||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase().split(/\s+/).slice(0,2).join(' ');
+  const mkDeMeta = anioM + '-' + String(mesM).padStart(2,'0');
   const mb = mesBaseDeMeta(anioM, mesM);
   const base = Math.round((ventasMesDeVendedora(nombreVend, mb.mes, mb.anio) || 0) * mb.factor);
-  const kPct = Object.keys(cfgP.pct||{}).find(k=>ancla(k)===ancla(nombreVend));
-  let pct = kPct !== undefined ? parseFloat(cfgP.pct[kPct]) : null;
+  const tablaPct = Object.assign({}, cfgP.pct || {}, ((cfgP.mensual||{})[mkDeMeta] || {}).pct || {});
+  const kPct = Object.keys(tablaPct).find(k=>ancla(k)===ancla(nombreVend));
+  let pct = kPct !== undefined ? parseFloat(tablaPct[kPct]) : null;
   if(pct === null || isNaN(pct)) pct = pctPorDefecto(nombreVend);
   const kOv = Object.keys(cfgP.overrides||{}).find(k=>ancla(k)===ancla(nombreVend));
   const mkM = anioM+'-'+String(mesM).padStart(2,'0');
@@ -14032,7 +14116,7 @@ function cardPresupuestoAsesora(nombreVend, anioSel, mesSel){
   // Comisión con la misma regla que usa el panel Presupuesto ventas
   const inc = incentivoDe(nombreVend);
   const rCom = comisionDeAsesora(vendido, meta, minimoP, inc);
-  const NIV = ['Aún no llega a $4.000', 'Bajo tu mínimo → '+inc.pct_bajo+'%', 'Mínimo cumplido → 3%', 'Meta cumplida → 3% + $'+inc.bono+' + '+inc.pct_exceso+'%'];
+  const NIV = ['Aún no llega a '+fmtK(PISO_COMISION), 'Bajo tu mínimo → '+inc.pct_bajo+'%', 'Mínimo cumplido → 3%', 'Meta cumplida → 3% + $'+inc.bono+' + '+inc.pct_exceso+'%'];
   const fmtC = x => '$' + (Math.round(x*100)/100).toFixed(2);
   const esMesEnCurso = (pa === hoyP.getFullYear() && pm === (hoyP.getMonth()+1));
 
