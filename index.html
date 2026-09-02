@@ -13159,7 +13159,14 @@ function exportarComisionesExcel(){
     });
     const totalEq = (eq.totalJefa||0) + (eq.filas||[]).reduce((a,f)=>a+(f.totalPagar||0),0);
     granTotal += totalEq;
-    filasTotal.push(push(['Total equipo '+eq.nombre, null,null,null,null,null,null,null,null,null, r2(totalEq)]));
+    // Ventas del equipo: es la base sobre la que se calcula la comisión de la líder.
+    // Sin este número, en la contabilidad no se entiende de dónde sale lo que gana.
+    const aportanEq = (eq.filas||[]).filter(f=>f.contribuye !== false);
+    const ventasEqSin = (eq.vJefa ? eq.vJefa.sinIva : 0) + aportanEq.reduce((a,f)=>a+(f.sinIva||0),0);
+    const ventasEqCon = (eq.vJefa ? eq.vJefa.conIva : 0) + aportanEq.reduce((a,f)=>a+(f.conIva||0),0);
+    filasTotal.push(push(['Total equipo '+eq.nombre, 'Ventas del equipo = base de la comisión de la líder',
+      r2(ventasEqSin), r2(ventasEqCon), r2(eq.minimoEq||0), r2(eq.metaEq||0), eq.tramoJefa||'',
+      null, null, null, r2(totalEq)]));
     push([]);
   });
 
@@ -13188,11 +13195,14 @@ function exportarComisionesExcel(){
   filasTotal.push(push(['TOTAL GENERAL A PAGAR', null,null,null,null,null,null,null,null,null, r2(granTotal)]));
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols'] = [{wch:28},{wch:26},{wch:15},{wch:14},{wch:11},{wch:9},{wch:13},{wch:13},{wch:12},{wch:15}];
-  ws['!merges'] = [{s:{r:0,c:0},e:{r:0,c:9}},{s:{r:1,c:0},e:{r:1,c:9}}];
+  ws['!cols'] = [{wch:28},{wch:34},{wch:15},{wch:14},{wch:13},{wch:13},{wch:34},{wch:14},{wch:13},{wch:12},{wch:15}];
+  ws['!merges'] = [{s:{r:0,c:0},e:{r:0,c:10}},{s:{r:1,c:0},e:{r:1,c:10}}];
 
-  // Formato: moneda en las columnas de dinero, porcentaje en la de %
-  const COLS_MONEDA = [2,3,4,6,7,8,9], COL_PCT = [5];
+  // Formato por columna, según la cabecera actual:
+  // 0 Persona · 1 Rol · 2 Subtotal · 3 c/IVA · 4 Mínimo · 5 Meta · 6 Tramo (texto)
+  // 7 Base · 8 Comisión · 9 Transporte · 10 Total
+  // La 5 era el % y ahora es la Meta: si no se corrige, Excel muestra 1258700%.
+  const COLS_MONEDA = [2,3,4,5,7,8,9,10], COL_PCT = [];
   const rango = XLSX.utils.decode_range(ws['!ref']);
   for(let R=rango.s.r; R<=rango.e.r; R++){
     for(let C=rango.s.c; C<=rango.e.c; C++){
