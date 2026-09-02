@@ -10922,11 +10922,29 @@ async function renderPresupuestoVentas(){
   try{
     const [rC, rU] = await Promise.all([fetch('/api/presupuesto-config'), fetch('/api/usuarios')]);
     const jC = await rC.json(); if(jC.ok && jC.config) cfg = Object.assign({pct:{},overrides:{},snapshots:{}}, jC.config);
-    cfg.incentivo = Object.assign({ pct_minimo: 90, bono: 50, pct_exceso: 5, pct_bajo: 2 }, cfg.incentivo || {});
+    cfg.incentivo = Object.assign({ pct_minimo: 90, bono: 50, pct_exceso: 5, pct_bajo: 2, pct_normal: 3 }, cfg.incentivo || {});
     cfg.incentivo_lider = Object.assign({ pct_base: 1.7, pct_bajo: 1, bono: 0, pct_exceso: 0 }, cfg.incentivo_lider || {});
     const dU = await rU.json(); if(Array.isArray(dU)) usuarios = dU;
   }catch(e){}
+  // Primera vez: se heredan los porcentajes que ya se venían pagando en Reportes →
+  // Comisiones (Karen y Nicole al 4%, el resto al 3%), para no arrancar borrando historia.
+  if (!cfg.pct_comision && typeof getComisionCfg === 'function') {
+    try {
+      const viejo = getComisionCfg().asesoras || {};
+      const semilla = {};
+      Object.keys(viejo).forEach(n => {
+        const p = parseFloat(viejo[n].pct);
+        if (!isNaN(p)) semilla[n] = { normal: p };
+      });
+      if (Object.keys(semilla).length) {
+        cfg.pct_comision = semilla;
+        fetch('/api/presupuesto-config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({config:cfg})}).catch(()=>{});
+        console.log('Porcentajes de comisión heredados del panel anterior:', semilla);
+      }
+    } catch(e) {}
+  }
   window._pptoCfg = cfg;
+  window._pptoCfgKpi = cfg;
 
   // Asesoras activas + Giovanna (referencia) + nombres solo-override (ej: Mayra antes de crear su usuario)
   let asesoras = usuarios.filter(u=>(u.rol==='asesora'||u.rol==='jefa_ventas') && u.activo).map(u=>({nombre:u.nombre, rol:u.rol}));
@@ -11343,9 +11361,12 @@ async function renderPresupuestoVentas(){
       }).filter(Boolean);
       if(filasCom.length === 0) return '';
       // Misma función que usa la tarjeta de KPIs de cada asesora
-      const calcCom = (ventas, meta, minAnt) => comisionDeAsesora(ventas, meta, minAnt, inc);
+      const calcCom = (ventas, meta, minAnt, nombre) => comisionDeAsesora(ventas, meta, minAnt, incentivoDe(nombre));
       const fmtC = v => '$' + (Math.round(v*100)/100).toFixed(2);
-      const NIVELES = ['Sin comisión (no llegó a $4.000)','Bajo su mínimo → '+inc.pct_bajo+'%','Mínimo cumplido → 3%','META CUMPLIDA → 3% + $'+inc.bono+' + '+inc.pct_exceso+'%'];
+      const nivelesDe = ip => ['Sin comisión (no llegó a $4.000)',
+        'Bajo su mínimo → '+ip.pct_bajo+'%',
+        'Mínimo cumplido → '+ip.pct_normal+'%',
+        'META CUMPLIDA → '+ip.pct_normal+'% + $'+ip.bono+' + '+ip.pct_exceso+'%'];
       const NIVEL_COLOR = ['#9ca3af','#d97706','#2563eb','#16a34a'];
       return `
     <div class="card" style="margin-top:12px;padding:0">
@@ -11353,24 +11374,32 @@ async function renderPresupuestoVentas(){
         <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px"><i class="ti ti-coin" style="margin-right:6px"></i>Comisiones a pagar — ${MESES_PPTO[evalSh.m]} (mes cerrado)</div>
         <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:12px">
           <span>Por debajo del mínimo: <input type="number" min="0" max="100" step="0.5" value="${inc.pct_bajo}" onchange="guardarIncentivoPpto('pct_bajo',this.value)" style="width:52px;padding:3px 5px;font-size:12px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;font-weight:700;color:var(--brown)">% en comisiones</span>
+          <span>Al cumplir el mínimo: <input type="number" min="0" max="100" step="0.5" value="${inc.pct_normal}" onchange="guardarIncentivoPpto('pct_normal',this.value)" style="width:52px;padding:3px 5px;font-size:12px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;font-weight:700;color:var(--brown)">% en comisiones</span>
           <span>Bono si cumple la meta $<input type="number" min="0" value="${inc.bono}" onchange="guardarIncentivoPpto('bono',this.value)" style="width:56px;padding:3px 5px;font-size:12px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;font-weight:700;color:var(--brown)"></span>
           <span>Después de la meta: <input type="number" min="0" max="100" step="0.5" value="${inc.pct_exceso}" onchange="guardarIncentivoPpto('pct_exceso',this.value)" style="width:52px;padding:3px 5px;font-size:12px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;font-weight:700;color:var(--brown)">% en comisiones</span>
         </div>
       </div>
-      <div style="font-size:11px;color:var(--muted);padding:0 16px 10px;line-height:1.5">Piso $4.000 (debajo no hay comisión). El <b>mínimo</b> de cada asesora es su <b>promedio de ventas de los últimos 2 meses</b>. Por debajo del mínimo: <b>${inc.pct_bajo}%</b> del excedente de $4.000 · alcanzando el mínimo: <b>3%</b> · superando la meta: 3% hasta la meta + <b>bono $${inc.bono}</b> + <b>${inc.pct_exceso}%</b> de todo lo que exceda la meta.</div>
+      <div style="font-size:11px;color:var(--muted);padding:0 16px 10px;line-height:1.5">Piso $4.000 (debajo no hay comisión). El <b>mínimo</b> de cada asesora es su <b>promedio de ventas de los últimos 2 meses</b>. Los porcentajes de arriba son los generales; los de cada fila mandan sobre ellos, porque no todas cobran igual. Superando la meta se suma <b>bono $${inc.bono}</b> + <b>${inc.pct_exceso}%</b> de todo lo que exceda la meta.</div>
       <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:700px">
         <thead><tr style="border-bottom:1px solid var(--border)">
           <th style="text-align:left;padding:8px 12px;font-size:10px;color:var(--muted);text-transform:uppercase">Asesora</th>
           <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Mínimo<br>(prom. 2 meses)</th>
           <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Ventas de<br>${MESES_PPTO[evalSh.m]}</th>
           <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Meta<br>${MESES_PPTO[evalSh.m]}</th>
+          <th style="text-align:center;padding:8px 6px;font-size:10px;color:var(--muted);text-transform:uppercase" title="Comisión mientras no alcanza su mínimo">% bajo<br>mínimo</th>
+          <th style="text-align:center;padding:8px 6px;font-size:10px;color:var(--muted);text-transform:uppercase" title="Comisión desde que cumple el mínimo, y hasta la meta">% normal</th>
           <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Resultado</th>
           <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Comisión<br>a pagar</th>
         </tr></thead>
         <tbody>
           ${filasCom.map((f,fi)=>{
             const meta = f.metaCom;
-            const r = calcCom(f.ventasEval, meta, f.minProm3);
+            const ip = incentivoDe(f.nombre);
+            const r = calcCom(f.ventasEval, meta, f.minProm3, f.nombre);
+            const NIVELES = nivelesDe(ip);
+            const inpPct = (campo, val) => '<input type="number" min="0" max="100" step="0.5" value="'+val+'"'
+              + ' onchange="guardarPctComision(\''+f.nombre.replace(/'/g,"\\'")+'\',\''+campo+'\',this.value)"'
+              + ' style="width:52px;padding:3px 4px;font-size:11px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;font-weight:700;color:var(--brown)">';
 
             return `
           <tr style="border-bottom:0.5px solid var(--border);background:${fi%2?'#f6f3ef':'white'}">
@@ -11378,6 +11407,8 @@ async function renderPresupuestoVentas(){
             <td style="padding:8px 8px;text-align:center;color:var(--muted)">${fmtP(r.minimo)}</td>
             <td style="padding:8px 8px;text-align:center;font-weight:700">${fmtP(f.ventasEval)}</td>
             <td style="padding:8px 8px;text-align:center;color:var(--muted)">${fmtP(meta)}</td>
+            <td style="padding:8px 6px;text-align:center;white-space:nowrap">${inpPct('bajo', ip.pct_bajo)}<span style="font-size:10px;color:var(--muted)">%</span></td>
+            <td style="padding:8px 6px;text-align:center;white-space:nowrap">${inpPct('normal', ip.pct_normal)}<span style="font-size:10px;color:var(--muted)">%</span></td>
             <td style="padding:8px 8px;text-align:center"><span style="font-size:10px;font-weight:700;color:${NIVEL_COLOR[r.nivel]};border:1px solid ${NIVEL_COLOR[r.nivel]};border-radius:10px;padding:2px 8px;white-space:nowrap">${NIVELES[r.nivel]}</span></td>
             <td style="padding:8px 8px;text-align:center;font-weight:800;font-size:13px;color:${r.comision>0?'#16a34a':'#9ca3af'}">${fmtC(r.comision)}</td>
           </tr>`;
@@ -11387,6 +11418,18 @@ async function renderPresupuestoVentas(){
     </div>`;
     })()}
     ${cumplHTML}`;
+}
+
+// Porcentaje de comisión propio de una asesora (bajo el mínimo y normal). Se guarda en
+// la config del Presupuesto, que es de donde leen los KPIs y el panel de Comisiones.
+async function guardarPctComision(nombre, campo, valor){
+  const cfg = window._pptoCfg || {pct:{},overrides:{},snapshots:{}};
+  cfg.pct_comision = cfg.pct_comision || {};
+  const k = Object.keys(cfg.pct_comision).find(x => anclaPct(x) === anclaPct(nombre)) || nombre;
+  cfg.pct_comision[k] = Object.assign({}, cfg.pct_comision[k] || {});
+  cfg.pct_comision[k][campo] = Math.max(0, Math.min(100, parseFloat(valor) || 0));
+  window._pptoCfg = cfg;
+  await guardarPptoConfig();
 }
 
 async function guardarIncentivoLider(campo, valor){
@@ -11399,7 +11442,7 @@ async function guardarIncentivoLider(campo, valor){
 
 async function guardarIncentivoPpto(campo, valor){
   const cfg = window._pptoCfg || {pct:{},overrides:{},snapshots:{}};
-  cfg.incentivo = Object.assign({ pct_minimo: 90, bono: 50, pct_exceso: 5, pct_bajo: 2 }, cfg.incentivo || {});
+  cfg.incentivo = Object.assign({ pct_minimo: 90, bono: 50, pct_exceso: 5, pct_bajo: 2, pct_normal: 3 }, cfg.incentivo || {});
   cfg.incentivo_lider = Object.assign({ pct_base: 1.7, pct_bajo: 1, bono: 0, pct_exceso: 0 }, cfg.incentivo_lider || {});
   cfg.incentivo[campo] = Math.max(0, parseFloat(valor) || 0);
   window._pptoCfg = cfg;
@@ -12729,6 +12772,10 @@ async function renderKpisProvincias(){
 
 async function renderComisiones(){
   const cfg = getComisionCfg();
+  // Las comisiones salen de la MISMA función que usan los KPIs de cada asesora
+  // (comisionDeAsesora) y la meta de la MISMA función del Presupuesto (metaDeAsesora).
+  // Antes este panel tenía su propia fórmula y pagaba distinto de lo prometido.
+  if (typeof cargarMetaVentasCfg === 'function') { try { await cargarMetaVentasCfg(); } catch(e){} }
   const anioActual = new Date().getFullYear();
   const mesActual = new Date().getMonth()+1;
   const mesFiltro = window._comisionesMes || mesActual;
@@ -12800,28 +12847,71 @@ async function renderComisiones(){
     const vJefa = jefaNombre ? ventasMes(jefaNombre, mesFiltro) : {conIva:0,sinIva:0};
 
     const miembros = (eq.miembros||[]).filter(m => m !== jefaNombre && resolverVend(m) !== resolverVend(jefaNombre));
+    const shC = (a,m,d)=>{ m+=d; while(m>12){m-=12;a++;} while(m<1){m+=12;a--;} return {a,m}; };
+    const incCom = incentivoCfg();   // generales; cada fila usa además los suyos
+    // Mínimo de una persona: promedio de sus 2 meses anteriores con el piso de $4.000.
+    // Idéntico a lo que ve en sus KPIs.
+    const minimoDe = nom => {
+      const real = resolverVend(nom);
+      const p1 = shC(anioActual, mesFiltro, -1), p2 = shC(anioActual, mesFiltro, -2);
+      return Math.max(PISO_COMISION, Math.round(((ventasMesDeVendedora(real, p1.m, p1.a)||0) + (ventasMesDeVendedora(real, p2.m, p2.a)||0)) / 2));
+    };
+    const tramosDe = ip => [
+      { txt:'No llega a '+fmt(PISO_COMISION), col:'#9ca3af' },
+      { txt:'Bajo el mínimo → '+ip.pct_bajo+'%', col:'#b45309' },
+      { txt:'Mínimo cumplido → '+ip.pct_normal+'%', col:'#16a34a' },
+      { txt:'Meta cumplida → '+ip.pct_normal+'% + $'+ip.bono+' + '+ip.pct_exceso+'%', col:'#2563eb' }
+    ];
+
     const filas = miembros.map(nombre=>{
       const c = getAsesoraCfg(cfg, nombre);
       const v = ventasMes(nombre, mesFiltro);
-      const base = Math.max(0, v.sinIva - c.minimo);
-      const comision = base*(c.pct/100);
-      return {nombre, conIva:v.conIva, sinIva:v.sinIva, pct:c.pct, minimo:c.minimo,
-              base, comision, transporte:c.transporte||0, totalPagar:comision+(c.transporte||0),
+      const minimo = minimoDe(nombre);
+      const meta = (metaDeAsesora(resolverVend(nombre), anioActual, mesFiltro) || {}).meta;
+      const ip = incentivoDe(nombre);
+      const r = comisionDeAsesora(v.sinIva, meta, minimo, ip);
+      return {nombre, conIva:v.conIva, sinIva:v.sinIva, minimo:r.minimo, meta, pctBajo:ip.pct_bajo, pctNormal:ip.pct_normal,
+              nivel:r.nivel, tramo:tramosDe(ip)[r.nivel], comision:r.comision,
+              transporte:c.transporte||0, totalPagar:r.comision+(c.transporte||0),
               contribuye: c.contribuye !== false};
     });
 
-    // Base de la jefa: sus propias ventas + asesoras marcadas como "contribuye"
-    const baseJefa = vJefa.sinIva + filas.filter(f=>f.contribuye).reduce((a,f)=>a+f.sinIva,0);
-    const comisionJefa = baseJefa*(jefaCfg.pct_equipo/100);
+    // ── Líder: escalera sobre las ventas de TODO el equipo, ella incluida ──
+    const lidCfg = incentivoLiderCfg();
+    const aportan = filas.filter(f=>f.contribuye);
+    const ventasEq = vJefa.sinIva + aportan.reduce((a,f)=>a+f.sinIva,0);
+    const minimoEq = (jefaNombre ? minimoDe(jefaNombre) : 0) + aportan.reduce((a,f)=>a+f.minimo,0);
+    const metaJefa = jefaNombre ? (metaDeAsesora(resolverVend(jefaNombre), anioActual, mesFiltro)||{}).meta : null;
+    const metaEq   = (metaJefa||0) + aportan.reduce((a,f)=>a+(f.meta||0),0);
+    let nivelJefa, comisionJefa;
+    if (metaEq > 0 && ventasEq >= metaEq) {
+      nivelJefa = 3;
+      comisionJefa = (lidCfg.pct_base/100)*metaEq + lidCfg.bono + (lidCfg.pct_exceso/100)*(ventasEq - metaEq);
+    } else if (ventasEq >= minimoEq) {
+      nivelJefa = 2; comisionJefa = (lidCfg.pct_base/100)*ventasEq;
+    } else {
+      nivelJefa = 1; comisionJefa = (lidCfg.pct_bajo/100)*ventasEq;
+    }
+    const TRAMOS_L = ['', 'Bajo el mínimo del equipo → '+lidCfg.pct_bajo+'%',
+                          'Mínimo del equipo cumplido → '+lidCfg.pct_base+'%',
+                          'Meta del equipo cumplida → '+lidCfg.pct_base+'% + $'+lidCfg.bono+' + '+lidCfg.pct_exceso+'%'];
+    const COL_L = ['', '#b45309', '#16a34a', '#2563eb'];
+    const baseJefa = ventasEq;
     const totalJefa = comisionJefa + (jefaCfg.transporte||0);
 
-    window._comExport.equipos.push({ nombre: eq.nombre, jefaNombre, vJefa, jefaCfg, baseJefa, comisionJefa, totalJefa, filas });
+    window._comExport.equipos.push({ nombre: eq.nombre, jefaNombre, vJefa, jefaCfg, baseJefa, comisionJefa, totalJefa, filas,
+      ventasEq, minimoEq, metaEq, nivelJefa, tramoJefa: TRAMOS_L[nivelJefa] });
 
     return `
     <div class="card" style="margin-bottom:12px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
         <div class="card-title" style="margin-bottom:0"><i class="ti ti-users-group"></i> Equipo ${eq.nombre}</div>
         <button onclick="editarConfigEquipo(${eq.id})" style="padding:5px 12px;font-size:11px;border:1px solid var(--brown);background:rgba(160,104,74,0.1);color:var(--brown);border-radius:6px;cursor:pointer"><i class="ti ti-settings"></i> Editar parámetros</button>
+      </div>
+      <div style="font-size:11px;color:var(--muted);background:#faf9f8;border-radius:7px;padding:8px 12px;margin-bottom:10px;line-height:1.55">
+        Mismo cálculo que ve cada asesora en sus KPIs. El <b>mínimo</b> es el promedio de sus 2 meses anteriores (piso ${fmt(PISO_COMISION)}) y la <b>meta</b> sale de Reportes → Presupuesto ventas.
+        Comisión sobre lo que pasa del piso: bajo el mínimo <b>${incCom.pct_bajo}%</b> · cumpliendo el mínimo <b>3%</b> · cumpliendo la meta 3% hasta la meta + <b>$${incCom.bono}</b> de bono + <b>${incCom.pct_exceso}%</b> del exceso.
+        En "Editar parámetros" solo se ajusta el transporte.${mesFiltro===mesActual?' <b>El mes sigue abierto</b>, así que estas cifras se mueven hasta el cierre.':''}
       </div>
       <div style="overflow-x:auto">
         <table style="width:100%;border-collapse:collapse;font-size:12px">
@@ -12830,8 +12920,8 @@ async function renderComisiones(){
             <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Subtotal s/IVA</th>
             <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Vtas c/IVA</th>
             <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Mínimo</th>
-            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">%</th>
-            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Base</th>
+            <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Meta</th>
+            <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--muted)">Tramo alcanzado</th>
             <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Comisión</th>
             <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Transporte</th>
             <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--muted)">Total</th>
@@ -12842,9 +12932,9 @@ async function renderComisiones(){
               <td style="padding:10px 12px;font-weight:700">${nombreCorto(jefaNombre)} <span style="font-size:10px;color:var(--brown);font-weight:600">LÍDER DE EQUIPO</span></td>
               <td style="padding:10px 12px;text-align:right;color:var(--brown);font-weight:600">${fmt(vJefa.sinIva)}</td>
               <td style="padding:10px 12px;text-align:right;color:var(--muted)">${fmt(vJefa.conIva)}</td>
-              <td style="padding:10px 12px;text-align:right;color:var(--muted)">—</td>
-              <td style="padding:10px 12px;text-align:right;color:var(--muted)">${jefaCfg.pct_equipo}% <span style="font-size:9px">(sus ventas + equipo, sin mínimo)</span></td>
-              <td style="padding:10px 12px;text-align:right;color:var(--muted)">${fmt(baseJefa)}</td>
+              <td style="padding:10px 12px;text-align:right;color:${ventasEq>=minimoEq?'#16a34a':'#b45309'};font-weight:600" title="Suma de los mínimos de todo el equipo">${fmt(minimoEq)}</td>
+              <td style="padding:10px 12px;text-align:right;color:${(metaEq&&ventasEq>=metaEq)?'#2563eb':'var(--muted)'}" title="Suma de las metas de todo el equipo">${metaEq?fmt(metaEq):'—'}</td>
+              <td style="padding:10px 12px;font-size:11px;font-weight:700;color:${COL_L[nivelJefa]}">${TRAMOS_L[nivelJefa]}<div style="font-size:9px;font-weight:400;color:var(--muted)">sobre ${fmt(ventasEq)} de todo el equipo</div></td>
               <td style="padding:10px 12px;text-align:right;font-weight:600;color:${comisionJefa>0?'#166534':'var(--muted)'}">${fmt(comisionJefa)}</td>
               <td style="padding:10px 12px;text-align:right;color:var(--muted)">${fmt(jefaCfg.transporte||0)}</td>
               <td style="padding:10px 12px;text-align:right;font-weight:700;font-size:14px;color:${totalJefa>0?'#166534':'var(--muted)'}">${fmt(totalJefa)}</td>
@@ -12854,9 +12944,9 @@ async function renderComisiones(){
                 <td style="padding:9px 12px;font-weight:500">${nombreCorto(r.nombre)}${r.contribuye?'':' <span style="font-size:9px;color:var(--muted)">(no suma al equipo)</span>'}</td>
                 <td style="padding:9px 12px;text-align:right;color:var(--brown);font-weight:600">${fmt(r.sinIva)}</td>
                 <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(r.conIva)}</td>
-                <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(r.minimo)}</td>
-                <td style="padding:9px 12px;text-align:right;color:var(--muted)">${r.pct}%</td>
-                <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(r.base)}</td>
+                <td style="padding:9px 12px;text-align:right;color:${r.sinIva>=r.minimo?'#16a34a':'#b45309'};font-weight:600">${fmt(r.minimo)}</td>
+                <td style="padding:9px 12px;text-align:right;color:${(r.meta&&r.sinIva>=r.meta)?'#2563eb':'var(--muted)'};font-weight:${(r.meta&&r.sinIva>=r.meta)?'600':'400'}">${r.meta?fmt(r.meta):'—'}</td>
+                <td style="padding:9px 12px;font-size:11px;font-weight:600;color:${r.tramo.col}">${r.tramo.txt}</td>
                 <td style="padding:9px 12px;text-align:right;font-weight:600;color:${r.comision>0?'#166534':'var(--muted)'}">${fmt(r.comision)}</td>
                 <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(r.transporte)}</td>
                 <td style="padding:9px 12px;text-align:right;font-weight:700;font-size:14px;color:${r.totalPagar>0?'#166534':'var(--muted)'}">${fmt(r.totalPagar)}</td>
@@ -12982,19 +13072,19 @@ function exportarComisionesExcel(){
   push(['Ventas totales de la empresa: '+r2(D.totalSinIvaGlobal)+' sin IVA  ·  '+r2(D.totalConIvaGlobal)+' con IVA']);
   push([]);
 
-  const CAB = ['Persona','Rol / detalle','Subtotal s/IVA','Ventas c/IVA','Mínimo','%','Base','Comisión','Transporte','Total a pagar'];
+  const CAB = ['Persona','Rol / detalle','Subtotal s/IVA','Ventas c/IVA','Mínimo','Meta','Tramo alcanzado','Comisión','Transporte','Total a pagar'];
   let granTotal = 0;
 
   (D.equipos||[]).forEach(eq=>{
     filasTitulo.push(push(['EQUIPO '+String(eq.nombre||'').toUpperCase()]));
     filasCabecera.push(push(CAB.slice()));
     if(eq.jefaNombre){
-      push([corto(eq.jefaNombre),'Líder de equipo', r2(eq.vJefa.sinIva), r2(eq.vJefa.conIva), null,
-        (eq.jefaCfg.pct_equipo||0)/100, r2(eq.baseJefa), r2(eq.comisionJefa), r2(eq.jefaCfg.transporte||0), r2(eq.totalJefa)]);
+      push([corto(eq.jefaNombre),'Líder de equipo · sobre '+r2(eq.ventasEq)+' del equipo', r2(eq.vJefa.sinIva), r2(eq.vJefa.conIva),
+        r2(eq.minimoEq), r2(eq.metaEq), eq.tramoJefa||'', r2(eq.comisionJefa), r2(eq.jefaCfg.transporte||0), r2(eq.totalJefa)]);
     }
     (eq.filas||[]).forEach(f=>{
       push([corto(f.nombre), f.contribuye===false?'Asesora (no suma al equipo)':'Asesora', r2(f.sinIva), r2(f.conIva),
-        r2(f.minimo), (f.pct||0)/100, r2(f.base), r2(f.comision), r2(f.transporte), r2(f.totalPagar)]);
+        r2(f.minimo), f.meta?r2(f.meta):null, (f.tramo&&f.tramo.txt)||'', r2(f.comision), r2(f.transporte), r2(f.totalPagar)]);
     });
     const totalEq = (eq.totalJefa||0) + (eq.filas||[]).reduce((a,f)=>a+(f.totalPagar||0),0);
     granTotal += totalEq;
@@ -13007,8 +13097,8 @@ function exportarComisionesExcel(){
     push(['Calculadas sobre las ventas totales de la empresa sin IVA']);
     filasCabecera.push(push(CAB.slice()));
     D.admin.forEach(a=>{
-      push([a.nombre,'Administrativa', r2(D.totalSinIvaGlobal), null, r2(a.minimo), (a.pct||0)/100,
-        r2(a.base), r2(a.comision), r2(a.transporte), r2(a.totalPagar)]);
+      push([a.nombre,'Administrativa', r2(D.totalSinIvaGlobal), null, r2(a.minimo), null,
+        (a.pct||0)+'% sobre '+r2(a.base), r2(a.comision), r2(a.transporte), r2(a.totalPagar)]);
     });
     const totalAdm = D.admin.reduce((s,a)=>s+(a.totalPagar||0),0);
     granTotal += totalAdm;
@@ -13532,6 +13622,7 @@ function escaleraAsesora(vendido, minimo, meta, inc){
   if(!(meta > 0)) return '';
   const fmtM = x => '$' + Math.round(x).toLocaleString('en-US');
   const sobrePiso = Math.max(0, vendido - PISO_COMISION);
+  const pctN = (inc.pct_normal !== undefined ? inc.pct_normal : 3);
   const r = comisionDeAsesora(vendido, meta, minimo, inc);
   const comMeta = comisionDeAsesora(Math.max(vendido, meta), meta, minimo, inc).comision;
   const tramos = [
@@ -13539,10 +13630,10 @@ function escaleraAsesora(vendido, minimo, meta, inc){
       formula:'(' + fmtM(vendido) + ' − ' + fmtM(PISO_COMISION) + ' de piso) × ' + inc.pct_bajo + '%',
       valor:(inc.pct_bajo/100) * sobrePiso, color:'#b45309', bg:'#fffbeb' },
     { titulo:'Llegando al mínimo de ' + fmtM(r.minimo),
-      formula:'(' + fmtM(vendido) + ' − ' + fmtM(PISO_COMISION) + ' de piso) × 3%',
-      valor:0.03 * sobrePiso, color:'#16a34a', bg:'#f0fdf4' },
+      formula:'(' + fmtM(vendido) + ' − ' + fmtM(PISO_COMISION) + ' de piso) × ' + pctN + '%',
+      valor:(pctN/100) * sobrePiso, color:'#16a34a', bg:'#f0fdf4' },
     { titulo:'Cumpliendo la meta de ' + fmtM(meta),
-      formula:'(' + fmtM(meta) + ' − ' + fmtM(PISO_COMISION) + ') × 3% + bono $' + inc.bono + (vendido>meta?' + '+inc.pct_exceso+'% de lo que la supere':''),
+      formula:'(' + fmtM(meta) + ' − ' + fmtM(PISO_COMISION) + ') × ' + pctN + '% + bono $' + inc.bono + (vendido>meta?' + '+inc.pct_exceso+'% de lo que la supere':''),
       valor:comMeta, color:'#2563eb', bg:'#eff6ff' }
   ];
   // nivel 0 y 1 del cálculo son "sin comisión" y "bajo el mínimo": los dos caen en el primer tramo
@@ -13615,18 +13706,41 @@ function barraTriColor(vendido, minimo, meta, etiquetaIzq, sinLeyenda){
 // números distintos por el mismo mes.
 const PISO_COMISION = 4000;
 function incentivoCfg(){
-  return Object.assign({ pct_minimo:90, bono:50, pct_exceso:5, pct_bajo:2 },
+  return Object.assign({ pct_minimo:90, bono:50, pct_exceso:5, pct_bajo:2, pct_normal:3 },
                        (window._pptoCfgKpi || {}).incentivo || {});
+}
+
+// Ancla de nombre: primeras dos palabras en mayúsculas y sin tildes. Es como se guardan
+// los ajustes por persona, para que 'Karen Rebeca Mora Cedeño' y 'Karen Rebeca' coincidan.
+function anclaPct(x){
+  return String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .toUpperCase().split(/\s+/).slice(0,2).join(' ');
+}
+
+// Porcentajes de comisión de UNA persona. Si no tiene nada propio, hereda los generales.
+// Karen cobra 4% donde las demás cobran 3%, y eso se configura en Presupuesto ventas.
+function incentivoDe(nombre){
+  const base = incentivoCfg();
+  const cfgP = window._pptoCfgKpi || window._pptoCfg || {};
+  const tabla = cfgP.pct_comision || {};
+  const k = Object.keys(tabla).find(x => anclaPct(x) === anclaPct(nombre));
+  const propio = k ? (tabla[k] || {}) : {};
+  const num = (v, d) => { const n = parseFloat(v); return isNaN(n) ? d : n; };
+  return Object.assign({}, base, {
+    pct_bajo:   num(propio.bajo,   base.pct_bajo),
+    pct_normal: num(propio.normal, base.pct_normal)
+  });
 }
 
 // nivel 0 = no llegó al piso · 1 = bajo su mínimo · 2 = mínimo cumplido · 3 = meta cumplida
 function comisionDeAsesora(ventas, meta, minimoBruto, inc){
   inc = inc || incentivoCfg();
+  const pN = (inc.pct_normal !== undefined ? inc.pct_normal : 3) / 100;
   const minimo = Math.max(minimoBruto || 0, PISO_COMISION);
   if(ventas <= PISO_COMISION) return { minimo, nivel:0, comision:0 };
   if(ventas < minimo)         return { minimo, nivel:1, comision:(inc.pct_bajo/100) * (ventas - PISO_COMISION) };
-  if(!meta || ventas < meta)  return { minimo, nivel:2, comision:0.03 * (ventas - PISO_COMISION) };
-  return { minimo, nivel:3, comision: 0.03 * Math.max(0, meta - PISO_COMISION) + inc.bono + (inc.pct_exceso/100) * (ventas - meta) };
+  if(!meta || ventas < meta)  return { minimo, nivel:2, comision: pN * (ventas - PISO_COMISION) };
+  return { minimo, nivel:3, comision: pN * Math.max(0, meta - PISO_COMISION) + inc.bono + (inc.pct_exceso/100) * (ventas - meta) };
 }
 
 function barraAvanceMeta(nombreVend, anioM, mesM, meta, MESES_P, minimo){
@@ -13906,7 +14020,7 @@ function cardPresupuestoAsesora(nombreVend, anioSel, mesSel){
   const cumplida = meta && vendido >= meta;
   const colV = cumplida ? '#2563eb' : (bajoMin ? '#eab308' : '#16a34a');
   // Comisión con la misma regla que usa el panel Presupuesto ventas
-  const inc = incentivoCfg();
+  const inc = incentivoDe(nombreVend);
   const rCom = comisionDeAsesora(vendido, meta, minimoP, inc);
   const NIV = ['Aún no llega a $4.000', 'Bajo tu mínimo → '+inc.pct_bajo+'%', 'Mínimo cumplido → 3%', 'Meta cumplida → 3% + $'+inc.bono+' + '+inc.pct_exceso+'%'];
   const fmtC = x => '$' + (Math.round(x*100)/100).toFixed(2);
@@ -14847,12 +14961,28 @@ async function renderKpis(){
     return a + (f ? (f.compras||0) : 0);
   }, 0);
   const ticketPromKpi = facturasMesKpi > 0 ? vAsesora.conIva / facturasMesKpi : 0;
+  // La config de Presupuesto tiene que estar cargada ANTES de calcular la comisión:
+  // sin ella no hay meta y el cálculo caería un tramo más abajo. La función cachea,
+  // así que llamarla de nuevo más adelante no cuesta nada.
+  await cargarMetaVentasCfg();
+  // Comisión: MISMA función que la tarjeta "Mi presupuesto" de más arriba y que el panel
+  // de Reportes → Comisiones. Antes este cuadro tenía su propia fórmula (% fijo sobre un
+  // mínimo fijo de $4.000) y mostraba una cifra distinta en la misma pantalla.
   let comision = 0;
+  let comisionNota = '';
   let ventasDisplay = { sinIva: vAsesora.sinIva, conIva: vAsesora.conIva };
   const cfgAse = cfg.asesoras[asesoraKpi];
   if(cfgAse){
-    const base = Math.max(0, vAsesora.sinIva - cfgAse.minimo);
-    comision = base * (cfgAse.pct/100);
+    const shK = (a,m,d)=>{ m+=d; while(m>12){m-=12;a++;} while(m<1){m+=12;a--;} return {a,m}; };
+    const k1 = shK(anioFiltro, mesFiltro, -1), k2 = shK(anioFiltro, mesFiltro, -2);
+    const minK = Math.max(PISO_COMISION, Math.round(((ventasMesDeVendedora(asesoraKpi, k1.m, k1.a)||0) + (ventasMesDeVendedora(asesoraKpi, k2.m, k2.a)||0)) / 2));
+    const metaK = (metaDeAsesora(asesoraKpi, anioFiltro, mesFiltro) || {}).meta;
+    const incK = incentivoDe(asesoraKpi);
+    const rK = comisionDeAsesora(vAsesora.sinIva, metaK, minK, incK);
+    comision = rK.comision;
+    comisionNota = ['no llega a '+fmt(PISO_COMISION), 'bajo el mínimo de '+fmt(rK.minimo)+' → '+incK.pct_bajo+'%',
+                    'mínimo de '+fmt(rK.minimo)+' cumplido → '+incK.pct_normal+'%',
+                    'meta de '+fmt(metaK||0)+' cumplida → '+incK.pct_normal+'% + $'+incK.bono+' + '+incK.pct_exceso+'%'][rK.nivel];
   } else if(asesoraKpi.includes('Giovanna')){
     // Base = Giovanna + las 4 asesoras (Daniela, Liseth, Karen, Nicole)
     const EQUIPO_GIOVANNA = [
@@ -15001,7 +15131,7 @@ async function renderKpis(){
         <div style="background:${comision>0?'#f0fdf4':'#faf9f8'};border-radius:10px;padding:14px;text-align:center;border:1px solid ${comision>0?'#86efac':'var(--border)'}">
           <div style="font-size:11px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">Comisión generada</div>
           <div style="font-size:22px;font-weight:700;color:${comision>0?'#166534':'var(--muted)'}">${fmt(comision)}</div>
-          <div style="font-size:11px;color:var(--muted);margin-top:2px">${cfgAse?`${cfgAse.pct}% s/ventas > ${fmt(cfgAse.minimo)}`:`${cfg.giovanna.pct_equipo}% equipo+propio`}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">${cfgAse?comisionNota:`${cfg.giovanna.pct_equipo}% equipo+propio`}</div>
         </div>
       </div>
     </div>
