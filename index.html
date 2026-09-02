@@ -11048,8 +11048,13 @@ async function renderPresupuestoVentas(){
     crecs.sort((x,y)=>x-y);
     let sugerido = crecs.length ? crecs[Math.floor(crecs.length/2)] : 0;
     sugerido = Math.max(-10, Math.min(20, Math.round(sugerido*10)/10));
-    const pctKey = Object.keys(cfg.pct||{}).find(n=>pptoAncla(n)===k);
-    let pct = pctKey !== undefined ? parseFloat(cfg.pct[pctKey]) : null;
+    // El % vigente para el mes que se está viendo: el propio del mes manda sobre el general.
+    // Sin esto, guardar 14% en el mes seguía mostrando el 15% general.
+    const tablaPctMes = compactoP
+      ? Object.assign({}, cfg.pct || {}, ((cfg.mensual||{})[selKey] || {}).pct || {})
+      : (cfg.pct || {});
+    const pctKey = Object.keys(tablaPctMes).find(n=>pptoAncla(n)===k);
+    let pct = pctKey !== undefined ? parseFloat(tablaPctMes[pctKey]) : null;
     if(pct === null || isNaN(pct)) pct = pctPorDefecto(a.nombre);
     const ovKey = Object.keys(cfg.overrides||{}).find(n=>pptoAncla(n)===k);
     const ov = ovKey !== undefined ? (cfg.overrides[ovKey]||{}) : {};
@@ -11104,7 +11109,7 @@ async function renderPresupuestoVentas(){
     const prev2Act = mesShiftK2(selAnio, selMes, -2);
     const baseAct = Math.round(vm[mkDe(prevAct.a, prevAct.m)] || 0);
     // Mínimo: promedio de los 2 meses anteriores, con el piso de $4.000
-    const minimoAct = Math.max(PISO_COMISION, Math.round(((vm[mkDe(prevAct.a, prevAct.m)]||0) + (vm[mkDe(prev2Act.a, prev2Act.m)]||0)) / 2));
+    const minimoAct = Math.max(pisoDe(a.nombre, selKey), Math.round(((vm[mkDe(prevAct.a, prevAct.m)]||0) + (vm[mkDe(prev2Act.a, prev2Act.m)]||0)) / 2));
     const ovAct = ov[mkAct];
     let metaAct = null, metaActManual = false;
     if(ovAct !== undefined && ovAct !== null && ovAct !== ''){ metaAct = Math.round(parseFloat(ovAct)||0); metaActManual = true; }
@@ -11175,7 +11180,7 @@ async function renderPresupuestoVentas(){
         </div>
         <button onclick="pptoMesNav(1)" ${selEnCurso?'disabled':''} style="width:32px;height:32px;border:1px solid var(--border);border-radius:50%;background:${selEnCurso?'#f5f3f0':'white'};cursor:${selEnCurso?'default':'pointer'};color:${selEnCurso?'#ccc':'var(--brown)'}"><i class="ti ti-chevron-right"></i></button>
       </div>` : ''}
-      ${compactoP ? `<div style="padding:0 16px 10px;font-size:11px;color:var(--muted);line-height:1.5">Lo que edites aquí (porcentajes, piso, bono, metas) se guarda <b>solo para ${MESES_PPTO[selMes]} ${selAnio}</b>; los demás meses no se tocan. El <b>mínimo</b> es el promedio de los 2 meses anteriores (piso ${fmtP(PISO_COMISION)}) y la <b>meta</b> sale del mes anterior más el % que fijes. Son los mismos números que ve cada asesora en sus KPIs.</div>` : ''}
+      ${compactoP ? `<div style="padding:0 16px 10px;font-size:11px;color:var(--muted);line-height:1.5">Lo que edites aquí (porcentajes, piso, bono, metas) se guarda <b>solo para ${MESES_PPTO[selMes]} ${selAnio}</b>; los demás meses no se tocan. El <b>mínimo</b> es el promedio de los 2 meses anteriores (cada una tiene su "comisión desde") y la <b>meta</b> sale del mes anterior más el % que fijes. Son los mismos números que ve cada asesora en sus KPIs.</div>` : ''}
       <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:820px">
         <thead><tr style="border-bottom:1px solid var(--border)">
           <th style="text-align:left;padding:8px 12px;font-size:10px;color:var(--muted);text-transform:uppercase;${compactoP?'width:22%':''}">Asesora</th>
@@ -11282,7 +11287,7 @@ async function renderPresupuestoVentas(){
       const ventasEq = filas.reduce((a,f)=>a+(f.ventasEval||0), 0);
       // Mismo criterio que el panel de Ventas: suma de los mínimos individuales YA con
       // el piso de $4.000 aplicado, no el promedio crudo de las ventas del equipo.
-      const minimoEq = filas.reduce((a,f)=>a+Math.max(PISO_COMISION, f.minProm3||0), 0);
+      const minimoEq = filas.reduce((a,f)=>a+Math.max(pisoDe(f.nombre, selKey), f.minProm3||0), 0);
       const metaEq   = filas.reduce((a,f)=>a+metaDeFila(f), 0);
       if(!ventasEq && !metaEq) return '';
       let nivelL, comL;
@@ -11377,9 +11382,9 @@ async function renderPresupuestoVentas(){
       }).filter(Boolean);
       if(filasCom.length === 0) return '';
       // Misma función que usa la tarjeta de KPIs de cada asesora
-      const calcCom = (ventas, meta, minAnt, nombre) => comisionDeAsesora(ventas, meta, minAnt, incentivoDe(nombre));
+      const calcCom = (ventas, meta, minAnt, nombre) => comisionDeAsesora(ventas, meta, minAnt, incentivoDe(nombre, selKey));
       const fmtC = v => '$' + (Math.round(v*100)/100).toFixed(2);
-      const nivelesDe = ip => ['Sin comisión (no llegó a '+fmtP(PISO_COMISION)+')',
+      const nivelesDe = ip => ['Sin comisión (no llegó a su piso)',
         'Bajo su mínimo → '+ip.pct_bajo+'%',
         'Mínimo cumplido → '+ip.pct_normal+'%',
         'META CUMPLIDA → '+ip.pct_normal+'% + $'+ip.bono+' + '+ip.pct_exceso+'%'];
@@ -11387,19 +11392,19 @@ async function renderPresupuestoVentas(){
       return `
     <div class="card" style="margin-top:12px;padding:0">
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding:14px 16px 10px">
-        <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px"><i class="ti ti-coin" style="margin-right:6px"></i>Comisiones a pagar — ${MESES_PPTO[evalSh.m]} (mes cerrado)</div>
+        <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px"><i class="ti ti-coin" style="margin-right:6px"></i>Comisiones a pagar del equipo — ${MESES_PPTO[evalSh.m]} ${evalSh.a} ${selEnCurso?'(mes en curso)':'(mes cerrado)'}</div>
         <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:12px">
-          <span title="Debajo de este monto no hay comisión para nadie">Comisión desde $<input type="number" min="0" step="100" value="${inc.piso}" onchange="guardarIncentivoPpto('piso',this.value)" style="width:70px;padding:3px 5px;font-size:12px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;font-weight:700;color:var(--brown)"> de ventas</span>
           <span>Por debajo del mínimo: <input type="number" min="0" max="100" step="0.5" value="${inc.pct_bajo}" onchange="guardarIncentivoPpto('pct_bajo',this.value)" style="width:52px;padding:3px 5px;font-size:12px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;font-weight:700;color:var(--brown)">% en comisiones</span>
           <span>Al cumplir el mínimo: <input type="number" min="0" max="100" step="0.5" value="${inc.pct_normal}" onchange="guardarIncentivoPpto('pct_normal',this.value)" style="width:52px;padding:3px 5px;font-size:12px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;font-weight:700;color:var(--brown)">% en comisiones</span>
           <span>Bono si cumple la meta $<input type="number" min="0" value="${inc.bono}" onchange="guardarIncentivoPpto('bono',this.value)" style="width:56px;padding:3px 5px;font-size:12px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;font-weight:700;color:var(--brown)"></span>
           <span>Después de la meta: <input type="number" min="0" max="100" step="0.5" value="${inc.pct_exceso}" onchange="guardarIncentivoPpto('pct_exceso',this.value)" style="width:52px;padding:3px 5px;font-size:12px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;font-weight:700;color:var(--brown)">% en comisiones</span>
         </div>
       </div>
-      <div style="font-size:11px;color:var(--muted);padding:0 16px 10px;line-height:1.5">Piso ${fmtP(inc.piso)} (debajo no hay comisión). El <b>mínimo</b> de cada asesora es su <b>promedio de ventas de los últimos 2 meses</b>. Los porcentajes de arriba son los generales; los de cada fila mandan sobre ellos, porque no todas cobran igual. Superando la meta se suma <b>bono $${inc.bono}</b> + <b>${inc.pct_exceso}%</b> de todo lo que exceda la meta.</div>
+      <div style="font-size:11px;color:var(--muted);padding:0 16px 10px;line-height:1.5">El <b>mínimo</b> de cada asesora es su <b>promedio de ventas de los últimos 2 meses</b>, y nunca baja de su "comisión desde". Los porcentajes de arriba son los generales; los de cada fila mandan sobre ellos, porque no todas cobran igual. Superando la meta se suma <b>bono $${inc.bono}</b> + <b>${inc.pct_exceso}%</b> de todo lo que exceda la meta.</div>
       <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:700px">
         <thead><tr style="border-bottom:1px solid var(--border)">
           <th style="text-align:left;padding:8px 12px;font-size:10px;color:var(--muted);text-transform:uppercase">Asesora</th>
+          <th style="text-align:center;padding:8px 6px;font-size:10px;color:var(--muted);text-transform:uppercase" title="Debajo de este monto no gana comisión">Comisión<br>desde</th>
           <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Mínimo<br>(prom. 2 meses)</th>
           <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Ventas de<br>${MESES_PPTO[evalSh.m]}</th>
           <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Meta<br>${MESES_PPTO[evalSh.m]}</th>
@@ -11411,9 +11416,12 @@ async function renderPresupuestoVentas(){
         <tbody>
           ${filasCom.map((f,fi)=>{
             const meta = f.metaCom;
-            const ip = incentivoDe(f.nombre);
+            const ip = incentivoDe(f.nombre, selKey);
             const r = calcCom(f.ventasEval, meta, f.minProm3, f.nombre);
             const NIVELES = nivelesDe(ip);
+            const inpPiso = val => '<input type="number" min="0" step="100" value="'+val+'"'
+              + ' onchange="guardarPctComision(\''+f.nombre.replace(/'/g,"\\'")+'\',\'piso\',this.value)"'
+              + ' style="width:66px;padding:3px 4px;font-size:11px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;font-weight:700;color:var(--brown)">';
             const inpPct = (campo, val) => '<input type="number" min="0" max="100" step="0.5" value="'+val+'"'
               + ' onchange="guardarPctComision(\''+f.nombre.replace(/'/g,"\\'")+'\',\''+campo+'\',this.value)"'
               + ' style="width:52px;padding:3px 4px;font-size:11px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;font-weight:700;color:var(--brown)">';
@@ -11421,6 +11429,7 @@ async function renderPresupuestoVentas(){
             return `
           <tr style="border-bottom:0.5px solid var(--border);background:${fi%2?'#f6f3ef':'white'}">
             <td style="padding:8px 12px;font-weight:600">${esc(f.nombre.split(' ').slice(0,2).join(' '))}</td>
+            <td style="padding:8px 6px;text-align:center;white-space:nowrap"><span style="font-size:10px;color:var(--muted)">$</span>${inpPiso(ip.piso)}</td>
             <td style="padding:8px 8px;text-align:center;color:var(--muted)">${fmtP(r.minimo)}</td>
             <td style="padding:8px 8px;text-align:center;font-weight:700">${fmtP(f.ventasEval)}</td>
             <td style="padding:8px 8px;text-align:center;color:var(--muted)">${fmtP(meta)}</td>
@@ -11477,7 +11486,9 @@ async function guardarPctComision(nombre, campo, valor){
   destino.pct_comision = destino.pct_comision || {};
   const k = Object.keys(destino.pct_comision).find(x => anclaPct(x) === anclaPct(nombre)) || nombre;
   destino.pct_comision[k] = Object.assign({}, destino.pct_comision[k] || {});
-  destino.pct_comision[k][campo] = Math.max(0, Math.min(100, parseFloat(valor) || 0));
+  destino.pct_comision[k][campo] = campo === 'piso'
+    ? Math.max(0, parseFloat(valor) || 0)
+    : Math.max(0, Math.min(100, parseFloat(valor) || 0));
   window._pptoCfg = cfg;
   await guardarPptoConfig();
 }
@@ -12905,16 +12916,17 @@ async function renderComisiones(){
 
     const miembros = (eq.miembros||[]).filter(m => m !== jefaNombre && resolverVend(m) !== resolverVend(jefaNombre));
     const shC = (a,m,d)=>{ m+=d; while(m>12){m-=12;a++;} while(m<1){m+=12;a--;} return {a,m}; };
+    const mkCom = mesKeyDe(anioActual, mesFiltro);
     const incCom = incentivoCfg();   // generales; cada fila usa además los suyos
     // Mínimo de una persona: promedio de sus 2 meses anteriores con el piso de $4.000.
     // Idéntico a lo que ve en sus KPIs.
     const minimoDe = nom => {
       const real = resolverVend(nom);
       const p1 = shC(anioActual, mesFiltro, -1), p2 = shC(anioActual, mesFiltro, -2);
-      return Math.max(PISO_COMISION, Math.round(((ventasMesDeVendedora(real, p1.m, p1.a)||0) + (ventasMesDeVendedora(real, p2.m, p2.a)||0)) / 2));
+      return Math.max(pisoDe(nom, mkCom), Math.round(((ventasMesDeVendedora(real, p1.m, p1.a)||0) + (ventasMesDeVendedora(real, p2.m, p2.a)||0)) / 2));
     };
     const tramosDe = ip => [
-      { txt:'No llega a '+fmt(PISO_COMISION), col:'#9ca3af' },
+      { txt:'No llega a '+fmt(ip.piso), col:'#9ca3af' },
       { txt:'Bajo el mínimo → '+ip.pct_bajo+'%', col:'#b45309' },
       { txt:'Mínimo cumplido → '+ip.pct_normal+'%', col:'#16a34a' },
       { txt:'Meta cumplida → '+ip.pct_normal+'% + $'+ip.bono+' + '+ip.pct_exceso+'%', col:'#2563eb' }
@@ -12925,7 +12937,7 @@ async function renderComisiones(){
       const v = ventasMes(nombre, mesFiltro);
       const minimo = minimoDe(nombre);
       const meta = (metaDeAsesora(resolverVend(nombre), anioActual, mesFiltro) || {}).meta;
-      const ip = incentivoDe(nombre);
+      const ip = incentivoDe(nombre, mkCom);
       const r = comisionDeAsesora(v.sinIva, meta, minimo, ip);
       return {nombre, conIva:v.conIva, sinIva:v.sinIva, minimo:r.minimo, meta, pctBajo:ip.pct_bajo, pctNormal:ip.pct_normal,
               base:r.base, exceso:r.exceso, nivel:r.nivel, tramo:tramosDe(ip)[r.nivel], comision:r.comision,
@@ -12966,8 +12978,8 @@ async function renderComisiones(){
         <button onclick="editarConfigEquipo(${eq.id})" style="padding:5px 12px;font-size:11px;border:1px solid var(--brown);background:rgba(160,104,74,0.1);color:var(--brown);border-radius:6px;cursor:pointer"><i class="ti ti-settings"></i> Editar parámetros</button>
       </div>
       <div style="font-size:11px;color:var(--muted);background:#faf9f8;border-radius:7px;padding:8px 12px;margin-bottom:10px;line-height:1.55">
-        Mismo cálculo que ve cada asesora en sus KPIs. El <b>mínimo</b> es el promedio de sus 2 meses anteriores (piso ${fmt(PISO_COMISION)}) y la <b>meta</b> sale de Reportes → Presupuesto ventas.
-        La <b>base</b> es lo que pasa de ${fmt(PISO_COMISION)}: debajo de eso no hay comisión. El porcentaje de cada una está en su tramo (no todas cobran igual) y se configura en Presupuesto ventas.
+        Mismo cálculo que ve cada asesora en sus KPIs. El <b>mínimo</b> es el promedio de sus 2 meses anteriores (nunca menor a su "comisión desde") y la <b>meta</b> sale de Reportes → Presupuesto ventas.
+        La <b>base</b> es lo que pasa de su piso: debajo de eso no hay comisión. El porcentaje de cada una está en su tramo (no todas cobran igual) y se configura en Presupuesto ventas.
         Al cumplir la meta la base se corta ahí y lo de arriba paga <b>${incCom.pct_exceso}%</b>, más <b>$${incCom.bono}</b> de bono.
         En "Editar parámetros" solo se ajusta el transporte.${mesFiltro===mesActual?' <b>El mes sigue abierto</b>, así que estas cifras se mueven hasta el cierre.':''}
       </div>
@@ -13007,7 +13019,7 @@ async function renderComisiones(){
                 <td style="padding:9px 12px;text-align:right;color:${r.sinIva>=r.minimo?'#16a34a':'#b45309'};font-weight:600">${fmt(r.minimo)}</td>
                 <td style="padding:9px 12px;text-align:right;color:${(r.meta&&r.sinIva>=r.meta)?'#2563eb':'var(--muted)'};font-weight:${(r.meta&&r.sinIva>=r.meta)?'600':'400'}">${r.meta?fmt(r.meta):'—'}</td>
                 <td style="padding:9px 12px;font-size:11px;font-weight:600;color:${r.tramo.col}">${r.tramo.txt}</td>
-                <td style="padding:9px 12px;text-align:right;color:var(--muted)" title="${fmt(r.nivel===3?(r.meta||0):r.sinIva)} − ${fmt(PISO_COMISION)} de piso">${fmt(r.base||0)}${r.exceso>0?`<div style="font-size:9px;color:#2563eb">+ ${fmt(r.exceso)} de exceso</div>`:''}</td>
+                <td style="padding:9px 12px;text-align:right;color:var(--muted)" title="${fmt(r.nivel===3?(r.meta||0):r.sinIva)} menos su piso">${fmt(r.base||0)}${r.exceso>0?`<div style="font-size:9px;color:#2563eb">+ ${fmt(r.exceso)} de exceso</div>`:''}</td>
                 <td style="padding:9px 12px;text-align:right;font-weight:600;color:${r.comision>0?'#166534':'var(--muted)'}">${fmt(r.comision)}</td>
                 <td style="padding:9px 12px;text-align:right;color:var(--muted)">${fmt(r.transporte)}</td>
                 <td style="padding:9px 12px;text-align:right;font-weight:700;font-size:14px;color:${r.totalPagar>0?'#166534':'var(--muted)'}">${fmt(r.totalPagar)}</td>
@@ -13683,19 +13695,20 @@ function escaleraHTML(titulo, tramos, nivelActual){
 function escaleraAsesora(vendido, minimo, meta, inc){
   if(!(meta > 0)) return '';
   const fmtM = x => '$' + Math.round(x).toLocaleString('en-US');
-  const sobrePiso = Math.max(0, vendido - PISO_COMISION);
+  const piso = (inc.piso !== undefined && !isNaN(parseFloat(inc.piso))) ? parseFloat(inc.piso) : PISO_COMISION;
+  const sobrePiso = Math.max(0, vendido - piso);
   const pctN = (inc.pct_normal !== undefined ? inc.pct_normal : 3);
   const r = comisionDeAsesora(vendido, meta, minimo, inc);
   const comMeta = comisionDeAsesora(Math.max(vendido, meta), meta, minimo, inc).comision;
   const tramos = [
     { titulo:'Bajo el mínimo de ' + fmtM(r.minimo),
-      formula:'(' + fmtM(vendido) + ' − ' + fmtM(PISO_COMISION) + ' de piso) × ' + inc.pct_bajo + '%',
+      formula:'(' + fmtM(vendido) + ' − ' + fmtM(piso) + ' de piso) × ' + inc.pct_bajo + '%',
       valor:(inc.pct_bajo/100) * sobrePiso, color:'#b45309', bg:'#fffbeb' },
     { titulo:'Llegando al mínimo de ' + fmtM(r.minimo),
-      formula:'(' + fmtM(vendido) + ' − ' + fmtM(PISO_COMISION) + ' de piso) × ' + pctN + '%',
+      formula:'(' + fmtM(vendido) + ' − ' + fmtM(piso) + ' de piso) × ' + pctN + '%',
       valor:(pctN/100) * sobrePiso, color:'#16a34a', bg:'#f0fdf4' },
     { titulo:'Cumpliendo la meta de ' + fmtM(meta),
-      formula:'(' + fmtM(meta) + ' − ' + fmtM(PISO_COMISION) + ') × ' + pctN + '% + bono $' + inc.bono + (vendido>meta?' + '+inc.pct_exceso+'% de lo que la supere':''),
+      formula:'(' + fmtM(meta) + ' − ' + fmtM(piso) + ') × ' + pctN + '% + bono $' + inc.bono + (vendido>meta?' + '+inc.pct_exceso+'% de lo que la supere':''),
       valor:comMeta, color:'#2563eb', bg:'#eff6ff' }
   ];
   // nivel 0 y 1 del cálculo son "sin comisión" y "bajo el mínimo": los dos caen en el primer tramo
@@ -13813,11 +13826,19 @@ function incentivoDe(nombre, mesKey){
   const num = (v, d) => { const n = parseFloat(v); return isNaN(n) ? d : n; };
   return Object.assign({}, base, {
     pct_bajo:   num(propio.bajo,   base.pct_bajo),
-    pct_normal: num(propio.normal, base.pct_normal)
+    pct_normal: num(propio.normal, base.pct_normal),
+    piso:       num(propio.piso,   base.piso)
   });
 }
 
 // nivel 0 = no llegó al piso · 1 = bajo su mínimo · 2 = mínimo cumplido · 3 = meta cumplida
+// Piso de una persona concreta. Cada asesora puede tener el suyo (se edita en la tabla
+// de comisiones a pagar); si no tiene, hereda el del mes y, en última instancia, el general.
+function pisoDe(nombre, mesKey){
+  const p = parseFloat(incentivoDe(nombre, mesKey).piso);
+  return isNaN(p) ? PISO_COMISION : p;
+}
+
 function comisionDeAsesora(ventas, meta, minimoBruto, inc){
   inc = inc || incentivoCfg();
   const pN = (inc.pct_normal !== undefined ? inc.pct_normal : 3) / 100;
@@ -13939,7 +13960,7 @@ function cardEquipoGiovanna(nombreVend, usuarios, anioE, mesE, opts){
     const mi = metaDeAsesora(m.nombre, anioE, mesE);
     const meta = mi.meta;
     const p1 = shMin(anioE, mesE, -1), p2 = shMin(anioE, mesE, -2);
-    const minimo = Math.max(PISO_COMISION, Math.round(((ventasMesDeVendedora(m.nombre, p1.m, p1.a)||0) + (ventasMesDeVendedora(m.nombre, p2.m, p2.a)||0)) / 2));
+    const minimo = Math.max(pisoDe(m.nombre, mesKeyDe(anioE, mesE)), Math.round(((ventasMesDeVendedora(m.nombre, p1.m, p1.a)||0) + (ventasMesDeVendedora(m.nombre, p2.m, p2.a)||0)) / 2));
     const pctCump = (meta && meta > 0) ? Math.round(ventas/meta*1000)/10 : null;
     return { ...m, ventas, meta, minimo, pctCump, manual: mi.manual, pctIncr: mi.pct, base: mi.base };
   }).sort((a,b)=> b.ventas - a.ventas);
@@ -14105,7 +14126,8 @@ function cardPresupuestoAsesora(nombreVend, anioSel, mesSel){
   const meta = mi.meta, esManual = !!mi.manual, pct = mi.pct;
 
   // Mínimo para cobrar comisión: promedio de los DOS meses anteriores (piso $4.000)
-  const minimoP = Math.max(Math.round((v1 + v2) / 2), 4000);
+  const mkSel = mesKeyDe(pa, pm);
+  const minimoP = Math.max(Math.round((v1 + v2) / 2), pisoDe(nombreVend, mkSel));
   const vendido = Math.round(ventasMesDeVendedora(nombreVend, pm, pa) || 0);
   const fmtK = x => '$' + Math.round(x).toLocaleString('en-US');
   if(meta === null && !v1 && !v2 && !vendido) return '';
@@ -14114,9 +14136,11 @@ function cardPresupuestoAsesora(nombreVend, anioSel, mesSel){
   const cumplida = meta && vendido >= meta;
   const colV = cumplida ? '#2563eb' : (bajoMin ? '#eab308' : '#16a34a');
   // Comisión con la misma regla que usa el panel Presupuesto ventas
-  const inc = incentivoDe(nombreVend);
+  const inc = incentivoDe(nombreVend, mkSel);
   const rCom = comisionDeAsesora(vendido, meta, minimoP, inc);
-  const NIV = ['Aún no llega a '+fmtK(PISO_COMISION), 'Bajo tu mínimo → '+inc.pct_bajo+'%', 'Mínimo cumplido → 3%', 'Meta cumplida → 3% + $'+inc.bono+' + '+inc.pct_exceso+'%'];
+  const NIV = ['Aún no llega a '+fmtK(inc.piso), 'Bajo tu mínimo → '+inc.pct_bajo+'%',
+               'Mínimo cumplido → '+inc.pct_normal+'%',
+               'Meta cumplida → '+inc.pct_normal+'% + $'+inc.bono+' + '+inc.pct_exceso+'%'];
   const fmtC = x => '$' + (Math.round(x*100)/100).toFixed(2);
   const esMesEnCurso = (pa === hoyP.getFullYear() && pm === (hoyP.getMonth()+1));
 
@@ -15069,12 +15093,13 @@ async function renderKpis(){
   if(cfgAse){
     const shK = (a,m,d)=>{ m+=d; while(m>12){m-=12;a++;} while(m<1){m+=12;a--;} return {a,m}; };
     const k1 = shK(anioFiltro, mesFiltro, -1), k2 = shK(anioFiltro, mesFiltro, -2);
-    const minK = Math.max(PISO_COMISION, Math.round(((ventasMesDeVendedora(asesoraKpi, k1.m, k1.a)||0) + (ventasMesDeVendedora(asesoraKpi, k2.m, k2.a)||0)) / 2));
+    const mkK = mesKeyDe(anioFiltro, mesFiltro);
+    const minK = Math.max(pisoDe(asesoraKpi, mkK), Math.round(((ventasMesDeVendedora(asesoraKpi, k1.m, k1.a)||0) + (ventasMesDeVendedora(asesoraKpi, k2.m, k2.a)||0)) / 2));
     const metaK = (metaDeAsesora(asesoraKpi, anioFiltro, mesFiltro) || {}).meta;
-    const incK = incentivoDe(asesoraKpi);
+    const incK = incentivoDe(asesoraKpi, mkK);
     const rK = comisionDeAsesora(vAsesora.sinIva, metaK, minK, incK);
     comision = rK.comision;
-    comisionNota = ['no llega a '+fmt(PISO_COMISION), 'bajo el mínimo de '+fmt(rK.minimo)+' → '+incK.pct_bajo+'%',
+    comisionNota = ['no llega a '+fmt(incK.piso), 'bajo el mínimo de '+fmt(rK.minimo)+' → '+incK.pct_bajo+'%',
                     'mínimo de '+fmt(rK.minimo)+' cumplido → '+incK.pct_normal+'%',
                     'meta de '+fmt(metaK||0)+' cumplida → '+incK.pct_normal+'% + $'+incK.bono+' + '+incK.pct_exceso+'%'][rK.nivel];
   } else if(asesoraKpi.includes('Giovanna')){
