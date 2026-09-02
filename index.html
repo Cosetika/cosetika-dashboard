@@ -15238,7 +15238,8 @@ async function renderKpis(){
 
     <!-- 1) Mi presupuesto · 2) Meta de ventas · 3) Ventas durante el año -->
     ${cardPresupuestoAsesora(asesoraKpi, anioFiltro, mesFiltro)}
-    ${cardsVentasYMeta(asesoraKpi, anioFiltro, 'meta')}
+    <!-- La tarjeta "Meta de ventas" se retiró: la meta del mes vive en "Mi presupuesto",
+         que es la que sale de Presupuesto ventas. Tener dos metas confundía. -->
     ${cardsVentasYMeta(asesoraKpi, anioFiltro, 'ventas')}
 
     <!-- Comisiones del mes -->
