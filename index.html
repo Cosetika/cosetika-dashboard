@@ -11394,13 +11394,11 @@ async function renderPresupuestoVentas(){
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding:14px 16px 10px">
         <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px"><i class="ti ti-coin" style="margin-right:6px"></i>Comisiones a pagar del equipo — ${MESES_PPTO[evalSh.m]} ${evalSh.a} ${selEnCurso?'(mes en curso)':'(mes cerrado)'}</div>
         <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:12px">
-          <span>Por debajo del mínimo: <input type="number" min="0" max="100" step="0.5" value="${inc.pct_bajo}" onchange="guardarIncentivoPpto('pct_bajo',this.value)" style="width:52px;padding:3px 5px;font-size:12px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;font-weight:700;color:var(--brown)">% en comisiones</span>
-          <span>Al cumplir el mínimo: <input type="number" min="0" max="100" step="0.5" value="${inc.pct_normal}" onchange="guardarIncentivoPpto('pct_normal',this.value)" style="width:52px;padding:3px 5px;font-size:12px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;font-weight:700;color:var(--brown)">% en comisiones</span>
           <span>Bono si cumple la meta $<input type="number" min="0" value="${inc.bono}" onchange="guardarIncentivoPpto('bono',this.value)" style="width:56px;padding:3px 5px;font-size:12px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;font-weight:700;color:var(--brown)"></span>
           <span>Después de la meta: <input type="number" min="0" max="100" step="0.5" value="${inc.pct_exceso}" onchange="guardarIncentivoPpto('pct_exceso',this.value)" style="width:52px;padding:3px 5px;font-size:12px;text-align:center;border:1px solid var(--border);border-radius:5px;outline:none;font-weight:700;color:var(--brown)">% en comisiones</span>
         </div>
       </div>
-      <div style="font-size:11px;color:var(--muted);padding:0 16px 10px;line-height:1.5">El <b>mínimo</b> de cada asesora es su <b>promedio de ventas de los últimos 2 meses</b>, y nunca baja de su "comisión desde". Los porcentajes de arriba son los generales; los de cada fila mandan sobre ellos, porque no todas cobran igual. Superando la meta se suma <b>bono $${inc.bono}</b> + <b>${inc.pct_exceso}%</b> de todo lo que exceda la meta.</div>
+      <div style="font-size:11px;color:var(--muted);padding:0 16px 10px;line-height:1.5">El <b>mínimo</b> de cada asesora es su <b>promedio de ventas de los últimos 2 meses</b>, y nunca baja de su "comisión desde". Cada asesora tiene sus propios porcentajes en su fila, porque no todas cobran igual. Superando la meta se suma <b>bono $${inc.bono}</b> + <b>${inc.pct_exceso}%</b> de todo lo que exceda la meta.</div>
       <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:700px">
         <thead><tr style="border-bottom:1px solid var(--border)">
           <th style="text-align:left;padding:8px 12px;font-size:10px;color:var(--muted);text-transform:uppercase">Asesora</th>
@@ -11409,7 +11407,7 @@ async function renderPresupuestoVentas(){
           <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Ventas de<br>${MESES_PPTO[evalSh.m]}</th>
           <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Meta<br>${MESES_PPTO[evalSh.m]}</th>
           <th style="text-align:center;padding:8px 6px;font-size:10px;color:var(--muted);text-transform:uppercase" title="Comisión mientras no alcanza su mínimo">% bajo<br>mínimo</th>
-          <th style="text-align:center;padding:8px 6px;font-size:10px;color:var(--muted);text-transform:uppercase" title="Comisión desde que cumple el mínimo, y hasta la meta">% normal</th>
+          <th style="text-align:center;padding:8px 6px;font-size:10px;color:var(--muted);text-transform:uppercase" title="Comisión desde que cumple el mínimo, y hasta la meta">% sobre<br>el mínimo</th>
           <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Resultado</th>
           <th style="text-align:center;padding:8px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Comisión<br>a pagar</th>
         </tr></thead>
