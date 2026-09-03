@@ -4343,6 +4343,8 @@ async function cargarData(){
       window._comercialPorCedula = d.comerciales || {};
       window._comercialPorNombre = d.comerciales_nombre || {};
       fetch('/api/comportamiento-pago').then(r2=>r2.json()).then(p=>{ if(p.ok) window._pagoPorCedula = p.mapa || {}; }).catch(()=>{});
+      // Composición de los equipos: la usan el panel de Ventas y los KPIs de la líder
+      fetch('/api/equipos').then(r3=>r3.json()).then(e=>{ if(Array.isArray(e) && e.length) window._equiposCache = e; }).catch(()=>{});
       // Pedidos se pinta apenas abre la app, casi siempre antes de que llegue este
       // mapa, así que se repinta para que salga el nombre comercial.
       if(document.getElementById('doc-tab-content') && window._pedidosFecha
@@ -10958,10 +10960,32 @@ async function renderPresupuestoVentas(){
   Object.keys(cfg.overrides||{}).forEach(nom=>{
     if(!asesoras.some(a=>pptoAncla(a.nombre)===pptoAncla(nom))) asesoras.push({nombre:nom, rol:'asesora', sinUsuario:true});
   });
+  // Equipos configurados en Configuración → Equipos. El panel se arma con ellos:
+  // quien entra o sale de un equipo allá, entra o sale de este presupuesto.
+  let equiposPpto = [];
+  try { const rE = await fetch('/api/equipos'); if(rE.ok){ const dE = await rE.json(); if(Array.isArray(dE)) equiposPpto = dE; } } catch(e){}
+  if (equiposPpto.length) window._equiposCache = equiposPpto;
+  let eqSel = null;
   if (compactoP) {
-    // Presupuesto ventas: las asesoras de venta + Giovanna (jefa de marca, también vende).
-    // Fuera "Nueva Asesora" y cualquier otra jefatura sin cartera propia.
-    asesoras = asesoras.filter(a => !/nueva asesora/i.test(a.nombre) && (a.rol !== 'jefa_ventas' || /giovanna/i.test(a.nombre)));
+    asesoras = asesoras.filter(a => !/nueva asesora/i.test(a.nombre));
+    if (equiposPpto.length) {
+      if (window._pptoEquipoId === undefined || !equiposPpto.some(e => String(e.id) === String(window._pptoEquipoId))) {
+        window._pptoEquipoId = equiposPpto[0].id;
+      }
+      eqSel = equiposPpto.find(e => String(e.id) === String(window._pptoEquipoId)) || equiposPpto[0];
+      // La líder va primero; después sus asesoras, sin repetir
+      const nombresEq = [];
+      if (eqSel.lider) nombresEq.push(eqSel.lider);
+      (eqSel.miembros || []).forEach(m => { if (!nombresEq.some(x => pptoAncla(x) === pptoAncla(m))) nombresEq.push(m); });
+      asesoras = nombresEq.map(n => {
+        const u = asesoras.find(a => pptoAncla(a.nombre) === pptoAncla(n));
+        return { nombre: u ? u.nombre : n, rol: (u && u.rol) || 'asesora',
+                 sinUsuario: u ? u.sinUsuario : true,
+                 esLider: !!(eqSel.lider && pptoAncla(n) === pptoAncla(eqSel.lider)) };
+      });
+    } else {
+      asesoras = asesoras.filter(a => a.rol !== 'jefa_ventas' || /giovanna/i.test(a.nombre));
+    }
   }
 
   // Ventas sin IVA por asesora y mes (desde DATA, que ya incluye hoy vía merge)
@@ -11121,7 +11145,7 @@ async function renderPresupuestoVentas(){
     if(ovAct !== undefined && ovAct !== null && ovAct !== ''){ metaAct = Math.round(parseFloat(ovAct)||0); metaActManual = true; }
     else if(pct !== null && baseAct) metaAct = Math.round(baseAct * (1 + pct/100));
     const incrAct = (metaAct !== null && baseAct) ? metaAct - baseAct : null;
-    return { nombre:a.nombre, rol:a.rol, sinUsuario:a.sinUsuario, k, base, sugerido, pct, metas, realActual, uplift:upliftAse, hist, crecProm, ventasMesAnt, ovMesAct, minProm3, ventasEval, baseUlt: (compactoP ? baseUltimo : base) || 0,
+    return { nombre:a.nombre, rol:a.rol, esLider:a.esLider, sinUsuario:a.sinUsuario, k, base, sugerido, pct, metas, realActual, uplift:upliftAse, hist, crecProm, ventasMesAnt, ovMesAct, minProm3, ventasEval, baseUlt: (compactoP ? baseUltimo : base) || 0,
              mkAct, baseAct, minimoAct, metaAct, metaActManual, incrAct };
   });
 
@@ -11175,6 +11199,17 @@ async function renderPresupuestoVentas(){
 
   cont.innerHTML = `
 
+    ${compactoP && equiposPpto.length > 1 ? `
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      ${equiposPpto.map(e=>{
+        const act = String(e.id) === String(window._pptoEquipoId);
+        const n = (e.miembros||[]).length;
+        return `<button onclick="pptoEquipoSel('${String(e.id)}')" style="padding:8px 16px;border-radius:9px;border:1px solid ${act?'var(--brown)':'var(--border)'};background:${act?'var(--brown)':'white'};color:${act?'white':'var(--text)'};font-size:12px;font-weight:${act?'700':'500'};cursor:pointer;display:inline-flex;align-items:center;gap:6px">
+          <i class="ti ti-users-group" style="font-size:13px"></i>${esc(e.nombre)}
+          <span style="font-size:10px;opacity:0.75">${n} persona${n!==1?'s':''}</span>
+        </button>`;
+      }).join('')}
+    </div>` : ''}
     <div class="card" style="padding:0">
       <div style="padding:14px 16px 10px;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px"><i class="ti ti-target-arrow" style="margin-right:6px"></i>${compactoP ? 'Presupuesto ventas — mínimo, mes en curso y meta (sin IVA)' : 'Presupuesto — mes en curso + 3 proyectados (sin IVA)'}</div>
       ${compactoP ? `
@@ -11205,7 +11240,7 @@ async function renderPresupuestoVentas(){
         <tbody>
           ${filas.map((f,fi)=>`
           <tr style="border-bottom:0.5px solid var(--border);background:${fi%2?'#f6f3ef':'white'}">
-            <td style="padding:8px 12px;font-weight:600;white-space:nowrap">${esc(f.nombre.split(' ').slice(0,2).join(' '))}${f.rol==='jefa_ventas'?' <span style="font-size:9px;color:var(--muted)">(líder de equipo)</span>':''}${f.sinUsuario?' <span style="font-size:9px;color:#d97706">(sin usuario aún)</span>':''}</td>
+            <td style="padding:8px 12px;font-weight:600;white-space:nowrap">${esc(f.nombre.split(' ').slice(0,2).join(' '))}${f.esLider?' <span style="font-size:9px;color:var(--muted)">(líder de equipo)</span>':''}${f.sinUsuario?' <span style="font-size:9px;color:#d97706">(sin usuario aún)</span>':''}</td>
             ${compactoP ? (()=>{
               const sobreMin = f.realActual >= f.minimoAct;
               const pctMeta = (f.metaAct && f.metaAct>0) ? Math.round(f.realActual/f.metaAct*100) : null;
@@ -11280,7 +11315,11 @@ async function renderPresupuestoVentas(){
       // 2 últimos meses, la misma vara que se aplica a cada asesora.
       if(!compactoP) return '';
       const lid = cfg.incentivo_lider;
-      const lider = filas.find(f => /giovanna/i.test(f.nombre));
+      // Antes buscaba "Giovanna" por nombre; ahora es quien esté marcada como líder
+      // del equipo que se está viendo. Un equipo sin líder no muestra este bloque.
+      const lider = eqSel && eqSel.lider
+        ? filas.find(f => pptoAncla(f.nombre) === pptoAncla(eqSel.lider))
+        : filas.find(f => f.esLider);
       if(!lider) return '';
       const snapEvalL = (cfg.snapshots || {})[evalKey] || {};
       const metaDeFila = f => {
@@ -11452,6 +11491,12 @@ async function renderPresupuestoVentas(){
 
 // Porcentaje de comisión propio de una asesora (bajo el mínimo y normal). Se guarda en
 // la config del Presupuesto, que es de donde leen los KPIs y el panel de Comisiones.
+// Cambiar de equipo en Presupuesto ventas
+function pptoEquipoSel(id){
+  window._pptoEquipoId = id;
+  renderPresupuestoVentas();
+}
+
 // Navegar entre meses en Presupuesto ventas
 function pptoMesNav(d){
   const hoy = new Date(new Date().toLocaleString('en-US',{timeZone:'America/Guayaquil'}));
@@ -13946,18 +13991,31 @@ function cardEquipoGiovanna(nombreVend, usuarios, anioE, mesE, opts){
   // El equipo se arma solo con las asesoras activas: si entra o sale alguien, este panel
   // se actualiza sin tener que tocar código.
   const miembros = [];
-  (usuarios||[]).forEach(u=>{
-    if(!u.activo) return;
-    if(u.rol !== 'asesora') return;
-    if(/nueva asesora/i.test(u.nombre)) return;
-    const real = (typeof resolverNombreReal === 'function' ? resolverNombreReal(u.nombre, DATA) : null) || u.nombre;
-    if(miembros.some(m=>ancla(m.nombre)===ancla(real))) return;
-    miembros.push({ nombre: real, propia:false });
-  });
+  // Si hay equipos configurados, manda esa composición: quien sale del equipo en
+  // Configuración → Equipos deja de contar aquí y en Presupuesto ventas por igual.
+  const eqCache = window._equiposCache || [];
+  const miEquipo = eqCache.find(e => e.lider && ancla(e.lider) === ancla(nombreVend));
+  if (miEquipo) {
+    (miEquipo.miembros || []).forEach(n => {
+      const real = (typeof resolverNombreReal === 'function' ? resolverNombreReal(n, DATA) : null) || n;
+      if (ancla(real) === ancla(nombreVend)) return;          // la líder se agrega aparte
+      if (miembros.some(m => ancla(m.nombre) === ancla(real))) return;
+      miembros.push({ nombre: real, propia: false });
+    });
+  } else {
+    (usuarios||[]).forEach(u=>{
+      if(!u.activo) return;
+      if(u.rol !== 'asesora') return;
+      if(/nueva asesora/i.test(u.nombre)) return;
+      const real = (typeof resolverNombreReal === 'function' ? resolverNombreReal(u.nombre, DATA) : null) || u.nombre;
+      if(miembros.some(m=>ancla(m.nombre)===ancla(real))) return;
+      miembros.push({ nombre: real, propia:false });
+    });
+  }
   // Respaldo: si la lista de usuarios no llegó (por permisos o por un fallo de red), armar
   // el equipo con las vendedoras que tienen ventas este año. Así la tarjeta nunca queda
   // reducida a una sola persona sin explicación.
-  if(miembros.length < 2){
+  if(!miEquipo && miembros.length < 2){
     const anioR = anioE;
     Object.keys(DATA||{}).forEach(v=>{
       if(/nueva asesora|fernando|espindola|esp[ií]ndola/i.test(v)) return;
