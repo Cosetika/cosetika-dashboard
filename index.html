@@ -11314,7 +11314,10 @@ async function renderPresupuestoVentas(){
       // escala editable. El mínimo del equipo es el promedio de las ventas totales de los
       // 2 últimos meses, la misma vara que se aplica a cada asesora.
       if(!compactoP) return '';
-      const lid = cfg.incentivo_lider;
+      const lidGen = Object.assign({ pct_base:1.7, pct_bajo:1, bono:0, pct_exceso:0 }, cfg.incentivo_lider || {});
+      const lid = compactoP
+        ? Object.assign({}, lidGen, ((cfg.mensual||{})[selKey] || {}).incentivo_lider || {})
+        : lidGen;
       // Antes buscaba "Giovanna" por nombre; ahora es quien esté marcada como líder
       // del equipo que se está viendo. Un equipo sin líder no muestra este bloque.
       const lider = eqSel && eqSel.lider
@@ -11412,7 +11415,9 @@ async function renderPresupuestoVentas(){
     </div>`;
     })()}
     ${(()=>{
-      const inc = cfg.incentivo;
+      // Resuelto para el mes seleccionado: el propio del mes manda sobre el general.
+      // Sin esto, cambiar el bono guardaba bien pero el campo volvía a mostrar el viejo.
+      const inc = compactoP ? incentivoCfg(selKey) : cfg.incentivo;
       const PISO = PISO_COMISION;
       const mesActKey = mkDe(anioAct, mesAct);
       const snapEval = (cfg.snapshots || {})[evalKey] || {};
@@ -12995,7 +13000,7 @@ async function renderComisiones(){
     });
 
     // ── Líder: escalera sobre las ventas de TODO el equipo, ella incluida ──
-    const lidCfg = incentivoLiderCfg();
+    const lidCfg = incentivoLiderCfg(mkCom);
     const aportan = filas.filter(f=>f.contribuye);
     const ventasEq = vJefa.sinIva + aportan.reduce((a,f)=>a+f.sinIva,0);
     const minimoEq = (jefaNombre ? minimoDe(jefaNombre) : 0) + aportan.reduce((a,f)=>a+f.minimo,0);
@@ -13731,9 +13736,10 @@ function pctPorDefecto(nombre){
 // ─── ESCALERA DE COMISIÓN ─────────────────────────────────────────────────────────
 // Muestra los tres tramos con los números reales de la persona, para que se vea qué
 // gana hoy y cuánto más ganaría con las mismas ventas si cruza al siguiente tramo.
-function incentivoLiderCfg(){
+function incentivoLiderCfg(mesKey){
+  const { general, propio } = cfgDelMes(mesKey);
   return Object.assign({ pct_base:1.7, pct_bajo:1, bono:0, pct_exceso:0 },
-                       (window._pptoCfgKpi || {}).incentivo_lider || {});
+                       general.incentivo_lider || {}, propio.incentivo_lider || {});
 }
 
 function escaleraHTML(titulo, tramos, nivelActual){
@@ -14096,7 +14102,7 @@ function cardEquipoGiovanna(nombreVend, usuarios, anioE, mesE, opts){
       </div>
       ${barraTriColor(totalVentas, minimoEquipo, totalMeta, 'Vendido por el equipo en '+MESES_E[mesE], !!opts.forzar)}
       ${(()=>{
-        const lid = incentivoLiderCfg();
+        const lid = incentivoLiderCfg(mesKeyDe(anioE, mesE));
         if(!(totalMeta > 0)) return '';
         // La comisión de la líder es asunto suyo y del admin. En el panel de Ventas
         // (opts.forzar) esta tarjeta la ven todas las asesoras, así que ahí no va.
