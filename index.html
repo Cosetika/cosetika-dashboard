@@ -11497,6 +11497,12 @@ async function renderPresupuestoVentas(){
 // Porcentaje de comisión propio de una asesora (bajo el mínimo y normal). Se guarda en
 // la config del Presupuesto, que es de donde leen los KPIs y el panel de Comisiones.
 // Cambiar de equipo en Presupuesto ventas
+// Cambiar de equipo en Reportes → Comisiones
+function comEquipoSel(id){
+  window._comEquipoId = id;
+  renderComisiones();
+}
+
 function pptoEquipoSel(id){
   window._pptoEquipoId = id;
   renderPresupuestoVentas();
@@ -12963,7 +12969,13 @@ async function renderComisiones(){
   equipos = equipos.slice().sort((a,b)=> ordenEq(a.nombre) - ordenEq(b.nombre));
 
   window._comExport = { mes: mesFiltro, equipos: [], admin: [], fuera: [] };
+  // Pestañas de equipo, igual que en Presupuesto ventas. Se calcula TODO igual (el Excel
+  // sigue saliendo completo), pero en pantalla se muestra solo el equipo seleccionado.
+  if (equipos.length && (window._comEquipoId === undefined || !equipos.some(e => String(e.id) === String(window._comEquipoId)))) {
+    window._comEquipoId = equipos[0].id;
+  }
   const panelesEquipos = equipos.map(eq => {
+    const eqVisible = String(eq.id) === String(window._comEquipoId);
     const jefaNombre = eq.lider || '';
     const jefaCfg = getJefaCfg(cfg, jefaNombre);
     const vJefa = jefaNombre ? ventasMes(jefaNombre, mesFiltro) : {conIva:0,sinIva:0};
@@ -13025,6 +13037,7 @@ async function renderComisiones(){
     window._comExport.equipos.push({ nombre: eq.nombre, jefaNombre, vJefa, jefaCfg, baseJefa, comisionJefa, totalJefa, filas,
       ventasEq, minimoEq, metaEq, nivelJefa, tramoJefa: TRAMOS_L[nivelJefa] });
 
+    if (!eqVisible) return '';
     return `
     <div class="card" style="margin-bottom:12px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
@@ -13135,6 +13148,18 @@ async function renderComisiones(){
       <button onclick="exportarComisionesExcel()" style="margin-left:auto;padding:6px 13px;font-size:12px;font-weight:600;border:1px solid var(--brown);background:var(--brown);color:white;border-radius:8px;cursor:pointer;white-space:nowrap"><i class="ti ti-file-spreadsheet" style="margin-right:5px"></i>Descargar Excel</button>
     </div>
 
+    ${equipos.length > 1 ? `
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      ${equipos.map(e=>{
+        const act = String(e.id) === String(window._comEquipoId);
+        const n = (e.miembros||[]).length;
+        return `<button onclick="comEquipoSel('${String(e.id)}')" style="padding:8px 16px;border-radius:9px;border:1px solid ${act?'var(--brown)':'var(--border)'};background:${act?'var(--brown)':'white'};color:${act?'white':'var(--text)'};font-size:12px;font-weight:${act?'700':'500'};cursor:pointer;display:inline-flex;align-items:center;gap:6px">
+          <i class="ti ti-users-group" style="font-size:13px"></i>${String(e.nombre||'').replace(/</g,'&lt;')}
+          <span style="font-size:10px;opacity:0.75">${n} persona${n!==1?'s':''}</span>
+        </button>`;
+      }).join('')}
+      <span style="font-size:10px;color:var(--muted);align-self:center;margin-left:4px">El Excel se descarga con todos los equipos</span>
+    </div>` : ''}
     ${panelesEquipos}
 
     <div class="card" style="margin-bottom:12px">
