@@ -535,7 +535,9 @@ const NOMBRE_CORTO = {
   'Liseth Gavilanes':           'Liseth Gavilanes',
 };
 function nombreCorto(nombreCompleto){
-  return NOMBRE_CORTO[nombreCompleto] || (nombreCompleto.split(' ')[0]+' '+(nombreCompleto.split(' ')[1]||''));
+  const n = String(nombreCompleto || '').trim();
+  if(!n) return '';
+  return NOMBRE_CORTO[n] || (n.split(' ')[0] + ' ' + (n.split(' ')[1] || '')).trim();
 }
 
 function vendAvatar(nombre, size=28){
@@ -4161,6 +4163,10 @@ async function renombrarUsuario(id, actual){
     const r = await fetch('/api/usuarios/'+id+'/renombrar', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ nuevo_nombre: limpio }) });
     const j = await r.json();
     if(!j.ok) throw new Error(j.error||'error');
+    // El selector de KPIs cachea la lista de asesoras: se limpia para que el nombre
+    // nuevo aparezca sin tener que recargar la app.
+    window._asesorasKpiCache = null;
+    if(window._kpiAsesora === actual) window._kpiAsesora = limpio;
     alert('Listo — "'+actual+'" ahora es "'+limpio+'" en toda la app.');
     renderConfig();
   }catch(e){ alert('Error al renombrar: '+e.message); }
@@ -14205,6 +14211,31 @@ function cardPresupuestoAsesora(nombreVend, anioSel, mesSel){
     </div>`;
 }
 
+// Asesoras activas para los selectores de KPIs. Se cachea por sesión y cae a una lista
+// fija solo si la petición falla, para que el panel nunca quede sin opciones.
+async function cargarAsesorasKpi(){
+  if(window._asesorasKpiCache) return window._asesorasKpiCache.slice();
+  let lista = [];
+  try{
+    const r = await fetch('/api/usuarios');
+    const d = await r.json();
+    if(Array.isArray(d)){
+      lista = d
+        .filter(u => u.activo && (u.rol === 'asesora' || u.rol === 'jefa_ventas'))
+        .filter(u => !/nueva asesora/i.test(u.nombre||''))
+        .sort((a,b) => (a.rol === b.rol ? String(a.nombre).localeCompare(String(b.nombre)) : (a.rol === 'asesora' ? -1 : 1)))
+        // El nombre de usuario puede diferir del que usa Contifico; se resuelve contra DATA
+        .map(u => (typeof resolverNombreReal === 'function' ? resolverNombreReal(u.nombre, DATA) : null) || u.nombre);
+    }
+  }catch(e){}
+  if(!lista.length){
+    lista = ['Daniela Villegas Chamorro','Liseth Gavilanes','Karen Rebeca Mora Cedeño',
+             'Nicole Yanira Leon Marquez','Giovanna Portilla','María Caridad Zea Larrea'];
+  }
+  window._asesorasKpiCache = lista;
+  return lista.slice();
+}
+
 async function renderKpisGiovanna(asesoraKpi, asesoras, puedeVerTodas, rol){
   await cargarMetaVentasCfg();
   const now = new Date();
@@ -14985,13 +15016,17 @@ async function renderKpis(){
 
   // Admin y jefa ven selector de asesora; asesoras solo su propia
   const puedeVerTodas = (rol==='admin'||rol==='jefa_ventas');
-  const asesoras = ['Daniela Villegas Chamorro','Liseth Gavilanes','Karen Rebeca Mora Cedeño','Nicole Yanira Leon Marquez','Giovanna Portilla','María Caridad Zea Larrea'];
+  // La lista sale de la tabla de usuarios, no escrita a mano: si renombras a alguien en
+  // Configuración → Equipo, el cambio se ve aquí igual que en el resto de la app.
+  let asesoras = await cargarAsesorasKpi();
   // Para una asesora, resolver su nombre real contra DATA (puede diferir del nombre
   // guardado en la tabla usuarios, ej. sin segundo apellido) — mismo patrón ya usado
   // en Visitas y Clientes (ver resolverNombreReal). Sin esto, el nombre incompleto no
   // encuentra ningún registro en DATA y todos los montos del KPI salen en $0.
   const nombreResuelto = resolverNombreReal(nombre, DATA) || nombre;
   let asesoraKpi = window._kpiAsesora || (puedeVerTodas ? asesoras[0] : nombreResuelto);
+  // Si la guardada ya no está en la lista (por ejemplo, la renombraron), se cae a la primera
+  if(puedeVerTodas && asesoras.length && !asesoras.includes(asesoraKpi)) asesoraKpi = asesoras[0];
   window._kpiAsesora = asesoraKpi;
 
   // Panel especial de KPIs para Giovanna (líder de equipo)
