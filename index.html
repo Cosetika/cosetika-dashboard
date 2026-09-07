@@ -7717,12 +7717,26 @@ function renderHome(){
         </div>
       </div>
       ${modoCli==='asignado'?'<div style="font-size:11px;color:var(--muted);background:#faf9f8;border-radius:7px;padding:8px 11px;margin-bottom:10px;line-height:1.5">Los mismos importes, agrupados por quien atiende hoy a cada clienta (código de categoría de Contifico). El histórico no cambia: en "quién facturó" cada venta sigue con quien la hizo.</div>':''}
-      ${(modoCli==='asignado' && !ranking.length)?`<div style="padding:18px;text-align:center;font-size:12px;color:var(--muted);line-height:1.6">
-        Todavía no hay clientas asignadas${(window.usuarioActual||{}).rol==='admin'?'':' a tu nombre'}.<br>
-        ${!window._carteraMapa || !Object.keys(window._carteraMapa).length
-          ? 'Falta subir el catálogo de clientes con la columna <b>Categoría</b> y decir a quién pertenece cada código en <b>Clientes → Cartera</b>.'
-          : 'Revisa en <b>Clientes → Cartera</b> que el código de esa asesora esté apuntando a su nombre de usuaria.'}
-      </div>`:''}
+      ${(modoCli==='asignado' && !ranking.length)?(()=>{
+        const uE = window.usuarioActual || {};
+        const esAdminE = uE.rol === 'admin' || uE.rol === 'jefa_ventas';
+        const aE = x => String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+          .toUpperCase().split(/\s+/).slice(0,2).join(' ');
+        const mias = (window._carteraLista||[]).filter(c => esAdminE || aE(c.asesora) === aE(uE.nombre));
+        if(mias.length){
+          // Tiene cartera, pero ninguna de esas clientas compró en el año elegido
+          return `<div style="padding:18px;text-align:center;font-size:12px;color:var(--muted);line-height:1.7">
+            ${esAdminE?'Hay':'Tienes'} <b>${mias.length} clienta${mias.length!==1?'s':''}</b> asignada${mias.length!==1?'s':''}, pero ninguna compró en <b>${etiquetaC}</b>.<br>
+            Prueba con otro año en el selector de arriba, o abre <b>Clientes → Cartera</b> para ver la lista completa con la última compra de cada una.
+          </div>`;
+        }
+        return `<div style="padding:18px;text-align:center;font-size:12px;color:var(--muted);line-height:1.7">
+          Todavía no hay clientas asignadas${esAdminE?'':' a tu nombre'}.<br>
+          ${!window._carteraMapa || !Object.keys(window._carteraMapa).length
+            ? 'Falta subir el catálogo de clientes con la columna <b>Categoría</b> y decir a quién pertenece cada código en <b>Clientes → Cartera</b>.'
+            : 'Revisa en <b>Clientes → Cartera</b> que el código de esa asesora esté apuntando a su nombre de usuaria.'}
+        </div>`;
+      })():''}
       ${ranking.map(v=>`
         <div class="hbar" onclick="${modoCli==='asignado'?'':`selVendedorPorNombre('${v.nombre.replace(/'/g,"\\'")}')`}" style="display:flex;align-items:center;gap:8px;${modoCli==='asignado'?'cursor:default':''}">
           ${vendAvatar(v.nombre,26)}
@@ -11830,6 +11844,7 @@ function cargarCarteraMapa(){
       });
     }
     window._carteraMapa = m;
+    window._carteraLista = (d && d.ok) ? (d.clientas||[]) : [];
     return m;
   }).catch(()=>{ window._carteraMapa = {}; return {}; });
 }
