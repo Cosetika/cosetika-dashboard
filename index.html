@@ -4348,7 +4348,12 @@ async function cargarData(){
       window._comercialPorNombre = d.comerciales_nombre || {};
       fetch('/api/comportamiento-pago').then(r2=>r2.json()).then(p=>{ if(p.ok) window._pagoPorCedula = p.mapa || {}; }).catch(()=>{});
       // Composición de los equipos: la usan el panel de Ventas y los KPIs de la líder
-      fetch('/api/equipos').then(r3=>r3.json()).then(e=>{ if(Array.isArray(e) && e.length) window._equiposCache = e; }).catch(()=>{});
+      fetch('/api/equipos').then(r3=>r3.json()).then(e=>{
+        if(Array.isArray(e) && e.length){
+          window._equiposCache = e;
+          if(typeof cargarAsesorasKpi === 'function') cargarAsesorasKpi().catch(()=>{});
+        }
+      }).catch(()=>{});
       // Pedidos se pinta apenas abre la app, casi siempre antes de que llegue este
       // mapa, así que se repinta para que salga el nombre comercial.
       if(document.getElementById('doc-tab-content') && window._pedidosFecha
@@ -7613,7 +7618,12 @@ function renderHome(){
   vendedoras.forEach(v=>getClis(v).forEach(c=>c.marcas.forEach(m=>{marcas[m.marca]=(marcas[m.marca]||0)+m.total;})));
   renderMarcasSidebar(marcas);
 
-  const ranking=vendedoras.map(v=>({
+  // Modo del panel: por quién facturó (histórico) o por cartera asignada hoy
+  const modoCli = window._clientesModo || 'facturado';
+  if(modoCli === 'asignado' && !window._carteraMapa){
+    cargarCarteraMapa().then(()=>renderHome());
+  }
+  const rankingFact = vendedoras.map(v=>({
     nombre:v,
     total: clientesFiltroMes
       ? getClis(v).reduce((a,c)=>a+(c.frecuencia.find(f=>f.mes===clientesFiltroMes&&f.anio===anioCliActivo)||{total:0}).total,0)
@@ -7621,6 +7631,24 @@ function renderHome(){
     clientes: getClis(v).length,
     facturas: getClis(v).reduce((a,c)=>a+c.frecuencia.filter(f=>f.anio===anioCliActivo).reduce((s,f)=>s+f.compras,0),0)
   })).filter(v=>v.total>0).sort((a,b)=>b.total-a.total);
+
+  // En modo "asignado" el mismo dinero se reagrupa bajo la asesora que hoy atiende a la
+  // clienta. No se reescribe nada: es otra forma de mirar los mismos importes.
+  let ranking = rankingFact;
+  if(modoCli === 'asignado' && window._carteraMapa){
+    const acum = {};
+    vendedoras.forEach(v=>getClis(v).forEach(c=>{
+      const monto = clientesFiltroMes
+        ? (c.frecuencia.find(f=>f.mes===clientesFiltroMes&&f.anio===anioCliActivo)||{total:0}).total
+        : c.frecuencia.filter(f=>f.anio===anioCliActivo).reduce((s,f)=>s+f.total,0);
+      if(!(monto>0)) return;
+      const dueña = asesoraAsignadaDe(c.ruc || c.cedula) || 'Sin asesora asignada';
+      if(!acum[dueña]) acum[dueña] = { nombre:dueña, total:0, clientes:0, facturas:0 };
+      acum[dueña].total += monto; acum[dueña].clientes++;
+      acum[dueña].facturas += c.frecuencia.filter(f=>f.anio===anioCliActivo).reduce((s,f)=>s+f.compras,0);
+    }));
+    ranking = Object.values(acum).sort((a,b)=>b.total-a.total);
+  }
   const maxVend=ranking[0]?.total||1;
 
   const MESES_CORTO2=['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
@@ -7670,11 +7698,19 @@ function renderHome(){
       </div>
     </div>
     <div class="card">
-      <div class="card-title"><i class="ti ti-award"></i> Ranking de vendedoras</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+        <div class="card-title" style="margin-bottom:0"><i class="ti ti-award"></i> Ranking de vendedoras</div>
+        <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)">
+          Ver por:
+          <button onclick="window._clientesModo='facturado';renderHome()" style="padding:5px 12px;border-radius:8px;border:1px solid ${modoCli==='facturado'?'var(--brown)':'var(--border)'};background:${modoCli==='facturado'?'var(--brown)':'white'};color:${modoCli==='facturado'?'white':'var(--text)'};font-size:11px;font-weight:${modoCli==='facturado'?'700':'500'};cursor:pointer">quién facturó</button>
+          <button onclick="window._clientesModo='asignado';renderHome()" style="padding:5px 12px;border-radius:8px;border:1px solid ${modoCli==='asignado'?'var(--brown)':'var(--border)'};background:${modoCli==='asignado'?'var(--brown)':'white'};color:${modoCli==='asignado'?'white':'var(--text)'};font-size:11px;font-weight:${modoCli==='asignado'?'700':'500'};cursor:pointer">cartera asignada</button>
+        </div>
+      </div>
+      ${modoCli==='asignado'?'<div style="font-size:11px;color:var(--muted);background:#faf9f8;border-radius:7px;padding:8px 11px;margin-bottom:10px;line-height:1.5">Los mismos importes, agrupados por quien atiende hoy a cada clienta (código de categoría de Contifico). El histórico no cambia: en "quién facturó" cada venta sigue con quien la hizo.</div>':''}
       ${ranking.map(v=>`
-        <div class="hbar" onclick="selVendedorPorNombre('${v.nombre.replace(/'/g,"\\'")}')" style="display:flex;align-items:center;gap:8px">
+        <div class="hbar" onclick="${modoCli==='asignado'?'':`selVendedorPorNombre('${v.nombre.replace(/'/g,"\\'")}')`}" style="display:flex;align-items:center;gap:8px;${modoCli==='asignado'?'cursor:default':''}">
           ${vendAvatar(v.nombre,26)}
-          <span class="hbar-lbl" title="${v.nombre}">${nombreCorto(v.nombre)}</span>
+          <span class="hbar-lbl" title="${v.nombre}">${nombreCorto(v.nombre)}</span>${modoCli==='facturado'?etiquetaInactiva(v.nombre):''}
           <div class="hbar-track"><div class="hbar-fill" style="width:${pct(v.total,maxVend)}%;background:${getVendColor(v.nombre)}"></div></div>
           <span class="hbar-val" style="display:flex;flex-direction:column;align-items:flex-end;line-height:1.25;min-width:80px;max-width:100px;white-space:normal;overflow:visible">
             <span style="font-weight:600;color:var(--brown)">${fmt(v.total/1.15)}</span>
@@ -11738,6 +11774,47 @@ function seguimientoStats(nombreVend, curIdx, contactos){
 }
 
 // ─── SEGUIMIENTO DE CLIENTAS: ritmo personal de compra e inactividad ─────────
+// Mapa cédula/RUC → asesora asignada hoy (viene del código de categoría de Contifico).
+// Se carga una vez y se guarda; sirve para ver los paneles "por cartera" sin tocar
+// el histórico, que sigue agrupado por quién facturó.
+function cargarCarteraMapa(){
+  if(window._carteraMapa) return Promise.resolve(window._carteraMapa);
+  return fetch('/api/cartera-asignada').then(r=>r.json()).then(d=>{
+    const m = {};
+    if(d && d.ok){
+      (d.clientas||[]).forEach(c=>{
+        const dig = String(c.identificacion||'').replace(/\D/g,'');
+        if(dig && c.asesora){ m[dig] = c.asesora; if(dig.length===13) m[dig.substring(0,10)] = c.asesora; }
+      });
+    }
+    window._carteraMapa = m;
+    return m;
+  }).catch(()=>{ window._carteraMapa = {}; return {}; });
+}
+
+function asesoraAsignadaDe(identificacion){
+  const m = window._carteraMapa || {};
+  const d = String(identificacion||'').replace(/\D/g,'');
+  if(!d) return null;
+  return m[d] || (d.length===13 ? m[d.substring(0,10)] : null) || null;
+}
+
+// ¿Esta vendedora sigue trabajando? Se marca en los rankings históricos para que se
+// entienda por qué tiene ventas y no tiene metas.
+function vendedoraInactiva(nombre){
+  const activas = window._asesorasKpiCache;
+  if(!activas || !activas.length) return false;   // sin la lista, no se marca nada
+  const a = x => String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .toUpperCase().split(/\s+/).slice(0,2).join(' ');
+  return !activas.some(x => a(x) === a(nombre));
+}
+
+function etiquetaInactiva(nombre){
+  return vendedoraInactiva(nombre)
+    ? '<span title="Ya no trabaja aquí; sus ventas quedan en el histórico" style="font-size:9px;font-weight:700;color:#6b7280;background:#f3f4f6;border:1px solid #e5e7eb;border-radius:6px;padding:1px 6px;margin-left:6px;white-space:nowrap">ya no está</span>'
+    : '';
+}
+
 // ─── CARTERA ASIGNADA ─────────────────────────────────────────────────────────────
 // De quién es cada clienta HOY, según el código de categoría de Contifico (Ase.MFG).
 // No toca el histórico: las ventas siguen contando para quien las facturó. Sirve para
