@@ -4600,6 +4600,7 @@ function selVendedor(el,nombre){
 }
 
 function selVendedorPorNombre(nombre){
+  window._clientesVirtual = null;
   document.querySelectorAll('.vend-item').forEach(el=>{
     el.classList.remove('active');
     el.querySelector('input').checked=false;
@@ -7738,7 +7739,7 @@ function renderHome(){
         </div>`;
       })():''}
       ${ranking.map(v=>`
-        <div class="hbar" onclick="${modoCli==='asignado'?'':`selVendedorPorNombre('${v.nombre.replace(/'/g,"\\'")}')`}" style="display:flex;align-items:center;gap:8px;${modoCli==='asignado'?'cursor:default':''}">
+        <div class="hbar" onclick="${modoCli==='asignado'?`verCarteraDe('${v.nombre.replace(/'/g,"\\'")}')`:`selVendedorPorNombre('${v.nombre.replace(/'/g,"\\'")}')`}" style="display:flex;align-items:center;gap:8px">
           ${vendAvatar(v.nombre,26)}
           <span class="hbar-lbl" title="${v.nombre}">${nombreCorto(v.nombre)}</span>${modoCli==='facturado'?etiquetaInactiva(v.nombre):''}
           <div class="hbar-track"><div class="hbar-fill" style="width:${pct(v.total,maxVend)}%;background:${getVendColor(v.nombre)}"></div></div>
@@ -7754,7 +7755,10 @@ function renderHome(){
 function renderVendedor(nombre){
   const anioActual3 = new Date().getFullYear();
   const anioVendActivo = window._clientesAnio || anioActual3;
-  const todosClientes = DATA[nombre]||[];
+  // En modo "cartera asignada" las clientas no están bajo esta vendedora en DATA
+  // (las facturó otra persona), así que la lista viene armada desde la cartera.
+  const virtual = window._clientesVirtual;
+  const todosClientes = (virtual && virtual.nombre === nombre ? virtual.lista : DATA[nombre]) || [];
   // Filtrar clientes que tengan ventas en el año seleccionado
   const clientes = todosClientes.filter(c=>c.frecuencia.some(f=>f.anio===anioVendActivo && f.total>0));
   const totalVend = clientes.reduce((a,c)=>a+c.frecuencia.filter(f=>f.anio===anioVendActivo).reduce((s,f)=>s+f.total,0),0);
@@ -11651,6 +11655,24 @@ async function renderPresupuestoVentas(){
 // la config del Presupuesto, que es de donde leen los KPIs y el panel de Comisiones.
 // Cambiar de equipo en Presupuesto ventas
 // Cambiar de equipo en Reportes → Comisiones
+// Abre la ficha de una asesora con las clientas de su CARTERA (no las que ella facturó).
+// Se reutiliza la misma pantalla de siempre, así que cada clienta conserva su detalle:
+// frecuencia, marcas, crédito sugerido y comportamiento de pago.
+function verCarteraDe(nombreAsesora){
+  const aV = x => String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .toUpperCase().split(/\s+/).slice(0,2).join(' ');
+  const lista = []; const vistos = new Set();
+  Object.keys(DATA || {}).forEach(v => (DATA[v]||[]).forEach(c => {
+    const dna = asesoraAsignadaDe(c.ruc || c.cedula);
+    if(!dna || aV(dna) !== aV(nombreAsesora)) return;
+    const k = String(c.ruc || c.nombre || '').trim();
+    if(vistos.has(k)) return;
+    vistos.add(k); lista.push(c);
+  }));
+  window._clientesVirtual = { nombre: nombreAsesora, lista };
+  renderVendedor(nombreAsesora);
+}
+
 function comEquipoSel(id){
   window._comEquipoId = id;
   renderComisiones();
