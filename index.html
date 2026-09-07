@@ -11872,6 +11872,41 @@ function etiquetaInactiva(nombre){
     : '';
 }
 
+// ─── SESIÓN CADUCADA ──────────────────────────────────────────────────────────────
+// Los paneles de admin (caja, finanzas, cartera) van contra endpoints protegidos.
+// Cuando la cookie de sesión caduca, el servidor responde 403 y esos paneles se veían
+// vacíos sin decir por qué. Ahora se avisa una sola vez, con el botón para volver a entrar.
+(function(){
+  if(window._fetchSesionListo) return;
+  window._fetchSesionListo = true;
+  const _fetch = window.fetch.bind(window);
+  let avisado = false;
+  window.fetch = async function(...args){
+    const r = await _fetch(...args);
+    try{
+      if(r.status === 403 && !avisado && (window.usuarioActual||{}).rol === 'admin'){
+        const url = String((args[0] && args[0].url) || args[0] || '');
+        if(url.indexOf('/api/') !== -1){ avisado = true; avisarSesionCaducada(); }
+      }
+    }catch(e){}
+    return r;
+  };
+})();
+
+function avisarSesionCaducada(){
+  if(document.getElementById('aviso-sesion')) return;
+  const d = document.createElement('div');
+  d.id = 'aviso-sesion';
+  d.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:22px;z-index:9999;'
+    + 'background:#1a1108;color:white;border-radius:12px;padding:13px 18px;display:flex;align-items:center;'
+    + 'gap:14px;box-shadow:0 10px 30px rgba(0,0,0,0.25);font-size:13px;max-width:92vw';
+  d.innerHTML = '<span><b>Tu sesión caducó.</b> Por eso algunos paneles salen vacíos.</span>'
+    + '<button onclick="sessionStorage.clear();window.location.href=\'/login\'" style="background:#A0684A;color:white;border:none;'
+    + 'border-radius:8px;padding:8px 14px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">Volver a entrar</button>'
+    + '<button onclick="this.parentNode.remove()" style="background:none;border:none;color:#9ca3af;cursor:pointer;font-size:16px">×</button>';
+  document.body.appendChild(d);
+}
+
 // ─── CARTERA ASIGNADA ─────────────────────────────────────────────────────────────
 // De quién es cada clienta HOY, según el código de categoría de Contifico (Ase.MFG).
 // No toca el histórico: las ventas siguen contando para quien las facturó. Sirve para

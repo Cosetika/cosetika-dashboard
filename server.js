@@ -3744,7 +3744,9 @@ const server = http.createServer(async (req, res) => {
       // verificar el rol real sin depender del frontend (no se puede falsificar)
       res.writeHead(200,{
         'Content-Type':'application/json',
-        'Set-Cookie': `cosetika_ses=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60*60*24*30}`
+        // 180 días: con 30 la sesión caducaba sola y el servidor empezaba a devolver 403
+        // en los paneles de admin, que se veían vacíos sin explicar por qué.
+        'Set-Cookie': `cosetika_ses=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60*60*24*180}`
       });
       res.end(JSON.stringify({ok:true, token, usuario:{id:u.id,nombre:u.nombre,usuario:u.usuario,rol:u.rol,modulos:u.modulos}}));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
