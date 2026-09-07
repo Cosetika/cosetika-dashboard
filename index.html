@@ -7717,6 +7717,12 @@ function renderHome(){
         </div>
       </div>
       ${modoCli==='asignado'?'<div style="font-size:11px;color:var(--muted);background:#faf9f8;border-radius:7px;padding:8px 11px;margin-bottom:10px;line-height:1.5">Los mismos importes, agrupados por quien atiende hoy a cada clienta (código de categoría de Contifico). El histórico no cambia: en "quién facturó" cada venta sigue con quien la hizo.</div>':''}
+      ${(modoCli==='asignado' && !ranking.length)?`<div style="padding:18px;text-align:center;font-size:12px;color:var(--muted);line-height:1.6">
+        Todavía no hay clientas asignadas${(window.usuarioActual||{}).rol==='admin'?'':' a tu nombre'}.<br>
+        ${!window._carteraMapa || !Object.keys(window._carteraMapa).length
+          ? 'Falta subir el catálogo de clientes con la columna <b>Categoría</b> y decir a quién pertenece cada código en <b>Clientes → Cartera</b>.'
+          : 'Revisa en <b>Clientes → Cartera</b> que el código de esa asesora esté apuntando a su nombre de usuaria.'}
+      </div>`:''}
       ${ranking.map(v=>`
         <div class="hbar" onclick="${modoCli==='asignado'?'':`selVendedorPorNombre('${v.nombre.replace(/'/g,"\\'")}')`}" style="display:flex;align-items:center;gap:8px;${modoCli==='asignado'?'cursor:default':''}">
           ${vendAvatar(v.nombre,26)}
@@ -11864,8 +11870,15 @@ async function renderCarteraAsignada(){
 
   let d = null, cats = null;
   try{
-    const [r1, r2] = await Promise.all([fetch('/api/cartera-asignada'), fetch('/api/categorias-asesora')]);
+    const [r1, r2, r3] = await Promise.all([
+      fetch('/api/cartera-asignada'), fetch('/api/categorias-asesora'), fetch('/api/usuarios')]);
     d = await r1.json(); cats = await r2.json();
+    const us = await r3.json();
+    // Los nombres del desplegable son EXACTAMENTE los de las usuarias: así el código
+    // siempre apunta a alguien que existe y no se pierde por una tilde o una abreviatura.
+    if(Array.isArray(us)) window._usuariosCartera = us
+      .filter(u=>u.activo && (u.rol==='asesora'||u.rol==='jefa_ventas'))
+      .map(u=>u.nombre).sort();
   }catch(e){}
   const cc = document.getElementById('cartera-cont');
   if(!d || !d.ok){ cc.innerHTML = '<div class="card" style="padding:16px;font-size:13px;color:var(--muted)">No se pudo cargar la cartera.</div>'; return; }
@@ -11897,9 +11910,12 @@ async function renderCarteraAsignada(){
           <div style="display:flex;align-items:center;gap:8px;background:#faf9f8;border:1px solid var(--border);border-radius:9px;padding:8px 10px">
             <div style="min-width:90px"><div style="font-size:12px;font-weight:700;color:var(--brown)">${escC2(c.codigo)}</div>
               <div style="font-size:10px;color:var(--muted)">${c.clientas} clienta${c.clientas!==1?'s':''}</div></div>
-            <input type="text" value="${escC2(mapa[c.codigo]||'')}" placeholder="¿De quién es?"
-              onchange="guardarCodigoAsesora('${escC2(c.codigo)}', this.value)"
-              style="flex:1;padding:6px 9px;font-size:12px;border:1px solid var(--border);border-radius:7px;outline:none">
+            <select onchange="guardarCodigoAsesora('${escC2(c.codigo)}', this.value)"
+              style="flex:1;padding:6px 9px;font-size:12px;border:1px solid var(--border);border-radius:7px;outline:none;background:white;cursor:pointer">
+              <option value="">— Sin asignar —</option>
+              ${(window._usuariosCartera||[]).map(u=>`<option value="${escC2(u)}" ${mapa[c.codigo]===u?'selected':''}>${escC2(u)}</option>`).join('')}
+              ${(mapa[c.codigo] && !(window._usuariosCartera||[]).includes(mapa[c.codigo])) ? `<option value="${escC2(mapa[c.codigo])}" selected>${escC2(mapa[c.codigo])} (no coincide con ninguna usuaria)</option>` : ''}
+            </select>
           </div>`).join('')}
       </div>
     </div>` : '';
