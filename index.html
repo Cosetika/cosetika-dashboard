@@ -13640,7 +13640,15 @@ async function crearEquipo(){
 async function actualizarEquipo(id, cambios){
   try {
     await fetch(`/api/equipos/${id}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(cambios)});
+    invalidarCacheEquipos();
   } catch(e){ alert('Error: '+e.message); }
+}
+
+// La composición de los equipos alimenta Ventas, KPIs, Presupuesto y Comisiones.
+// Cuando cambia, se botan los cachés para que los cuatro se enteren enseguida.
+function invalidarCacheEquipos(){
+  window._equiposCache = null;
+  window._asesorasKpiCache = null;
 }
 
 async function toggleMiembroEquipo(id, nombre, agregar){
@@ -13653,6 +13661,7 @@ async function toggleMiembroEquipo(id, nombre, agregar){
     if(agregar && !miembros.includes(nombre)) miembros.push(nombre);
     if(!agregar) miembros = miembros.filter(m=>m!==nombre);
     await fetch(`/api/equipos/${id}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({miembros})});
+    invalidarCacheEquipos();
     renderEquiposConfig();
   } catch(e){ alert('Error: '+e.message); }
 }
@@ -13661,6 +13670,7 @@ async function eliminarEquipo(id, nombre){
   if(!confirm(`¿Eliminar el equipo "${nombre}"?`)) return;
   try {
     await fetch(`/api/equipos/${id}`, {method:'DELETE'});
+    invalidarCacheEquipos();
     renderEquiposConfig();
   } catch(e){ alert('Error: '+e.message); }
 }
@@ -14362,22 +14372,41 @@ function cardPresupuestoAsesora(nombreVend, anioSel, mesSel){
 // fija solo si la petición falla, para que el panel nunca quede sin opciones.
 async function cargarAsesorasKpi(){
   if(window._asesorasKpiCache) return window._asesorasKpiCache.slice();
+  // Quién tiene KPIs de venta = quién está en un equipo (Configuración → Equipos).
+  // Antes se filtraba por el rol de la tabla de usuarios y eso metía a gente que no
+  // corresponde y dejaba fuera a quien tenía el rol mal puesto.
+  let equipos = window._equiposCache || [];
+  if(!equipos.length){
+    try{
+      const rE = await fetch('/api/equipos');
+      const dE = await rE.json();
+      if(Array.isArray(dE) && dE.length){ equipos = dE; window._equiposCache = dE; }
+    }catch(e){}
+  }
+  const vistos = new Set();
+  const anclaK = x => String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .toUpperCase().split(/\s+/).slice(0,2).join(' ');
   let lista = [];
-  try{
-    const r = await fetch('/api/usuarios');
-    const d = await r.json();
-    if(Array.isArray(d)){
-      lista = d
-        .filter(u => u.activo && (u.rol === 'asesora' || u.rol === 'jefa_ventas'))
-        .filter(u => !/nueva asesora/i.test(u.nombre||''))
-        .sort((a,b) => (a.rol === b.rol ? String(a.nombre).localeCompare(String(b.nombre)) : (a.rol === 'asesora' ? -1 : 1)))
-        // El nombre de usuario puede diferir del que usa Contifico; se resuelve contra DATA
-        .map(u => (typeof resolverNombreReal === 'function' ? resolverNombreReal(u.nombre, DATA) : null) || u.nombre);
-    }
-  }catch(e){}
+  const agregar = n => {
+    if(!n || /nueva asesora/i.test(n)) return;
+    const real = (typeof resolverNombreReal === 'function' ? resolverNombreReal(n, DATA) : null) || n;
+    if(vistos.has(anclaK(real))) return;
+    vistos.add(anclaK(real));
+    lista.push(real);
+  };
+  equipos.forEach(e => { (e.miembros||[]).forEach(agregar); if(e.lider) agregar(e.lider); });
+
+  // Respaldo: si todavía no hay equipos configurados, se cae al rol de usuario
   if(!lista.length){
-    lista = ['Daniela Villegas Chamorro','Liseth Gavilanes','Karen Rebeca Mora Cedeño',
-             'Nicole Yanira Leon Marquez','Giovanna Portilla','María Caridad Zea Larrea'];
+    try{
+      const r = await fetch('/api/usuarios');
+      const d = await r.json();
+      if(Array.isArray(d)){
+        d.filter(u => u.activo && (u.rol === 'asesora' || u.rol === 'jefa_ventas'))
+         .sort((a,b) => String(a.nombre).localeCompare(String(b.nombre)))
+         .forEach(u => agregar(u.nombre));
+      }
+    }catch(e){}
   }
   window._asesorasKpiCache = lista;
   return lista.slice();
