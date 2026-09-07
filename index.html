@@ -7637,7 +7637,10 @@ function renderHome(){
   let ranking = rankingFact;
   if(modoCli === 'asignado' && window._carteraMapa){
     const acum = {};
-    vendedoras.forEach(v=>getClis(v).forEach(c=>{
+    // Se recorre TODA la data: las clientas de una asesora pueden tener facturas hechas
+    // por otra persona. Después se filtra por quien está mirando, si no es admin.
+    const todasV = Object.keys(DATA || {});
+    todasV.forEach(v=>getClis(v).forEach(c=>{
       const monto = clientesFiltroMes
         ? (c.frecuencia.find(f=>f.mes===clientesFiltroMes&&f.anio===anioCliActivo)||{total:0}).total
         : c.frecuencia.filter(f=>f.anio===anioCliActivo).reduce((s,f)=>s+f.total,0);
@@ -7648,6 +7651,13 @@ function renderHome(){
       acum[dueña].facturas += c.frecuencia.filter(f=>f.anio===anioCliActivo).reduce((s,f)=>s+f.compras,0);
     }));
     ranking = Object.values(acum).sort((a,b)=>b.total-a.total);
+    // Una asesora solo ve su propia fila
+    const uC = window.usuarioActual || {};
+    if(!(uC.rol === 'admin' || uC.rol === 'jefa_ventas')){
+      const aC = x => String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+        .toUpperCase().split(/\s+/).slice(0,2).join(' ');
+      ranking = ranking.filter(r => aC(r.nombre) === aC(uC.nombre));
+    }
   }
   const maxVend=ranking[0]?.total||1;
 
@@ -9551,14 +9561,20 @@ function renderReportes(){
   document.getElementById('main').innerHTML=`
     <div class="breadcrumb" style="margin-bottom:12px"><i class="ti ti-file-analytics" style="color:var(--brown);font-size:12px"></i><span style="font-weight:500">Reportes — ${tab==='inversiones'?'Inversiones / Viáticos':tab==='presupuesto'?'Presupuesto de ventas':tab==='presupuesto_ventas'?'Presupuesto ventas':tab==='nomina'?'Nómina':tab==='promos'?'Promociones — rentabilidad':tab==='pyg'?'PyG — Estado de resultados':tab==='balance'?'Balance general':tab==='caja'?'Flujo de caja':'Comisiones'}</span></div>
     <div id="reportes-content"></div>`;
-  if(tab==='inversiones') renderInversiones();
-  else if(tab==='presupuesto' || tab==='presupuesto_ventas') renderPresupuestoVentas();
-  else if(tab==='nomina') renderNomina();
-  else if(tab==='promos') renderPromos();
-  else if(tab==='pyg') renderPyG();
-  else if(tab==='balance') renderBalance();
-  else if(tab==='caja') renderCaja();
-  else renderComisiones();
+  // Si un panel falla, antes quedaba la pantalla en blanco sin decir por qué.
+  // Ahora se muestra el error para poder diagnosticarlo sin abrir la consola.
+  try {
+    let p = null;
+    if(tab==='inversiones') p = renderInversiones();
+    else if(tab==='presupuesto' || tab==='presupuesto_ventas') p = renderPresupuestoVentas();
+    else if(tab==='nomina') p = renderNomina();
+    else if(tab==='promos') p = renderPromos();
+    else if(tab==='pyg') p = renderPyG();
+    else if(tab==='balance') p = renderBalance();
+    else if(tab==='caja') p = renderCaja();
+    else p = renderComisiones();
+    if(p && typeof p.catch === 'function') p.catch(e=>mostrarErrorReporte(tab, e));
+  } catch(e) { mostrarErrorReporte(tab, e); }
 }
 
 // ─── PROMOCIONES: rentabilidad de 2+1, 3+1 y descuentos por marca/categoría ────────
@@ -12249,6 +12265,14 @@ function navGoDocumentos(tab){
   }, 30);
 }
 function setReportesTab(tab){ window._reportesTab=tab; renderReportes(); }
+
+function mostrarErrorReporte(tab, e){
+  console.error('Reportes/'+tab+':', e);
+  const c = document.getElementById('reportes-content');
+  if(c) c.innerHTML = '<div class="card" style="padding:16px;border-left:3px solid #dc2626">'
+    + '<div style="font-weight:700;color:#dc2626;margin-bottom:6px">No se pudo mostrar este reporte</div>'
+    + '<div style="font-size:12px;color:var(--muted);line-height:1.5">' + String(e && e.message ? e.message : e).replace(/</g,'&lt;') + '</div></div>';
+}
 
 
 // Datos iniciales de testers extraídos de los Excel de las asesoras
