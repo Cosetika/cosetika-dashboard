@@ -665,11 +665,12 @@ function navSetSubtab(tab){
     document.getElementById('nav-clientes-subs').style.maxHeight='300px';
     document.getElementById('nav-clientes-chevron').style.transform='rotate(90deg)';
   }
-  if(modActual !== 'ventas'){
-    document.querySelectorAll('.nav-item').forEach(m=>m.classList.remove('active'));
-    document.getElementById('nav-ventas')?.classList.add('active');
-    modActual = 'ventas';
-  }
+  // Ventas y Marcas tienen su propia entrada en el menú; el resto cuelga de Inicio.
+  // Antes se marcaba siempre "Inicio", así que estando en Ventas el menú señalaba otra cosa.
+  const ITEM_DEL_TAB = { ventas:'nav-ventas-mod', marcas:'nav-marcas-mod' };
+  document.querySelectorAll('.nav-item').forEach(m=>m.classList.remove('active'));
+  document.getElementById(ITEM_DEL_TAB[tab] || 'nav-ventas')?.classList.add('active');
+  modActual = 'ventas';
   // Para tabs de documentos, setear _docTab antes de renderizar
   if(['facturas','pedidos','testers','envios','control'].includes(tab)){
     window._docTab = tab;
@@ -7071,6 +7072,29 @@ let ventasFiltroMes = new Date().getMonth()+1;
 let ventasFiltroTodo = false;
 let ventasFiltroAnio = new Date().getFullYear();
 
+// Equipo que se está viendo en Ventas. Una asesora ve el suyo y nada más; admin y
+// líderes pueden cambiar con las pestañas.
+function equipoActivoVentas(){
+  const eqs = window._equiposCache || [];
+  if(!eqs.length) return null;
+  const u = window.usuarioActual || {};
+  const anclaE = x => String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .toUpperCase().split(/\s+/).slice(0,2).join(' ');
+  const puedeElegir = (u.rol === 'admin' || u.rol === 'jefa_ventas');
+  const suyo = eqs.find(e => (e.lider && anclaE(e.lider) === anclaE(u.nombre))
+                          || (e.miembros||[]).some(m => anclaE(m) === anclaE(u.nombre)));
+  if(!puedeElegir) return { eq: suyo || eqs[0], puedeElegir:false, equipos:eqs };
+  let sel = eqs.find(e => String(e.id) === String(window._ventasEquipoId));
+  if(!sel) sel = suyo || eqs[0];
+  window._ventasEquipoId = sel.id;
+  return { eq: sel, puedeElegir:true, equipos:eqs };
+}
+
+function ventasEquipoSel(id){
+  window._ventasEquipoId = id;
+  renderVentasPanel();
+}
+
 function renderVentasPanel(){
   subtabActual='ventas';
   const anioActual = new Date().getFullYear();
@@ -7101,19 +7125,33 @@ function renderVentasPanel(){
   }
 
 
-  const vendedoras = Object.keys(DATA);
+  const vendedorasTodas = Object.keys(DATA);
+  // Los paneles de esta pantalla se limitan al equipo, salvo los tres gráficos de
+  // empresa (ventas por mes, por día y por día por marca), que se dejan compartidos.
+  const infoEq = equipoActivoVentas();
+  const anclaV = x => String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .toUpperCase().split(/\s+/).slice(0,2).join(' ');
+  let vendedoras = vendedorasTodas;
+  if(infoEq && infoEq.eq){
+    const nombresEq = [];
+    if(infoEq.eq.lider) nombresEq.push(infoEq.eq.lider);
+    (infoEq.eq.miembros||[]).forEach(m=>nombresEq.push(m));
+    const anclas = new Set(nombresEq.map(anclaV));
+    const filtradas = vendedorasTodas.filter(v => anclas.has(anclaV(v)));
+    if(filtradas.length) vendedoras = filtradas;
+  }
 
   // Lógica para los gráficos movidos desde Facturas: comparativo anual y ventas por día
   function totalMesAnio(mes, anio){
     let t=0;
-    vendedoras.forEach(v=>DATA[v].forEach(c=>{
+    vendedorasTodas.forEach(v=>DATA[v].forEach(c=>{
       const f=c.frecuencia.find(x=>x.mes===mes&&x.anio===anio);
       if(f) t+=(f.subtotal!==undefined ? f.subtotal : f.total/1.15);
     }));
     return t;
   }
   const aniosSetFact = new Set();
-  vendedoras.forEach(v=>DATA[v].forEach(c=>c.frecuencia.forEach(f=>{ if(f.anio) aniosSetFact.add(f.anio); })));
+  vendedorasTodas.forEach(v=>DATA[v].forEach(c=>c.frecuencia.forEach(f=>{ if(f.anio) aniosSetFact.add(f.anio); })));
   window._aniosDisponiblesFacturas = [...aniosSetFact].sort((a,b)=>b-a);
   window._totalMesAnioFn = totalMesAnio;
 
@@ -7178,12 +7216,26 @@ function renderVentasPanel(){
 
   document.getElementById('main').innerHTML=`
     <!-- Objetivo mensual por equipo (misma tarjeta que ve Giovanna en sus KPIs) -->
+    ${(infoEq && infoEq.puedeElegir && infoEq.equipos.length > 1) ? `
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      ${infoEq.equipos.map(e=>{
+        const act = String(e.id) === String(infoEq.eq.id);
+        const n = (e.miembros||[]).length;
+        return `<button onclick="ventasEquipoSel('${String(e.id)}')" style="padding:8px 16px;border-radius:9px;border:1px solid ${act?'var(--brown)':'var(--border)'};background:${act?'var(--brown)':'white'};color:${act?'white':'var(--text)'};font-size:12px;font-weight:${act?'700':'500'};cursor:pointer;display:inline-flex;align-items:center;gap:6px">
+          <i class="ti ti-users-group" style="font-size:13px"></i>${String(e.nombre||'').replace(/</g,'&lt;')}
+          <span style="font-size:10px;opacity:0.75">${n} persona${n!==1?'s':''}</span>
+        </button>`;
+      }).join('')}
+    </div>` : (infoEq && infoEq.eq ? `
+    <div style="display:inline-flex;align-items:center;gap:6px;margin-bottom:12px;padding:6px 14px;border-radius:9px;background:#f3f0ec;color:var(--brown);font-size:12px;font-weight:700">
+      <i class="ti ti-users-group" style="font-size:13px"></i>Equipo ${String(infoEq.eq.nombre||'').replace(/</g,'&lt;')}
+    </div>` : '')}
     <div id="ventas-objetivo-equipo"></div>
 
     <!-- Comparativo anual (movido desde Facturas) -->
     <div class="card" style="margin-bottom:12px">
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:4px">
-        <div class="card-title" style="margin-bottom:0"><i class="ti ti-chart-line"></i> Ventas por mes sin IVA</div>
+        <div class="card-title" style="margin-bottom:0"><i class="ti ti-chart-line"></i> Ventas por mes sin IVA</div><span style="font-size:10px;color:var(--muted);background:#f3f0ec;border-radius:6px;padding:2px 8px">toda la empresa</span>
         <select id="select-anios-comparativo" onchange="cambiarAniosComparativo(this.value)" style="padding:5px 10px;border:1px solid var(--border);border-radius:8px;font-size:11px;outline:none;background:white;cursor:pointer">
           <option value="ultimos2" selected>Últimos 2 años</option>
           ${window._aniosDisponiblesFacturas ? window._aniosDisponiblesFacturas.map(a=>`<option value="${a}">Solo ${a}</option>`).join('') : ''}
@@ -7199,7 +7251,7 @@ function renderVentasPanel(){
     <!-- Ventas por día (movido desde Facturas) -->
     <div class="card" style="margin-bottom:12px">
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:4px">
-        <div class="card-title" style="margin-bottom:0"><i class="ti ti-chart-line"></i> Ventas por día (sin IVA)</div>
+        <div class="card-title" style="margin-bottom:0"><i class="ti ti-chart-line"></i> Ventas por día (sin IVA)</div><span style="font-size:10px;color:var(--muted);background:#f3f0ec;border-radius:6px;padding:2px 8px">toda la empresa</span>
         <select id="select-mes-ventas-dia" onchange="window._ventasDiaMes=parseInt(this.value);cargarYDibujarVentasMesDia()" style="padding:5px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;outline:none;background:white;cursor:pointer">
           ${MESES_NOMBRE.map((nombreMes,idx)=>{
             const numMes = idx+1;
@@ -7217,7 +7269,7 @@ function renderVentasPanel(){
 
     <!-- Ventas por día por marca -->
     <div class="card" style="margin-bottom:12px">
-      <div class="card-title"><i class="ti ti-chart-line"></i> Ventas por día por marca (sin IVA)</div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><div class="card-title" style="margin-bottom:0"><i class="ti ti-chart-line"></i> Ventas por día por marca (sin IVA)</div><span style="font-size:10px;color:var(--muted);background:#f3f0ec;border-radius:6px;padding:2px 8px">toda la empresa</span></div>
       <div style="width:100%;overflow-x:auto">
         <canvas id="grafico-ventas-dia-marca" style="display:block;width:100%;min-width:480px;height:220px"></canvas>
       </div>
@@ -7325,10 +7377,16 @@ async function pintarObjetivoEquipoVentas(){
       window._usuariosEquipo = Array.isArray(d) ? d : [];
     }
     const hoyV = new Date(new Date().toLocaleString('en-US',{timeZone:'America/Guayaquil'}));
-    const lider = (window._usuariosEquipo||[]).find(u=>/giovanna/i.test(u.nombre||''));
-    const html = cardEquipoGiovanna(lider ? lider.nombre : 'Giovanna', window._usuariosEquipo,
+    // La líder es la del equipo que se está viendo. Un equipo sin líder no tiene
+    // esta tarjeta, porque no hay contra quién medir el objetivo del conjunto.
+    const infoV = (typeof equipoActivoVentas === 'function') ? equipoActivoVentas() : null;
+    const liderNom = (infoV && infoV.eq && infoV.eq.lider) ? infoV.eq.lider : null;
+    if(!liderNom){ cont.innerHTML = ''; return; }
+    const lider = (window._usuariosEquipo||[]).find(u=>
+      String(u.nombre||'').toUpperCase().startsWith(String(liderNom).split(' ')[0].toUpperCase()));
+    const html = cardEquipoGiovanna(lider ? lider.nombre : liderNom, window._usuariosEquipo,
       hoyV.getFullYear(), hoyV.getMonth()+1,
-      { forzar:true, titulo:'Objetivo mensual de ventas por equipo' });
+      { forzar:true, titulo:'Objetivo mensual de ventas por equipo' + ((infoV && infoV.eq) ? ' · ' + infoV.eq.nombre : '') });
     cont.innerHTML = html || '';
   }catch(e){ cont.innerHTML = ''; }
 }
