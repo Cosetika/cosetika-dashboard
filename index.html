@@ -293,6 +293,7 @@
     <div id="nav-clientes-subs" style="max-height:0;overflow:hidden;transition:max-height 0.25s ease">
       <div class="nav-sub-item" id="navsub-cpf" onclick="navSetSubtab('cpf')"><i class="ti ti-user-dollar" style="font-size:13px"></i>Compras</div>
       <div class="nav-sub-item" id="navsub-prov" onclick="navSetSubtab('prov')"><i class="ti ti-map-pin" style="font-size:13px"></i>Provincia</div>
+      <div class="nav-sub-item" id="navsub-cartera" onclick="navGoCartera()"><i class="ti ti-address-book" style="font-size:13px"></i>Cartera</div>
       <div class="nav-sub-item" id="navsub-seguimiento" onclick="navGoSeguimientoCli()"><i class="ti ti-user-search" style="font-size:13px"></i>Seguimiento</div>
       <div class="nav-sub-item" id="navsub-referidos" onclick="navGoReferidos()"><i class="ti ti-user-heart" style="font-size:13px"></i>Referidos<span id="badge-referidos" style="display:none;margin-left:auto;background:#ef4444;color:white;border-radius:10px;font-size:9px;padding:1px 6px;font-weight:700;line-height:1.5">0</span></div>
       <div class="nav-sub-item" id="navsub-institutos-cli" onclick="navGoInstitutosCli()"><i class="ti ti-school" style="font-size:13px"></i>Institutos</div>
@@ -700,7 +701,7 @@ function navSetMod(mod){
 const MOD_LABELS = {
   ventas:'Inicio', visitas:'Visitas', kpis:'KPIs',
   inventario:'Inventario', reportes:'Reportes', config:'Configuración', documentos:'Documentos', nsos:'NSOs', referidos:'Referidos', institutos_cli:'Institutos', bodegas:'Bodegas', lotes:'Caducidad', testers_inv:'Testers',
-  capacitaciones:'Capacitaciones', institutos:'Institutos',
+  capacitaciones:'Capacitaciones', institutos:'Institutos', cartera_cli:'Cartera asignada', seguimiento_cli:'Seguimiento',
   giras:'Giras a Provincias', casas_abiertas:'Casas Abiertas',
   'visitas-plan':'Planificación Visitas'
 };
@@ -757,6 +758,8 @@ function setMod(mod){
     renderReferidos();
   } else if(mod==='institutos_cli'){
     renderInstitutosCli();
+  } else if(mod==='cartera_cli'){
+    renderCarteraAsignada();
   } else if(mod==='seguimiento_cli'){
     renderSeguimientoClientes();
   } else if(mod==='bodegas'){
@@ -11735,6 +11738,115 @@ function seguimientoStats(nombreVend, curIdx, contactos){
 }
 
 // ─── SEGUIMIENTO DE CLIENTAS: ritmo personal de compra e inactividad ─────────
+// ─── CARTERA ASIGNADA ─────────────────────────────────────────────────────────────
+// De quién es cada clienta HOY, según el código de categoría de Contifico (Ase.MFG).
+// No toca el histórico: las ventas siguen contando para quien las facturó. Sirve para
+// que una asesora que recién entra sepa a quién visitar desde el primer día.
+async function renderCarteraAsignada(){
+  const cont = document.getElementById('main');
+  cont.innerHTML = '<div class="breadcrumb" style="margin-bottom:12px"><i class="ti ti-address-book" style="color:var(--brown);font-size:12px"></i><span style="font-weight:500">Clientes — Cartera asignada</span></div><div id="cartera-cont"><div style="padding:30px;text-align:center;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:22px"></i></div></div>';
+  const u = window.usuarioActual || {};
+  const esAdminC = u.rol === 'admin' || u.rol === 'jefa_ventas';
+  if(window._carteraAsesora === undefined) window._carteraAsesora = esAdminC ? '' : (u.nombre || '');
+
+  let d = null, cats = null;
+  try{
+    const [r1, r2] = await Promise.all([fetch('/api/cartera-asignada'), fetch('/api/categorias-asesora')]);
+    d = await r1.json(); cats = await r2.json();
+  }catch(e){}
+  const cc = document.getElementById('cartera-cont');
+  if(!d || !d.ok){ cc.innerHTML = '<div class="card" style="padding:16px;font-size:13px;color:var(--muted)">No se pudo cargar la cartera.</div>'; return; }
+
+  const escC2 = v => String(v||'').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  const asesorasC = Object.keys(d.por_asesora || {}).sort();
+  const sel = window._carteraAsesora;
+  const filtradas = d.clientas.filter(c => !sel || (typeof nombreCorto==='function'
+      ? String(c.asesora||'').toUpperCase().startsWith(String(sel).split(' ')[0].toUpperCase())
+      : c.asesora === sel));
+
+  const semaforo = m => m === null ? {t:'nunca compró', c:'#9ca3af'}
+    : m <= 1 ? {t:'al día', c:'#16a34a'}
+    : m <= 2 ? {t:m+' meses', c:'#eab308'}
+    : {t:m+' meses', c:'#dc2626'};
+
+  // Mapa de códigos: solo admin, y solo si hay códigos leídos del Excel
+  const codigos = (cats && cats.ok) ? (cats.codigos||[]) : [];
+  const mapa = (cats && cats.ok) ? (cats.mapa||{}) : {};
+  const bloqueCodigos = (esAdminC && codigos.length) ? `
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-title"><i class="ti ti-id"></i> Códigos de asesora</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.5">
+        Cada clienta trae en Contifico un código en su campo <b>Categoría</b>. Aquí se dice a quién pertenece cada código.
+        Cuando entre alguien nuevo, cambias el nombre de este lado y su cartera entera se mueve — sin tocar ninguna factura.
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:8px">
+        ${codigos.map(c=>`
+          <div style="display:flex;align-items:center;gap:8px;background:#faf9f8;border:1px solid var(--border);border-radius:9px;padding:8px 10px">
+            <div style="min-width:90px"><div style="font-size:12px;font-weight:700;color:var(--brown)">${escC2(c.codigo)}</div>
+              <div style="font-size:10px;color:var(--muted)">${c.clientas} clienta${c.clientas!==1?'s':''}</div></div>
+            <input type="text" value="${escC2(mapa[c.codigo]||'')}" placeholder="¿De quién es?"
+              onchange="guardarCodigoAsesora('${escC2(c.codigo)}', this.value)"
+              style="flex:1;padding:6px 9px;font-size:12px;border:1px solid var(--border);border-radius:7px;outline:none">
+          </div>`).join('')}
+      </div>
+    </div>` : '';
+
+  cc.innerHTML = bloqueCodigos + `
+    <div class="card" style="margin-bottom:12px;padding:0">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding:13px 15px">
+        <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1.2px"><i class="ti ti-address-book" style="margin-right:6px"></i>Cartera asignada</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          ${esAdminC ? `<select onchange="window._carteraAsesora=this.value;renderCarteraAsignada()" style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:white;cursor:pointer">
+            <option value="">Todas (${d.total})</option>
+            ${asesorasC.map(a=>`<option value="${escC2(a)}" ${a===sel?'selected':''}>${escC2(a)} (${d.por_asesora[a]})</option>`).join('')}
+          </select>` : ''}
+          <span style="font-size:11px;color:var(--muted)">${filtradas.length} clienta${filtradas.length!==1?'s':''}${d.sin_asignar?' · '+d.sin_asignar+' sin asignar':''}</span>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--muted);padding:0 15px 12px;line-height:1.5">
+        Ordenadas por las que llevan más tiempo sin comprar. El historial de ventas no cambia de dueña: sigue contando para quien facturó.
+      </div>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:680px">
+        <thead><tr style="background:#faf9f8;border-bottom:1px solid var(--border)">
+          <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--muted)">Clienta</th>
+          <th style="padding:8px 10px;text-align:left;font-size:10px;color:var(--muted)">Código</th>
+          ${sel?'':'<th style="padding:8px 10px;text-align:left;font-size:10px;color:var(--muted)">Asesora</th>'}
+          <th style="padding:8px 10px;text-align:right;font-size:10px;color:var(--muted)">Compras</th>
+          <th style="padding:8px 10px;text-align:right;font-size:10px;color:var(--muted)">Total histórico</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;color:var(--muted)">Sin comprar</th>
+        </tr></thead>
+        <tbody>
+          ${filtradas.slice(0,400).map((c,i)=>{
+            const sm = semaforo(c.meses_sin_comprar);
+            return `<tr style="border-bottom:0.5px solid var(--border);background:${i%2?'#f6f3ef':'white'}">
+              <td style="padding:8px 12px"><div style="font-weight:600">${escC2(c.nombre)}</div>
+                <div style="font-size:10px;color:var(--muted)">${escC2(c.identificacion)}${c.telefono?' · '+escC2(c.telefono):''}</div></td>
+              <td style="padding:8px 10px;font-size:11px;color:var(--brown);font-weight:600">${escC2(c.categoria||'—')}</td>
+              ${sel?'':`<td style="padding:8px 10px;font-size:11px">${escC2(c.asesora||'—')}</td>`}
+              <td style="padding:8px 10px;text-align:right">${c.compras||0}</td>
+              <td style="padding:8px 10px;text-align:right;color:var(--brown);font-weight:600">${fmt(c.total_historico||0)}</td>
+              <td style="padding:8px 10px;text-align:center"><span style="font-size:11px;font-weight:700;color:${sm.c}">${sm.t}</span></td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table></div>
+      ${filtradas.length>400?'<div style="padding:10px 15px;font-size:11px;color:var(--muted)">Mostrando las primeras 400.</div>':''}
+    </div>`;
+}
+
+async function guardarCodigoAsesora(codigo, nombre){
+  try{
+    const r = await fetch('/api/categorias-asesora');
+    const d = await r.json();
+    const mapa = (d && d.ok) ? Object.assign({}, d.mapa||{}) : {};
+    if(String(nombre||'').trim()) mapa[codigo] = String(nombre).trim(); else delete mapa[codigo];
+    const rp = await fetch('/api/categorias-asesora', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({mapa})});
+    const dp = await rp.json();
+    if(!dp.ok) throw new Error(dp.error||'error');
+    renderCarteraAsignada();
+  }catch(e){ alert('No se pudo guardar: '+e.message); }
+}
+
 async function renderSeguimientoClientes(){
   const main = document.getElementById('main');
   const uS = window.usuarioActual || {};
@@ -11993,6 +12105,19 @@ async function marcarContactadaSeg(key, nombre, checked){
     else window._segContactos[key] = { fecha:'', asesora:'', comentario: prevC, contactado: false };
     renderSeguimientoClientes();
   }catch(e){ alert('Error al marcar: '+e.message); }
+}
+
+function navGoCartera(){
+  navSetMod('cartera_cli');
+  setTimeout(()=>{
+    document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
+    document.getElementById('navsub-cartera')?.classList.add('active');
+    const subs = document.getElementById('nav-clientes-subs');
+    const chev = document.getElementById('nav-clientes-chevron');
+    if(subs) subs.style.maxHeight = '300px';
+    if(chev) chev.style.transform = 'rotate(90deg)';
+    document.getElementById('nav-clientes')?.classList.add('active');
+  }, 30);
 }
 
 function navGoSeguimientoCli(){

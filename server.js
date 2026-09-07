@@ -3441,6 +3441,11 @@ async function initDB() {
       ALTER TABLE personas ALTER COLUMN cedula TYPE VARCHAR(50);
       ALTER TABLE personas ADD COLUMN IF NOT EXISTS instituto VARCHAR(200);
       ALTER TABLE personas ADD COLUMN IF NOT EXISTS origen VARCHAR(20);
+      -- Código de asesora que Contifico guarda en la "Categoría" de cada clienta
+      -- (ej. Ase.MFG). Es estable: si cambia la persona, se cambia a quién apunta el
+      -- código y la cartera entera se mueve sin tocar el histórico de facturas.
+      ALTER TABLE personas ADD COLUMN IF NOT EXISTS categoria VARCHAR(120);
+      CREATE INDEX IF NOT EXISTS idx_personas_categoria ON personas(UPPER(categoria));
       UPDATE personas SET origen='institutos' WHERE origen IS NULL AND instituto IS NOT NULL
         AND (vendedor IS NULL OR vendedor='') AND (telefono IS NULL OR telefono='') AND (email IS NULL OR email='');
       ALTER TABLE facturas_detalle ADD COLUMN IF NOT EXISTS cedula_ruc VARCHAR(50);
@@ -6747,6 +6752,9 @@ const server = http.createServer(async (req, res) => {
       const iDir   = hdrs.findIndex(h => h.includes('irecci'));
       const iEmail = hdrs.findIndex(h => h.toLowerCase().includes('email') || h.toLowerCase().includes('correo'));
       const iVend  = hdrs.findIndex(h => h.includes('Vendedor'));
+      // La categoría es el código de la asesora (Ase.MFG). Se lee aunque la columna
+      // venga con o sin tilde, y aunque el encabezado diga "Categoria Cliente".
+      const iCat   = hdrs.findIndex(h => h.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().startsWith('categor'));
       if(iNom === -1){
         res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'No se encontró columna Razón Social'})); return;
       }
@@ -6763,6 +6771,7 @@ const server = http.createServer(async (req, res) => {
         const nN = normP(p.razon_social); if (nN && !porNomEx[nN]) porNomEx[nN] = p.id;
       });
       let insertados = 0, actualizados = 0;
+      const conteoCat = {};   // cuántas clientas trae cada código de categoría
       const datos = filas.slice(iHdr + 1).filter(r => r && r[iNom]);
       for (const r of datos) {
         const ced = String(r[iCed]||'').trim() || null;
@@ -6772,22 +6781,29 @@ const server = http.createServer(async (req, res) => {
         const dir = String(r[iDir]||'').trim() || null;
         const email = String(r[iEmail]||'').trim() || null;
         const vend = String(r[iVend]||'').trim() || null;
+        const cat  = iCat === -1 ? null : (String(r[iCat]||'').trim() || null);
+        if (cat) { conteoCat[cat.toUpperCase()] = (conteoCat[cat.toUpperCase()]||0) + 1; }
         const dCed = String(ced||'').replace(/\D/g,'');
         const dRuc = String(ruc||'').replace(/\D/g,'');
         let idEx = (dCed && porCedEx[dCed]) || (dRuc && porCedEx[dRuc]) || (dRuc.length === 13 && porCedEx[dRuc.substring(0,10)]) || porNomEx[normP(nom)] || null;
         if (idEx) {
           await pool.query(
-            'UPDATE personas SET cedula=COALESCE($1,cedula), ruc=COALESCE($2,ruc), razon_social=$3, telefono=COALESCE($4,telefono), direccion=COALESCE($5,direccion), email=COALESCE($6,email), vendedor=COALESCE($7,vendedor) WHERE id=$8',
-            [ced, ruc, nom, tel, dir, email, vend, idEx]);
+            'UPDATE personas SET cedula=COALESCE($1,cedula), ruc=COALESCE($2,ruc), razon_social=$3, telefono=COALESCE($4,telefono), direccion=COALESCE($5,direccion), email=COALESCE($6,email), vendedor=COALESCE($7,vendedor), categoria=COALESCE($9,categoria) WHERE id=$8',
+            [ced, ruc, nom, tel, dir, email, vend, idEx, cat]);
           actualizados++;
         } else {
           await pool.query(
-            "INSERT INTO personas(cedula,ruc,razon_social,telefono,direccion,email,vendedor,origen) VALUES($1,$2,$3,$4,$5,$6,$7,'excel_nuevo')",
-            [ced, ruc, nom, tel, dir, email, vend]);
+            "INSERT INTO personas(cedula,ruc,razon_social,telefono,direccion,email,vendedor,categoria,origen) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'excel_nuevo')",
+            [ced, ruc, nom, tel, dir, email, vend, cat]);
           insertados++;
         }
       }
-      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, insertados, actualizados}));
+      const categorias = Object.entries(conteoCat).sort((a,b)=>b[1]-a[1]).map(([codigo,clientas])=>({codigo, clientas}));
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:true, insertados, actualizados,
+        leyo_categoria: iCat !== -1,
+        categorias,
+        aviso: iCat === -1 ? 'El Excel no trae columna Categoría: no se pudo asignar cartera por código.' : null }));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
   }
@@ -7996,6 +8012,190 @@ const server = http.createServer(async (req, res) => {
       const lim = parseInt(urlObj.searchParams.get('limite')) || 50;
       const r = await completarPedidosDesdeWoo(lim);
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
+  // ─── CARTERA ASIGNADA ─────────────────────────────────────────────────────────────
+  // De quién es cada clienta, según el código de categoría de Contifico (Ase.MFG).
+  // Es independiente del histórico de ventas: las facturas viejas siguen a nombre de
+  // quien las hizo. Aquí solo se responde "a quién le toca atender a esta clienta hoy".
+  //
+  // El mapa código → asesora se guarda en app_config.categorias_asesora, así que cuando
+  // entra alguien nuevo se cambia a dónde apunta el código y la cartera se mueve entera.
+  async function mapaCategorias(){
+    try {
+      const raw = await getConfigApp('categorias_asesora', null);
+      const m = raw ? JSON.parse(raw) : {};
+      const out = {};
+      Object.entries(m).forEach(([k,v]) => { if(k) out[String(k).trim().toUpperCase()] = v; });
+      return out;
+    } catch(e) { return {}; }
+  }
+
+  if (urlPath === '/api/categorias-asesora' && req.method === 'GET') {
+    try {
+      const mapa = await mapaCategorias();
+      // Códigos que existen en el directorio, con cuántas clientas tiene cada uno
+      const r = await pool.query(
+        `SELECT UPPER(TRIM(categoria)) AS codigo, COUNT(*)::int AS clientas
+           FROM personas WHERE categoria IS NOT NULL AND TRIM(categoria) <> ''
+          GROUP BY UPPER(TRIM(categoria)) ORDER BY 2 DESC`);
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:true, mapa, codigos: r.rows }));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
+  if (urlPath === '/api/categorias-asesora' && req.method === 'POST') {
+    if (bloquearSiNoAdmin(req, res)) return;
+    try {
+      const body = await bodyJSON(req);
+      const mapa = {};
+      Object.entries(body.mapa || {}).forEach(([k,v]) => {
+        const c = String(k||'').trim().toUpperCase();
+        const n = String(v||'').trim();
+        if (c && n) mapa[c] = n;
+      });
+      await setConfigApp('categorias_asesora', JSON.stringify(mapa));
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ ok:true, mapa }));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
+  // GET /api/cartera-asignada[?asesora=Nombre]
+  if (urlPath === '/api/cartera-asignada' && req.method === 'GET') {
+    try {
+      const mapa = await mapaCategorias();
+      const filtro = String(urlObj.searchParams.get('asesora') || '').trim();
+      const anclaC = x => String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+        .toUpperCase().split(/\s+/).slice(0,2).join(' ');
+
+      const r = await pool.query(
+        `SELECT cedula, ruc, razon_social, telefono, email, vendedor, categoria
+           FROM personas ORDER BY razon_social`);
+
+      // Historial de compras por cédula/RUC, desde el mismo caché que alimenta los paneles
+      const hist = {};
+      Object.entries(DATA_CACHE || {}).forEach(([vend, clientes]) => {
+        (clientes||[]).forEach(c => {
+          const d = String(c.ruc || '').replace(/\D/g,'');
+          if (!d) return;
+          const freq = (c.frecuencia || []).filter(f => (f.total||0) > 0);
+          let ult = null;
+          freq.forEach(f => { const k = f.anio*100 + f.mes; if (!ult || k > ult) ult = k; });
+          const prev = hist[d];
+          const item = { total: c.total || 0, compras: c.num_compras || 0, ultima: ult, vendedora: vend };
+          if (!prev) hist[d] = item;
+          else {
+            prev.total += item.total; prev.compras += item.compras;
+            if (item.ultima && (!prev.ultima || item.ultima > prev.ultima)) { prev.ultima = item.ultima; prev.vendedora = vend; }
+          }
+        });
+      });
+
+      const hoyC = nowEC();
+      const mesHoy = hoyC.getFullYear()*100 + (hoyC.getMonth()+1);
+      const mesesDesde = k => {
+        if (!k) return null;
+        const a = Math.floor(k/100), m = k%100;
+        return (hoyC.getFullYear() - a) * 12 + ((hoyC.getMonth()+1) - m);
+      };
+
+      const lista = [];
+      const sinAsignar = [];
+      r.rows.forEach(p => {
+        const cod = String(p.categoria||'').trim().toUpperCase();
+        const asesora = (cod && mapa[cod]) ? mapa[cod] : (p.vendedor || null);
+        const d = String(p.ruc || p.cedula || '').replace(/\D/g,'');
+        const h = d ? (hist[d] || hist[d.substring(0,10)] || null) : null;
+        const fila = {
+          nombre: p.razon_social, identificacion: p.ruc || p.cedula || '',
+          telefono: p.telefono || '', email: p.email || '',
+          categoria: p.categoria || null, asesora,
+          asignada_por: (cod && mapa[cod]) ? 'categoria' : (p.vendedor ? 'vendedor_asignado' : null),
+          total_historico: h ? Math.round(h.total*100)/100 : 0,
+          compras: h ? h.compras : 0,
+          ultima_compra: h && h.ultima ? (Math.floor(h.ultima/100) + '-' + String(h.ultima%100).padStart(2,'0')) : null,
+          meses_sin_comprar: h ? mesesDesde(h.ultima) : null,
+          facturada_por: h ? h.vendedora : null
+        };
+        if (!asesora) { sinAsignar.push(fila); return; }
+        if (filtro && anclaC(asesora) !== anclaC(filtro)) return;
+        lista.push(fila);
+      });
+
+      // Primero las que llevan más tiempo sin comprar: son las que hay que trabajar
+      lista.sort((a,b) => (b.meses_sin_comprar ?? 999) - (a.meses_sin_comprar ?? 999));
+
+      const porAsesora = {};
+      lista.forEach(x => { porAsesora[x.asesora] = (porAsesora[x.asesora]||0) + 1; });
+
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:true, total: lista.length, sin_asignar: sinAsignar.length,
+        por_asesora: porAsesora, mapa_codigos: mapa, clientas: lista }));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
+  // Diagnóstico: ¿qué campos trae una persona de Contifico y dónde vive la "Categoría"?
+  // Sirve para saber si se puede usar ese código (Ase.MFG) en vez del nombre de la vendedora.
+  if (urlPath === '/api/personas/raw' && req.method === 'GET') {
+    try {
+      if (!API_KEY) throw new Error('CONTIFICO_API_KEY no configurada');
+      const ced = String(urlObj.searchParams.get('cedula') || '').replace(/\D/g,'');
+      if (!ced) throw new Error('Falta ?cedula=');
+      let persona = null;
+      for (const campo of (ced.length === 13 ? ['ruc','cedula'] : ['cedula','ruc'])) {
+        const r = await fetch(`https://api.contifico.com/sistema/api/v1/persona/?${campo}=${ced}&page_size=5`,
+          { headers: { 'Authorization': API_KEY, 'Accept':'application/json' } });
+        if (!r.ok) continue;
+        const d = await r.json();
+        const lista = Array.isArray(d) ? d : (d.results || []);
+        if (lista.length) { persona = lista[0]; break; }
+      }
+      if (!persona) throw new Error('No se encontró esa persona en Contifico');
+      // Campos que contienen algo parecido a un código de asesora
+      const pistas = {};
+      Object.entries(persona).forEach(([k,v]) => {
+        const t = String(v == null ? '' : (typeof v === 'object' ? JSON.stringify(v) : v));
+        if (t && t.length < 60 && /ase|prof|categor/i.test(k + ' ' + t)) pistas[k] = v;
+      });
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:true, campos_con_pinta_de_categoria: pistas, persona }, null, 2));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
+  // Cuántas clientas hay por categoría: si la categoría sirve como dueño de la cartera,
+  // aquí se ve el reparto y cuántas quedarían sin asignar.
+  if (urlPath === '/api/personas/categorias' && req.method === 'GET') {
+    try {
+      if (!API_KEY) throw new Error('CONTIFICO_API_KEY no configurada');
+      const campo = String(urlObj.searchParams.get('campo') || 'categoria_nombre');
+      const personas = [];
+      let url = 'https://api.contifico.com/sistema/api/v2/persona/?page_size=100';
+      let pag = 0;
+      while (url && pag < 500) {
+        const r = await fetch(url, { headers: { 'Authorization': API_KEY, 'Accept':'application/json' } });
+        if (!r.ok) break;
+        const d = await r.json();
+        if (Array.isArray(d)) { personas.push(...d); url = null; }
+        else { personas.push(...(d.results || [])); url = d.next || null; }
+        pag++;
+      }
+      const conteo = {}; const ejemplos = {};
+      personas.forEach(p => {
+        let v = p[campo];
+        if (v && typeof v === 'object') v = v.nombre || v.id || JSON.stringify(v);
+        const k = String(v == null || v === '' ? '(sin categoría)' : v).trim();
+        conteo[k] = (conteo[k] || 0) + 1;
+        if (!ejemplos[k]) ejemplos[k] = p.razon_social;
+      });
+      const orden = Object.entries(conteo).sort((a,b) => b[1] - a[1])
+        .map(([k,n]) => ({ categoria:k, clientas:n, ejemplo: ejemplos[k] }));
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:true, campo_leido: campo, personas_leidas: personas.length, reparto: orden }, null, 2));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
   }
