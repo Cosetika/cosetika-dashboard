@@ -7140,14 +7140,19 @@ function renderVentasPanel(){
   const infoEq = equipoActivoVentas();
   const anclaV = x => String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
     .toUpperCase().split(/\s+/).slice(0,2).join(' ');
+  const uV = window.usuarioActual || {};
+  const mandaTodo = (uV.rol === 'admin' || uV.rol === 'jefa_ventas');
   let vendedoras = vendedorasTodas;
   if(infoEq && infoEq.eq){
     const nombresEq = [];
     if(infoEq.eq.lider) nombresEq.push(infoEq.eq.lider);
     (infoEq.eq.miembros||[]).forEach(m=>nombresEq.push(m));
     const anclas = new Set(nombresEq.map(anclaV));
-    const filtradas = vendedorasTodas.filter(v => anclas.has(anclaV(v)));
-    if(filtradas.length) vendedoras = filtradas;
+    vendedoras = vendedorasTodas.filter(v => anclas.has(anclaV(v)));
+  } else if(!mandaTodo){
+    // Sin equipo reconocido, una asesora ve solo lo suyo. Antes caía a "todas" y
+    // terminaba viendo los números del otro equipo.
+    vendedoras = vendedorasTodas.filter(v => anclaV(v) === anclaV(uV.nombre));
   }
 
   // Lógica para los gráficos movidos desde Facturas: comparativo anual y ventas por día
