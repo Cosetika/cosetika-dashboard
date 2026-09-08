@@ -13921,7 +13921,14 @@ async function renderEquiposConfig(){
     if(rU.ok){ const d = await rU.json(); if(Array.isArray(d)) usuarios = d; }
   } catch(e){ cont.innerHTML = '<p style="color:#ef4444;font-size:12px">Error cargando equipos</p>'; return; }
 
-  const candidatos = usuarios.filter(u=>['asesora','jefa_ventas'].includes(u.rol) && u.activo).map(u=>u.nombre);
+  const candidatos = usuarios.filter(u=>['asesora','jefa_ventas'].includes(u.rol) && u.activo)
+    .map(u=>u.nombre).sort((a,b)=>a.localeCompare(b));
+  // Comparación tolerante: si a alguien la renombraron, el nombre guardado en el equipo
+  // puede diferir del de credenciales. Antes eso la dejaba desmarcada sin avisar.
+  const anclaEq = x => String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .toUpperCase().split(/\s+/).slice(0,2).join(' ');
+  const esMiembro = (e, c) => (e.miembros||[]).some(m => anclaEq(m) === anclaEq(c));
+  const esLider   = (e, c) => !!(e.lider && anclaEq(e.lider) === anclaEq(c));
 
   cont.innerHTML = `
     ${equipos.map(e=>`
@@ -13937,17 +13944,19 @@ async function renderEquiposConfig(){
           <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Líder del equipo</div>
           <select onchange="actualizarEquipo(${e.id},{lider:this.value})" style="width:100%;max-width:300px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;outline:none;background:white">
             <option value="">— Sin líder —</option>
-            ${candidatos.map(c=>`<option value="${c}" ${e.lider===c?'selected':''}>${c}</option>`).join('')}
+            ${candidatos.map(c=>`<option value="${c}" ${esLider(e,c)?'selected':''}>${c}</option>`).join('')}
           </select>
         </div>
         <div>
           <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Asesoras del equipo</div>
           <div style="display:flex;flex-wrap:wrap;gap:8px">
-            ${candidatos.map(c=>`
-              <label style="display:flex;align-items:center;gap:5px;padding:5px 10px;border:1px solid ${e.miembros.includes(c)?'var(--brown)':'var(--border)'};border-radius:20px;font-size:12px;cursor:pointer;background:${e.miembros.includes(c)?'#faf5f0':'white'}">
-                <input type="checkbox" ${e.miembros.includes(c)?'checked':''} onchange="toggleMiembroEquipo(${e.id},'${c.replace(/'/g,"\\'")}',this.checked)" style="accent-color:#A0684A;width:14px;height:14px"/>
-                ${c.split(' ')[0]}
-              </label>`).join('')}
+            ${candidatos.map(c=>{
+              const dentro = esMiembro(e, c), lider = esLider(e, c);
+              return `<label title="${c}" style="display:flex;align-items:center;gap:6px;padding:6px 12px;border:1px solid ${dentro?'var(--brown)':'var(--border)'};border-radius:20px;font-size:12px;cursor:pointer;background:${dentro?'#faf5f0':'white'}">
+                <input type="checkbox" ${dentro?'checked':''} onchange="toggleMiembroEquipo(${e.id},'${c.replace(/'/g,"\\'")}',this.checked)" style="accent-color:#A0684A;width:14px;height:14px"/>
+                ${c}${lider?' <span style="font-size:9px;font-weight:700;color:var(--brown)">LÍDER</span>':''}
+              </label>`;
+            }).join('')}
           </div>
         </div>
       </div>`).join('') || '<p style="color:var(--muted);font-size:13px;padding:8px 0">No hay equipos creados aún</p>'}
@@ -13991,9 +14000,12 @@ async function toggleMiembroEquipo(id, nombre, agregar){
     const equipos = await r.json();
     const eq = equipos.find(e=>e.id===id);
     if(!eq) return;
-    let miembros = eq.miembros || [];
-    if(agregar && !miembros.includes(nombre)) miembros.push(nombre);
-    if(!agregar) miembros = miembros.filter(m=>m!==nombre);
+    // Se normaliza contra el nombre actual de credenciales: así se limpia de paso
+    // cualquier nombre viejo que haya quedado de un renombrado anterior.
+    const anclaT = x => String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+      .toUpperCase().split(/\s+/).slice(0,2).join(' ');
+    let miembros = (eq.miembros || []).filter(m => anclaT(m) !== anclaT(nombre));
+    if(agregar) miembros.push(nombre);
     await fetch(`/api/equipos/${id}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({miembros})});
     invalidarCacheEquipos();
     renderEquiposConfig();
