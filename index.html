@@ -7394,13 +7394,15 @@ async function pintarObjetivoEquipoVentas(){
     // La líder es la del equipo que se está viendo. Un equipo sin líder no tiene
     // esta tarjeta, porque no hay contra quién medir el objetivo del conjunto.
     const infoV = (typeof equipoActivoVentas === 'function') ? equipoActivoVentas() : null;
-    const liderNom = (infoV && infoV.eq && infoV.eq.lider) ? infoV.eq.lider : null;
-    if(!liderNom){ cont.innerHTML = ''; return; }
-    const lider = (window._usuariosEquipo||[]).find(u=>
-      String(u.nombre||'').toUpperCase().startsWith(String(liderNom).split(' ')[0].toUpperCase()));
+    if(!infoV || !infoV.eq){ cont.innerHTML = ''; return; }
+    const liderNom = infoV.eq.lider || '';
+    const lider = liderNom ? (window._usuariosEquipo||[]).find(u=>
+      String(u.nombre||'').toUpperCase().startsWith(String(liderNom).split(' ')[0].toUpperCase())) : null;
+    // Un equipo sin líder también tiene objetivo: se pinta igual, solo sin la fila de líder
     const html = cardEquipoGiovanna(lider ? lider.nombre : liderNom, window._usuariosEquipo,
       hoyV.getFullYear(), hoyV.getMonth()+1,
-      { forzar:true, titulo:'Objetivo mensual de ventas por equipo' + ((infoV && infoV.eq) ? ' · ' + infoV.eq.nombre : '') });
+      { forzar:true, equipo: infoV.eq,
+        titulo:'Objetivo mensual de ventas por equipo · ' + infoV.eq.nombre });
     cont.innerHTML = html || '';
   }catch(e){ cont.innerHTML = ''; }
 }
@@ -14444,7 +14446,8 @@ function cardEquipoGiovanna(nombreVend, usuarios, anioE, mesE, opts){
   // Si hay equipos configurados, manda esa composición: quien sale del equipo en
   // Configuración → Equipos deja de contar aquí y en Presupuesto ventas por igual.
   const eqCache = window._equiposCache || [];
-  const miEquipo = eqCache.find(e => e.lider && ancla(e.lider) === ancla(nombreVend));
+  // opts.equipo permite pintar la tarjeta de un equipo que todavía no tiene líder
+  const miEquipo = opts.equipo || eqCache.find(e => e.lider && ancla(e.lider) === ancla(nombreVend));
   if (miEquipo) {
     (miEquipo.miembros || []).forEach(n => {
       const real = (typeof resolverNombreReal === 'function' ? resolverNombreReal(n, DATA) : null) || n;
@@ -14475,9 +14478,11 @@ function cardEquipoGiovanna(nombreVend, usuarios, anioE, mesE, opts){
       miembros.push({ nombre: v, propia:false });
     });
   }
-  const realGio = (typeof resolverNombreReal === 'function' ? resolverNombreReal(nombreVend, DATA) : null) || nombreVend;
-  if(!miembros.some(m=>ancla(m.nombre)===ancla(realGio))) miembros.unshift({ nombre: realGio, propia:true });
-  else miembros.forEach(m=>{ if(ancla(m.nombre)===ancla(realGio)) m.propia = true; });
+  const realGio = nombreVend ? ((typeof resolverNombreReal === 'function' ? resolverNombreReal(nombreVend, DATA) : null) || nombreVend) : '';
+  if(realGio){
+    if(!miembros.some(m=>ancla(m.nombre)===ancla(realGio))) miembros.unshift({ nombre: realGio, propia:true });
+    else miembros.forEach(m=>{ if(ancla(m.nombre)===ancla(realGio)) m.propia = true; });
+  }
 
   // Mínimo de cada una: promedio de sus 2 meses anteriores, con el piso de $4.000.
   // Misma definición que su tarjeta de KPIs, para que el color coincida en los dos lados.
@@ -14492,7 +14497,7 @@ function cardEquipoGiovanna(nombreVend, usuarios, anioE, mesE, opts){
     return { ...m, ventas, meta, minimo, pctCump, manual: mi.manual, pctIncr: mi.pct, base: mi.base };
   }).sort((a,b)=> b.ventas - a.ventas);
 
-  if(!filas.length) return '';
+  if(!filas.length && !miEquipo) return '';
 
   const totalVentas = filas.reduce((a,f)=>a+f.ventas, 0);
   const totalMeta = filas.reduce((a,f)=>a+(f.meta||0), 0);
