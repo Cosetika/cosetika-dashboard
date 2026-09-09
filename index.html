@@ -12447,6 +12447,17 @@ async function renderImportaciones(){
       }).join('')}
     </div>`;
 
+  if(window._impVista !== 'comparar') window._impVista = 'detalle';
+  const subtabs = `
+    <div style="display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:14px">
+      ${[['detalle','ti-file-invoice','Detalle del embarque'],['comparar','ti-arrows-diff','Comparar importaciones']].map(([k,ic,tx])=>{
+        const on = window._impVista===k;
+        return `<button onclick="window._impVista='${k}';renderImportaciones()"
+          style="padding:9px 16px;border:none;background:none;border-bottom:2px solid ${on?'var(--brown)':'transparent'};color:${on?'var(--brown)':'var(--muted)'};font-size:12px;font-weight:${on?'700':'500'};cursor:pointer;display:inline-flex;align-items:center;gap:6px">
+          <i class="ti ${ic}" style="font-size:14px"></i>${tx}</button>`;
+      }).join('')}
+    </div>`;
+
   // Selector del embarque dentro de la marca elegida
   const cabecera = `
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
@@ -12573,13 +12584,107 @@ async function renderImportaciones(){
         </div>`).join('')}
     </div>`;
 
+  // ── Comparativo entre embarques de la marca ────────────────────────────
+  // Ordenados del más viejo al más nuevo: así se lee la evolución de izquierda a derecha.
+  const orden = deMarca.slice().sort((a,b)=>String(a.fecha||'').localeCompare(String(b.fecha||'')) || a.id-b.id);
+  const catsTodas = [...new Set(orden.flatMap(x=>Object.keys(x.categorias||{})))]
+    .sort((a,b)=>{
+      const ult = orden[orden.length-1].categorias||{};
+      return (ult[b]||0)-(ult[a]||0);
+    });
+  const pctFob = (x, c) => { const f = +x.fob_eur || 0; return f ? (+(x.categorias||{})[c]||0)/f*100 : 0; };
+
+  const flecha = (delta, alRevés) => {
+    if(Math.abs(delta) < 0.005) return '<span style="color:var(--muted)">=</span>';
+    const sube = delta > 0, malo = alRevés ? !sube : sube;
+    return `<span style="color:${malo?'#dc2626':'#16a34a'}"><i class="ti ti-arrow-${sube?'up':'down'}-right" style="font-size:12px"></i></span>`;
+  };
+
+  const comparativo = window._impVista !== 'comparar' ? '' : (orden.length < 2 ? `
+    <div class="card" style="padding:24px;text-align:center;color:var(--muted);font-size:13px">
+      ${escI(window._impMarca)} tiene una sola importación cargada. Sube al menos una más para poder compararlas.
+    </div>` : `
+    <div class="card" style="margin-bottom:12px;padding:0">
+      <div style="padding:14px 16px 6px;font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1.2px"><i class="ti ti-arrows-diff" style="margin-right:6px"></i>Embarque por embarque · ${escI(window._impMarca)}</div>
+      <div style="font-size:11px;color:var(--muted);padding:0 16px 12px;line-height:1.55">
+        El dato que manda es <b>se encarece</b>: cuánto crece el precio de origen hasta tu bodega. El costo por unidad también sirve,
+        pero sube o baja según qué productos traigas en cada embarque, no solo por los gastos.
+      </div>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:820px">
+        <thead><tr style="background:#faf9f8;border-bottom:1px solid var(--border)">
+          ${['Importación','Unidades','FOB origen','Costo total','$ / unidad','Se encarece','TC €→$'].map((h,i)=>
+            `<th style="padding:9px 12px;text-align:${i?'right':'left'};font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px">${h}</th>`).join('')}
+        </tr></thead>
+        <tbody>${orden.map((x,i)=>{
+          const mm = x.metricas || {}; const pr = i ? orden[i-1] : null;
+          const dU = pr ? mm.costo_unitario - pr.metricas.costo_unitario : 0;
+          const dUp = pr && pr.metricas.costo_unitario ? dU/pr.metricas.costo_unitario*100 : 0;
+          const dE = pr ? mm.encarecimiento_pct - pr.metricas.encarecimiento_pct : 0;
+          const esUlt = i === orden.length-1;
+          return `<tr style="border-bottom:0.5px solid var(--border);background:${esUlt?'#fdfaf6':(i%2?'#f6f3ef':'white')}">
+            <td style="padding:10px 12px">
+              <div style="font-weight:${esUlt?'700':'600'}">Importación ${escI(x.numero)}</div>
+              <div style="font-size:10px;color:var(--muted)">${x.fecha?String(x.fecha).substring(0,10):'sin fecha'}${esUlt?' · la más reciente':''}</div>
+            </td>
+            <td style="padding:10px 12px;text-align:right">${(+x.unidades).toLocaleString('en-US')}</td>
+            <td style="padding:10px 12px;text-align:right;color:var(--muted)">${eur(x.fob_eur)}</td>
+            <td style="padding:10px 12px;text-align:right;font-weight:600">${money(x.total_usd)}</td>
+            <td style="padding:10px 12px;text-align:right">
+              <div style="font-weight:700">$${(mm.costo_unitario||0).toFixed(3)}</div>
+              ${pr?`<div style="font-size:10px;font-weight:700;color:${colDelta(dU)}">${flecha(dU)} ${pct(dUp)}</div>`:'<div style="font-size:10px;color:var(--muted)">base</div>'}
+            </td>
+            <td style="padding:10px 12px;text-align:right">
+              <div style="font-weight:700;color:var(--brown)">${pct(mm.encarecimiento_pct)}</div>
+              ${pr?`<div style="font-size:10px;font-weight:700;color:${colDelta(dE)}">${flecha(dE)} ${pts(dE)}</div>`:'<div style="font-size:10px;color:var(--muted)">base</div>'}
+            </td>
+            <td style="padding:10px 12px;text-align:right;color:var(--muted)">${(mm.tipo_cambio||0).toFixed(4)}</td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table></div>
+    </div>
+
+    <div class="card" style="margin-bottom:12px;padding:0">
+      <div style="padding:14px 16px 6px;font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1.2px"><i class="ti ti-list-details" style="margin-right:6px"></i>Qué costo subió y cuál bajó</div>
+      <div style="font-size:11px;color:var(--muted);padding:0 16px 12px;line-height:1.55">
+        Cada gasto medido como <b>% del FOB</b>, no en dólares: así un embarque más grande no parece más caro solo por ser más grande.
+        La última columna compara la importación más reciente contra la anterior, en puntos.
+      </div>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:${560 + orden.length*90}px">
+        <thead><tr style="background:#faf9f8;border-bottom:1px solid var(--border)">
+          <th style="padding:9px 14px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase">Categoría</th>
+          ${orden.map(x=>`<th style="padding:9px 10px;text-align:right;font-size:10px;color:var(--muted)">Imp. ${escI(x.numero)}</th>`).join('')}
+          <th style="padding:9px 10px;text-align:right;font-size:10px;color:var(--muted)">Última vs anterior</th>
+        </tr></thead>
+        <tbody>${catsTodas.map((c,i)=>{
+          const u = pctFob(orden[orden.length-1], c), a = pctFob(orden[orden.length-2], c);
+          const d = u - a;
+          return `<tr style="border-bottom:0.5px solid var(--border);background:${i%2?'#f6f3ef':'white'}">
+            <td style="padding:9px 14px;font-weight:${c==='Sin clasificar'?'700':'500'};color:${c==='Sin clasificar'?'#dc2626':'var(--text)'}">${escI(c)}</td>
+            ${orden.map(x=>`<td style="padding:9px 10px;text-align:right;color:var(--muted)">${pctFob(x,c).toFixed(2)}%</td>`).join('')}
+            <td style="padding:9px 10px;text-align:right;font-weight:700;color:${colDelta(d)}">${flecha(d)} ${pts(d)}</td>
+          </tr>`;
+        }).join('')}
+        <tr style="border-top:1.5px solid var(--border);background:#1a1108;color:white">
+          <td style="padding:10px 14px;font-weight:700">Encarecimiento total</td>
+          ${orden.map(x=>`<td style="padding:10px 10px;text-align:right;font-weight:700">${pct(x.metricas.encarecimiento_pct)}</td>`).join('')}
+          <td style="padding:10px 10px;text-align:right;font-weight:700">${pts(orden[orden.length-1].metricas.encarecimiento_pct - orden[orden.length-2].metricas.encarecimiento_pct)}</td>
+        </tr>
+        </tbody>
+      </table></div>
+      <div style="padding:10px 16px;font-size:11px;color:var(--muted);border-top:1px solid var(--border)">
+        En verde el costo que <b>bajó</b>, en rojo el que <b>subió</b>. El IVA no aparece aquí porque es crédito tributario, no costo.
+      </div>
+    </div>`);
+
   const acciones = !act ? '' : `
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
       <button onclick="verDetalleImportacion(${act.id})" style="padding:8px 16px;border:1px solid var(--border);background:white;border-radius:9px;font-size:12px;cursor:pointer"><i class="ti ti-list" style="margin-right:5px"></i>Ver detalle por producto</button>
       <button onclick="borrarImportacion(${act.id},'${escI(act.marca)} ${escI(act.numero)}')" style="padding:8px 16px;border:1px solid #fca5a5;background:white;color:#dc2626;border-radius:9px;font-size:12px;cursor:pointer"><i class="ti ti-trash" style="margin-right:5px"></i>Eliminar</button>
     </div>`;
 
-  cont.innerHTML = pestanas + subir + cabecera + aprender + tarjetas + desglose + tablaCats + evolucion + acciones + '<div id="imp-detalle"></div>';
+  cont.innerHTML = window._impVista === 'comparar'
+    ? pestanas + subir + subtabs + comparativo + evolucion
+    : pestanas + subir + subtabs + cabecera + aprender + tarjetas + desglose + tablaCats + evolucion + acciones + '<div id="imp-detalle"></div>';
 }
 
 async function subirLiquidacion(input){
