@@ -8278,7 +8278,13 @@ function metricasImportacion(r){
   const uni = parseInt(r.unidades) || 0;
   const flete = parseFloat(r.flete_ext_eur) || 0, cif = parseFloat(r.cif_usd) || 0;
   const factor = fob ? total / fob : 0;
-  const cambio = fobNeto ? fobUsd / fobNeto : 0;
+  // No todas las liquidaciones traen las mismas columnas: si falta el FOB neto en euros
+  // o el FOB neto en dólares se deducen, si no la conversión se dispara (se estaría
+  // contando el valor completo del producto como si fuera ganancia del tipo de cambio).
+  const baseEur  = fobNeto || (fob + flete);          // costo en euros antes de convertir
+  const usdDesp  = fobUsd  || Math.max(total - cif, 0); // el mismo costo ya en dólares
+  const localesUsd = cif || Math.max(total - usdDesp, 0);
+  const cambio = baseEur ? usdDesp / baseEur : 0;
   return {
     factor, encarecimiento_pct: fob ? (factor - 1) * 100 : 0,
     tipo_cambio: cambio,
@@ -8286,8 +8292,8 @@ function metricasImportacion(r){
     // De dónde viene cada punto del encarecimiento, medido sobre el FOB
     puntos: {
       flete_exterior: fob ? flete / fob * 100 : 0,
-      conversion: fob ? (fobUsd - fobNeto) / fob * 100 : 0,
-      gastos_locales: fob ? cif / fob * 100 : 0
+      conversion: fob ? (usdDesp - baseEur) / fob * 100 : 0,
+      gastos_locales: fob ? localesUsd / fob * 100 : 0
     }
   };
 }
