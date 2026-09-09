@@ -8193,11 +8193,12 @@ function parsearLiquidacion(buffer, mapaAprendido, nombreArchivo){
   if (hg >= 0) (F[hg]||[]).forEach((c,j) => {
     const t = String(c||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase();
     if (/VALOR SIN IMP/.test(t)) cols.valor = j;
+    if (/DATO PARA CIF|TIPO DE CAMBIO|^TC$/.test(t)) cols.tc = j;
     if (/IVA/.test(t)) cols.iva = j;
     if (/^TOTAL/.test(t)) cols.total = j;
   });
 
-  const gastos = []; const porCat = {}; let ivaRec = 0, descuentoUsd = 0;
+  const gastos = []; const porCat = {}; let ivaRec = 0, descuentoUsd = 0, tcDeclarado = 0;
   if (hg >= 0) {
     for (let i = hg + 1; i < F.length; i++) {
       const nom = txt(i,0);
@@ -8205,6 +8206,8 @@ function parsearLiquidacion(buffer, mapaAprendido, nombreArchivo){
       if (/^TOTAL/i.test(nom.normalize('NFD').replace(/[̀-ͯ]/g,''))) break;
       const cat = categoriaDeGasto(nom, mapaAprendido);
       if (!cat) continue;
+      // La contadora escribe el tipo de cambio junto a la línea del producto
+      if (cat === 'Producto (FOB)' && cols.tc != null && !tcDeclarado) tcDeclarado = _num(F[i][cols.tc]);
       const valor = _num(F[i][cols.valor]);
       const total = cols.total != null ? _num(F[i][cols.total]) : valor;
       const iva   = cols.iva != null ? _num(F[i][cols.iva]) : 0;
@@ -8294,6 +8297,15 @@ function parsearLiquidacion(buffer, mapaAprendido, nombreArchivo){
   }
 
   // Base del encarecimiento = lo que se paga al proveedor por el producto, nada más.
+  // El dato que nunca falla es el propio tipo de cambio de la liquidación: el producto en
+  // dólares dividido para el cambio da los euros que salieron del banco. Las columnas de
+  // "FOB neto" del detalle no significan lo mismo en todas las liquidaciones (unas ya traen
+  // restado el descuento del proveedor, otras no, otras le suman el transporte del exterior),
+  // así que se prefiere esta cuenta y se dejan las columnas solo como respaldo.
+  if (tcDeclarado > 0 && porCat['Producto (FOB)'] > 0) {
+    tot.fob = porCat['Producto (FOB)'] / tcDeclarado;
+    tot.fobNeto = tot.fob + tot.transExt;
+  } else
   // Hay liquidaciones donde "COSTO FOB TOTAL" viene ANTES de descuentos (y el neto está
   // en la columna FOB NETO) y otras donde el FOB NETO ya trae sumado el transporte del
   // exterior. Restándole el transporte al neto se llega al mismo número en los dos casos.
