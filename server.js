@@ -3449,6 +3449,40 @@ async function initDB() {
       UPDATE personas SET origen='institutos' WHERE origen IS NULL AND instituto IS NOT NULL
         AND (vendedor IS NULL OR vendedor='') AND (telefono IS NULL OR telefono='') AND (email IS NULL OR email='');
       ALTER TABLE facturas_detalle ADD COLUMN IF NOT EXISTS cedula_ruc VARCHAR(50);
+      -- Liquidaciones de importación: una fila por importación, con los totales ya
+      -- resueltos y el desglose por categoría de gasto. El detalle por producto va aparte.
+      CREATE TABLE IF NOT EXISTS importaciones (
+        id SERIAL PRIMARY KEY,
+        marca VARCHAR(80) NOT NULL,
+        numero VARCHAR(40) NOT NULL,
+        fecha DATE,
+        unidades INT DEFAULT 0,
+        fob_eur NUMERIC(14,2) DEFAULT 0,          -- producto en origen
+        flete_ext_eur NUMERIC(14,2) DEFAULT 0,    -- transporte y embalaje exterior
+        fob_neto_eur NUMERIC(14,2) DEFAULT 0,
+        fob_neto_usd NUMERIC(14,2) DEFAULT 0,
+        cif_usd NUMERIC(14,2) DEFAULT 0,          -- gastos locales
+        total_usd NUMERIC(14,2) DEFAULT 0,
+        iva_recuperable NUMERIC(14,2) DEFAULT 0,  -- crédito tributario, NO es costo
+        categorias JSONB,                          -- { categoria: monto_usd }
+        gastos JSONB,                              -- líneas originales, para auditar
+        archivo VARCHAR(200),
+        subido_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE (marca, numero)
+      );
+      CREATE TABLE IF NOT EXISTS importaciones_detalle (
+        id SERIAL PRIMARY KEY,
+        importacion_id INT REFERENCES importaciones(id) ON DELETE CASCADE,
+        codigo VARCHAR(60),
+        categoria_prod VARCHAR(60),
+        descripcion VARCHAR(300),
+        unidades NUMERIC(12,2) DEFAULT 0,
+        fob_unit_eur NUMERIC(12,4) DEFAULT 0,
+        costo_unit_usd NUMERIC(12,4) DEFAULT 0,
+        costo_total_usd NUMERIC(14,2) DEFAULT 0
+      );
+      CREATE INDEX IF NOT EXISTS idx_impdet ON importaciones_detalle(importacion_id);
+
       CREATE TABLE IF NOT EXISTS caja_saldos (
         id SERIAL PRIMARY KEY,
         mes_key VARCHAR(7) NOT NULL,
@@ -5309,6 +5343,7 @@ const server = http.createServer(async (req, res) => {
           credito_sugerido: idx.includes('calcularCreditoSugerido'),
           rastreo_servientrega: idx.includes('urlRastreoGuia'),
           comportamiento_de_pago: idx.includes('badgePago'),
+          panel_importaciones: idx.includes('renderImportaciones'),
           // Si sale true, el botón Configurar de los KPIs de asesoras TODAVÍA está
           boton_configurar_kpis_asesora: idx.includes('configurarKpiAsesora(\'')
         }
@@ -8018,7 +8053,178 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // ─── CARTERA ASIGNADA ─────────────────────────────────────────────────────────────
+  
+// ─── IMPORTACIONES ────────────────────────────────────────────────────────────────
+// Lee la liquidación de importación (un Excel por marca y por embarque) y deja resueltos
+// los totales, el desglose por categoría de gasto y el detalle por producto.
+//
+// La pregunta que responde todo esto: un euro de producto en origen, ¿cuántos dólares
+// cuesta puesto en bodega? De ahí sale el % de encarecimiento.
+
+// Los nombres de las líneas de gasto cambian entre marcas y entre embarques, así que se
+// normalizan contra ocho categorías. Lo que no cruza NO se descarta: cae en "Sin clasificar"
+// y se muestra en pantalla, porque un gasto perdido en silencio desvía el costo real.
+const CATEGORIAS_IMPO = [
+  ['Producto (FOB)',        /PRODUCTO.*FOB|^FOB/],
+  ['Flete internacional',   /TRANSPORTE Y EMBALAJE|EMBALAJE EXTERIOR|^BL$|FLETE INTERNACIONAL|MARITIMO|MARÍTIMO/],
+  ['Tributos aduaneros',    /ADVALOREM|AD VALOREM|FODINFA|ARANCEL|SALVAGUARDIA/],
+  ['Impuestos financieros', /SALIDA DE DIVISAS|\bISD\b|SERVICIOS FINANCIEROS|BANCARIO/],
+  ['Seguro',                /POLIZA|PÓLIZA|SEGURO/],
+  ['Agenciamiento y aduana',/AGENDAMIENTO|AGENCIAMIENTO|BODEGAJE|DESCONSOLIDACION|DESCONSOLIDACIÓN|ADUANA/],
+  ['Gastos portuarios',     /PORTUARIO|OPERATIVO|ADMINISTRACION|ADMINISTRACIÓN|RECARGO|NAVIERA/],
+  ['Transporte interno',    /FLETE INTERNO|TRANSPORTE INTERNO|TRANSPORTE LOCAL/]
+];
+
+function categoriaDeGasto(txt){
+  const t = String(txt||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase().trim();
+  if (!t) return null;
+  if (/^TOTAL/.test(t)) return null;                       // fila de totales, no es gasto
+  if (/IVA/.test(t) && /IMPORTACION|IMPORTACIÓN/.test(t)) return 'IVA';  // crédito tributario
+  for (const [nombre, re] of CATEGORIAS_IMPO) if (re.test(t)) return nombre;
+  return 'Sin clasificar';
+}
+
+const _num = v => {
+  if (v === null || v === undefined) return 0;
+  const n = parseFloat(String(v).replace(/[^0-9.\-]/g,''));
+  return isNaN(n) ? 0 : n;
+};
+
+function parsearLiquidacion(buffer){
+  const wb = XLSX.read(buffer, { type:'buffer', cellDates:true });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const F = XLSX.utils.sheet_to_json(ws, { header:1, defval:null, raw:true });
+  const txt = (r,c) => String((F[r] && F[r][c]) != null ? F[r][c] : '').trim();
+
+  // ── Cabecera: se busca por etiqueta, no por fila fija ──
+  const cab = { marca:'', numero:'', fecha:null, unidades:0 };
+  for (let i = 0; i < Math.min(20, F.length); i++) {
+    const et = txt(i,0).normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase();
+    const val = (F[i]||[]).slice(1).find(v => v !== null && String(v).trim() !== '');
+    if (/LIQUIDACION DE IMPORTACION/.test(et) && val != null) cab.numero = String(val).trim();
+    else if (/FECHA DE LIQUIDACION/.test(et) && val != null) {
+      const d = (val instanceof Date) ? val : new Date(String(val));
+      if (!isNaN(d)) cab.fecha = d.toISOString().substring(0,10);
+    }
+    else if (/^MA+RCA/.test(et) && val != null) cab.marca = String(val).trim();
+    else if (/UNIDADES IMPORTADAS/.test(et) && val != null) cab.unidades = Math.round(_num(val));
+  }
+
+  // ── Bloque de gastos: desde la fila de encabezados hasta TOTAL IMPORTACION ──
+  let hg = -1;
+  for (let i = 0; i < F.length; i++) {
+    if (/TIPO DE GASTO/i.test(txt(i,0))) { hg = i; break; }
+  }
+  const cols = {};
+  if (hg >= 0) (F[hg]||[]).forEach((c,j) => {
+    const t = String(c||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase();
+    if (/VALOR SIN IMP/.test(t)) cols.valor = j;
+    if (/IVA/.test(t)) cols.iva = j;
+    if (/^TOTAL/.test(t)) cols.total = j;
+  });
+
+  const gastos = []; const porCat = {}; let ivaRec = 0;
+  if (hg >= 0) {
+    for (let i = hg + 1; i < F.length; i++) {
+      const nom = txt(i,0);
+      if (!nom) { if (gastos.length) break; else continue; }
+      if (/^TOTAL/i.test(nom.normalize('NFD').replace(/[̀-ͯ]/g,''))) break;
+      const cat = categoriaDeGasto(nom);
+      if (!cat) continue;
+      const valor = _num(F[i][cols.valor]);
+      const total = cols.total != null ? _num(F[i][cols.total]) : valor;
+      const iva   = cols.iva != null ? _num(F[i][cols.iva]) : 0;
+      ivaRec += iva;
+      if (cat === 'IVA') { gastos.push({ nombre:nom, categoria:'IVA (crédito tributario)', valor, total:0, iva:valor }); continue; }
+      const monto = total || valor;
+      if (!monto) { gastos.push({ nombre:nom, categoria:cat, valor, total:0, iva }); continue; }
+      porCat[cat] = (porCat[cat] || 0) + monto;
+      gastos.push({ nombre:nom, categoria:cat, valor, total:monto, iva });
+    }
+  }
+
+  // ── Detalle por producto ──
+  let hd = -1;
+  for (let i = 0; i < F.length; i++) {
+    const fila = (F[i]||[]).map(c => String(c||'').toUpperCase());
+    if (fila.some(c => /COSTO FOB\s+TOTAL/.test(c)) && fila.some(c => c.includes('DESCRIPCION') || c.includes('DESCRIPCIÓN'))) { hd = i; break; }
+  }
+  const dc = {};
+  if (hd >= 0) (F[hd]||[]).forEach((c,j) => {
+    const t = String(c||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase().replace(/\s+/g,' ').trim();
+    if (t === 'COD') dc.cod = j;
+    else if (t === 'CATEGORIA') dc.cat = j;
+    else if (t.startsWith('DESCRIPCION')) dc.desc = j;
+    else if (t.includes('CANTIDAD EN UNIDADES')) dc.uni = j;
+    else if (t === 'COSTO FOB TOTAL') dc.fobTot = j;
+    else if (t === 'COSTO NETO FOB UNITARIO' && dc.fobUni == null) dc.fobUni = j;
+    else if (t === 'TRANSPORTE DEL EXTERIOR') dc.transExt = j;
+    else if (t === 'COSTO FOB NETO TOTAL') dc.fobNeto = j;
+    else if (t === 'COSTO FOB NETO US DOLARES') dc.fobUsd = j;
+    else if (t === 'COSTO CIF') dc.cif = j;
+    else if (t === 'COSTO TOTAL FOB + CIF') dc.totUsd = j;
+    else if (t === 'COSTO UNITARIO FOB + CIF') dc.totUni = j;
+  });
+
+  const detalle = []; const tot = { fob:0, transExt:0, fobNeto:0, fobUsd:0, cif:0, total:0, unidades:0 };
+  if (hd >= 0) {
+    for (let i = hd + 1; i < F.length; i++) {
+      const cod = txt(i, dc.cod);
+      const desc = txt(i, dc.desc);
+      const uni = _num(F[i][dc.uni]);
+      if (!cod && !desc && !uni) continue;
+      // Fila de totales: sin código Y SIN descripción. La condición de la descripción
+      // es la que importa: los packs "2 en 1" traen una segunda línea sin código pero con
+      // producto, y sin esto se tomaba por el total y se perdían esas unidades.
+      const esTotal = !cod && !desc && _num(F[i][dc.fobTot]) > 0;
+      if (esTotal) {
+        tot.fob = _num(F[i][dc.fobTot]); tot.transExt = _num(F[i][dc.transExt]);
+        tot.fobNeto = _num(F[i][dc.fobNeto]); tot.fobUsd = _num(F[i][dc.fobUsd]);
+        tot.cif = _num(F[i][dc.cif]); tot.total = _num(F[i][dc.totUsd]);
+        tot.unidades = _num(F[i][dc.uni]);
+        continue;
+      }
+      // T9792 / T9795: transporte y seguro repartidos, no son producto
+      if (/^T\d/i.test(cod)) continue;
+      if (!uni) continue;
+      detalle.push({ codigo: cod || txt(i, dc.cat), categoria:txt(i, dc.cat), descripcion:desc.substring(0,300),
+        unidades:uni, fob_unit_eur:_num(F[i][dc.fobUni]),
+        costo_unit_usd:_num(F[i][dc.totUni]), costo_total_usd:_num(F[i][dc.totUsd]) });
+    }
+  }
+  // Si la fila de totales no venía, se suma el detalle
+  if (!tot.total) {
+    tot.fob = detalle.reduce((a,x)=>a+x.fob_unit_eur*x.unidades,0);
+    tot.total = detalle.reduce((a,x)=>a+x.costo_total_usd,0);
+    tot.unidades = detalle.reduce((a,x)=>a+x.unidades,0);
+  }
+  if (!cab.unidades) cab.unidades = Math.round(tot.unidades);
+
+  return { cabecera:cab, gastos, categorias:porCat, iva_recuperable:Math.round(ivaRec*100)/100, totales:tot, detalle };
+}
+
+// Métricas de una importación ya guardada
+function metricasImportacion(r){
+  const fob = parseFloat(r.fob_eur) || 0, total = parseFloat(r.total_usd) || 0;
+  const fobNeto = parseFloat(r.fob_neto_eur) || 0, fobUsd = parseFloat(r.fob_neto_usd) || 0;
+  const uni = parseInt(r.unidades) || 0;
+  const flete = parseFloat(r.flete_ext_eur) || 0, cif = parseFloat(r.cif_usd) || 0;
+  const factor = fob ? total / fob : 0;
+  const cambio = fobNeto ? fobUsd / fobNeto : 0;
+  return {
+    factor, encarecimiento_pct: fob ? (factor - 1) * 100 : 0,
+    tipo_cambio: cambio,
+    costo_unitario: uni ? total / uni : 0,
+    // De dónde viene cada punto del encarecimiento, medido sobre el FOB
+    puntos: {
+      flete_exterior: fob ? flete / fob * 100 : 0,
+      conversion: fob ? (fobUsd - fobNeto) / fob * 100 : 0,
+      gastos_locales: fob ? cif / fob * 100 : 0
+    }
+  };
+}
+
+// ─── CARTERA ASIGNADA ─────────────────────────────────────────────────────────────
   // De quién es cada clienta, según el código de categoría de Contifico (Ase.MFG).
   // Es independiente del histórico de ventas: las facturas viejas siguen a nombre de
   // quien las hizo. Aquí solo se responde "a quién le toca atender a esta clienta hoy".
@@ -8066,6 +8272,120 @@ const server = http.createServer(async (req, res) => {
   }
 
   // GET /api/cartera-asignada[?asesora=Nombre]
+  // ─── IMPORTACIONES: subir, listar, borrar ─────────────────────────────────────
+  if (urlPath === '/api/importaciones/subir' && req.method === 'POST') {
+    if (bloquearSiNoAdmin(req, res)) return;
+    try {
+      const buf = await bodyBuffer(req);
+      const archivo = parseMultipartFile(buf, req.headers['content-type']);
+      if (!archivo) throw new Error('No llegó ningún archivo');
+      const p = parsearLiquidacion(archivo.buffer);
+      const c = p.cabecera;
+      if (!c.marca)  throw new Error('El Excel no trae la marca (fila "MARCA")');
+      if (!c.numero) throw new Error('El Excel no trae el número de liquidación');
+      if (!p.totales.total) throw new Error('No se encontró el bloque de detalle con los costos');
+
+      const r = await pool.query(
+        `INSERT INTO importaciones
+           (marca, numero, fecha, unidades, fob_eur, flete_ext_eur, fob_neto_eur, fob_neto_usd,
+            cif_usd, total_usd, iva_recuperable, categorias, gastos, archivo, subido_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW())
+         ON CONFLICT (marca, numero) DO UPDATE SET
+           fecha=$3, unidades=$4, fob_eur=$5, flete_ext_eur=$6, fob_neto_eur=$7, fob_neto_usd=$8,
+           cif_usd=$9, total_usd=$10, iva_recuperable=$11, categorias=$12, gastos=$13,
+           archivo=$14, subido_at=NOW()
+         RETURNING id`,
+        [c.marca, String(c.numero), c.fecha, c.unidades,
+         p.totales.fob, p.totales.transExt, p.totales.fobNeto, p.totales.fobUsd,
+         p.totales.cif, p.totales.total, p.iva_recuperable,
+         JSON.stringify(p.categorias), JSON.stringify(p.gastos),
+         String(archivo.filename||'').substring(0,200)]);
+      const id = r.rows[0].id;
+
+      // El detalle se reemplaza entero: volver a subir el mismo archivo corrige, no duplica
+      await pool.query('DELETE FROM importaciones_detalle WHERE importacion_id=$1', [id]);
+      for (let k = 0; k < p.detalle.length; k += 200) {
+        const lote = p.detalle.slice(k, k + 200);
+        const vals = [], par = [];
+        lote.forEach((d, j) => {
+          const b = j * 8;
+          vals.push(`($${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6},$${b+7},$${b+8})`);
+          par.push(id, d.codigo, d.categoria, d.descripcion, d.unidades, d.fob_unit_eur, d.costo_unit_usd, d.costo_total_usd);
+        });
+        await pool.query(`INSERT INTO importaciones_detalle
+          (importacion_id, codigo, categoria_prod, descripcion, unidades, fob_unit_eur, costo_unit_usd, costo_total_usd)
+          VALUES ${vals.join(',')}`, par);
+      }
+      const sinCat = p.gastos.filter(g => g.categoria === 'Sin clasificar').map(g => g.nombre);
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:true, id, marca:c.marca, numero:c.numero, unidades:c.unidades,
+        productos:p.detalle.length, sin_clasificar:sinCat }));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
+  if (urlPath === '/api/importaciones' && req.method === 'GET') {
+    if (bloquearSiNoAdmin(req, res)) return;
+    try {
+      const r = await pool.query('SELECT * FROM importaciones ORDER BY marca, fecha NULLS LAST, id');
+      const lista = r.rows.map(x => Object.assign({}, x, { metricas: metricasImportacion(x) }));
+      // Cada importación se compara con la anterior de SU marca
+      const porMarca = {};
+      lista.forEach(x => { (porMarca[x.marca] = porMarca[x.marca] || []).push(x); });
+      Object.values(porMarca).forEach(arr => arr.forEach((x, k) => {
+        const prev = k > 0 ? arr[k-1] : null;
+        x.anterior = prev ? { numero: prev.numero, fecha: prev.fecha } : null;
+        if (!prev) { x.variacion = null; return; }
+        const a = x.metricas, b = prev.metricas;
+        const cats = {};
+        const catA = x.categorias || {}, catB = prev.categorias || {};
+        const todas = new Set(Object.keys(catA).concat(Object.keys(catB)));
+        todas.forEach(cn => {
+          // Cada categoría se mide como % del FOB: así la comparación no se distorsiona
+          // porque una importación sea más grande que la otra.
+          const fa = parseFloat(x.fob_eur)||0, fb = parseFloat(prev.fob_eur)||0;
+          const pa = fa ? (catA[cn]||0) / fa * 100 : 0;
+          const pb = fb ? (catB[cn]||0) / fb * 100 : 0;
+          cats[cn] = { pct_actual: pa, pct_anterior: pb, delta_pts: pa - pb,
+                       usd_actual: catA[cn]||0, usd_anterior: catB[cn]||0 };
+        });
+        x.variacion = {
+          costo_unitario: { actual:a.costo_unitario, anterior:b.costo_unitario,
+                            delta: a.costo_unitario - b.costo_unitario,
+                            pct: b.costo_unitario ? (a.costo_unitario/b.costo_unitario-1)*100 : 0 },
+          encarecimiento: { actual:a.encarecimiento_pct, anterior:b.encarecimiento_pct,
+                            delta_pts: a.encarecimiento_pct - b.encarecimiento_pct },
+          tipo_cambio: { actual:a.tipo_cambio, anterior:b.tipo_cambio },
+          unidades: { actual:x.unidades, anterior:prev.unidades },
+          categorias: cats
+        };
+      }));
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:true, importaciones: lista }));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
+  if (/^\/api\/importaciones\/\d+\/detalle$/.test(urlPath) && req.method === 'GET') {
+    if (bloquearSiNoAdmin(req, res)) return;
+    try {
+      const id = parseInt(urlPath.split('/')[3]);
+      const r = await pool.query(
+        'SELECT * FROM importaciones_detalle WHERE importacion_id=$1 ORDER BY costo_total_usd DESC', [id]);
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, detalle:r.rows}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
+  if (/^\/api\/importaciones\/\d+$/.test(urlPath) && req.method === 'DELETE') {
+    if (bloquearSiNoAdmin(req, res)) return;
+    try {
+      await pool.query('DELETE FROM importaciones WHERE id=$1', [parseInt(urlPath.split('/')[3])]);
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
   if (urlPath === '/api/cartera-asignada' && req.method === 'GET') {
     try {
       const mapa = await mapaCategorias();

@@ -365,6 +365,7 @@
       <div class="nav-sub-item" id="navsub-rep-balance" onclick="navGoReportes('balance')"><i class="ti ti-scale" style="font-size:13px"></i>Balance</div>
       <div class="nav-sub-item" id="navsub-rep-caja" onclick="navGoReportes('caja')"><i class="ti ti-wallet" style="font-size:13px"></i>Flujo de caja</div>
       <div class="nav-sub-item" id="navsub-rep-nomina" onclick="navGoReportes('nomina')"><i class="ti ti-users-group" style="font-size:13px"></i>Nómina</div>
+      <div class="nav-sub-item" id="navsub-rep-importaciones" onclick="navGoReportes('importaciones')"><i class="ti ti-ship" style="font-size:13px"></i>Importaciones</div>
       <div class="nav-sub-item" id="navsub-rep-inversiones" onclick="navGoReportes('inversiones')"><i class="ti ti-receipt" style="font-size:13px"></i>Inversiones / Viáticos</div>
     </div>
     <div class="nav-item" id="nav-config" style="display:none" onclick="navToggleGroup('nav-config-subs','nav-config-chevron','config')">
@@ -9590,7 +9591,7 @@ function renderReportes(){
   document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
   document.getElementById('navsub-rep-'+tab)?.classList.add('active');
   document.getElementById('main').innerHTML=`
-    <div class="breadcrumb" style="margin-bottom:12px"><i class="ti ti-file-analytics" style="color:var(--brown);font-size:12px"></i><span style="font-weight:500">Reportes — ${tab==='inversiones'?'Inversiones / Viáticos':tab==='presupuesto'?'Presupuesto de ventas':tab==='presupuesto_ventas'?'Presupuesto ventas':tab==='nomina'?'Nómina':tab==='promos'?'Promociones — rentabilidad':tab==='pyg'?'PyG — Estado de resultados':tab==='balance'?'Balance general':tab==='caja'?'Flujo de caja':'Comisiones'}</span></div>
+    <div class="breadcrumb" style="margin-bottom:12px"><i class="ti ti-file-analytics" style="color:var(--brown);font-size:12px"></i><span style="font-weight:500">Reportes — ${tab==='inversiones'?'Inversiones / Viáticos':tab==='presupuesto'?'Presupuesto de ventas':tab==='presupuesto_ventas'?'Presupuesto ventas':tab==='nomina'?'Nómina':tab==='promos'?'Promociones — rentabilidad':tab==='pyg'?'PyG — Estado de resultados':tab==='balance'?'Balance general':tab==='caja'?'Flujo de caja':tab==='importaciones'?'Importaciones':'Comisiones'}</span></div>
     <div id="reportes-content"></div>`;
   // Si un panel falla, antes quedaba la pantalla en blanco sin decir por qué.
   // Ahora se muestra el error para poder diagnosticarlo sin abrir la consola.
@@ -9603,6 +9604,7 @@ function renderReportes(){
     else if(tab==='pyg') p = renderPyG();
     else if(tab==='balance') p = renderBalance();
     else if(tab==='caja') p = renderCaja();
+    else if(tab==='importaciones') p = renderImportaciones();
     else p = renderComisiones();
     if(p && typeof p.catch === 'function') p.catch(e=>mostrarErrorReporte(tab, e));
   } catch(e) { mostrarErrorReporte(tab, e); }
@@ -12380,6 +12382,231 @@ function navGoDocumentos(tab){
   }, 30);
 }
 function setReportesTab(tab){ window._reportesTab=tab; renderReportes(); }
+
+// ─── REPORTES → IMPORTACIONES ─────────────────────────────────────────────────────
+// Responde tres cosas: si esta importación salió más cara o más barata por unidad que la
+// anterior, qué gasto se movió, y cuánto se encarece el producto desde origen hasta bodega.
+async function renderImportaciones(){
+  const cont = document.getElementById('reportes-content');
+  if(!cont) return;
+  cont.innerHTML = '<div style="padding:30px;text-align:center;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:22px"></i></div>';
+  let d = null;
+  try{ const r = await fetch('/api/importaciones'); d = await r.json(); }catch(e){}
+  if(!d || !d.ok){ cont.innerHTML = '<div class="card" style="padding:18px;font-size:13px;color:var(--muted)">No se pudo cargar. Revisa que hayas iniciado sesión.</div>'; return; }
+
+  const L = d.importaciones || [];
+  const escI = v => String(v||'').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  const money = v => '$' + (Math.round((+v||0)*100)/100).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const eur = v => '€' + (Math.round((+v||0))).toLocaleString('en-US');
+  const pct = (v,dec=1) => (v>=0?'+':'') + (+v||0).toFixed(dec) + '%';
+  const pts = v => (v>=0?'+':'') + (+v||0).toFixed(2) + ' pts';
+  const colDelta = (v, alRevés) => { const malo = alRevés ? v<0 : v>0; return Math.abs(v)<0.01 ? 'var(--muted)' : (malo ? '#dc2626' : '#16a34a'); };
+
+  const marcas = [...new Set(L.map(x=>x.marca))].sort();
+  if(window._impMarca === undefined || (marcas.length && !marcas.includes(window._impMarca))) window._impMarca = marcas[0] || '';
+  const deMarca = L.filter(x=>x.marca===window._impMarca);
+  if(window._impId === undefined || !deMarca.some(x=>x.id===window._impId)) window._impId = deMarca.length ? deMarca[deMarca.length-1].id : null;
+  const act = deMarca.find(x=>x.id===window._impId) || null;
+
+  const subir = `
+    <div class="card" style="margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+      <div style="font-size:12px;color:var(--muted);line-height:1.6;flex:1;min-width:240px">
+        Sube el Excel de liquidación de cualquier marca. Si vuelves a subir el mismo número de liquidación, se reemplaza — no se duplica.
+      </div>
+      <label style="padding:9px 18px;background:var(--brown);color:white;border-radius:9px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">
+        <i class="ti ti-upload" style="margin-right:6px"></i>Subir liquidación
+        <input type="file" accept=".xls,.xlsx" onchange="subirLiquidacion(this)" style="display:none">
+      </label>
+    </div>
+    <div id="imp-estado"></div>`;
+
+  if(!L.length){
+    cont.innerHTML = subir + '<div class="card" style="padding:24px;text-align:center;color:var(--muted);font-size:13px">Todavía no hay liquidaciones cargadas.</div>';
+    return;
+  }
+
+  const m = act ? act.metricas : null;
+  const v = act ? act.variacion : null;
+
+  // Selectores: marca y número de importación
+  const cabecera = `
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+      ${marcas.map(mk=>`<button onclick="window._impMarca='${escI(mk)}';window._impId=undefined;renderImportaciones()"
+        style="padding:8px 16px;border-radius:9px;border:1px solid ${mk===window._impMarca?'var(--brown)':'var(--border)'};background:${mk===window._impMarca?'var(--brown)':'white'};color:${mk===window._impMarca?'white':'var(--text)'};font-size:12px;font-weight:${mk===window._impMarca?'700':'500'};cursor:pointer">${escI(mk)}</button>`).join('')}
+      <select onchange="window._impId=parseInt(this.value);renderImportaciones()" style="padding:8px 12px;border:1px solid var(--border);border-radius:9px;font-size:12px;background:white;cursor:pointer;margin-left:auto">
+        ${deMarca.map(x=>`<option value="${x.id}" ${x.id===window._impId?'selected':''}>Importación ${escI(x.numero)}${x.fecha?' · '+String(x.fecha).substring(0,10):''}</option>`).join('')}
+      </select>
+    </div>`;
+
+  const tarjetas = !m ? '' : `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:12px">
+      <div style="background:#f3f0ec;border-radius:11px;padding:14px;text-align:center">
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px">Unidades</div>
+        <div style="font-size:22px;font-weight:800">${(+act.unidades).toLocaleString('en-US')}</div>
+        ${v?`<div style="font-size:10px;color:var(--muted)">antes ${(+v.unidades.anterior).toLocaleString('en-US')}</div>`:''}
+      </div>
+      <div style="background:#faf9f8;border:1px solid var(--border);border-radius:11px;padding:14px;text-align:center">
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px">Costo total</div>
+        <div style="font-size:22px;font-weight:800;color:var(--brown)">${money(act.total_usd)}</div>
+        <div style="font-size:10px;color:var(--muted)">FOB ${eur(act.fob_eur)}</div>
+      </div>
+      <div style="background:${v && v.costo_unitario.delta>0?'#fef2f2':'#f0fdf4'};border:1px solid ${v && v.costo_unitario.delta>0?'#fca5a5':'#bbf7d0'};border-radius:11px;padding:14px;text-align:center">
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px">Costo por unidad</div>
+        <div style="font-size:22px;font-weight:800;color:${v?colDelta(v.costo_unitario.delta):'var(--text)'}">$${m.costo_unitario.toFixed(3)}</div>
+        ${v?`<div style="font-size:10px;font-weight:700;color:${colDelta(v.costo_unitario.delta)}">${pct(v.costo_unitario.pct)} vs anterior</div>`:'<div style="font-size:10px;color:var(--muted)">primera importación</div>'}
+      </div>
+      <div style="background:#1a1108;border-radius:11px;padding:14px;text-align:center">
+        <div style="font-size:10px;color:rgba(255,255,255,0.7);text-transform:uppercase;letter-spacing:0.8px">Se encarece</div>
+        <div style="font-size:22px;font-weight:800;color:white">${pct(m.encarecimiento_pct)}</div>
+        <div style="font-size:10px;color:rgba(255,255,255,0.6)">€1 origen → $${m.factor.toFixed(3)} en bodega</div>
+      </div>
+    </div>`;
+
+  // De dónde sale el encarecimiento
+  const desglose = !m ? '' : `
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-title"><i class="ti ti-arrow-narrow-up"></i> De dónde viene ese ${pct(m.encarecimiento_pct)}</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:12px;line-height:1.5">Cada tramo medido en puntos sobre el precio FOB del producto. Suman el encarecimiento total.</div>
+      ${[['Flete y embalaje exterior', m.puntos.flete_exterior],
+         ['Conversión EUR → USD (incluye ISD)', m.puntos.conversion],
+         ['Gastos locales hasta bodega', m.puntos.gastos_locales]].map(([n,p])=>`
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          <span style="font-size:12px;min-width:220px">${n}</span>
+          <div style="flex:1;height:14px;background:#eee9e4;border-radius:7px;overflow:hidden">
+            <div style="width:${Math.min(100, p/m.encarecimiento_pct*100)}%;height:100%;background:var(--brown);border-radius:7px"></div>
+          </div>
+          <span style="font-size:13px;font-weight:700;color:var(--brown);min-width:70px;text-align:right">${p.toFixed(1)} pts</span>
+        </div>`).join('')}
+      <div style="font-size:11px;color:var(--muted);margin-top:10px">Tipo de cambio implícito: <b>${m.tipo_cambio.toFixed(4)}</b> USD por euro${v?` · antes ${v.tipo_cambio.anterior.toFixed(4)}`:''}</div>
+    </div>`;
+
+  // Categorías de gasto, comparadas como % del FOB
+  const cats = act && act.categorias ? Object.entries(act.categorias).sort((a,b)=>b[1]-a[1]) : [];
+  const tablaCats = !cats.length ? '' : `
+    <div class="card" style="margin-bottom:12px;padding:0">
+      <div style="padding:14px 16px 6px;font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1.2px"><i class="ti ti-list-details" style="margin-right:6px"></i>Costos por categoría</div>
+      <div style="font-size:11px;color:var(--muted);padding:0 16px 12px;line-height:1.5">
+        Se comparan como porcentaje del FOB, no en dólares: así una importación más grande no parece más cara por ser más grande.
+        ${v?'':'Esta es la primera importación de la marca, no hay con qué comparar.'}
+      </div>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:560px">
+        <thead><tr style="background:#faf9f8;border-bottom:1px solid var(--border)">
+          <th style="padding:8px 14px;text-align:left;font-size:10px;color:var(--muted)">Categoría</th>
+          <th style="padding:8px 10px;text-align:right;font-size:10px;color:var(--muted)">USD</th>
+          <th style="padding:8px 10px;text-align:right;font-size:10px;color:var(--muted)">% del FOB</th>
+          ${v?'<th style="padding:8px 10px;text-align:right;font-size:10px;color:var(--muted)">Antes</th><th style="padding:8px 10px;text-align:right;font-size:10px;color:var(--muted)">Variación</th>':''}
+        </tr></thead>
+        <tbody>${cats.map(([n,val],i)=>{
+          const cv = v && v.categorias[n];
+          const fob = +act.fob_eur || 1;
+          return `<tr style="border-bottom:0.5px solid var(--border);background:${i%2?'#f6f3ef':'white'}">
+            <td style="padding:9px 14px;font-weight:${n==='Sin clasificar'?'700':'500'};color:${n==='Sin clasificar'?'#dc2626':'var(--text)'}">${escI(n)}</td>
+            <td style="padding:9px 10px;text-align:right;font-weight:600">${money(val)}</td>
+            <td style="padding:9px 10px;text-align:right;color:var(--muted)">${(val/fob*100).toFixed(2)}%</td>
+            ${v?`<td style="padding:9px 10px;text-align:right;color:var(--muted)">${cv?cv.pct_anterior.toFixed(2)+'%':'—'}</td>
+                 <td style="padding:9px 10px;text-align:right;font-weight:700;color:${cv?colDelta(cv.delta_pts):'var(--muted)'}">${cv?pts(cv.delta_pts):'—'}</td>`:''}
+          </tr>`;
+        }).join('')}</tbody>
+      </table></div>
+      <div style="padding:10px 16px;font-size:11px;color:var(--muted);border-top:1px solid var(--border)">
+        IVA recuperable de esta importación: <b>${money(act.iva_recuperable)}</b> — es crédito tributario, no entra al costo.
+      </div>
+    </div>`;
+
+  // Evolución del encarecimiento por marca
+  const serie = deMarca.map(x=>({ n:x.numero, e:x.metricas.encarecimiento_pct, u:x.metricas.costo_unitario }));
+  const maxE = Math.max(...serie.map(x=>x.e), 1);
+  const evolucion = serie.length < 2 ? '' : `
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-title"><i class="ti ti-chart-line"></i> Evolución · ${escI(window._impMarca)}</div>
+      <div style="display:flex;align-items:flex-end;gap:14px;padding:10px 0 0;overflow-x:auto">
+        ${serie.map(x=>`<div style="text-align:center;min-width:70px">
+          <div style="font-size:11px;font-weight:700;color:var(--brown);margin-bottom:4px">${x.e.toFixed(1)}%</div>
+          <div style="width:100%;height:${Math.max(8, x.e/maxE*110)}px;background:${x.n===act.numero?'var(--brown)':'#dcd3c8'};border-radius:6px 6px 0 0"></div>
+          <div style="font-size:10px;color:var(--muted);margin-top:5px">Imp. ${escI(x.n)}</div>
+          <div style="font-size:10px;color:var(--muted)">$${x.u.toFixed(2)}/u</div>
+        </div>`).join('')}
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:10px">Altura = % de encarecimiento sobre el FOB. Debajo, el costo por unidad de cada embarque.</div>
+    </div>`;
+
+  const acciones = !act ? '' : `
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+      <button onclick="verDetalleImportacion(${act.id})" style="padding:8px 16px;border:1px solid var(--border);background:white;border-radius:9px;font-size:12px;cursor:pointer"><i class="ti ti-list" style="margin-right:5px"></i>Ver detalle por producto</button>
+      <button onclick="borrarImportacion(${act.id},'${escI(act.marca)} ${escI(act.numero)}')" style="padding:8px 16px;border:1px solid #fca5a5;background:white;color:#dc2626;border-radius:9px;font-size:12px;cursor:pointer"><i class="ti ti-trash" style="margin-right:5px"></i>Eliminar</button>
+    </div>`;
+
+  cont.innerHTML = subir + cabecera + tarjetas + desglose + tablaCats + evolucion + acciones + '<div id="imp-detalle"></div>';
+}
+
+async function subirLiquidacion(input){
+  const f = input.files && input.files[0];
+  if(!f) return;
+  const est = document.getElementById('imp-estado');
+  if(est) est.innerHTML = '<div class="card" style="padding:12px 16px;font-size:12px;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite;margin-right:6px"></i>Leyendo la liquidación…</div>';
+  try{
+    const fd = new FormData(); fd.append('archivo', f);
+    const r = await fetch('/api/importaciones/subir', { method:'POST', body: fd });
+    const d = await r.json();
+    if(!d.ok) throw new Error(d.error || 'error');
+    let aviso = '';
+    if(d.sin_clasificar && d.sin_clasificar.length){
+      aviso = '<div style="margin-top:6px;color:#b45309">Hay gastos que no reconocí y quedaron en “Sin clasificar”: '
+        + d.sin_clasificar.map(x=>String(x).replace(/</g,'&lt;')).join(', ') + '. Igual están sumados al costo.</div>';
+    }
+    if(est) est.innerHTML = '<div class="card" style="padding:12px 16px;font-size:12px;color:#166534;background:#f0fdf4;border:1px solid #bbf7d0">'
+      + `✓ ${d.marca} · importación ${d.numero} · ${(+d.unidades).toLocaleString('en-US')} unidades · ${d.productos} productos` + aviso + '</div>';
+    window._impMarca = d.marca; window._impId = d.id;
+    setTimeout(renderImportaciones, 900);
+  }catch(e){
+    if(est) est.innerHTML = '<div class="card" style="padding:12px 16px;font-size:12px;color:#dc2626;background:#fef2f2;border:1px solid #fca5a5">No se pudo leer: '
+      + String(e.message).replace(/</g,'&lt;') + '</div>';
+  }
+  input.value = '';
+}
+
+async function verDetalleImportacion(id){
+  const c = document.getElementById('imp-detalle');
+  if(!c) return;
+  c.innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i></div>';
+  try{
+    const r = await fetch('/api/importaciones/'+id+'/detalle');
+    const d = await r.json();
+    const esc2 = v => String(v||'').replace(/</g,'&lt;');
+    c.innerHTML = `<div class="card" style="padding:0">
+      <div style="padding:14px 16px 10px;font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1.2px">Detalle por producto · ${(d.detalle||[]).length} ítems</div>
+      <div style="overflow-x:auto;max-height:520px"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:620px">
+        <thead><tr style="background:#faf9f8;border-bottom:1px solid var(--border);position:sticky;top:0">
+          <th style="padding:8px 14px;text-align:left;font-size:10px;color:var(--muted)">Producto</th>
+          <th style="padding:8px 10px;text-align:right;font-size:10px;color:var(--muted)">Unid.</th>
+          <th style="padding:8px 10px;text-align:right;font-size:10px;color:var(--muted)">FOB unit. €</th>
+          <th style="padding:8px 10px;text-align:right;font-size:10px;color:var(--muted)">Costo unit. $</th>
+          <th style="padding:8px 10px;text-align:right;font-size:10px;color:var(--muted)">Encarece</th>
+        </tr></thead>
+        <tbody>${(d.detalle||[]).map((x,i)=>{
+          const f = (+x.fob_unit_eur) ? ((+x.costo_unit_usd)/(+x.fob_unit_eur)-1)*100 : 0;
+          return `<tr style="border-bottom:0.5px solid var(--border);background:${i%2?'#f6f3ef':'white'}">
+            <td style="padding:8px 14px"><div style="font-weight:500">${esc2(x.descripcion)}</div><div style="font-size:10px;color:var(--muted)">${esc2(x.codigo)}</div></td>
+            <td style="padding:8px 10px;text-align:right">${Math.round(+x.unidades).toLocaleString('en-US')}</td>
+            <td style="padding:8px 10px;text-align:right;color:var(--muted)">€${(+x.fob_unit_eur).toFixed(2)}</td>
+            <td style="padding:8px 10px;text-align:right;font-weight:600;color:var(--brown)">$${(+x.costo_unit_usd).toFixed(3)}</td>
+            <td style="padding:8px 10px;text-align:right;font-weight:600;color:#b45309">+${f.toFixed(0)}%</td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table></div></div>`;
+  }catch(e){ c.innerHTML = '<div class="card" style="padding:16px;color:#dc2626;font-size:12px">No se pudo cargar el detalle.</div>'; }
+}
+
+async function borrarImportacion(id, etiqueta){
+  if(!confirm('¿Eliminar la importación '+etiqueta+'? Se borra también su detalle.')) return;
+  try{
+    const r = await fetch('/api/importaciones/'+id, { method:'DELETE' });
+    const d = await r.json();
+    if(!d.ok) throw new Error(d.error||'error');
+    window._impId = undefined;
+    renderImportaciones();
+  }catch(e){ alert('No se pudo eliminar: '+e.message); }
+}
 
 function mostrarErrorReporte(tab, e){
   console.error('Reportes/'+tab+':', e);
