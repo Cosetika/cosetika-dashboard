@@ -8111,16 +8111,18 @@ function categoriaDeGasto(txt, mapa){
 // así, cuando se clasifica un nombre nuevo, TODAS las importaciones viejas que lo traían
 // se recategorizan solas, sin volver a subir nada.
 function categoriasDesdeGastos(gastos, mapa){
-  const out = {}; let iva = 0;
+  const out = {}; let iva = 0, descuento = 0;
   (gastos || []).forEach(g => {
     const cat = categoriaDeGasto(g.nombre, mapa);
     if (!cat) return;
-    if (cat === 'DESCUENTO') return;
+    if (cat === 'DESCUENTO') { descuento += (+g.total || 0); return; }
     if (cat === 'IVA' || cat === 'IVA (crédito tributario)') { iva += (+g.iva || +g.valor || 0); return; }
     iva += (+g.iva || 0);
     const monto = (+g.total || 0) || (+g.valor || 0);
     if (monto) out[cat] = (out[cat] || 0) + monto;
   });
+  // El descuento del proveedor rebaja el producto, no es un gasto aparte
+  if (descuento && out['Producto (FOB)']) out['Producto (FOB)'] = Math.max(out['Producto (FOB)'] - descuento, 0);
   return { categorias: out, iva_recuperable: Math.round(iva*100)/100 };
 }
 
@@ -8195,7 +8197,7 @@ function parsearLiquidacion(buffer, mapaAprendido, nombreArchivo){
     if (/^TOTAL/.test(t)) cols.total = j;
   });
 
-  const gastos = []; const porCat = {}; let ivaRec = 0;
+  const gastos = []; const porCat = {}; let ivaRec = 0, descuentoUsd = 0;
   if (hg >= 0) {
     for (let i = hg + 1; i < F.length; i++) {
       const nom = txt(i,0);
@@ -8207,7 +8209,7 @@ function parsearLiquidacion(buffer, mapaAprendido, nombreArchivo){
       const total = cols.total != null ? _num(F[i][cols.total]) : valor;
       const iva   = cols.iva != null ? _num(F[i][cols.iva]) : 0;
       ivaRec += iva;
-      if (cat === 'DESCUENTO') { gastos.push({ nombre:nom, categoria:'Descuento de factura', valor, total:0, iva:0 }); continue; }
+      if (cat === 'DESCUENTO') { descuentoUsd += total; gastos.push({ nombre:nom, categoria:'Descuento de factura', valor, total, iva:0 }); continue; }
       if (cat === 'IVA') { gastos.push({ nombre:nom, categoria:'IVA (crédito tributario)', valor, total:0, iva:valor }); continue; }
       const monto = total || valor;
       if (!monto) { gastos.push({ nombre:nom, categoria:cat, valor, total:0, iva }); continue; }
@@ -8228,7 +8230,7 @@ function parsearLiquidacion(buffer, mapaAprendido, nombreArchivo){
     if (t === 'COD') dc.cod = j;
     else if (t === 'CATEGORIA') dc.cat = j;
     else if (t.startsWith('DESCRIPCION')) dc.desc = j;
-    else if (/CANTIDAD(ES)? +(EN +)?UNIDADES/.test(t)) dc.uni = j;
+    else if (/CANTIDAD(ES)? +(EN +)?UNIDADES/.test(t) || t === 'UNIDADES') dc.uni = j;
     else if (t === 'COSTO FOB TOTAL') dc.fobTot = j;
     else if (t === 'COSTO NETO FOB UNITARIO' && dc.fobUni == null) dc.fobUni = j;
     else if (t === 'TRANSPORTE DEL EXTERIOR') dc.transExt = j;
@@ -8275,6 +8277,22 @@ function parsearLiquidacion(buffer, mapaAprendido, nombreArchivo){
     tot.total = detalle.reduce((a,x)=>a+x.costo_total_usd,0);
     tot.unidades = detalle.reduce((a,x)=>a+x.unidades,0);
   }
+  // El bloque de gastos es la lista completa de lo que se pagó, así que es el que fija
+  // el costo total. El detalle por producto a veces reparte solo una parte del CIF, o
+  // trae el FOB antes del descuento del proveedor, y entonces no cuadra con la realidad.
+  if (porCat['Producto (FOB)'] > 0) {
+    porCat['Producto (FOB)'] = Math.max(porCat['Producto (FOB)'] - descuentoUsd, 0);
+    const sumaCat = Object.values(porCat).reduce((a,b)=>a+b, 0);
+    if (sumaCat > 0) {
+      // El FOB en dólares del detalle puede incluir el transporte del exterior (así lo
+      // arma una contadora) o ser solo el producto (así lo arma la otra): se respeta.
+      const fobUsdDet = tot.fobUsd || porCat['Producto (FOB)'];
+      tot.total  = sumaCat;
+      tot.fobUsd = fobUsdDet;
+      tot.cif    = Math.max(sumaCat - fobUsdDet, 0);
+    }
+  }
+
   // Base del encarecimiento = lo que se paga al proveedor por el producto, nada más.
   // Hay liquidaciones donde "COSTO FOB TOTAL" viene ANTES de descuentos (y el neto está
   // en la columna FOB NETO) y otras donde el FOB NETO ya trae sumado el transporte del
