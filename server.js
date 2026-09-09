@@ -3482,6 +3482,14 @@ async function initDB() {
         costo_total_usd NUMERIC(14,2) DEFAULT 0
       );
       CREATE INDEX IF NOT EXISTS idx_impdet ON importaciones_detalle(importacion_id);
+      -- Los códigos y categorías de producto que manda la contadora a veces son largos:
+      -- ampliamos para que una liquidación no falle por el largo de un texto.
+      ALTER TABLE importaciones ALTER COLUMN marca TYPE VARCHAR(200);
+      ALTER TABLE importaciones ALTER COLUMN numero TYPE VARCHAR(120);
+      ALTER TABLE importaciones ALTER COLUMN archivo TYPE VARCHAR(500);
+      ALTER TABLE importaciones_detalle ALTER COLUMN codigo TYPE VARCHAR(200);
+      ALTER TABLE importaciones_detalle ALTER COLUMN categoria_prod TYPE VARCHAR(200);
+      ALTER TABLE importaciones_detalle ALTER COLUMN descripcion TYPE VARCHAR(1000);
 
       CREATE TABLE IF NOT EXISTS caja_saldos (
         id SERIAL PRIMARY KEY,
@@ -8075,13 +8083,41 @@ const CATEGORIAS_IMPO = [
   ['Transporte interno',    /FLETE INTERNO|TRANSPORTE INTERNO|TRANSPORTE LOCAL/]
 ];
 
-function categoriaDeGasto(txt){
-  const t = String(txt||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase().trim();
+const NOMBRES_CATEGORIA_IMPO = CATEGORIAS_IMPO.map(x => x[0]);
+
+// Clave con la que se recuerda un nombre de gasto: sin tildes, en mayúsculas y sin
+// espacios de más. Así "Flete Interno " y "FLETE  INTERNO" son el mismo nombre.
+function claveGasto(txt){
+  return String(txt||'').normalize('NFD').replace(/[̀-ͯ]/g,'')
+    .toUpperCase().replace(/\s+/g,' ').trim();
+}
+
+// mapa = nombres que el usuario ya clasificó a mano. Manda sobre las reglas automáticas,
+// porque él sabe mejor que un patrón qué es cada gasto de su contadora.
+function categoriaDeGasto(txt, mapa){
+  const t = claveGasto(txt);
   if (!t) return null;
   if (/^TOTAL/.test(t)) return null;                       // fila de totales, no es gasto
-  if (/IVA/.test(t) && /IMPORTACION|IMPORTACIÓN/.test(t)) return 'IVA';  // crédito tributario
+  if (mapa && mapa[t]) return mapa[t];
+  if (/IVA/.test(t) && /IMPORTACION/.test(t)) return 'IVA';  // crédito tributario
   for (const [nombre, re] of CATEGORIAS_IMPO) if (re.test(t)) return nombre;
   return 'Sin clasificar';
+}
+
+// Recalcula el desglose desde las líneas originales. Se hace en cada lectura, no al subir:
+// así, cuando se clasifica un nombre nuevo, TODAS las importaciones viejas que lo traían
+// se recategorizan solas, sin volver a subir nada.
+function categoriasDesdeGastos(gastos, mapa){
+  const out = {}; let iva = 0;
+  (gastos || []).forEach(g => {
+    const cat = categoriaDeGasto(g.nombre, mapa);
+    if (!cat) return;
+    if (cat === 'IVA' || cat === 'IVA (crédito tributario)') { iva += (+g.iva || +g.valor || 0); return; }
+    iva += (+g.iva || 0);
+    const monto = (+g.total || 0) || (+g.valor || 0);
+    if (monto) out[cat] = (out[cat] || 0) + monto;
+  });
+  return { categorias: out, iva_recuperable: Math.round(iva*100)/100 };
 }
 
 const _num = v => {
@@ -8090,7 +8126,7 @@ const _num = v => {
   return isNaN(n) ? 0 : n;
 };
 
-function parsearLiquidacion(buffer){
+function parsearLiquidacion(buffer, mapaAprendido){
   const wb = XLSX.read(buffer, { type:'buffer', cellDates:true });
   const ws = wb.Sheets[wb.SheetNames[0]];
   const F = XLSX.utils.sheet_to_json(ws, { header:1, defval:null, raw:true });
@@ -8129,7 +8165,7 @@ function parsearLiquidacion(buffer){
       const nom = txt(i,0);
       if (!nom) { if (gastos.length) break; else continue; }
       if (/^TOTAL/i.test(nom.normalize('NFD').replace(/[̀-ͯ]/g,''))) break;
-      const cat = categoriaDeGasto(nom);
+      const cat = categoriaDeGasto(nom, mapaAprendido);
       if (!cat) continue;
       const valor = _num(F[i][cols.valor]);
       const total = cols.total != null ? _num(F[i][cols.total]) : valor;
@@ -8273,13 +8309,47 @@ function metricasImportacion(r){
 
   // GET /api/cartera-asignada[?asesora=Nombre]
   // ─── IMPORTACIONES: subir, listar, borrar ─────────────────────────────────────
+  async function mapaCatImpo(){
+    try { const raw = await getConfigApp('categorias_importacion', null); return raw ? JSON.parse(raw) : {}; }
+    catch(e) { return {}; }
+  }
+
+  // Nombres de gasto que el usuario ya clasificó a mano
+  if (urlPath === '/api/importaciones/categorias' && req.method === 'GET') {
+    if (bloquearSiNoAdmin(req, res)) return;
+    try {
+      const mapa = await mapaCatImpo();
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:true, mapa, categorias: NOMBRES_CATEGORIA_IMPO }));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
+  if (urlPath === '/api/importaciones/categorias' && req.method === 'POST') {
+    if (bloquearSiNoAdmin(req, res)) return;
+    try {
+      const { nombre, categoria } = await bodyJSON(req);
+      const k = claveGasto(nombre);
+      if (!k) throw new Error('Falta el nombre del gasto');
+      const mapa = await mapaCatImpo();
+      if (categoria && categoria !== '') {
+        if (!NOMBRES_CATEGORIA_IMPO.includes(categoria) && categoria !== 'IVA')
+          throw new Error('Categoría desconocida: ' + categoria);
+        mapa[k] = categoria;
+      } else delete mapa[k];
+      await setConfigApp('categorias_importacion', JSON.stringify(mapa));
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ ok:true, mapa }));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
   if (urlPath === '/api/importaciones/subir' && req.method === 'POST') {
     if (bloquearSiNoAdmin(req, res)) return;
     try {
       const buf = await bodyBuffer(req);
       const archivo = parseMultipartFile(buf, req.headers['content-type']);
       if (!archivo) throw new Error('No llegó ningún archivo');
-      const p = parsearLiquidacion(archivo.buffer);
+      const p = parsearLiquidacion(archivo.buffer, await mapaCatImpo());
       const c = p.cabecera;
       if (!c.marca)  throw new Error('El Excel no trae la marca (fila "MARCA")');
       if (!c.numero) throw new Error('El Excel no trae el número de liquidación');
@@ -8295,11 +8365,11 @@ function metricasImportacion(r){
            cif_usd=$9, total_usd=$10, iva_recuperable=$11, categorias=$12, gastos=$13,
            archivo=$14, subido_at=NOW()
          RETURNING id`,
-        [c.marca, String(c.numero), c.fecha, c.unidades,
+        [String(c.marca).trim().substring(0,200), String(c.numero).trim().substring(0,120), c.fecha, c.unidades,
          p.totales.fob, p.totales.transExt, p.totales.fobNeto, p.totales.fobUsd,
          p.totales.cif, p.totales.total, p.iva_recuperable,
          JSON.stringify(p.categorias), JSON.stringify(p.gastos),
-         String(archivo.filename||'').substring(0,200)]);
+         String(archivo.filename||'').substring(0,500)]);
       const id = r.rows[0].id;
 
       // El detalle se reemplaza entero: volver a subir el mismo archivo corrige, no duplica
@@ -8310,7 +8380,9 @@ function metricasImportacion(r){
         lote.forEach((d, j) => {
           const b = j * 8;
           vals.push(`($${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6},$${b+7},$${b+8})`);
-          par.push(id, d.codigo, d.categoria, d.descripcion, d.unidades, d.fob_unit_eur, d.costo_unit_usd, d.costo_total_usd);
+          const _t = (v,n) => String(v==null?'':v).trim().substring(0,n);
+          par.push(id, _t(d.codigo,200), _t(d.categoria,200), _t(d.descripcion,1000),
+                   d.unidades, d.fob_unit_eur, d.costo_unit_usd, d.costo_total_usd);
         });
         await pool.query(`INSERT INTO importaciones_detalle
           (importacion_id, codigo, categoria_prod, descripcion, unidades, fob_unit_eur, costo_unit_usd, costo_total_usd)
@@ -8328,7 +8400,20 @@ function metricasImportacion(r){
     if (bloquearSiNoAdmin(req, res)) return;
     try {
       const r = await pool.query('SELECT * FROM importaciones ORDER BY marca, fecha NULLS LAST, id');
-      const lista = r.rows.map(x => Object.assign({}, x, { metricas: metricasImportacion(x) }));
+      const mapa = await mapaCatImpo();
+      const lista = r.rows.map(x => {
+        // Se recalcula desde las líneas originales: clasificar un nombre nuevo arregla
+        // también las importaciones viejas, sin volver a subir ningún archivo.
+        const rec = categoriasDesdeGastos(x.gastos, mapa);
+        const fila = Object.assign({}, x);
+        if ((x.gastos||[]).length) { fila.categorias = rec.categorias; fila.iva_recuperable = rec.iva_recuperable; }
+        fila.metricas = metricasImportacion(fila);
+        // Nombres que siguen sin reconocerse, para poder clasificarlos desde el panel
+        fila.sin_clasificar = (x.gastos||[])
+          .filter(g => categoriaDeGasto(g.nombre, mapa) === 'Sin clasificar')
+          .map(g => ({ nombre: g.nombre, monto: (+g.total||0)||(+g.valor||0) }));
+        return fila;
+      });
       // Cada importación se compara con la anterior de SU marca
       const porMarca = {};
       lista.forEach(x => { (porMarca[x.marca] = porMarca[x.marca] || []).push(x); });
