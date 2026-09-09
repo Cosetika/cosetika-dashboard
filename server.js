@@ -8074,7 +8074,7 @@ const server = http.createServer(async (req, res) => {
 // y se muestra en pantalla, porque un gasto perdido en silencio desvía el costo real.
 const CATEGORIAS_IMPO = [
   ['Producto (FOB)',        /PRODUCTO.*FOB|^FOB/],
-  ['Flete internacional',   /TRANSPORTE Y EMBALAJE|EMBALAJE EXTERIOR|^BL$|FLETE INTERNACIONAL|MARITIMO|MARÍTIMO/],
+  ['Flete internacional',   /TRANSPORTE Y EMBALAJE|EMBALAJE EXTERIOR|^BL$|FLETE INTERNACIONAL|FLETE AEREO|AEREO INTERNACIONAL|MARITIMO|MARÍTIMO/],
   ['Tributos aduaneros',    /ADVALOREM|AD VALOREM|FODINFA|ARANCEL|SALVAGUARDIA/],
   ['Impuestos financieros', /SALIDA DE DIVISAS|\bISD\b|SERVICIOS FINANCIEROS|BANCARIO/],
   ['Seguro',                /POLIZA|PÓLIZA|SEGURO/],
@@ -8098,6 +8098,9 @@ function categoriaDeGasto(txt, mapa){
   const t = claveGasto(txt);
   if (!t) return null;
   if (/^TOTAL/.test(t)) return null;                       // fila de totales, no es gasto
+  // Descuentos y compensaciones del proveedor: NO son un costo. El FOB en dólares que
+  // trae la liquidación ya viene neto de ellos, así que contarlos sumaría dos veces.
+  if (/DESCUENTO|COMPENSACION|NOTA DE CREDITO/.test(t)) return 'DESCUENTO';
   if (mapa && mapa[t]) return mapa[t];
   if (/IVA/.test(t) && /IMPORTACION/.test(t)) return 'IVA';  // crédito tributario
   for (const [nombre, re] of CATEGORIAS_IMPO) if (re.test(t)) return nombre;
@@ -8112,6 +8115,7 @@ function categoriasDesdeGastos(gastos, mapa){
   (gastos || []).forEach(g => {
     const cat = categoriaDeGasto(g.nombre, mapa);
     if (!cat) return;
+    if (cat === 'DESCUENTO') return;
     if (cat === 'IVA' || cat === 'IVA (crédito tributario)') { iva += (+g.iva || +g.valor || 0); return; }
     iva += (+g.iva || 0);
     const monto = (+g.total || 0) || (+g.valor || 0);
@@ -8158,7 +8162,7 @@ function parsearLiquidacion(buffer, mapaAprendido, nombreArchivo){
       }
       else if (/^MA+RCA$|^MA+RCAS$|^MARCA DEL PRODUCTO$|^PROVEEDOR$/.test(et) && !cab.marca)
         cab.marca = String(val).trim();
-      else if (/UNIDADES IMPORTADAS|^TOTAL UNIDADES$|^UNIDADES$/.test(et) && !cab.unidades)
+      else if (/UNIDADES IMPORTADAS|CANTIDAD(ES)? (DE )?UNIDADES|^TOTAL UNIDADES$|^UNIDADES$/.test(et) && !cab.unidades)
         cab.unidades = Math.round(_num(val));
     }
   }
@@ -8203,6 +8207,7 @@ function parsearLiquidacion(buffer, mapaAprendido, nombreArchivo){
       const total = cols.total != null ? _num(F[i][cols.total]) : valor;
       const iva   = cols.iva != null ? _num(F[i][cols.iva]) : 0;
       ivaRec += iva;
+      if (cat === 'DESCUENTO') { gastos.push({ nombre:nom, categoria:'Descuento de factura', valor, total:0, iva:0 }); continue; }
       if (cat === 'IVA') { gastos.push({ nombre:nom, categoria:'IVA (crédito tributario)', valor, total:0, iva:valor }); continue; }
       const monto = total || valor;
       if (!monto) { gastos.push({ nombre:nom, categoria:cat, valor, total:0, iva }); continue; }
@@ -8223,7 +8228,7 @@ function parsearLiquidacion(buffer, mapaAprendido, nombreArchivo){
     if (t === 'COD') dc.cod = j;
     else if (t === 'CATEGORIA') dc.cat = j;
     else if (t.startsWith('DESCRIPCION')) dc.desc = j;
-    else if (t.includes('CANTIDAD EN UNIDADES')) dc.uni = j;
+    else if (/CANTIDAD(ES)? +(EN +)?UNIDADES/.test(t)) dc.uni = j;
     else if (t === 'COSTO FOB TOTAL') dc.fobTot = j;
     else if (t === 'COSTO NETO FOB UNITARIO' && dc.fobUni == null) dc.fobUni = j;
     else if (t === 'TRANSPORTE DEL EXTERIOR') dc.transExt = j;
@@ -8255,9 +8260,13 @@ function parsearLiquidacion(buffer, mapaAprendido, nombreArchivo){
       // T9792 / T9795: transporte y seguro repartidos, no son producto
       if (/^T\d/i.test(cod)) continue;
       if (!uni) continue;
+      // El unitario se calcula, no se lee: en algunas liquidaciones la columna
+      // "COSTO UNITARIO" viene por caja y no por unidad, y el costo salía multiplicado.
+      const totRow = _num(F[i][dc.totUsd]);
+      const fobRow = _num(F[i][dc.fobNeto]) || _num(F[i][dc.fobTot]);
       detalle.push({ codigo: cod || txt(i, dc.cat), categoria:txt(i, dc.cat), descripcion:desc.substring(0,300),
-        unidades:uni, fob_unit_eur:_num(F[i][dc.fobUni]),
-        costo_unit_usd:_num(F[i][dc.totUni]), costo_total_usd:_num(F[i][dc.totUsd]) });
+        unidades:uni, fob_unit_eur: uni ? fobRow/uni : 0,
+        costo_unit_usd: uni ? totRow/uni : 0, costo_total_usd: totRow });
     }
   }
   // Si la fila de totales no venía, se suma el detalle
@@ -8266,6 +8275,12 @@ function parsearLiquidacion(buffer, mapaAprendido, nombreArchivo){
     tot.total = detalle.reduce((a,x)=>a+x.costo_total_usd,0);
     tot.unidades = detalle.reduce((a,x)=>a+x.unidades,0);
   }
+  // Base del encarecimiento = lo que se paga al proveedor por el producto, nada más.
+  // Hay liquidaciones donde "COSTO FOB TOTAL" viene ANTES de descuentos (y el neto está
+  // en la columna FOB NETO) y otras donde el FOB NETO ya trae sumado el transporte del
+  // exterior. Restándole el transporte al neto se llega al mismo número en los dos casos.
+  if (tot.fobNeto > 0) tot.fob = Math.max(tot.fobNeto - tot.transExt, 0);
+
   if (!cab.unidades) cab.unidades = Math.round(tot.unidades);
 
   return { cabecera:cab, gastos, categorias:porCat, iva_recuperable:Math.round(ivaRec*100)/100, totales:tot, detalle };
