@@ -8074,12 +8074,12 @@ const server = http.createServer(async (req, res) => {
 // y se muestra en pantalla, porque un gasto perdido en silencio desvía el costo real.
 const CATEGORIAS_IMPO = [
   ['Producto (FOB)',        /PRODUCTO.*FOB|^FOB/],
-  ['Flete internacional',   /TRANSPORTE Y EMBALAJE|EMBALAJE EXTERIOR|^BL$|FLETE INTERNACIONAL|FLETE AEREO|AEREO INTERNACIONAL|MARITIMO|MARÍTIMO/],
+  ['Flete internacional',   /TRANSPORTE Y EMBALAJE|EMBALAJE EXTERIOR|^BL$|FLETE INTERNACIONAL|FLETE AEREO|AEREO INTERNACIONAL|GASTOS EN ORIGEN|MARITIMO|MARÍTIMO/],
   ['Tributos aduaneros',    /ADVALOREM|AD VALOREM|FODINFA|ARANCEL|SALVAGUARDIA/],
   ['Impuestos financieros', /SALIDA DE DIVISAS|\bISD\b|SERVICIOS FINANCIEROS|BANCARIO/],
   ['Seguro',                /POLIZA|PÓLIZA|SEGURO/],
-  ['Agenciamiento y aduana',/AGENDAMIENTO|AGENCIAMIENTO|BODEGAJE|DESCONSOLIDACION|DESCONSOLIDACIÓN|ADUANA/],
-  ['Gastos portuarios',     /PORTUARIO|OPERATIVO|ADMINISTRACION|ADMINISTRACIÓN|RECARGO|NAVIERA/],
+  ['Agenciamiento y aduana',/AGENDAMIENTO|AGENCIAMIENTO|BODEGAJE|DESCONSOLIDACION|DESCONSOLIDACIÓN|ADUANA|NACIONALIZACION|NACIONALIZACIÓN/],
+  ['Gastos portuarios',     /PORTUARIO|OPERATIVO|ADMINISTRACION|ADMINISTRACIÓN|RECARGO|NAVIERA|MANEJO DE CARGA|GASTOS LOCALES|COLLECT FEE/],
   ['Transporte interno',    /FLETE INTERNO|TRANSPORTE INTERNO|TRANSPORTE LOCAL/]
 ];
 
@@ -8199,6 +8199,7 @@ function parsearLiquidacion(buffer, mapaAprendido, nombreArchivo){
   });
 
   const gastos = []; const porCat = {}; let ivaRec = 0, descuentoUsd = 0, tcDeclarado = 0;
+  let productoEur = 0, descuentoEur = 0; const lineasDesc = [];
   if (hg >= 0) {
     for (let i = hg + 1; i < F.length; i++) {
       const nom = txt(i,0);
@@ -8207,17 +8208,44 @@ function parsearLiquidacion(buffer, mapaAprendido, nombreArchivo){
       const cat = categoriaDeGasto(nom, mapaAprendido);
       if (!cat) continue;
       // La contadora escribe el tipo de cambio junto a la línea del producto
-      if (cat === 'Producto (FOB)' && cols.tc != null && !tcDeclarado) tcDeclarado = _num(F[i][cols.tc]);
+      if (cat === 'Producto (FOB)') {
+        if (cols.tc != null && !tcDeclarado) tcDeclarado = _num(F[i][cols.tc]);
+        productoEur += _num(F[i][cols.valor]);
+      }
       const valor = _num(F[i][cols.valor]);
       const total = cols.total != null ? _num(F[i][cols.total]) : valor;
       const iva   = cols.iva != null ? _num(F[i][cols.iva]) : 0;
       ivaRec += iva;
-      if (cat === 'DESCUENTO') { descuentoUsd += total; gastos.push({ nombre:nom, categoria:'Descuento de factura', valor, total, iva:0 }); continue; }
+      if (cat === 'DESCUENTO') {
+        descuentoEur += valor; descuentoUsd += total;
+        const ln = { nombre:nom, categoria:'Descuento de factura', valor, total, iva:0 };
+        lineasDesc.push(ln); gastos.push(ln); continue;
+      }
       if (cat === 'IVA') { gastos.push({ nombre:nom, categoria:'IVA (crédito tributario)', valor, total:0, iva:valor }); continue; }
       const monto = total || valor;
       if (!monto) { gastos.push({ nombre:nom, categoria:cat, valor, total:0, iva }); continue; }
       porCat[cat] = (porCat[cat] || 0) + monto;
       gastos.push({ nombre:nom, categoria:cat, valor, total:monto, iva });
+    }
+  }
+
+  // ¿La línea del producto ya viene neta del descuento, o hay que restárselo?
+  // No hay forma de saberlo por el nombre: en unas liquidaciones el producto está neto y
+  // en otras bruto. Lo resuelve la propia fila TOTAL del bloque de gastos: si el total
+  // SUMA producto + descuento, el producto venía neto; si los RESTA, venía bruto.
+  if (descuentoEur > 0 && productoEur > 0 && hg >= 0) {
+    let totalDeclarado = 0;
+    for (let i = hg + 1; i < Math.min(F.length, hg + 60); i++) {
+      const nm = claveGasto(txt(i,0));
+      if (/^TOTAL/.test(nm)) { totalDeclarado = _num(F[i][cols.valor]); break; }
+    }
+    if (totalDeclarado > 0) {
+      const dSuma  = Math.abs(totalDeclarado - (productoEur + descuentoEur));
+      const dResta = Math.abs(totalDeclarado - (productoEur - descuentoEur));
+      if (dSuma <= dResta) {                       // el producto ya estaba neto
+        descuentoUsd = 0;
+        lineasDesc.forEach(ln => { ln.total = 0; });  // así tampoco se resta al releer
+      }
     }
   }
 
