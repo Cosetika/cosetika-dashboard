@@ -4370,8 +4370,14 @@ async function cargarData(){
 
     initVendedoras();
     mostrarVentasHoy();
-    // Si sigue en Pedidos, repintar ahora que hay datos completos (montos, asesora, etc.)
-    if(subtabActual === 'facturas' && (window._docTab||'pedidos') === 'pedidos'){ try{ renderFacturasHoy(); }catch(e){} }
+    // Si sigue en Pedidos, repintar ahora que hay datos completos (montos, asesora, etc.).
+    // Se comprueba contra el DOM, no contra `subtabActual`: esa variable se queda en
+    // 'facturas' al navegar a Reportes u otro panel, y como renderFacturasHoy() reescribe
+    // #main entero, al terminar de bajar data.json (unos segundos) sacaba al usuario de
+    // donde estuviera y lo devolvía a Inicio → Pedidos.
+    if(document.getElementById('doc-tab-content') && (window._docTab||'pedidos') === 'pedidos'){
+      try{ renderFacturasHoy(); }catch(e){}
+    }
 
     // Resolver el nombre real de la asesora dentro de DATA (puede diferir del
     // nombre guardado en la tabla usuarios, ej. sin segundo apellido) y guardarlo
