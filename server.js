@@ -8126,24 +8126,56 @@ const _num = v => {
   return isNaN(n) ? 0 : n;
 };
 
-function parsearLiquidacion(buffer, mapaAprendido){
+function parsearLiquidacion(buffer, mapaAprendido, nombreArchivo){
   const wb = XLSX.read(buffer, { type:'buffer', cellDates:true });
   const ws = wb.Sheets[wb.SheetNames[0]];
   const F = XLSX.utils.sheet_to_json(ws, { header:1, defval:null, raw:true });
   const txt = (r,c) => String((F[r] && F[r][c]) != null ? F[r][c] : '').trim();
 
-  // ── Cabecera: se busca por etiqueta, no por fila fija ──
+  // ── Cabecera: se busca por etiqueta en CUALQUIER columna de las primeras filas ──
+  // Cada contadora arma el encabezado a su manera (a veces la etiqueta no está en la
+  // columna A, a veces el valor está dos celdas más allá), así que se rastrea todo.
+  const norm = t => String(t==null?'':t).normalize('NFD').replace(/[̀-ͯ]/g,'')
+                     .toUpperCase().replace(/\s+/g,' ').trim();
   const cab = { marca:'', numero:'', fecha:null, unidades:0 };
-  for (let i = 0; i < Math.min(20, F.length); i++) {
-    const et = txt(i,0).normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase();
-    const val = (F[i]||[]).slice(1).find(v => v !== null && String(v).trim() !== '');
-    if (/LIQUIDACION DE IMPORTACION/.test(et) && val != null) cab.numero = String(val).trim();
-    else if (/FECHA DE LIQUIDACION/.test(et) && val != null) {
-      const d = (val instanceof Date) ? val : new Date(String(val));
-      if (!isNaN(d)) cab.fecha = d.toISOString().substring(0,10);
+  const filasCab = Math.min(40, F.length);
+  for (let i = 0; i < filasCab; i++) {
+    const fila = F[i] || [];
+    for (let j = 0; j < fila.length; j++) {
+      const et = norm(fila[j]).replace(/[:.]+$/,'');
+      if (!et) continue;
+      // valor = primera celda no vacía a la derecha de la etiqueta
+      let val = null;
+      for (let k = j + 1; k < fila.length; k++) {
+        if (fila[k] !== null && String(fila[k]).trim() !== '') { val = fila[k]; break; }
+      }
+      if (val == null) continue;
+      if (/LIQUIDACION DE IMPORTACION|^N.? ?LIQUIDACION|^LIQUIDACION$|IMPORTACION N/.test(et) && !cab.numero)
+        cab.numero = String(val).trim();
+      else if (/FECHA DE LIQUIDACION|^FECHA$/.test(et) && !cab.fecha) {
+        const d = (val instanceof Date) ? val : new Date(String(val));
+        if (!isNaN(d)) cab.fecha = d.toISOString().substring(0,10);
+      }
+      else if (/^MA+RCA$|^MA+RCAS$|^MARCA DEL PRODUCTO$|^PROVEEDOR$/.test(et) && !cab.marca)
+        cab.marca = String(val).trim();
+      else if (/UNIDADES IMPORTADAS|^TOTAL UNIDADES$|^UNIDADES$/.test(et) && !cab.unidades)
+        cab.unidades = Math.round(_num(val));
     }
-    else if (/^MA+RCA/.test(et) && val != null) cab.marca = String(val).trim();
-    else if (/UNIDADES IMPORTADAS/.test(et) && val != null) cab.unidades = Math.round(_num(val));
+  }
+  // Respaldo: si no vino la etiqueta MARCA, se busca el nombre de una marca conocida
+  // en el encabezado o, en último caso, en el nombre del archivo (lo pone quien sube).
+  if (!cab.marca) {
+    const conocidas = ['ERAYBA','ZIAJA PRO','ZIAJA','BIOSKIN','ZENACTIVE'];
+    let enc = '';
+    for (let i = 0; i < filasCab; i++) enc += ' ' + (F[i]||[]).map(norm).join(' ');
+    enc += ' ' + norm(nombreArchivo || '');
+    const hit = conocidas.find(m => enc.includes(m));
+    if (hit) cab.marca = hit === 'ZIAJA PRO' ? 'ZIAJA PRO' : hit;
+  }
+  // Respaldo del número: del nombre del archivo (ej. "LIQUIDACION I8 IMPORTACION ...")
+  if (!cab.numero && nombreArchivo) {
+    const m = norm(nombreArchivo).match(/\b([A-Z]?\d{1,4}[A-Z]?)\b/);
+    if (m) cab.numero = m[1];
   }
 
   // ── Bloque de gastos: desde la fila de encabezados hasta TOTAL IMPORTACION ──
@@ -8349,9 +8381,14 @@ function metricasImportacion(r){
       const buf = await bodyBuffer(req);
       const archivo = parseMultipartFile(buf, req.headers['content-type']);
       if (!archivo) throw new Error('No llegó ningún archivo');
-      const p = parsearLiquidacion(archivo.buffer, await mapaCatImpo());
+      const p = parsearLiquidacion(archivo.buffer, await mapaCatImpo(), archivo.filename);
       const c = p.cabecera;
-      if (!c.marca)  throw new Error('El Excel no trae la marca (fila "MARCA")');
+      // La marca y el número se pueden forzar desde el panel cuando el Excel no los trae
+      const qMarca  = urlObj.searchParams.get('marca');
+      const qNumero = urlObj.searchParams.get('numero');
+      if (qMarca)  c.marca  = qMarca.trim();
+      if (qNumero) c.numero = qNumero.trim();
+      if (!c.marca)  throw new Error('FALTA_MARCA');
       if (!c.numero) throw new Error('El Excel no trae el número de liquidación');
       if (!p.totales.total) throw new Error('No se encontró el bloque de detalle con los costos');
 

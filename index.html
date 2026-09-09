@@ -12590,9 +12590,17 @@ async function subirLiquidacion(input){
   try{
     // El lector del servidor busca la parte llamada "file": con otro nombre no la encuentra
     const fd = new FormData(); fd.append('file', f, f.name);
-    const r = await fetch('/api/importaciones/subir', { method:'POST', body: fd });
-    const d = await r.json();
-    if(!d.ok) throw new Error(d.error || 'error');
+    let r = await fetch('/api/importaciones/subir', { method:'POST', body: fd });
+    let d = await r.json();
+    // Si el Excel no trae la fila MARCA, se pregunta y se reintenta forzándola
+    if(!d.ok && d.error === 'FALTA_MARCA'){
+      const m = prompt('Este Excel no trae la fila "MARCA". ¿De qué marca es esta importación?', 'ERAYBA');
+      if(!m || !m.trim()){ if(est) est.innerHTML=''; input.value=''; return; }
+      const fd2 = new FormData(); fd2.append('file', f, f.name);
+      r = await fetch('/api/importaciones/subir?marca=' + encodeURIComponent(m.trim()), { method:'POST', body: fd2 });
+      d = await r.json();
+    }
+    if(!d.ok) throw new Error(d.error === 'FALTA_MARCA' ? 'El Excel no trae la marca' : (d.error || 'error'));
     let aviso = '';
     if(d.sin_clasificar && d.sin_clasificar.length){
       aviso = '<div style="margin-top:6px;color:#b45309">Hay gastos que no reconocí y quedaron en “Sin clasificar”: '
