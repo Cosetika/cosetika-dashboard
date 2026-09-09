@@ -8317,6 +8317,43 @@ function parsearLiquidacion(buffer, mapaAprendido, nombreArchivo){
 }
 
 // Métricas de una importación ya guardada
+// Tipo de cambio de la liquidación: el producto en dólares dividido para el mismo
+// producto en euros, tal como los escribió la contadora en la línea "PRODUCTOS FOB".
+// Sirve gross o net, porque las dos columnas están en la misma base.
+function tcDeLosGastos(gastos, mapa){
+  for (const g of (gastos || [])) {
+    if (categoriaDeGasto(g.nombre, mapa) !== 'Producto (FOB)') continue;
+    const usd = +g.total || 0, eur = +g.valor || 0;
+    if (usd > 0 && eur > 0) return usd / eur;
+  }
+  return 0;
+}
+
+// Recalcula las bases de una importación ya guardada a partir de sus líneas originales.
+// Se corre en cada lectura: así una corrección del criterio arregla también lo que ya
+// estaba cargado, sin tener que volver a subir los Excel.
+function rebasarImportacion(fila, mapa){
+  const g = fila.gastos || [];
+  if (!g.length) return;
+  const cats = fila.categorias || {};
+  const prod = +cats['Producto (FOB)'] || 0;
+  const total = Object.values(cats).reduce((a,b) => a + (+b || 0), 0);
+  if (total > 0) fila.total_usd = total;
+  const tc = tcDeLosGastos(g, mapa);
+  if (tc > 0 && prod > 0) {
+    fila.fob_eur = prod / tc;
+    fila.fob_neto_eur = fila.fob_eur + (parseFloat(fila.flete_ext_eur) || 0);
+  }
+  // El FOB en dólares se deriva del mismo tipo de cambio, no de la columna del detalle:
+  // esa columna difiere entre liquidaciones y hacía que el "tipo de cambio implícito"
+  // saliera disparatado (1.91 USD por euro) y que los tramos no sumaran el total.
+  const fobUsd = (tc > 0 && fila.fob_neto_eur > 0)
+    ? fila.fob_neto_eur * tc
+    : (parseFloat(fila.fob_neto_usd) || prod);
+  fila.fob_neto_usd = fobUsd;
+  fila.cif_usd = Math.max((+fila.total_usd || 0) - fobUsd, 0);
+}
+
 function metricasImportacion(r){
   const fob = parseFloat(r.fob_eur) || 0, total = parseFloat(r.total_usd) || 0;
   const fobNeto = parseFloat(r.fob_neto_eur) || 0, fobUsd = parseFloat(r.fob_neto_usd) || 0;
@@ -8495,6 +8532,7 @@ function metricasImportacion(r){
         const rec = categoriasDesdeGastos(x.gastos, mapa);
         const fila = Object.assign({}, x);
         if ((x.gastos||[]).length) { fila.categorias = rec.categorias; fila.iva_recuperable = rec.iva_recuperable; }
+        rebasarImportacion(fila, mapa);
         fila.metricas = metricasImportacion(fila);
         // Nombres que siguen sin reconocerse, para poder clasificarlos desde el panel
         fila.sin_clasificar = (x.gastos||[])
