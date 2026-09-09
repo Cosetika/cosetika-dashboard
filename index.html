@@ -12390,8 +12390,12 @@ async function renderImportaciones(){
   const cont = document.getElementById('reportes-content');
   if(!cont) return;
   cont.innerHTML = '<div style="padding:30px;text-align:center;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:22px"></i></div>';
-  let d = null;
-  try{ const r = await fetch('/api/importaciones'); d = await r.json(); }catch(e){}
+  let d = null, cfgCat = null;
+  try{
+    const [r1, r2] = await Promise.all([fetch('/api/importaciones'), fetch('/api/importaciones/categorias')]);
+    d = await r1.json(); cfgCat = await r2.json();
+  }catch(e){}
+  window._impCats = (cfgCat && cfgCat.ok) ? cfgCat.categorias : [];
   if(!d || !d.ok){ cont.innerHTML = '<div class="card" style="padding:18px;font-size:13px;color:var(--muted)">No se pudo cargar. Revisa que hayas iniciado sesión.</div>'; return; }
 
   const L = d.importaciones || [];
@@ -12530,13 +12534,37 @@ async function renderImportaciones(){
       <div style="font-size:11px;color:var(--muted);margin-top:10px">Altura = % de encarecimiento sobre el FOB. Debajo, el costo por unidad de cada embarque.</div>
     </div>`;
 
+  // Gastos que el parser no reconoció: se clasifican aquí una sola vez y quedan aprendidos
+  const pend = (act && act.sin_clasificar) ? act.sin_clasificar : [];
+  const aprender = !pend.length ? '' : `
+    <div class="card" style="margin-bottom:12px;border-left:3px solid #d97706">
+      <div class="card-title" style="color:#b45309"><i class="ti ti-help-circle"></i> Gastos que no reconocí</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:12px;line-height:1.55">
+        Están sumados al costo, no se perdió nada. Dime a qué categoría pertenece cada uno y lo recuerdo para siempre:
+        la próxima liquidación que traiga ese nombre lo clasifica sola, y las importaciones anteriores que lo tenían se corrigen también.
+      </div>
+      ${pend.map(g=>`
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 0;border-top:1px solid var(--border)">
+          <div style="flex:1;min-width:200px">
+            <div style="font-size:12px;font-weight:600">${escI(g.nombre)}</div>
+            <div style="font-size:10px;color:var(--muted)">${money(g.monto)}</div>
+          </div>
+          <select onchange="aprenderCategoriaGasto('${escI(g.nombre)}', this.value)"
+            style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:white;cursor:pointer;min-width:200px">
+            <option value="">— ¿Qué tipo de gasto es? —</option>
+            ${(window._impCats||[]).map(c=>`<option value="${escI(c)}">${escI(c)}</option>`).join('')}
+            <option value="IVA">IVA (crédito tributario, no es costo)</option>
+          </select>
+        </div>`).join('')}
+    </div>`;
+
   const acciones = !act ? '' : `
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
       <button onclick="verDetalleImportacion(${act.id})" style="padding:8px 16px;border:1px solid var(--border);background:white;border-radius:9px;font-size:12px;cursor:pointer"><i class="ti ti-list" style="margin-right:5px"></i>Ver detalle por producto</button>
       <button onclick="borrarImportacion(${act.id},'${escI(act.marca)} ${escI(act.numero)}')" style="padding:8px 16px;border:1px solid #fca5a5;background:white;color:#dc2626;border-radius:9px;font-size:12px;cursor:pointer"><i class="ti ti-trash" style="margin-right:5px"></i>Eliminar</button>
     </div>`;
 
-  cont.innerHTML = subir + cabecera + tarjetas + desglose + tablaCats + evolucion + acciones + '<div id="imp-detalle"></div>';
+  cont.innerHTML = subir + cabecera + aprender + tarjetas + desglose + tablaCats + evolucion + acciones + '<div id="imp-detalle"></div>';
 }
 
 async function subirLiquidacion(input){
@@ -12545,7 +12573,8 @@ async function subirLiquidacion(input){
   const est = document.getElementById('imp-estado');
   if(est) est.innerHTML = '<div class="card" style="padding:12px 16px;font-size:12px;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite;margin-right:6px"></i>Leyendo la liquidación…</div>';
   try{
-    const fd = new FormData(); fd.append('archivo', f);
+    // El lector del servidor busca la parte llamada "file": con otro nombre no la encuentra
+    const fd = new FormData(); fd.append('file', f, f.name);
     const r = await fetch('/api/importaciones/subir', { method:'POST', body: fd });
     const d = await r.json();
     if(!d.ok) throw new Error(d.error || 'error');
@@ -12563,6 +12592,21 @@ async function subirLiquidacion(input){
       + String(e.message).replace(/</g,'&lt;') + '</div>';
   }
   input.value = '';
+}
+
+// Enseña a la app a qué categoría pertenece un nombre de gasto. Queda guardado y se
+// aplica hacia atrás: todas las importaciones que traían ese nombre se recategorizan.
+async function aprenderCategoriaGasto(nombre, categoria){
+  if(!categoria) return;
+  try{
+    const r = await fetch('/api/importaciones/categorias', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ nombre, categoria })
+    });
+    const d = await r.json();
+    if(!d.ok) throw new Error(d.error||'error');
+    renderImportaciones();
+  }catch(e){ alert('No se pudo guardar: '+e.message); }
 }
 
 async function verDetalleImportacion(id){
