@@ -12433,13 +12433,28 @@ async function renderImportaciones(){
   const v = act ? act.variacion : null;
 
   // Selectores: marca y número de importación
+  // Pestañas de marca, arriba del todo y con el mismo estilo que el resto de la app
+  const pestanas = `
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      ${marcas.map(mk=>{
+        const n = L.filter(x=>x.marca===mk).length;
+        const act2 = mk===window._impMarca;
+        return `<button onclick="window._impMarca='${escI(mk)}';window._impId=undefined;renderImportaciones()"
+          style="padding:8px 16px;border-radius:9px;border:1px solid ${act2?'var(--brown)':'var(--border)'};background:${act2?'var(--brown)':'white'};color:${act2?'white':'var(--text)'};font-size:12px;font-weight:${act2?'700':'500'};cursor:pointer;display:inline-flex;align-items:center;gap:6px">
+          <i class="ti ti-ship" style="font-size:13px"></i>${escI(mk)}
+          <span style="font-size:10px;opacity:0.75">${n} importación${n!==1?'es':''}</span>
+        </button>`;
+      }).join('')}
+    </div>`;
+
+  // Selector del embarque dentro de la marca elegida
   const cabecera = `
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
-      ${marcas.map(mk=>`<button onclick="window._impMarca='${escI(mk)}';window._impId=undefined;renderImportaciones()"
-        style="padding:8px 16px;border-radius:9px;border:1px solid ${mk===window._impMarca?'var(--brown)':'var(--border)'};background:${mk===window._impMarca?'var(--brown)':'white'};color:${mk===window._impMarca?'white':'var(--text)'};font-size:12px;font-weight:${mk===window._impMarca?'700':'500'};cursor:pointer">${escI(mk)}</button>`).join('')}
-      <select onchange="window._impId=parseInt(this.value);renderImportaciones()" style="padding:8px 12px;border:1px solid var(--border);border-radius:9px;font-size:12px;background:white;cursor:pointer;margin-left:auto">
+      <span style="font-size:11px;color:var(--muted)">Embarque:</span>
+      <select onchange="window._impId=parseInt(this.value);renderImportaciones()" style="padding:8px 12px;border:1px solid var(--border);border-radius:9px;font-size:12px;background:white;cursor:pointer">
         ${deMarca.map(x=>`<option value="${x.id}" ${x.id===window._impId?'selected':''}>Importación ${escI(x.numero)}${x.fecha?' · '+String(x.fecha).substring(0,10):''}</option>`).join('')}
       </select>
+      ${act && act.anterior?`<span style="font-size:11px;color:var(--muted)">comparada con la ${escI(act.anterior.numero)}${act.anterior.fecha?' · '+String(act.anterior.fecha).substring(0,10):''}</span>`:''}
     </div>`;
 
   const tarjetas = !m ? '' : `
@@ -12564,7 +12579,7 @@ async function renderImportaciones(){
       <button onclick="borrarImportacion(${act.id},'${escI(act.marca)} ${escI(act.numero)}')" style="padding:8px 16px;border:1px solid #fca5a5;background:white;color:#dc2626;border-radius:9px;font-size:12px;cursor:pointer"><i class="ti ti-trash" style="margin-right:5px"></i>Eliminar</button>
     </div>`;
 
-  cont.innerHTML = subir + cabecera + aprender + tarjetas + desglose + tablaCats + evolucion + acciones + '<div id="imp-detalle"></div>';
+  cont.innerHTML = pestanas + subir + cabecera + aprender + tarjetas + desglose + tablaCats + evolucion + acciones + '<div id="imp-detalle"></div>';
 }
 
 async function subirLiquidacion(input){
