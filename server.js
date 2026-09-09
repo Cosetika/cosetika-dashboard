@@ -8078,8 +8078,8 @@ const CATEGORIAS_IMPO = [
   ['Tributos aduaneros',    /ADVALOREM|AD VALOREM|FODINFA|ARANCEL|SALVAGUARDIA/],
   ['Impuestos financieros', /SALIDA DE DIVISAS|\bISD\b|SERVICIOS FINANCIEROS|BANCARIO/],
   ['Seguro',                /POLIZA|PÓLIZA|SEGURO/],
-  ['Agenciamiento y aduana',/AGENDAMIENTO|AGENCIAMIENTO|BODEGAJE|DESCONSOLIDACION|DESCONSOLIDACIÓN|ADUANA|NACIONALIZACION|NACIONALIZACIÓN/],
-  ['Gastos portuarios',     /PORTUARIO|OPERATIVO|ADMINISTRACION|ADMINISTRACIÓN|RECARGO|NAVIERA|MANEJO DE CARGA|GASTOS LOCALES|COLLECT FEE/],
+  ['Agenciamiento y aduana',/AGENDAMIENTO|AGENCIAMIENTO|BODEGAJE|DESCONSOLIDACION|DESCONSOLIDACIÓN|ADUANA|NACIONALIZACION|NACIONALIZACIÓN|SERVICIOS LOGISTICOS|SERVICIOS LOGÍSTICOS/],
+  ['Gastos portuarios',     /PORTUARIO|OPERATIVO|ADMINISTRACION|ADMINISTRACIÓN|RECARGO|NAVIERA|MANEJO DE CARGA|GASTOS LOCALES|COLLECT FEE|^SELLO/],
   ['Transporte interno',    /FLETE INTERNO|TRANSPORTE INTERNO|TRANSPORTE LOCAL/]
 ];
 
@@ -8100,7 +8100,7 @@ function categoriaDeGasto(txt, mapa){
   if (/^TOTAL/.test(t)) return null;                       // fila de totales, no es gasto
   // Descuentos y compensaciones del proveedor: NO son un costo. El FOB en dólares que
   // trae la liquidación ya viene neto de ellos, así que contarlos sumaría dos veces.
-  if (/DESCUENTO|COMPENSACION|NOTA DE CREDITO/.test(t)) return 'DESCUENTO';
+  if (/DESCUENTO|COMPENSACION|NOTA DE CREDITO|TITULO GRATUITO|GRATUITO|BONIFICACION/.test(t)) return 'DESCUENTO';
   if (mapa && mapa[t]) return mapa[t];
   if (/IVA/.test(t) && /IMPORTACION/.test(t)) return 'IVA';  // crédito tributario
   for (const [nombre, re] of CATEGORIAS_IMPO) if (re.test(t)) return nombre;
@@ -8199,7 +8199,7 @@ function parsearLiquidacion(buffer, mapaAprendido, nombreArchivo){
   });
 
   const gastos = []; const porCat = {}; let ivaRec = 0, descuentoUsd = 0, tcDeclarado = 0;
-  let productoEur = 0, descuentoEur = 0; const lineasDesc = [];
+  let productoEur = 0, productoUsd = 0, descuentoEur = 0; const lineasDesc = [];
   if (hg >= 0) {
     for (let i = hg + 1; i < F.length; i++) {
       const nom = txt(i,0);
@@ -8211,6 +8211,7 @@ function parsearLiquidacion(buffer, mapaAprendido, nombreArchivo){
       if (cat === 'Producto (FOB)') {
         if (cols.tc != null && !tcDeclarado) tcDeclarado = _num(F[i][cols.tc]);
         productoEur += _num(F[i][cols.valor]);
+        productoUsd += (cols.total != null ? _num(F[i][cols.total]) : 0) || _num(F[i][cols.valor]);
       }
       const valor = _num(F[i][cols.valor]);
       const total = cols.total != null ? _num(F[i][cols.total]) : valor;
@@ -8218,7 +8219,7 @@ function parsearLiquidacion(buffer, mapaAprendido, nombreArchivo){
       ivaRec += iva;
       if (cat === 'DESCUENTO') {
         descuentoEur += valor; descuentoUsd += total;
-        const ln = { nombre:nom, categoria:'Descuento de factura', valor, total, iva:0 };
+        const ln = { nombre:nom, categoria: /GRATUIT|BONIFICAC/.test(claveGasto(nom)) ? 'Producto sin costo' : 'Descuento de factura', valor, total, iva:0 };
         lineasDesc.push(ln); gastos.push(ln); continue;
       }
       if (cat === 'IVA') { gastos.push({ nombre:nom, categoria:'IVA (crédito tributario)', valor, total:0, iva:valor }); continue; }
@@ -8233,15 +8234,21 @@ function parsearLiquidacion(buffer, mapaAprendido, nombreArchivo){
   // No hay forma de saberlo por el nombre: en unas liquidaciones el producto está neto y
   // en otras bruto. Lo resuelve la propia fila TOTAL del bloque de gastos: si el total
   // SUMA producto + descuento, el producto venía neto; si los RESTA, venía bruto.
-  if (descuentoEur > 0 && productoEur > 0 && hg >= 0) {
-    let totalDeclarado = 0;
+  if ((descuentoEur > 0 || descuentoUsd > 0) && productoEur > 0 && hg >= 0) {
+    let totEur = 0, totUsd = 0;
     for (let i = hg + 1; i < Math.min(F.length, hg + 60); i++) {
-      const nm = claveGasto(txt(i,0));
-      if (/^TOTAL/.test(nm)) { totalDeclarado = _num(F[i][cols.valor]); break; }
+      if (!/^TOTAL/.test(claveGasto(txt(i,0)))) continue;
+      totEur = _num(F[i][cols.valor]);
+      totUsd = cols.total != null ? _num(F[i][cols.total]) : 0;
+      break;
     }
-    if (totalDeclarado > 0) {
-      const dSuma  = Math.abs(totalDeclarado - (productoEur + descuentoEur));
-      const dResta = Math.abs(totalDeclarado - (productoEur - descuentoEur));
+    // Se compara en dólares si la fila TOTAL los trae; si no, en euros.
+    const [tot_, prod_, desc_] = (totUsd > 0 && productoUsd > 0)
+      ? [totUsd, productoUsd, descuentoUsd]
+      : [totEur, productoEur, descuentoEur];
+    if (tot_ > 0) {
+      const dSuma  = Math.abs(tot_ - (prod_ + desc_));
+      const dResta = Math.abs(tot_ - (prod_ - desc_));
       if (dSuma <= dResta) {                       // el producto ya estaba neto
         descuentoUsd = 0;
         lineasDesc.forEach(ln => { ln.total = 0; });  // así tampoco se resta al releer
