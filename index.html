@@ -12020,9 +12020,13 @@ async function renderCarteraAsignada(){
     const us = await r3.json();
     // Los nombres del desplegable son EXACTAMENTE los de las usuarias: así el código
     // siempre apunta a alguien que existe y no se pierde por una tilde o una abreviatura.
-    if(Array.isArray(us)) window._usuariosCartera = us
-      .filter(u=>u.activo && (u.rol==='asesora'||u.rol==='jefa_ventas'))
-      .map(u=>u.nombre).sort();
+    if(Array.isArray(us)){
+      window._usuariosCartera = us
+        .filter(u=>u.activo && (u.rol==='asesora'||u.rol==='jefa_ventas'))
+        .map(u=>u.nombre).sort();
+      // Para heredar carteras hace falta también quien ya no está activa o fue renombrada
+      window._usuariosTodosCartera = us.map(u=>u.nombre).filter(Boolean).sort();
+    }
   }catch(e){}
   const cc = document.getElementById('cartera-cont');
   if(!d || !d.ok){ cc.innerHTML = '<div class="card" style="padding:16px;font-size:13px;color:var(--muted)">No se pudo cargar la cartera.</div>'; return; }
@@ -12067,9 +12071,16 @@ async function renderCarteraAsignada(){
   // Quién puede VER la cartera de quién. Útil cuando entra alguien nueva a reemplazar:
   // ve las clientas de la anterior sin que las facturas viejas cambien de dueña.
   const her = window._heredadasCache || {};
-  const nombresCartera = [...new Set(
-    (window._usuariosCartera||[]).concat(Object.keys(typeof DATA!=='undefined' ? (DATA||{}) : {}))
-  )].filter(Boolean).sort();
+  // La lista junta todo lo que existe: usuarias activas e inactivas, vendedoras con
+  // historial de ventas y nombres que aparecen en la cartera. Quien reemplaza a alguien
+  // suele estar solo en uno de esos sitios.
+  const nombresCartera = [...new Set([]
+    .concat(window._usuariosCartera || [])
+    .concat(window._usuariosTodosCartera || [])
+    .concat(Object.keys((typeof DATA !== 'undefined' && DATA) ? DATA : {}))
+    .concat(Object.keys((d && d.por_asesora) || {}))
+    .concat((d && d.clientas ? d.clientas.map(c=>c.asesora) : []))
+  )].filter(n => n && String(n).trim() && !/^n\/a$/i.test(n)).sort();
   const bloqueHeredadas = !esAdminC ? '' : `
     <div class="card" style="margin-bottom:12px">
       <div class="card-title"><i class="ti ti-eye"></i> Quién ve la cartera de quién</div>
@@ -12086,6 +12097,7 @@ async function renderCarteraAsignada(){
               style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:white;cursor:pointer">
               <option value="">— También puede ver la cartera de… —</option>
               ${nombresCartera.filter(n=>n!==a && !lista.includes(n)).map(n=>`<option value="${escC2(n)}">${escC2(n)}</option>`).join('')}
+              <option value="__otro__">✎ Escribir otro nombre…</option>
             </select>
           </div>
           ${lista.length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
@@ -12150,6 +12162,11 @@ async function guardarCarterasHeredadas(mapa){
 
 async function agregarCarteraHeredada(asesora, otra){
   if(!otra) return;
+  if(otra === '__otro__'){
+    otra = prompt('Nombre exacto de la persona cuya cartera podrá ver ' + asesora + ':', '');
+    if(!otra || !otra.trim()) return;
+    otra = otra.trim();
+  }
   try{
     const mapa = JSON.parse(JSON.stringify(window._heredadasCache || {}));
     mapa[asesora] = [...new Set((mapa[asesora]||[]).concat([otra]))];
