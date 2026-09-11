@@ -4556,8 +4556,10 @@ function setSubtab(tab){
     renderVentasPanel();
   } else if(tab==='cpf'){
     if(!vendActual && window._nombreRealAsesora) vendActual = window._nombreRealAsesora;
-    if(vendActual) renderVendedor(vendActual);
-    else renderHome();
+    cargarCarterasHeredadas().then(()=>{
+      if(vendActual) renderVendedor(vendActual);
+      else renderHome();
+    });
   } else if(tab==='prov'){
     vendActual = null;
     renderProvincias();
@@ -7766,6 +7768,44 @@ function renderHome(){
     `;
 }
 
+// ── Carteras heredadas ──────────────────────────────────────────────────────
+// Cuando una asesora reemplaza a otra, el admin le da permiso para VER las clientas
+// de la anterior. Las facturas no cambian de dueña: esto es solo acceso de lectura.
+function _anclaNom(n){
+  return String(n||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .toUpperCase().trim().split(/\s+/).slice(0,2).join(' ');
+}
+
+async function cargarCarterasHeredadas(){
+  if(window._heredadasCache) return window._heredadasCache;
+  try{
+    const r = await fetch('/api/carteras-heredadas');
+    const d = await r.json();
+    window._heredadasCache = (d && d.ok) ? (d.mapa || {}) : {};
+  }catch(e){ window._heredadasCache = {}; }
+  return window._heredadasCache;
+}
+
+// Nombres de cartera que la persona logueada puede abrir en Clientes → Compras
+function carterasVisibles(){
+  const u = window.usuarioActual || JSON.parse(sessionStorage.getItem('cosetika_usuario')||'null') || {};
+  const propio = window._nombreRealAsesora || u.nombre || '';
+  const out = propio ? [propio] : [];
+  const mapa = window._heredadasCache || {};
+  const mia = Object.keys(mapa).find(k => _anclaNom(k) === _anclaNom(u.nombre));
+  if(mia) (mapa[mia]||[]).forEach(n=>{
+    const real = (typeof resolverNombreReal==='function' ? resolverNombreReal(n, DATA) : null) || n;
+    if(real && !out.includes(real)) out.push(real);
+  });
+  return out;
+}
+
+function verCarteraDeNombre(nombre){
+  window._clientesVirtual = null;
+  vendActual = nombre;
+  renderVendedor(nombre);
+}
+
 function renderVendedor(nombre){
   const anioActual3 = new Date().getFullYear();
   const anioVendActivo = window._clientesAnio || anioActual3;
@@ -7789,12 +7829,28 @@ function renderVendedor(nombre){
   });
   renderMarcasSidebar(marcas);
 
+  // Si heredó la cartera de otra asesora, puede alternar entre las dos
+  const _uV = window.usuarioActual || {};
+  const _vis = (typeof carterasVisibles === 'function') ? carterasVisibles() : [];
+  const barraCarteras = (_vis.length > 1 && _uV.rol !== 'admin' && _uV.rol !== 'jefa_ventas') ? `
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      ${_vis.map(n=>{
+        const on = n === nombre;
+        return `<button onclick="verCarteraDeNombre('${String(n).replace(/'/g,"\\'")}')"
+          style="padding:8px 15px;border-radius:9px;border:1px solid ${on?'var(--brown)':'var(--border)'};background:${on?'var(--brown)':'white'};color:${on?'white':'var(--text)'};font-size:12px;font-weight:${on?'700':'500'};cursor:pointer;display:inline-flex;align-items:center;gap:6px">
+          <i class="ti ti-user" style="font-size:13px"></i>${String(n).split(' ').slice(0,2).join(' ')}
+          ${n === (window._nombreRealAsesora || _uV.nombre) ? '' : '<span style="font-size:10px;opacity:0.75">heredada</span>'}
+        </button>`;
+      }).join('')}
+    </div>` : '';
+
   document.getElementById('main').innerHTML=`
     <div class="breadcrumb">
       <span class="crumb" onclick="renderHome()"><i class="ti ti-home" style="font-size:12px"></i> Inicio</span>
       <span> › </span>
       <span style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${nombre}</span>
     </div>
+    ${barraCarteras}
     <div class="kpi-row">
       <div class="kpi"><div class="kpi-label">Ventas sin IVA</div><div class="kpi-val" style="color:var(--brown)">${fmt(totalVend/1.15)}</div><div class="kpi-sub">subtotal</div></div>
       <div class="kpi"><div class="kpi-label">Ventas con IVA</div><div class="kpi-val">${fmt(totalVend)}</div><div class="kpi-sub">${anioVendActivo}</div></div>
@@ -11960,6 +12016,7 @@ async function renderCarteraAsignada(){
     const [r1, r2, r3] = await Promise.all([
       fetch('/api/cartera-asignada'), fetch('/api/categorias-asesora'), fetch('/api/usuarios')]);
     d = await r1.json(); cats = await r2.json();
+    window._heredadasCache = null; await cargarCarterasHeredadas();
     const us = await r3.json();
     // Los nombres del desplegable son EXACTAMENTE los de las usuarias: así el código
     // siempre apunta a alguien que existe y no se pierde por una tilde o una abreviatura.
@@ -12007,7 +12064,41 @@ async function renderCarteraAsignada(){
       </div>
     </div>` : '';
 
-  cc.innerHTML = bloqueCodigos + `
+  // Quién puede VER la cartera de quién. Útil cuando entra alguien nueva a reemplazar:
+  // ve las clientas de la anterior sin que las facturas viejas cambien de dueña.
+  const her = window._heredadasCache || {};
+  const nombresCartera = [...new Set(
+    (window._usuariosCartera||[]).concat(Object.keys(typeof DATA!=='undefined' ? (DATA||{}) : {}))
+  )].filter(Boolean).sort();
+  const bloqueHeredadas = !esAdminC ? '' : `
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-title"><i class="ti ti-eye"></i> Quién ve la cartera de quién</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:12px;line-height:1.5">
+        Da permiso de <b>lectura</b>: la asesora verá una pestaña extra en Clientes → Compras con las clientas de la otra persona.
+        No mueve ninguna factura ni cambia comisiones — el historial sigue contando para quien facturó.
+      </div>
+      ${(window._usuariosCartera||[]).map(a=>{
+        const lista = her[a] || [];
+        return `<div style="padding:10px 0;border-top:1px solid var(--border)">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <div style="font-size:12px;font-weight:600;min-width:180px">${escC2(a)}</div>
+            <select onchange="agregarCarteraHeredada('${escC2(a)}', this.value); this.value='';"
+              style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:white;cursor:pointer">
+              <option value="">— También puede ver la cartera de… —</option>
+              ${nombresCartera.filter(n=>n!==a && !lista.includes(n)).map(n=>`<option value="${escC2(n)}">${escC2(n)}</option>`).join('')}
+            </select>
+          </div>
+          ${lista.length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
+            ${lista.map(n=>`<span style="display:inline-flex;align-items:center;gap:6px;background:#f3f0ec;border:1px solid var(--border);border-radius:14px;padding:4px 10px;font-size:11px">
+              ${escC2(n)}
+              <i class="ti ti-x" style="cursor:pointer;font-size:12px;color:#dc2626" onclick="quitarCarteraHeredada('${escC2(a)}','${escC2(n)}')"></i>
+            </span>`).join('')}
+          </div>` : '<div style="font-size:11px;color:var(--muted);margin-top:6px">Solo ve su propia cartera.</div>'}
+        </div>`;
+      }).join('')}
+    </div>`;
+
+  cc.innerHTML = bloqueCodigos + bloqueHeredadas + `
     <div class="card" style="margin-bottom:12px;padding:0">
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding:13px 15px">
         <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1.2px"><i class="ti ti-address-book" style="margin-right:6px"></i>Cartera asignada</div>
@@ -12048,6 +12139,33 @@ async function renderCarteraAsignada(){
       </table></div>
       ${filtradas.length>400?'<div style="padding:10px 15px;font-size:11px;color:var(--muted)">Mostrando las primeras 400.</div>':''}
     </div>`;
+}
+
+async function guardarCarterasHeredadas(mapa){
+  const r = await fetch('/api/carteras-heredadas', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({mapa})});
+  const j = await r.json();
+  if(!j.ok) throw new Error(j.error||'error');
+  window._heredadasCache = j.mapa || {};
+}
+
+async function agregarCarteraHeredada(asesora, otra){
+  if(!otra) return;
+  try{
+    const mapa = JSON.parse(JSON.stringify(window._heredadasCache || {}));
+    mapa[asesora] = [...new Set((mapa[asesora]||[]).concat([otra]))];
+    await guardarCarterasHeredadas(mapa);
+    renderCarteraAsignada();
+  }catch(e){ alert('No se pudo guardar: '+e.message); }
+}
+
+async function quitarCarteraHeredada(asesora, otra){
+  try{
+    const mapa = JSON.parse(JSON.stringify(window._heredadasCache || {}));
+    mapa[asesora] = (mapa[asesora]||[]).filter(x=>x!==otra);
+    if(!mapa[asesora].length) delete mapa[asesora];
+    await guardarCarterasHeredadas(mapa);
+    renderCarteraAsignada();
+  }catch(e){ alert('No se pudo guardar: '+e.message); }
 }
 
 async function guardarCodigoAsesora(codigo, nombre){

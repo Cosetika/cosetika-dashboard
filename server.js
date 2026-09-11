@@ -8432,6 +8432,36 @@ function metricasImportacion(r){
     } catch(e) { return {}; }
   }
 
+  // ── Carteras heredadas ──────────────────────────────────────────────────────
+  // Cuando una asesora reemplaza a otra, hereda el derecho a VER las clientas de la
+  // anterior, sin que las facturas viejas cambien de dueña. Es solo permiso de lectura.
+  if (urlPath === '/api/carteras-heredadas' && req.method === 'GET') {
+    try {
+      const raw = await getConfigApp('carteras_heredadas', null);
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:true, mapa: raw ? JSON.parse(raw) : {} }));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
+  if (urlPath === '/api/carteras-heredadas' && req.method === 'POST') {
+    if (bloquearSiNoAdmin(req, res)) return;
+    try {
+      const body = await bodyJSON(req);
+      const mapa = {};
+      Object.entries(body.mapa || {}).forEach(([k, v]) => {
+        const quien = String(k||'').trim();
+        const lista = (Array.isArray(v) ? v : [v])
+          .map(x => String(x||'').trim())
+          .filter(x => x && x !== quien);
+        if (quien && lista.length) mapa[quien] = [...new Set(lista)];
+      });
+      await setConfigApp('carteras_heredadas', JSON.stringify(mapa));
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ ok:true, mapa }));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
   if (urlPath === '/api/categorias-asesora' && req.method === 'GET') {
     try {
       const mapa = await mapaCategorias();
