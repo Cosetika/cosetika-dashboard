@@ -12480,10 +12480,17 @@ async function toggleSemanaJustificada(asesora, semana, yaActivo){
   try{
     const r = await fetch('/api/visitas-excepciones', { method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ asesora, semana, motivo, creado_por:(window.usuarioActual||{}).nombre||'', activo: !yaActivo }) });
-    const j = await r.json();
-    if(!j.ok) throw new Error(j.error||'error');
+    // La respuesta no siempre es JSON (una sesión caducada devuelve HTML): sin esto el
+    // fallo real quedaba escondido detrás de un "Unexpected token" que no dice nada.
+    const txt = await r.text();
+    let j = null; try{ j = JSON.parse(txt); }catch(_){}
+    if(!r.ok || !j || !j.ok){
+      throw new Error((j && j.error) || (r.status === 401 || r.status === 403
+        ? 'Tu sesión caducó. Cierra sesión y vuelve a entrar.'
+        : 'El servidor respondió ' + r.status));
+    }
     renderKpis();
-  }catch(e){ alert('Error: '+e.message); }
+  }catch(e){ alert('No se pudo guardar la justificación: '+e.message); }
 }
 
 async function marcarContactadaSeg(key, nombre, checked){

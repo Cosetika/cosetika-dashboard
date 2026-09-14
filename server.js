@@ -3621,6 +3621,11 @@ async function initDB() {
         created_at TIMESTAMP DEFAULT NOW(),
         UNIQUE(asesora, semana)
       );
+      -- Si la tabla se creó en una versión anterior sin el UNIQUE, el "ON CONFLICT" del
+      -- guardado falla y la justificación no se graba. Se repara aquí, sin perder datos.
+      DELETE FROM visitas_excepciones a USING visitas_excepciones b
+        WHERE a.id > b.id AND a.asesora = b.asesora AND a.semana = b.semana;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_visitas_exc_uni ON visitas_excepciones(asesora, semana);
       CREATE TABLE IF NOT EXISTS seguimiento_contactos (
         id SERIAL PRIMARY KEY,
         cliente_key VARCHAR(300) NOT NULL UNIQUE,
@@ -9059,8 +9064,15 @@ function metricasImportacion(r){
   if (urlPath === '/api/visitas-excepciones' && req.method === 'GET') {
     try {
       const mesE = urlObj.searchParams.get('mes'); // YYYY-MM
+      // La primera semana del mes casi siempre arranca en el mes anterior (la del 31/8
+      // pertenece a septiembre). Filtrar por el mes del lunes dejaba fuera esa semana:
+      // se guardaba la justificación pero al recargar no volvía, y parecía que no grababa.
       const r = mesE
-        ? await pool.query("SELECT asesora, TO_CHAR(semana,'YYYY-MM-DD') AS semana, motivo FROM visitas_excepciones WHERE TO_CHAR(semana,'YYYY-MM')=$1", [mesE])
+        ? await pool.query(
+            `SELECT asesora, TO_CHAR(semana,'YYYY-MM-DD') AS semana, motivo
+               FROM visitas_excepciones
+              WHERE semana >= ($1 || '-01')::date - INTERVAL '6 days'
+                AND semana <= (($1 || '-01')::date + INTERVAL '1 month' - INTERVAL '1 day')`, [mesE])
         : await pool.query("SELECT asesora, TO_CHAR(semana,'YYYY-MM-DD') AS semana, motivo FROM visitas_excepciones");
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.rows));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify([])); }
