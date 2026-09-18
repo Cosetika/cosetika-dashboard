@@ -571,7 +571,20 @@ function resolverNombreReal(nombreParcial, objetoConClaves){
   // 2) fallback: coincidencia por las primeras dos palabras (nombre + primer apellido)
   const palabrasBuscado = buscado.split(' ').slice(0,2).join(' ');
   match = claves.find(k => normalizar(k).startsWith(palabrasBuscado));
-  return match || null;
+  if(match) return match;
+  // 3) fallback: mismo primer nombre y todos los apellidos presentes, aunque en medio
+  //    haya un segundo nombre. "Liseth Gavilanes" tiene que encontrar a
+  //    "LISETH GABRIELA GAVILANES ..." — sin esto sus ventas salían en cero.
+  const pal = buscado.split(' ').filter(w => w.length > 2);
+  if(pal.length >= 2){
+    const candidatos = claves.filter(k => {
+      const kw = normalizar(k).split(' ');
+      return kw[0] === pal[0] && pal.every(p => kw.includes(p));
+    });
+    // Solo si no hay ambigüedad: atribuir ventas a la persona equivocada es peor que no encontrarla
+    if(candidatos.length === 1) return candidatos[0];
+  }
+  return null;
 }
 
 let vendActual=null;
@@ -4322,6 +4335,52 @@ async function toggleClienteProvincia(usuarioId, provincia, btn){
   btn.disabled = false;
 }
 
+// El servidor sincroniza los cupos y nombres comerciales con Contifico 15 segundos
+// después de arrancar, y tarda un rato en paginar todo el directorio. Si la app se abre
+// justo después de un despliegue, este mapa llega vacío: sin nombre comercial, sin
+// comportamiento de pago. Por eso se reintenta en vez de darlo por perdido.
+const _REINTENTOS_MAPA = [20000, 45000, 90000, 180000];
+
+function cargarMapaCreditos(intento){
+  const i = intento || 0;
+  fetch('/api/creditos-mapa').then(r=>r.json()).then(d=>{
+    if(!d || !d.ok) throw new Error('sin datos');
+    window._creditoPorCedula   = d.mapa || {};
+    window._comercialPorCedula = d.comerciales || {};
+    window._comercialPorNombre = d.comerciales_nombre || {};
+
+    fetch('/api/comportamiento-pago').then(r2=>r2.json()).then(p=>{
+      if(p.ok){ window._pagoPorCedula = p.mapa || {}; repintarPedidosSiVisible(); }
+    }).catch(()=>{});
+
+    // Composición de los equipos: la usan el panel de Ventas y los KPIs de la líder
+    fetch('/api/equipos').then(r3=>r3.json()).then(e=>{
+      if(Array.isArray(e) && e.length){
+        window._equiposCache = e;
+        if(typeof cargarAsesorasKpi === 'function') cargarAsesorasKpi().catch(()=>{});
+      }
+    }).catch(()=>{});
+
+    // Pedidos se pinta apenas abre la app, casi siempre antes de que llegue este mapa
+    repintarPedidosSiVisible();
+
+    // Todavía sin sincronizar en el servidor: volver a intentar más tarde
+    if(!Object.keys(window._comercialPorCedula).length && i < _REINTENTOS_MAPA.length){
+      setTimeout(()=>cargarMapaCreditos(i+1), _REINTENTOS_MAPA[i]);
+    }
+  }).catch(()=>{
+    if(i < _REINTENTOS_MAPA.length) setTimeout(()=>cargarMapaCreditos(i+1), _REINTENTOS_MAPA[i]);
+  });
+}
+
+// Repinta la lista de pedidos solo si es lo que se está viendo
+function repintarPedidosSiVisible(){
+  if(!document.getElementById('doc-tab-content')) return;
+  if((window._docTab || 'pedidos') !== 'pedidos') return;
+  if(typeof renderPedidosWeb !== 'function') return;
+  try { renderPedidosWeb(window._pedidosFecha); } catch(e){}
+}
+
 async function cargarData(){
   // ── Etapa 1: pintar Pedidos de inmediato ──────────────────────────────────────
   // Pedidos es lo primero que se mira al entrar y solo necesita su propio endpoint.
@@ -4343,27 +4402,8 @@ async function cargarData(){
     DATA=await r.json();
     // Este no lo necesita nadie hasta entrar a Marcas: se carga sin esperar
     cargarSkuPorMarcaDesdeServidor().catch(()=>{});
-    // Cupos de crédito por cédula, para la sugerencia de crédito en la ficha de clientas
-    fetch('/api/creditos-mapa').then(r=>r.json()).then(d=>{
-      if(!d.ok) return;
-      window._creditoPorCedula  = d.mapa || {};
-      window._comercialPorCedula = d.comerciales || {};
-      window._comercialPorNombre = d.comerciales_nombre || {};
-      fetch('/api/comportamiento-pago').then(r2=>r2.json()).then(p=>{ if(p.ok) window._pagoPorCedula = p.mapa || {}; }).catch(()=>{});
-      // Composición de los equipos: la usan el panel de Ventas y los KPIs de la líder
-      fetch('/api/equipos').then(r3=>r3.json()).then(e=>{
-        if(Array.isArray(e) && e.length){
-          window._equiposCache = e;
-          if(typeof cargarAsesorasKpi === 'function') cargarAsesorasKpi().catch(()=>{});
-        }
-      }).catch(()=>{});
-      // Pedidos se pinta apenas abre la app, casi siempre antes de que llegue este
-      // mapa, así que se repinta para que salga el nombre comercial.
-      if(document.getElementById('doc-tab-content') && window._pedidosFecha
-         && typeof renderPedidosWeb==='function'){
-        try { renderPedidosWeb(window._pedidosFecha); } catch(e){}
-      }
-    }).catch(()=>{});
+    // Cupos de crédito, nombre comercial y comportamiento de pago, todos por cédula
+    cargarMapaCreditos();
 
     // /data.json ya llega COMPLETO desde el servidor (caché histórica + lo emitido después,
     // fusionado allá con la misma función que genera todo lo demás). El navegador no aplica
@@ -4378,6 +4418,8 @@ async function cargarData(){
     // #main entero, al terminar de bajar data.json (unos segundos) sacaba al usuario de
     // donde estuviera y lo devolvía a Inicio → Pedidos.
     if(document.getElementById('doc-tab-content') && (window._docTab||'pedidos') === 'pedidos'){
+      // El crédito sugerido de cada pedido se calcula con el historial de DATA, que
+      // acaba de llegar: sin este repintado la etiqueta no aparecería hasta recargar.
       try{ renderFacturasHoy(); }catch(e){}
     }
 
@@ -5608,7 +5650,11 @@ function clientePorCedula(ced){
     window._cliPorCedulaIdx = idx;
     window._cliPorCedulaIdxData = DATA;
   }
-  return window._cliPorCedulaIdx[k] || null;
+  // El pedido puede traer el RUC (13 dígitos) y el historial la cédula (10), o al revés
+  return window._cliPorCedulaIdx[k]
+      || (k.length === 13 ? window._cliPorCedulaIdx[k.substring(0,10)] : null)
+      || (k.length === 10 ? window._cliPorCedulaIdx[k + '001'] : null)
+      || null;
 }
 
 // Versión compacta para la fila del pedido: una etiqueta con el cupo que le tocaría
