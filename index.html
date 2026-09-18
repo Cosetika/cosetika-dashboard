@@ -7207,8 +7207,8 @@ function equipoActivoVentas(){
   const anclaE = x => String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
     .toUpperCase().split(/\s+/).slice(0,2).join(' ');
   const puedeElegir = (u.rol === 'admin' || u.rol === 'jefa_ventas');
-  const suyo = eqs.find(e => (e.lider && anclaE(e.lider) === anclaE(u.nombre))
-                          || (e.miembros||[]).some(m => anclaE(m) === anclaE(u.nombre)));
+  const suyo = eqs.find(e => (e.lider && mismaPersona(e.lider, u.nombre))
+                          || (e.miembros||[]).some(m => mismaPersona(m, u.nombre)));
   if(!puedeElegir) return { eq: suyo || eqs[0], puedeElegir:false, equipos:eqs };
   let sel = eqs.find(e => String(e.id) === String(window._ventasEquipoId));
   if(!sel) sel = suyo || eqs[0];
@@ -7264,12 +7264,13 @@ function renderVentasPanel(){
     const nombresEq = [];
     if(infoEq.eq.lider) nombresEq.push(infoEq.eq.lider);
     (infoEq.eq.miembros||[]).forEach(m=>nombresEq.push(m));
-    const anclas = new Set(nombresEq.map(anclaV));
-    vendedoras = vendedorasTodas.filter(v => anclas.has(anclaV(v)));
+    // Se compara persona a persona, no por las dos primeras palabras: el nombre del
+    // equipo puede omitir el segundo nombre que sí trae Contifico.
+    vendedoras = vendedorasTodas.filter(v => nombresEq.some(n => mismaPersona(n, v)));
   } else if(!mandaTodo){
     // Sin equipo reconocido, una asesora ve solo lo suyo. Antes caía a "todas" y
     // terminaba viendo los números del otro equipo.
-    vendedoras = vendedorasTodas.filter(v => anclaV(v) === anclaV(uV.nombre));
+    vendedoras = vendedorasTodas.filter(v => mismaPersona(v, uV.nombre));
   }
 
   // Lógica para los gráficos movidos desde Facturas: comparativo anual y ventas por día
@@ -11347,7 +11348,7 @@ async function renderPresupuestoVentas(){
   // Asesoras activas + Giovanna (referencia) + nombres solo-override (ej: Mayra antes de crear su usuario)
   let asesoras = usuarios.filter(u=>(u.rol==='asesora'||u.rol==='jefa_ventas') && u.activo).map(u=>({nombre:u.nombre, rol:u.rol}));
   Object.keys(cfg.overrides||{}).forEach(nom=>{
-    if(!asesoras.some(a=>pptoAncla(a.nombre)===pptoAncla(nom))) asesoras.push({nombre:nom, rol:'asesora', sinUsuario:true});
+    if(!asesoras.some(a=>mismaPersona(a.nombre, nom))) asesoras.push({nombre:nom, rol:'asesora', sinUsuario:true});
   });
   // Equipos configurados en Configuración → Equipos. El panel se arma con ellos:
   // quien entra o sale de un equipo allá, entra o sale de este presupuesto.
@@ -11365,12 +11366,12 @@ async function renderPresupuestoVentas(){
       // La líder va primero; después sus asesoras, sin repetir
       const nombresEq = [];
       if (eqSel.lider) nombresEq.push(eqSel.lider);
-      (eqSel.miembros || []).forEach(m => { if (!nombresEq.some(x => pptoAncla(x) === pptoAncla(m))) nombresEq.push(m); });
+      (eqSel.miembros || []).forEach(m => { if (!nombresEq.some(x => mismaPersona(x, m))) nombresEq.push(m); });
       asesoras = nombresEq.map(n => {
-        const u = asesoras.find(a => pptoAncla(a.nombre) === pptoAncla(n));
+        const u = asesoras.find(a => mismaPersona(a.nombre, n));
         return { nombre: u ? u.nombre : n, rol: (u && u.rol) || 'asesora',
                  sinUsuario: u ? u.sinUsuario : true,
-                 esLider: !!(eqSel.lider && pptoAncla(n) === pptoAncla(eqSel.lider)) };
+                 esLider: !!(eqSel.lider && mismaPersona(n, eqSel.lider)) };
       });
     } else {
       asesoras = asesoras.filter(a => a.rol !== 'jefa_ventas' || /giovanna/i.test(a.nombre));
@@ -11385,6 +11386,11 @@ async function renderPresupuestoVentas(){
   const eraybaAse = {}; // ancla → total ERAYBA 2026
   const eraybaProds = new Set();
   const DATA_P = (typeof DATA !== 'undefined' && DATA) ? DATA : (window.DATA || {});
+  // El nombre de la configuración puede omitir el segundo nombre que sí trae Contifico
+  // ("Liseth Gavilanes" vs "Liseth Alexandra Gavilanes"). Se busca a la persona y se usa
+  // SU ancla, no la del nombre escrito, o sus ventas no se encuentran.
+  const _vendsData = Object.keys(DATA_P);
+  const anclaDePersona = nom => pptoAncla(_vendsData.find(x => mismaPersona(x, nom)) || nom);
   Object.entries(DATA_P).forEach(([vend, clientes])=>{
     const k = pptoAncla(vend);
     if(!ventasMes[k]) ventasMes[k] = {};
@@ -11454,7 +11460,7 @@ async function renderPresupuestoVentas(){
   const evalSh = compactoP ? { a: selAnio, m: selMes } : { a: anioAct, m: mesAct };
   const evalKey = mkDe(evalSh.a, evalSh.m);
   const filas = asesoras.map(a=>{
-    const k = pptoAncla(a.nombre);
+    const k = anclaDePersona(a.nombre);
     const vm = ventasMes[k] || {};
     const ult3 = mesesCerrados.slice(-3).map(mk=>vm[mk]||0);
     const base = Math.round(ult3.reduce((x,y)=>x+y,0) / 3);
@@ -11472,10 +11478,10 @@ async function renderPresupuestoVentas(){
     const tablaPctMes = compactoP
       ? Object.assign({}, cfg.pct || {}, ((cfg.mensual||{})[selKey] || {}).pct || {})
       : (cfg.pct || {});
-    const pctKey = Object.keys(tablaPctMes).find(n=>pptoAncla(n)===k);
+    const pctKey = Object.keys(tablaPctMes).find(n=>pptoAncla(n)===k || mismaPersona(n, a.nombre));
     let pct = pctKey !== undefined ? parseFloat(tablaPctMes[pctKey]) : null;
     if(pct === null || isNaN(pct)) pct = pctPorDefecto(a.nombre);
-    const ovKey = Object.keys(cfg.overrides||{}).find(n=>pptoAncla(n)===k);
+    const ovKey = Object.keys(cfg.overrides||{}).find(n=>pptoAncla(n)===k || mismaPersona(n, a.nombre));
     const ov = ovKey !== undefined ? (cfg.overrides[ovKey]||{}) : {};
     const upliftAse = Math.round(upliftTotal * ((eraybaAse[k]||0) / eraybaTotal));
     // Metas por mes de la ventana
@@ -11710,7 +11716,7 @@ async function renderPresupuestoVentas(){
       // Antes buscaba "Giovanna" por nombre; ahora es quien esté marcada como líder
       // del equipo que se está viendo. Un equipo sin líder no muestra este bloque.
       const lider = eqSel && eqSel.lider
-        ? filas.find(f => pptoAncla(f.nombre) === pptoAncla(eqSel.lider))
+        ? filas.find(f => mismaPersona(f.nombre, eqSel.lider))
         : filas.find(f => f.esLider);
       if(!lider) return '';
       const snapEvalL = (cfg.snapshots || {})[evalKey] || {};
@@ -11999,7 +12005,7 @@ async function guardarPctPpto(nombre, valor){
   cfg.pct = cfg.pct || {};
   const destino = prepararMesEdicion(cfg) || cfg;
   destino.pct = destino.pct || {};
-  const key = Object.keys(destino.pct).find(n=>pptoAncla(n)===pptoAncla(nombre)) || nombre;
+  const key = Object.keys(destino.pct).find(n=>mismaPersona(n, nombre)) || nombre;
   if(valor === '' || valor === null) delete destino.pct[key];
   else destino.pct[key] = Math.max(-50, Math.min(100, parseFloat(valor)||0));
   window._pptoCfg = cfg;
@@ -12011,7 +12017,7 @@ async function editarMetaPpto(nombre, mesKey, actual){
   if(nuevo === null) return;
   const cfg = window._pptoCfg || {pct:{},overrides:{},snapshots:{}};
   cfg.overrides = cfg.overrides || {};
-  const key = Object.keys(cfg.overrides).find(n=>pptoAncla(n)===pptoAncla(nombre)) || nombre;
+  const key = Object.keys(cfg.overrides).find(n=>mismaPersona(n, nombre)) || nombre;
   cfg.overrides[key] = cfg.overrides[key] || {};
   const limpio = String(nuevo).trim();
   if(limpio === '') delete cfg.overrides[key][mesKey];
@@ -14642,8 +14648,8 @@ async function renderEquiposConfig(){
   // puede diferir del de credenciales. Antes eso la dejaba desmarcada sin avisar.
   const anclaEq = x => String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
     .toUpperCase().split(/\s+/).slice(0,2).join(' ');
-  const esMiembro = (e, c) => (e.miembros||[]).some(m => anclaEq(m) === anclaEq(c));
-  const esLider   = (e, c) => !!(e.lider && anclaEq(e.lider) === anclaEq(c));
+  const esMiembro = (e, c) => (e.miembros||[]).some(m => mismaPersona(m, c));
+  const esLider   = (e, c) => !!(e.lider && mismaPersona(e.lider, c));
 
   cont.innerHTML = `
     ${equipos.map(e=>`
@@ -15172,12 +15178,12 @@ function cardEquipoGiovanna(nombreVend, usuarios, anioE, mesE, opts){
   // Configuración → Equipos deja de contar aquí y en Presupuesto ventas por igual.
   const eqCache = window._equiposCache || [];
   // opts.equipo permite pintar la tarjeta de un equipo que todavía no tiene líder
-  const miEquipo = opts.equipo || eqCache.find(e => e.lider && ancla(e.lider) === ancla(nombreVend));
+  const miEquipo = opts.equipo || eqCache.find(e => e.lider && mismaPersona(e.lider, nombreVend));
   if (miEquipo) {
     (miEquipo.miembros || []).forEach(n => {
       const real = (typeof resolverNombreReal === 'function' ? resolverNombreReal(n, DATA) : null) || n;
-      if (ancla(real) === ancla(nombreVend)) return;          // la líder se agrega aparte
-      if (miembros.some(m => ancla(m.nombre) === ancla(real))) return;
+      if (mismaPersona(real, nombreVend)) return;             // la líder se agrega aparte
+      if (miembros.some(m => mismaPersona(m.nombre, real))) return;
       miembros.push({ nombre: real, propia: false });
     });
   } else {
@@ -15186,7 +15192,7 @@ function cardEquipoGiovanna(nombreVend, usuarios, anioE, mesE, opts){
       if(u.rol !== 'asesora') return;
       if(/nueva asesora/i.test(u.nombre)) return;
       const real = (typeof resolverNombreReal === 'function' ? resolverNombreReal(u.nombre, DATA) : null) || u.nombre;
-      if(miembros.some(m=>ancla(m.nombre)===ancla(real))) return;
+      if(miembros.some(m=>mismaPersona(m.nombre, real))) return;
       miembros.push({ nombre: real, propia:false });
     });
   }
@@ -15199,14 +15205,14 @@ function cardEquipoGiovanna(nombreVend, usuarios, anioE, mesE, opts){
       if(/nueva asesora|fernando|espindola|esp[ií]ndola/i.test(v)) return;
       const vendio = (DATA[v]||[]).some(c=>(c.frecuencia||[]).some(f=>f.anio===anioR && (f.total||0)>0));
       if(!vendio) return;
-      if(miembros.some(m=>ancla(m.nombre)===ancla(v))) return;
+      if(miembros.some(m=>mismaPersona(m.nombre, v))) return;
       miembros.push({ nombre: v, propia:false });
     });
   }
   const realGio = nombreVend ? ((typeof resolverNombreReal === 'function' ? resolverNombreReal(nombreVend, DATA) : null) || nombreVend) : '';
   if(realGio){
-    if(!miembros.some(m=>ancla(m.nombre)===ancla(realGio))) miembros.unshift({ nombre: realGio, propia:true });
-    else miembros.forEach(m=>{ if(ancla(m.nombre)===ancla(realGio)) m.propia = true; });
+    if(!miembros.some(m=>mismaPersona(m.nombre, realGio))) miembros.unshift({ nombre: realGio, propia:true });
+    else miembros.forEach(m=>{ if(mismaPersona(m.nombre, realGio)) m.propia = true; });
   }
 
   // Mínimo de cada una: promedio de sus 2 meses anteriores, con el piso de $4.000.
@@ -15282,7 +15288,7 @@ function cardEquipoGiovanna(nombreVend, usuarios, anioE, mesE, opts){
         // (opts.forzar) esta tarjeta la ven todas las asesoras, así que ahí no va.
         const uAct = window.usuarioActual || {};
         const anclaU = x => String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().split(/\s+/).slice(0,2).join(' ');
-        const esElla = anclaU(uAct.nombre) === anclaU(nombreVend);
+        const esElla = mismaPersona(uAct.nombre, nombreVend);
         if(opts.forzar || !(uAct.rol === 'admin' || esElla)) return '';
         const cumpl = totalVentas >= totalMeta;
         const com = cumpl ? (lid.pct_base/100)*totalMeta + lid.bono + (lid.pct_exceso/100)*(totalVentas-totalMeta)
