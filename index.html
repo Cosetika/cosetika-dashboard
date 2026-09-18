@@ -4428,7 +4428,7 @@ async function cargarData(){
     // para cuando navegue a Clientes — sin cambiar su pantalla de entrada, que
     // sigue siendo Facturas igual que para todos los roles.
     const usuarioLogueado = window.usuarioActual || JSON.parse(sessionStorage.getItem('cosetika_usuario')||'null');
-    if(usuarioLogueado && usuarioLogueado.rol === 'asesora'){
+    if(usuarioLogueado && (usuarioLogueado.rol === 'asesora' || usuarioLogueado.rol === 'jefa_ventas')){
       const nombreReal = resolverNombreReal(usuarioLogueado.nombre, DATA);
       if(nombreReal){
         window._nombreRealAsesora = nombreReal;
@@ -4599,10 +4599,25 @@ function setSubtab(tab){
   } else if(tab==='ventas'){
     renderVentasPanel();
   } else if(tab==='cpf'){
-    if(!vendActual && window._nombreRealAsesora) vendActual = window._nombreRealAsesora;
     cargarCarterasHeredadas().then(()=>{
-      if(vendActual) renderVendedor(vendActual);
-      else renderHome();
+      const uC = window.usuarioActual || {};
+      // Admin, administrativo y la jefa de ventas ven la lista completa de vendedoras;
+      // la asesora entra directo a su propia cartera.
+      const esAdminC2 = uC.rol !== 'asesora';
+      const abrirCompras = (reintento) => {
+        if(!vendActual && !esAdminC2) vendActual = nombreRealDelUsuario();
+        if(vendActual){ renderVendedor(vendActual); return; }
+        // Sin nombre resuelto todavía: el histórico sigue bajando. Se espera y se reintenta
+        // en vez de dejar la pantalla en blanco.
+        if(!esAdminC2 && (reintento||0) < 12){
+          const m = document.getElementById('main');
+          if(m && !(reintento||0)) m.innerHTML = '<div style="padding:40px;text-align:center;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:22px"></i><div style="font-size:12px;margin-top:8px">Cargando tus clientas…</div></div>';
+          setTimeout(()=>abrirCompras((reintento||0)+1), 700);
+          return;
+        }
+        renderHome();
+      };
+      abrirCompras(0);
     });
   } else if(tab==='prov'){
     vendActual = null;
@@ -7891,6 +7906,19 @@ function carterasVisibles(){
     if(real && !out.includes(real)) out.push(real);
   });
   return out;
+}
+
+// El nombre con el que la persona aparece en las ventas. Se resuelve cuando hace falta
+// y no solo al arrancar: si entra a Clientes antes de que termine de bajar el histórico,
+// antes se quedaba sin nombre y el panel salía vacío para siempre.
+function nombreRealDelUsuario(){
+  const u = window.usuarioActual || JSON.parse(sessionStorage.getItem('cosetika_usuario')||'null') || {};
+  if(!u.nombre) return '';
+  if(window._nombreRealAsesora) return window._nombreRealAsesora;
+  if(!Object.keys(DATA||{}).length) return '';          // todavía no hay histórico: reintentar luego
+  const real = (typeof resolverNombreReal === 'function' ? resolverNombreReal(u.nombre, DATA) : null) || u.nombre;
+  window._nombreRealAsesora = real;
+  return real;
 }
 
 function verCarteraDeNombre(nombre){
