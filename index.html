@@ -11923,7 +11923,7 @@ async function guardarPctComision(nombre, campo, valor){
   const cfg = window._pptoCfg || {pct:{},overrides:{},snapshots:{}};
   const destino = prepararMesEdicion(cfg) || cfg;
   destino.pct_comision = destino.pct_comision || {};
-  const k = Object.keys(destino.pct_comision).find(x => anclaPct(x) === anclaPct(nombre)) || nombre;
+  const k = Object.keys(destino.pct_comision).find(x => mismaPersona(x, nombre)) || nombre;
   destino.pct_comision[k] = Object.assign({}, destino.pct_comision[k] || {});
   destino.pct_comision[k][campo] = campo === 'piso'
     ? Math.max(0, parseFloat(valor) || 0)
@@ -15011,13 +15011,30 @@ function anclaPct(x){
     .toUpperCase().split(/\s+/).slice(0,2).join(' ');
 }
 
+// ¿Son la misma persona escrita de dos formas? El ancla de dos palabras no basta:
+// "Liseth Gavilanes" (como está en Credenciales) y "Liseth Alexandra Gavilanes ..."
+// (como viene de Contifico) daban anclas distintas, y por eso su meta salía vacía.
+// Aquí se exige mismo primer nombre y al menos un apellido en común.
+function mismaPersona(a, b){
+  const nz = s2 => String(s2||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .toUpperCase().trim().replace(/\s+/g,' ');
+  const A = nz(a), B = nz(b);
+  if(!A || !B) return false;
+  if(A === B) return true;
+  if(A.includes(B) || B.includes(A)) return true;
+  const wa = A.split(' ').filter(w=>w.length>2), wb = B.split(' ').filter(w=>w.length>2);
+  if(!wa.length || !wb.length) return false;
+  if(wa[0] !== wb[0]) return false;                                 // mismo primer nombre
+  return wa.slice(1).some(w => wb.slice(1).includes(w));            // y un apellido común
+}
+
 // Porcentajes de comisión de UNA persona. Si no tiene nada propio, hereda los generales.
 // Karen cobra 4% donde las demás cobran 3%, y eso se configura en Presupuesto ventas.
 function incentivoDe(nombre, mesKey){
   const base = incentivoCfg(mesKey);
   const { general, propio: pMes } = cfgDelMes(mesKey);
   const tabla = Object.assign({}, general.pct_comision || {}, pMes.pct_comision || {});
-  const k = Object.keys(tabla).find(x => anclaPct(x) === anclaPct(nombre));
+  const k = Object.keys(tabla).find(x => mismaPersona(x, nombre));
   const propio = k ? (tabla[k] || {}) : {};
   const num = (v, d) => { const n = parseFloat(v); return isNaN(n) ? d : n; };
   return Object.assign({}, base, {
@@ -15098,10 +15115,10 @@ function metaDeAsesora(nombreVend, anioM, mesM){
   const mb = mesBaseDeMeta(anioM, mesM);
   const base = Math.round((ventasMesDeVendedora(nombreVend, mb.mes, mb.anio) || 0) * mb.factor);
   const tablaPct = Object.assign({}, cfgP.pct || {}, ((cfgP.mensual||{})[mkDeMeta] || {}).pct || {});
-  const kPct = Object.keys(tablaPct).find(k=>ancla(k)===ancla(nombreVend));
+  const kPct = Object.keys(tablaPct).find(k=>mismaPersona(k, nombreVend));
   let pct = kPct !== undefined ? parseFloat(tablaPct[kPct]) : null;
   if(pct === null || isNaN(pct)) pct = pctPorDefecto(nombreVend);
-  const kOv = Object.keys(cfgP.overrides||{}).find(k=>ancla(k)===ancla(nombreVend));
+  const kOv = Object.keys(cfgP.overrides||{}).find(k=>mismaPersona(k, nombreVend));
   const mkM = anioM+'-'+String(mesM).padStart(2,'0');
   const ov = kOv !== undefined ? (cfgP.overrides[kOv]||{})[mkM] : undefined;
   if(ov !== undefined && ov !== null && ov !== ''){
