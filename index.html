@@ -798,14 +798,24 @@ function setMod(mod){
 
 
 // ─── MÓDULO DOCUMENTOS (PDFs) ───────────────────────────────────────────────
+// Quién puede subir y eliminar documentos. Ver y descargar queda para cualquiera que
+// tenga acceso al panel: un PDF que se puede abrir también se puede guardar, así que
+// separar "ver" de "descargar" sería una restricción falsa.
+function puedeSubirDocumentos(){
+  const u = window.usuarioActual || JSON.parse(sessionStorage.getItem('cosetika_usuario')||'null') || {};
+  return u.rol === 'admin' || String(u.modulos||'').split(',').includes('subir_documentos');
+}
+
 async function renderDocumentos(){
   const main = document.getElementById('main');
   main.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
       <div style="font-size:16px;font-weight:600"><i class="ti ti-files" style="margin-right:8px;color:var(--brown)"></i>Documentos</div>
       <div>
+        ${puedeSubirDocumentos() ? `
         <input type="file" id="doc-file-input" accept="application/pdf,.pdf" multiple style="display:none" onchange="subirDocumentos(event)">
-        <button id="doc-subir-btn" onclick="document.getElementById('doc-file-input').click()" style="padding:9px 16px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-upload" style="margin-right:6px"></i>Subir PDF</button>
+        <button id="doc-subir-btn" onclick="document.getElementById('doc-file-input').click()" style="padding:9px 16px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-upload" style="margin-right:6px"></i>Subir PDF</button>`
+        : '<span style="font-size:11px;color:var(--muted)">Solo lectura</span>'}
       </div>
     </div>
     <div id="doc-subir-status" style="font-size:12px;color:var(--muted);margin-bottom:10px"></div>
@@ -821,10 +831,10 @@ async function cargarListaDocumentos(){
     const docs = await r.json();
     if(!Array.isArray(docs) || docs.length === 0){
       cont.style.textAlign='center';
-      cont.innerHTML = `<div style="padding:40px 20px;color:var(--muted)"><i class="ti ti-file-off" style="font-size:36px;opacity:0.35"></i><p style="margin-top:10px;font-size:14px">No hay documentos todavía</p><p style="font-size:12px;margin-top:4px">Sube el primer PDF con el botón de arriba</p></div>`;
+      cont.innerHTML = `<div style="padding:40px 20px;color:var(--muted)"><i class="ti ti-file-off" style="font-size:36px;opacity:0.35"></i><p style="margin-top:10px;font-size:14px">No hay documentos todavía</p><p style="font-size:12px;margin-top:4px">${puedeSubirDocumentos()?'Sube el primer PDF con el botón de arriba':'Todavía nadie ha subido documentos'}</p></div>`;
       return;
     }
-    const esAdmin = (window.usuarioActual||{}).rol === 'admin';
+    const esAdmin = puedeSubirDocumentos();
     const fmtTam = n => { n=parseInt(n)||0; return n>=1048576 ? (n/1048576).toFixed(1)+' MB' : Math.max(1,Math.round(n/1024))+' KB'; };
     cont.style.textAlign='left'; cont.style.padding='0';
     cont.innerHTML = `<div style="font-size:12px;color:var(--muted);margin-bottom:10px">${docs.length} documento${docs.length!==1?'s':''}</div>` + docs.map(d=>{
@@ -3917,6 +3927,7 @@ async function renderConfig(){
               <th style="text-align:left;padding:8px 10px;font-size:11px;color:var(--muted)">Usuario</th>
               ${MODS_LISTA.map(m=>`<th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);text-transform:uppercase">${m}</th>`).join('')}<th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);white-space:nowrap;text-transform:uppercase">Ver visitas<br>de todas</th>
               <th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);text-transform:uppercase">Editar Plan.</th>
+              <th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);white-space:nowrap;text-transform:uppercase" title="Puede subir y eliminar PDFs en el panel de Documentos">Subir<br>documentos</th>
             </tr></thead>
             <tbody>
               ${usuarios.map(u=>{
@@ -3928,7 +3939,8 @@ async function renderConfig(){
                 return "<tr style=\"border-bottom:0.5px solid var(--border)\"><td style=\"padding:10px\"><div style=\"font-size:13px;font-weight:500\">" + u.nombre.split(' ')[0] + "</div><div style=\"font-size:11px;color:var(--muted)\">" + u.rol + "</div></td>" +
                   MODS_LISTA.map(m=>"<td style=\"text-align:center;padding:10px\"><input type=\"checkbox\" " + (mods.includes(m)||esAdmin?'checked':'') + " " + (esAdmin?'disabled':'') + " id=\"perm-" + u.id + "-" + m + "\" style=\"accent-color:#A0684A;width:16px;height:16px;cursor:pointer\"/></td>").join('') +
                   "<td style=\"text-align:center;padding:10px\"><input type=\"checkbox\" id=\"perm-" + u.id + "-ver_visitas_todas\" " + (verTodas?'checked':'') + " " + (esAdmin||esJefa?'disabled':'') + " style=\"accent-color:#A0684A;width:16px;height:16px;cursor:pointer\"/></td>" +
-                  "<td style=\"text-align:center;padding:10px\"><input type=\"checkbox\" id=\"perm-" + u.id + "-editar_planificacion\" " + (mods.includes('editar_planificacion')||esAdmin||esJefa?'checked':'') + " " + (esAdmin?'disabled':'') + " style=\"accent-color:#A0684A;width:16px;height:16px;cursor:pointer\"/></td></tr>";
+                  "<td style=\"text-align:center;padding:10px\"><input type=\"checkbox\" id=\"perm-" + u.id + "-editar_planificacion\" " + (mods.includes('editar_planificacion')||esAdmin||esJefa?'checked':'') + " " + (esAdmin?'disabled':'') + " style=\"accent-color:#A0684A;width:16px;height:16px;cursor:pointer\"/></td>" +
+                  "<td style=\"text-align:center;padding:10px\"><input type=\"checkbox\" id=\"perm-" + u.id + "-subir_documentos\" " + (mods.includes('subir_documentos')||esAdmin?'checked':'') + " " + (esAdmin?'disabled':'') + " style=\"accent-color:#A0684A;width:16px;height:16px;cursor:pointer\"/></td></tr>";
               }).join('')}
             </tbody>
           </table>
@@ -4226,6 +4238,7 @@ async function guardarTodosPermisos(){
       // "Editar sectores" ya no se gestiona desde esta tabla — se preserva el valor actual
       if(((window._permModsActuales||{})[id]||[]).includes('editar_visitas')) mods.push('editar_visitas');
       if(document.getElementById('perm-'+id+'-editar_planificacion')?.checked) mods.push('editar_planificacion');
+      if(document.getElementById('perm-'+id+'-subir_documentos')?.checked) mods.push('subir_documentos');
       await fetch('/api/usuarios/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({modulos:mods.join(',')})});
     }));
     if(statusEl) statusEl.innerHTML = '<span style="color:#166534">✓ Permisos guardados</span>';

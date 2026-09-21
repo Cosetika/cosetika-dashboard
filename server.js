@@ -1615,6 +1615,25 @@ function bloquearSiNoRol(req, res, roles){
   return true;
 }
 
+// Permiso para subir o eliminar documentos. El token de sesión no lleva los módulos
+// (y las sesiones duran 180 días), así que se consulta la tabla: así el permiso aplica
+// al instante, sin obligar a nadie a volver a entrar.
+async function bloquearSiNoPuedeDocumentos(req, res){
+  const s = leerSesion(req);
+  if (s && s.rol === 'admin') return false;
+  if (s && s.id) {
+    try {
+      const r = await pool.query('SELECT modulos FROM usuarios WHERE id=$1', [s.id]);
+      const mods = String((r.rows[0] || {}).modulos || '').split(',').map(x => x.trim());
+      if (mods.includes('subir_documentos')) return false;
+    } catch(e) {}
+  }
+  res.writeHead(403, {'Content-Type':'application/json'});
+  res.end(JSON.stringify({ ok:false,
+    error: 'Tu usuario no tiene permiso para subir ni eliminar documentos. Pídeselo al administrador (Configuración → Permisos → "Subir documentos").' }));
+  return true;
+}
+
 // ─── PEDIDOS WEB: completar cédula/RUC y SKUs desde la API de WooCommerce ───
 // El correo de WooCommerce a veces trae los datos de pago en vez de la cédula; la API
 // siempre entrega el pedido completo, así que la usamos como fuente de verdad.
@@ -7024,6 +7043,7 @@ const server = http.createServer(async (req, res) => {
   }
   // POST /api/documentos?usuario=X → subir un PDF (multipart, campo 'file')
   if (urlPath === '/api/documentos' && req.method === 'POST') {
+    if (await bloquearSiNoPuedeDocumentos(req, res)) return;
     try {
       const buf = await bodyBuffer(req);
       const archivo = parseMultipartFile(buf, req.headers['content-type']);
@@ -7066,6 +7086,7 @@ const server = http.createServer(async (req, res) => {
   }
   // DELETE /api/documentos/:id → eliminar documento
   if (/^\/api\/documentos\/\d+$/.test(urlPath) && req.method === 'DELETE') {
+    if (await bloquearSiNoPuedeDocumentos(req, res)) return;
     try {
       const id = parseInt(urlPath.split('/').pop());
       await pool.query('DELETE FROM documentos WHERE id=$1', [id]);
