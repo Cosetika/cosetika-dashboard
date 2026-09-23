@@ -12175,9 +12175,13 @@ function etiquetaInactiva(nombre){
   window.fetch = async function(...args){
     const r = await _fetch(...args);
     try{
-      if(r.status === 403 && !avisado && (window.usuarioActual||{}).rol === 'admin'){
-        const url = String((args[0] && args[0].url) || args[0] || '');
-        if(url.indexOf('/api/') !== -1){ avisado = true; avisarSesionCaducada(); }
+      const url = String((args[0] && args[0].url) || args[0] || '');
+      const esApi = url.indexOf('/api/') !== -1 || url.indexOf('/data.json') !== -1;
+      // 401 = el servidor ya no reconoce la sesión. Cualquiera que sea el rol, hay que
+      // volver a entrar: sin esto los paneles se quedaban vacíos sin explicación.
+      if(esApi && r.status === 401 && !avisado){ avisado = true; avisarSesionCaducada(); }
+      else if(esApi && r.status === 403 && !avisado && (window.usuarioActual||{}).rol === 'admin'){
+        avisado = true; avisarSesionCaducada();
       }
     }catch(e){}
     return r;

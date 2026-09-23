@@ -1571,8 +1571,61 @@ const CAMPOS_ADICIONALES = ['adicional1_cliente','adicional2_cliente','adicional
 const zlib = require('zlib');
 const crypto = require('crypto');
 const SESION_SECRET = process.env.SESION_SECRET || (process.env.CONTIFICO_API_KEY || 'cosetika') + '::sesion';
+if (!process.env.SESION_SECRET) {
+  console.warn('⚠️  SEGURIDAD: falta la variable SESION_SECRET. Se está firmando con un valor derivado '
+    + 'de la clave de Contifico. Crea SESION_SECRET en Railway con 40+ caracteres aleatorios.');
+}
+// ─── CONTRASEÑAS ──────────────────────────────────────────────────────────────
+// scrypt con sal por usuario. Antes se guardaban en texto plano: cualquiera que
+// viera la tabla (o un backup) tenía las claves de todo el equipo.
+function hashClave(clave, salHex){
+  const sal = salHex || crypto.randomBytes(16).toString('hex');
+  const h = crypto.scryptSync(String(clave), sal, 32).toString('hex');
+  return 'scrypt$' + sal + '$' + h;
+}
+
+// Compara sin filtrar información por el tiempo de respuesta
+function igualSeguro(a, b){
+  const A = Buffer.from(String(a)), B = Buffer.from(String(b));
+  if (A.length !== B.length) return false;
+  return crypto.timingSafeEqual(A, B);
+}
+
+// true si la clave es correcta. Acepta las antiguas en texto plano para poder migrar.
+function claveCorrecta(guardada, intento){
+  const g = String(guardada || '');
+  if (g.startsWith('scrypt$')) {
+    const [, sal] = g.split('$');
+    return igualSeguro(g, hashClave(intento, sal));
+  }
+  return igualSeguro(g, intento);      // formato viejo, se migra al entrar
+}
+
+// ─── FRENO DE INTENTOS ────────────────────────────────────────────────────────
+// Sin esto se pueden probar contraseñas sin límite hasta acertar.
+const INTENTOS = new Map();
+const MAX_INTENTOS = 8, VENTANA_MS = 15 * 60 * 1000;
+
+function bloqueadoPorIntentos(clave){
+  const e = INTENTOS.get(clave);
+  if (!e) return 0;
+  if (Date.now() - e.desde > VENTANA_MS) { INTENTOS.delete(clave); return 0; }
+  if (e.n < MAX_INTENTOS) return 0;
+  return Math.ceil((VENTANA_MS - (Date.now() - e.desde)) / 60000);
+}
+
+function anotarFallo(clave){
+  const e = INTENTOS.get(clave);
+  if (!e || Date.now() - e.desde > VENTANA_MS) INTENTOS.set(clave, { n:1, desde: Date.now() });
+  else e.n++;
+}
+
+// Subir este número invalida TODAS las sesiones abiertas de golpe: es el botón de
+// pánico si se sospecha que alguien entró con credenciales robadas.
+const SESION_VERSION = 2;
+
 function firmarSesion(u){
-  const payload = Buffer.from(JSON.stringify({ id: u.id, rol: u.rol, nombre: u.nombre })).toString('base64url');
+  const payload = Buffer.from(JSON.stringify({ id: u.id, rol: u.rol, nombre: u.nombre, v: SESION_VERSION })).toString('base64url');
   const firma = crypto.createHmac('sha256', SESION_SECRET).update(payload).digest('base64url');
   return payload + '.' + firma;
 }
@@ -1588,7 +1641,9 @@ function leerSesion(req){
     const [payload, firma] = t.split('.');
     const esperada = crypto.createHmac('sha256', SESION_SECRET).update(payload).digest('base64url');
     if (firma !== esperada) return null;
-    return JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    const s = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    if (s.v !== SESION_VERSION) return null;   // sesión de una versión anterior: caducada
+    return s;
   } catch(e) { return null; }
 }
 // Devuelve true si la petición NO es de un admin (y ya respondió 403)
@@ -3790,21 +3845,118 @@ function parseMultipartFile(buffer, contentType) {
   return null;
 }
 
+// Rutas que funcionan sin haber entrado. Es la lista COMPLETA: cualquier cosa
+// que no esté aquí necesita sesión válida.
+const RUTAS_PUBLICAS = [
+  ['POST', '/api/login'],
+  ['GET',  '/api/version']
+];
+
+// Lo que solo puede tocar un administrador. Una credencial robada de una asesora
+// no debe servir para bajarse la base, crear usuarios ni mover dinero.
+const SOLO_ADMIN = [
+  /^\/api\/backup/, /^\/api\/restaurar/, /^\/api\/usuarios/,
+  /^\/api\/presupuesto-config/, /^\/api\/comisiones/,
+  /^\/api\/caja/, /^\/api\/finanzas/, /^\/api\/pyg/, /^\/api\/balance/, /^\/api\/nomina/,
+  /^\/api\/importaciones/, /^\/api\/producto-costos/,
+  /^\/api\/equipos/, /^\/api\/categorias-asesora/, /^\/api\/carteras-heredadas/,
+  /^\/api\/kpi-metas/, /^\/api\/kpis-pesos/, /^\/api\/meta-ventas/, /^\/api\/metas-visitas/,
+  /^\/api\/mercately\/metas/, /^\/api\/contifico-clientes\/metas/,
+  /^\/api\/visitas-excepciones/, /^\/api\/clientes-reasignados/,
+  /^\/api\/sku-por-marca/, /^\/api\/bodegas\/config/, /^\/api\/viaticos-tarifas/,
+  /^\/api\/fix-/, /^\/api\/diagnostico/, /^\/api\/debug/
+];
+
+// Subidas masivas de catálogos: rehacen datos de toda la empresa
+const SOLO_ADMIN_ESCRITURA = [
+  /^\/api\/inventario\/subir/, /^\/api\/provincias\/subir/, /^\/api\/personas\/subir/,
+  /^\/api\/nsos\/(bulk|subir)/, /^\/api\/testers\/bulk/, /^\/api\/articulos/,
+  /^\/api\/institutos\/sync/, /^\/api\/referidos\/sync/, /^\/api\/lotes/
+];
+
+function esRutaPublica(metodo, ruta){
+  return RUTAS_PUBLICAS.some(([m, r]) => m === metodo && r === ruta);
+}
+
+// Devuelve true si ya respondió y hay que cortar el procesamiento.
+function protegerPeticion(req, res, urlPath){
+  // Los archivos de la app (index.html, iconos…) se sirven sin sesión: el propio
+  // index redirige al login si no hay usuario. Los DATOS sí van protegidos.
+  const esApi = urlPath.startsWith('/api/') || urlPath === '/data.json';
+  if (!esApi) return false;
+  if (esRutaPublica(req.method, urlPath)) return false;
+
+  const s = leerSesion(req);
+  if (!s) {
+    res.writeHead(401, {'Content-Type':'application/json'});
+    res.end(JSON.stringify({ ok:false, error:'Sesión no válida o caducada. Vuelve a iniciar sesión.', sesion:false }));
+    return true;
+  }
+  if (s.rol !== 'admin') {
+    const esEscritura = req.method !== 'GET';
+    const chocaAdmin = SOLO_ADMIN.some(re => re.test(urlPath))
+                    || (esEscritura && SOLO_ADMIN_ESCRITURA.some(re => re.test(urlPath)));
+    if (chocaAdmin) {
+      res.writeHead(403, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:false,
+        error:'Tu usuario (' + s.rol + ') no tiene permiso para esta sección. Solo el administrador puede.',
+        ruta: urlPath }));
+      return true;
+    }
+  }
+  req.sesion = s;
+  return false;
+}
+
 const server = http.createServer(async (req, res) => {
   const urlObj = new URL(req.url, 'http://localhost');
   const urlPath = urlObj.pathname;
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  // Mismo origen: la app y su API viven juntas, nadie más necesita llamarla.
+  // Antes estaba abierta a cualquier origen ('*').
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Sesion');
+  // Cabeceras de defensa del navegador
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'same-origin');
+  res.setHeader('Permissions-Policy', 'geolocation=(self), camera=(), microphone=()');
   if (req.method === 'OPTIONS') { res.writeHead(200); res.end(); return; }
+
+  // ─── PORTERO ───────────────────────────────────────────────────────────────
+  // Toda la API exige sesión, salvo lo que aquí se permita explícitamente. Antes
+  // cada endpoint tenía que acordarse de comprobarlo y la mayoría no lo hacía:
+  // cualquiera podía bajarse la base entera o crearse un usuario administrador.
+  if (protegerPeticion(req, res, urlPath)) return;
 
   // LOGIN
   if (urlPath === '/api/login' && req.method === 'POST') {
     try {
       const { usuario, password } = await bodyJSON(req);
-      const r = await pool.query('SELECT * FROM usuarios WHERE usuario=$1 AND password=$2 AND activo=true', [usuario, password]);
-      if (!r.rows.length) { res.writeHead(401,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:'Usuario o contraseña incorrectos'})); return; }
-      const u = r.rows[0];
+      const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
+      const llave = ip + '|' + String(usuario || '').toLowerCase();
+      const min = bloqueadoPorIntentos(llave);
+      if (min) {
+        res.writeHead(429,{'Content-Type':'application/json'});
+        res.end(JSON.stringify({error:'Demasiados intentos fallidos. Vuelve a probar en '+min+' minuto'+(min!==1?'s':'')+'.'}));
+        return;
+      }
+      // La contraseña ya no entra en la consulta: se trae el usuario y se compara aquí,
+      // que es lo único compatible con guardarlas cifradas.
+      const r = await pool.query('SELECT * FROM usuarios WHERE usuario=$1 AND activo=true', [usuario]);
+      const cand = r.rows[0];
+      if (!cand || !claveCorrecta(cand.password, password)) {
+        anotarFallo(llave);
+        res.writeHead(401,{'Content-Type':'application/json'});
+        res.end(JSON.stringify({error:'Usuario o contraseña incorrectos'}));
+        return;
+      }
+      INTENTOS.delete(llave);
+      // Migración transparente: la primera vez que entra con una clave vieja, se cifra
+      if (!String(cand.password || '').startsWith('scrypt$')) {
+        try { await pool.query('UPDATE usuarios SET password=$1 WHERE id=$2', [hashClave(password), cand.id]); }
+        catch(e) { console.error('No se pudo cifrar la clave de', usuario, e.message); }
+      }
+      const u = cand;
       const token = firmarSesion(u);
       // Cookie firmada: el navegador la envía en cada petición, así el server puede
       // verificar el rol real sin depender del frontend (no se puede falsificar)
@@ -3828,7 +3980,7 @@ const server = http.createServer(async (req, res) => {
   if (urlPath === '/api/usuarios' && req.method === 'POST') {
     try {
       const {nombre,usuario,password,rol,modulos} = await bodyJSON(req);
-      await pool.query('INSERT INTO usuarios(nombre,usuario,password,rol,modulos) VALUES($1,$2,$3,$4,$5)',[nombre,usuario,password||'1234',rol||'asesora',modulos||'ventas,visitas,kpis,inventario']);
+      await pool.query('INSERT INTO usuarios(nombre,usuario,password,rol,modulos) VALUES($1,$2,$3,$4,$5)',[nombre,usuario,hashClave(password||'1234'),rol||'asesora',modulos||'ventas,visitas,kpis,inventario']);
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
     return;
@@ -3899,7 +4051,14 @@ const server = http.createServer(async (req, res) => {
     try {
       const id = urlPath.split('/').pop();
       const body = await bodyJSON(req);
-      if (body.password) await pool.query('UPDATE usuarios SET password=$1 WHERE id=$2',[body.password,id]);
+      if (body.password) {
+        if (String(body.password).length < 6) {
+          res.writeHead(400,{'Content-Type':'application/json'});
+          res.end(JSON.stringify({ok:false, error:'La contraseña debe tener al menos 6 caracteres'}));
+          return;
+        }
+        await pool.query('UPDATE usuarios SET password=$1 WHERE id=$2',[hashClave(body.password),id]);
+      }
       if (body.modulos!==undefined) await pool.query('UPDATE usuarios SET modulos=$1 WHERE id=$2',[body.modulos,id]);
       if (body.activo!==undefined) await pool.query('UPDATE usuarios SET activo=$1 WHERE id=$2',[body.activo,id]);
       if (body.rol!==undefined) await pool.query('UPDATE usuarios SET rol=$1 WHERE id=$2',[body.rol,id]);
@@ -4091,7 +4250,10 @@ const server = http.createServer(async (req, res) => {
       try{
         const id = matchId[1];
         const body = await bodyJSON(req);
-        const cols = Object.keys(body).filter(k=>body[k]!==undefined);
+        // Solo columnas reales: los nombres venían del cuerpo de la petición y se
+        // pegaban al SQL tal cual, así que se podía escribir en campos no previstos.
+        const cols = Object.keys(body)
+          .filter(k => body[k] !== undefined && /^[a-z_][a-z0-9_]*$/.test(k) && k !== 'id');
         const sets = cols.map((k,i)=>`${k}=$${i+1}`).join(',');
         const vals = [...cols.map(k=>body[k]), id];
         await pool.query(`UPDATE ${tabla} SET ${sets} WHERE id=$${cols.length+1}`,vals);
