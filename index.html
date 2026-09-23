@@ -388,7 +388,10 @@
       <div class="nav-user-name" id="nav-user-name">Cargando...</div>
       <div class="nav-user-rol" id="nav-user-rol"></div>
     </div>
-    <button onclick="if(confirm('¿Cerrar sesión?')){sessionStorage.clear();window.location.href='/login';}" style="background:none;border:none;cursor:pointer;padding:4px;" title="Cerrar sesión">
+    <button onclick="pantallaCambioClave(false)" style="background:none;border:none;cursor:pointer;padding:4px;" title="Cambiar mi contraseña">
+      <i class="ti ti-key" style="font-size:16px;color:#8a7a6a"></i>
+    </button>
+    <button onclick="if(confirm('¿Cerrar sesión?')){cerrarSesionCosetika();}" style="background:none;border:none;cursor:pointer;padding:4px;" title="Cerrar sesión">
       <i class="ti ti-logout" style="font-size:16px;color:#5a4a3a"></i>
     </button>
   </div>
@@ -400,7 +403,7 @@
   <div class="mobile-header" id="mobile-header">
     <button class="ham-btn" onclick="openSidebar()"><i class="ti ti-menu-2" style="font-size:22px"></i></button>
     <span class="mobile-header-title" id="mobile-mod-title">Inicio</span>
-    <div class="nav-avatar" id="mobile-avatar" style="cursor:pointer" onclick="if(confirm('¿Cerrar sesión?')){sessionStorage.clear();window.location.href='/login';}"></div>
+    <div class="nav-avatar" id="mobile-avatar" style="cursor:pointer" onclick="if(confirm('¿Cerrar sesión?')){cerrarSesionCosetika();}"></div>
   </div>
 
   <div class="app-content" id="app-content">
@@ -9468,9 +9471,102 @@ async function marcarVisitaDB(lugar, tipo, asesora, btn){
 }
 
 // ─── AUTH ───────────────────────────────────────────────────────
+// El usuario puede estar guardado en sessionStorage (esta pestaña) o en localStorage
+// (cuando marcó "recordarme en este dispositivo", que es lo normal desde el celular).
+function usuarioGuardado(){
+  try{
+    const a = sessionStorage.getItem('cosetika_usuario');
+    if(a) return JSON.parse(a);
+    const b = localStorage.getItem('cosetika_usuario');
+    if(b){ sessionStorage.setItem('cosetika_usuario', b); return JSON.parse(b); }
+  }catch(e){}
+  return null;
+}
+
+function guardarUsuarioLocal(u){
+  const txt = JSON.stringify(u);
+  try{ sessionStorage.setItem('cosetika_usuario', txt); }catch(e){}
+  try{ if(localStorage.getItem('cosetika_usuario')) localStorage.setItem('cosetika_usuario', txt); }catch(e){}
+}
+
+function cerrarSesionCosetika(){
+  try{ sessionStorage.clear(); }catch(e){}
+  try{ localStorage.removeItem('cosetika_usuario'); }catch(e){}
+  window.location.href = '/login';
+}
+
+// ─── CAMBIO DE CONTRASEÑA OBLIGATORIO ─────────────────────────────────────────
+// Mientras no la cambie, el servidor le rechaza todo lo demás, así que la pantalla
+// tapa la app entera: no tiene sentido dejarle navegar paneles que van a salir vacíos.
+function pantallaCambioClave(obligatorio){
+  if(document.getElementById('cap-clave')) return;
+  const d = document.createElement('div');
+  d.id = 'cap-clave';
+  d.style.cssText = 'position:fixed;inset:0;z-index:100000;background:#f7f4f0;display:flex;'
+    + 'align-items:center;justify-content:center;padding:20px;overflow:auto';
+  d.innerHTML = `
+    <div style="background:white;border:1px solid #e5ded6;border-radius:16px;padding:26px;max-width:420px;width:100%;box-shadow:0 12px 40px rgba(0,0,0,0.12)">
+      <div style="font-size:17px;font-weight:700;color:#2b2118;margin-bottom:6px">
+        <i class="ti ti-shield-lock" style="color:#A0684A;margin-right:6px"></i>${obligatorio?'Crea una contraseña nueva':'Cambiar mi contraseña'}
+      </div>
+      <div style="font-size:12px;color:#8a7a6a;line-height:1.6;margin-bottom:16px">
+        ${obligatorio
+          ? 'Reforzamos la seguridad de la aplicación y las contraseñas anteriores dejaron de ser válidas. Elige una nueva para continuar.'
+          : 'Elige una contraseña nueva para tu cuenta.'}
+      </div>
+      <div style="font-size:11px;color:#8a7a6a;margin-bottom:4px">Contraseña actual</div>
+      <input id="cc-actual" type="password" autocomplete="current-password" style="width:100%;padding:10px 12px;border:1px solid #e5ded6;border-radius:9px;font-size:14px;outline:none;box-sizing:border-box;margin-bottom:12px">
+      <div style="font-size:11px;color:#8a7a6a;margin-bottom:4px">Contraseña nueva</div>
+      <input id="cc-nueva" type="password" autocomplete="new-password" style="width:100%;padding:10px 12px;border:1px solid #e5ded6;border-radius:9px;font-size:14px;outline:none;box-sizing:border-box;margin-bottom:12px">
+      <div style="font-size:11px;color:#8a7a6a;margin-bottom:4px">Repite la nueva</div>
+      <input id="cc-nueva2" type="password" autocomplete="new-password" style="width:100%;padding:10px 12px;border:1px solid #e5ded6;border-radius:9px;font-size:14px;outline:none;box-sizing:border-box;margin-bottom:10px">
+      <div style="font-size:11px;color:#8a7a6a;line-height:1.5;margin-bottom:14px">
+        Mínimo 8 caracteres, con letras y números. No uses la misma de otras aplicaciones.
+      </div>
+      <div id="cc-error" style="font-size:12px;color:#dc2626;margin-bottom:10px;min-height:16px"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        ${obligatorio
+          ? '<button onclick="cerrarSesionCosetika()" style="padding:10px 14px;background:none;border:1px solid #e5ded6;border-radius:9px;font-size:13px;cursor:pointer;color:#8a7a6a">Salir</button>'
+          : '<button onclick="document.getElementById(\'cap-clave\').remove()" style="padding:10px 14px;background:none;border:1px solid #e5ded6;border-radius:9px;font-size:13px;cursor:pointer;color:#8a7a6a">Cancelar</button>'}
+        <button id="cc-btn" onclick="guardarMiClave()" style="padding:10px 20px;background:#A0684A;color:white;border:none;border-radius:9px;font-size:13px;font-weight:600;cursor:pointer">Guardar</button>
+      </div>
+    </div>`;
+  document.body.appendChild(d);
+  setTimeout(()=>{ const el=document.getElementById('cc-actual'); if(el) el.focus(); }, 100);
+}
+
+async function guardarMiClave(){
+  const err = document.getElementById('cc-error');
+  const btn = document.getElementById('cc-btn');
+  const actual = (document.getElementById('cc-actual')||{}).value || '';
+  const nueva  = (document.getElementById('cc-nueva')||{}).value || '';
+  const nueva2 = (document.getElementById('cc-nueva2')||{}).value || '';
+  const fallo = m => { if(err) err.textContent = m; if(btn) btn.disabled = false; };
+  if(btn) btn.disabled = true;
+  if(err) err.textContent = '';
+  if(nueva !== nueva2) return fallo('Las dos contraseñas nuevas no coinciden.');
+  if(nueva.length < 8)  return fallo('La nueva debe tener al menos 8 caracteres.');
+  if(/^\d+$/.test(nueva)) return fallo('No uses solo números: mezcla letras y números.');
+  try{
+    const r = await fetch('/api/mi-clave', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ actual, nueva }) });
+    const j = await r.json();
+    if(!j.ok) return fallo(j.error || 'No se pudo cambiar.');
+    const u = usuarioGuardado() || {};
+    u.debe_cambiar_clave = false;
+    guardarUsuarioLocal(u);
+    const cap = document.getElementById('cap-clave');
+    if(cap) cap.innerHTML = '<div style="background:white;border-radius:16px;padding:30px;text-align:center;max-width:360px">'
+      + '<div style="font-size:34px">✓</div><div style="font-size:15px;font-weight:700;margin-top:8px">Contraseña actualizada</div>'
+      + '<div style="font-size:12px;color:#8a7a6a;margin-top:6px">Entrando…</div></div>';
+    setTimeout(()=>location.reload(), 900);
+  }catch(e){ fallo('Error de conexión: '+e.message); }
+}
+
 document.addEventListener('DOMContentLoaded', function() {
-  const usuarioActual = JSON.parse(sessionStorage.getItem('cosetika_usuario') || 'null');
+  const usuarioActual = usuarioGuardado();
   if (!usuarioActual) { window.location.href = '/login'; return; }
+  if (usuarioActual.debe_cambiar_clave) { pantallaCambioClave(true); }
 
   // Avatar e iniciales
   const nombre = usuarioActual.nombre.split(' ')[0];
@@ -12179,6 +12275,11 @@ function etiquetaInactiva(nombre){
       const esApi = url.indexOf('/api/') !== -1 || url.indexOf('/data.json') !== -1;
       // 401 = el servidor ya no reconoce la sesión. Cualquiera que sea el rol, hay que
       // volver a entrar: sin esto los paneles se quedaban vacíos sin explicación.
+      if(esApi && r.status === 403){
+        // El servidor puede exigir el cambio de contraseña en cualquier petición
+        const copia = r.clone();
+        copia.json().then(j=>{ if(j && j.cambiar_clave && typeof pantallaCambioClave==='function') pantallaCambioClave(true); }).catch(()=>{});
+      }
       if(esApi && r.status === 401 && !avisado){ avisado = true; avisarSesionCaducada(); }
       else if(esApi && r.status === 403 && !avisado && (window.usuarioActual||{}).rol === 'admin'){
         avisado = true; avisarSesionCaducada();
@@ -12196,7 +12297,7 @@ function avisarSesionCaducada(){
     + 'background:#1a1108;color:white;border-radius:12px;padding:13px 18px;display:flex;align-items:center;'
     + 'gap:14px;box-shadow:0 10px 30px rgba(0,0,0,0.25);font-size:13px;max-width:92vw';
   d.innerHTML = '<span><b>Tu sesión caducó.</b> Por eso algunos paneles salen vacíos.</span>'
-    + '<button onclick="sessionStorage.clear();window.location.href=\'/login\'" style="background:#A0684A;color:white;border:none;'
+    + '<button onclick="cerrarSesionCosetika()" style="background:#A0684A;color:white;border:none;'
     + 'border-radius:8px;padding:8px 14px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">Volver a entrar</button>'
     + '<button onclick="this.parentNode.remove()" style="background:none;border:none;color:#9ca3af;cursor:pointer;font-size:16px">×</button>';
   document.body.appendChild(d);

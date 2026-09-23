@@ -1625,7 +1625,9 @@ function anotarFallo(clave){
 const SESION_VERSION = 2;
 
 function firmarSesion(u){
-  const payload = Buffer.from(JSON.stringify({ id: u.id, rol: u.rol, nombre: u.nombre, v: SESION_VERSION })).toString('base64url');
+  const datos = { id: u.id, rol: u.rol, nombre: u.nombre, v: SESION_VERSION };
+  if (u.debe_cambiar_clave) datos.cc = 1;      // sesión "a medias": solo puede cambiar su clave
+  const payload = Buffer.from(JSON.stringify(datos)).toString('base64url');
   const firma = crypto.createHmac('sha256', SESION_SECRET).update(payload).digest('base64url');
   return payload + '.' + firma;
 }
@@ -1839,6 +1841,19 @@ async function sincronizarCreditos(){
     }
   } catch(e) { CREDITO_SYNC_LOG = { estado:'excepción', paginas:0, personas:0, error:e.message }; console.error('Error sincronizando créditos:', e.message); }
 }
+// Las contraseñas estuvieron guardadas en texto plano y la base fue descargable sin
+// sesión, así que hay que darlas por comprometidas: se obliga a renovarlas una vez.
+// El marcador impide que se repita en cada despliegue.
+setTimeout(async () => {
+  try {
+    const hecho = await getConfigApp('forzar_cambio_clave_v1', null);
+    if (hecho) return;
+    const r = await pool.query('UPDATE usuarios SET debe_cambiar_clave = true WHERE activo = true');
+    await setConfigApp('forzar_cambio_clave_v1', new Date().toISOString());
+    console.log('🔐 Se pidió renovar la contraseña a ' + r.rowCount + ' usuarios.');
+  } catch(e) { console.error('No se pudo marcar el cambio de clave:', e.message); }
+}, 8 * 1000);
+
 setTimeout(() => sincronizarCreditos(), 15 * 1000);
 setInterval(() => sincronizarCreditos(), 60 * 60 * 1000);
 
@@ -3774,6 +3789,7 @@ async function initDB() {
         valor TEXT
       );
       ALTER TABLE personas ALTER COLUMN ruc TYPE VARCHAR(50);
+      ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS debe_cambiar_clave BOOLEAN DEFAULT false;
     `);
     const usuarios = [
       { nombre: 'Fernando Espíndola', usuario: 'Fernando', password: '1234', rol: 'admin', modulos: 'ventas,visitas,kpis,inventario,config' },
@@ -3892,6 +3908,13 @@ function protegerPeticion(req, res, urlPath){
     res.end(JSON.stringify({ ok:false, error:'Sesión no válida o caducada. Vuelve a iniciar sesión.', sesion:false }));
     return true;
   }
+  // Sesión pendiente de renovar la contraseña: no puede hacer nada más
+  if (s.cc && urlPath !== '/api/mi-clave') {
+    res.writeHead(403, {'Content-Type':'application/json'});
+    res.end(JSON.stringify({ ok:false, cambiar_clave:true,
+      error:'Tienes que cambiar tu contraseña antes de seguir usando la aplicación.' }));
+    return true;
+  }
   if (s.rol !== 'admin') {
     const esEscritura = req.method !== 'GET';
     const chocaAdmin = SOLO_ADMIN.some(re => re.test(urlPath))
@@ -3931,7 +3954,7 @@ const server = http.createServer(async (req, res) => {
   // LOGIN
   if (urlPath === '/api/login' && req.method === 'POST') {
     try {
-      const { usuario, password } = await bodyJSON(req);
+      const { usuario, password, recordar } = await bodyJSON(req);
       const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
       const llave = ip + '|' + String(usuario || '').toLowerCase();
       const min = bloqueadoPorIntentos(llave);
@@ -3960,14 +3983,51 @@ const server = http.createServer(async (req, res) => {
       const token = firmarSesion(u);
       // Cookie firmada: el navegador la envía en cada petición, así el server puede
       // verificar el rol real sin depender del frontend (no se puede falsificar)
+      // "Recordarme en este dispositivo": la cookie dura 180 días. Sin marcar, se borra
+      // al cerrar el navegador. Si el login todavía no manda el dato, se recuerda —que es
+      // como venía funcionando— para no dejar a nadie fuera durante el despliegue.
+      const dur = (recordar === false) ? '' : `; Max-Age=${60*60*24*180}`;
       res.writeHead(200,{
         'Content-Type':'application/json',
-        // 180 días: con 30 la sesión caducaba sola y el servidor empezaba a devolver 403
-        // en los paneles de admin, que se veían vacíos sin explicar por qué.
-        'Set-Cookie': `cosetika_ses=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60*60*24*180}`
+        'Set-Cookie': `cosetika_ses=${token}; Path=/; HttpOnly; SameSite=Lax; Secure${dur}`
       });
-      res.end(JSON.stringify({ok:true, token, usuario:{id:u.id,nombre:u.nombre,usuario:u.usuario,rol:u.rol,modulos:u.modulos}}));
+      res.end(JSON.stringify({ok:true, token, recordado: dur !== '',
+        cambiar_clave: !!u.debe_cambiar_clave,
+        usuario:{id:u.id,nombre:u.nombre,usuario:u.usuario,rol:u.rol,modulos:u.modulos,
+                 debe_cambiar_clave: !!u.debe_cambiar_clave}}));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+
+  // Cambiar la contraseña PROPIA. Es lo único que puede hacer quien tiene la sesión
+  // marcada como "pendiente de renovar", y también sirve para cambiarla cuando uno quiera.
+  if (urlPath === '/api/mi-clave' && req.method === 'POST') {
+    const s = leerSesion(req);
+    if (!s) { res.writeHead(401,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'Sesión no válida'})); return; }
+    try {
+      const { actual, nueva } = await bodyJSON(req);
+      const nv = String(nueva || '');
+      if (nv.length < 8) throw new Error('La contraseña nueva debe tener al menos 8 caracteres');
+      if (/^\d+$/.test(nv)) throw new Error('No uses solo números: mezcla letras y números');
+      const r = await pool.query('SELECT * FROM usuarios WHERE id=$1 AND activo=true', [s.id]);
+      const u = r.rows[0];
+      if (!u) throw new Error('El usuario ya no existe');
+      if (!claveCorrecta(u.password, actual)) throw new Error('La contraseña actual no es correcta');
+      if (claveCorrecta(u.password, nv)) throw new Error('La nueva tiene que ser distinta de la actual');
+
+      await pool.query('UPDATE usuarios SET password=$1, debe_cambiar_clave=false WHERE id=$2',
+                       [hashClave(nv), u.id]);
+      // Sesión limpia, ya sin la marca de pendiente
+      const token = firmarSesion({ ...u, debe_cambiar_clave: false });
+      res.writeHead(200,{
+        'Content-Type':'application/json',
+        'Set-Cookie': `cosetika_ses=${token}; Path=/; HttpOnly; SameSite=Lax; Secure; Max-Age=${60*60*24*180}`
+      });
+      res.end(JSON.stringify({ ok:true, token }));
+    } catch(e) {
+      res.writeHead(400,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:false, error: e.message }));
+    }
     return;
   }
 
