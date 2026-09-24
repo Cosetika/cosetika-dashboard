@@ -3868,26 +3868,36 @@ const RUTAS_PUBLICAS = [
   ['GET',  '/api/version']
 ];
 
-// Lo que solo puede tocar un administrador. Una credencial robada de una asesora
-// no debe servir para bajarse la base, crear usuarios ni mover dinero.
+// ─── NIVELES DE ACCESO ────────────────────────────────────────────────────────
+// Lección aprendida: casi todo lo de "configuración" hay que poder LEERLO para que
+// los paneles funcionen (las metas, los equipos, la lista de asesoras). Lo que no
+// puede hacer cualquiera es CAMBIARLO. Por eso se separa leer de escribir.
+
+// 1) Solo el admin, ni siquiera leer: dinero y herramientas del sistema.
 const SOLO_ADMIN = [
-  /^\/api\/backup/, /^\/api\/restaurar/, /^\/api\/usuarios/,
-  /^\/api\/presupuesto-config/, /^\/api\/comisiones/,
+  /^\/api\/backup/, /^\/api\/restaurar/,
   /^\/api\/caja/, /^\/api\/finanzas/, /^\/api\/pyg/, /^\/api\/balance/, /^\/api\/nomina/,
   /^\/api\/importaciones/, /^\/api\/producto-costos/,
-  /^\/api\/equipos/, /^\/api\/categorias-asesora/, /^\/api\/carteras-heredadas/,
-  /^\/api\/kpi-metas/, /^\/api\/kpis-pesos/, /^\/api\/meta-ventas/, /^\/api\/metas-visitas/,
-  /^\/api\/mercately\/metas/, /^\/api\/contifico-clientes\/metas/,
-  /^\/api\/visitas-excepciones/, /^\/api\/clientes-reasignados/,
-  /^\/api\/sku-por-marca/, /^\/api\/bodegas\/config/, /^\/api\/viaticos-tarifas/,
   /^\/api\/fix-/, /^\/api\/diagnostico/, /^\/api\/debug/
 ];
 
-// Subidas masivas de catálogos: rehacen datos de toda la empresa
-const SOLO_ADMIN_ESCRITURA = [
+// 2) Cualquiera con sesión puede LEER; solo el admin puede cambiarlo.
+const SOLO_ADMIN_ESCRIBE = [
+  /^\/api\/usuarios/, /^\/api\/presupuesto-config/, /^\/api\/comisiones/,
+  /^\/api\/equipos/, /^\/api\/categorias-asesora/, /^\/api\/carteras-heredadas/,
+  /^\/api\/clientes-reasignados/, /^\/api\/sku-por-marca/,
+  /^\/api\/bodegas\/config/, /^\/api\/viaticos-tarifas/,
+  // Subidas masivas: rehacen datos de toda la empresa
   /^\/api\/inventario\/subir/, /^\/api\/provincias\/subir/, /^\/api\/personas\/subir/,
   /^\/api\/nsos\/(bulk|subir)/, /^\/api\/testers\/bulk/, /^\/api\/articulos/,
   /^\/api\/institutos\/sync/, /^\/api\/referidos\/sync/, /^\/api\/lotes/
+];
+
+// 3) Cualquiera lee; el admin y la jefa de ventas pueden cambiarlo (es su trabajo).
+const ADMIN_O_JEFA_ESCRIBE = [
+  /^\/api\/kpi-metas/, /^\/api\/kpis-pesos/, /^\/api\/meta-ventas/, /^\/api\/metas-visitas/,
+  /^\/api\/mercately\/metas/, /^\/api\/contifico-clientes\/metas/,
+  /^\/api\/visitas-excepciones/
 ];
 
 function esRutaPublica(metodo, ruta){
@@ -3917,12 +3927,15 @@ function protegerPeticion(req, res, urlPath){
   }
   if (s.rol !== 'admin') {
     const esEscritura = req.method !== 'GET';
-    const chocaAdmin = SOLO_ADMIN.some(re => re.test(urlPath))
-                    || (esEscritura && SOLO_ADMIN_ESCRITURA.some(re => re.test(urlPath)));
-    if (chocaAdmin) {
+    const esJefa = s.rol === 'jefa_ventas';
+    const prohibido = SOLO_ADMIN.some(re => re.test(urlPath))
+      || (esEscritura && SOLO_ADMIN_ESCRIBE.some(re => re.test(urlPath)))
+      || (esEscritura && !esJefa && ADMIN_O_JEFA_ESCRIBE.some(re => re.test(urlPath)));
+    if (prohibido) {
       res.writeHead(403, {'Content-Type':'application/json'});
       res.end(JSON.stringify({ ok:false,
-        error:'Tu usuario (' + s.rol + ') no tiene permiso para esta sección. Solo el administrador puede.',
+        error:'Tu usuario (' + s.rol + ') no tiene permiso para ' +
+              (esEscritura ? 'cambiar esto' : 'ver esta sección') + '. Solo el administrador puede.',
         ruta: urlPath }));
       return true;
     }
