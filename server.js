@@ -4076,45 +4076,77 @@ const server = http.createServer(async (req, res) => {
         ['metas_visitas','asesora'], ['revisiones_lunes','asesora'], ['testers_asesoras','asesora'],
         ['mercately_registros','asesora'], ['contifico_clientes_registros','asesora'],
         ['casa_abierta_registros','asesora'], ['equipo_miembros','usuario_nombre'],
-        ['push_subscriptions','usuario_nombre'], ['pedidos_web','asesora']
+        ['push_subscriptions','usuario_nombre'], ['pedidos_web','asesora'],
+        // Faltaban: por eso el nombre viejo seguía apareciendo en varios paneles
+        ['equipos','lider'], ['visitas_excepciones','asesora'], ['visitas_excepciones','creado_por'],
+        ['seguimiento_contactos','asesora'], ['documentos','subido_por'], ['nomina_meses','subido_por']
       ];
       const detalle = {};
       for (const [t, c] of TABLAS_NOMBRE) {
         try {
           const r = await pool.query(`UPDATE ${t} SET ${c}=$1 WHERE ${c}=$2`, [nuevo, viejo]);
-          if (r.rowCount > 0) detalle[t] = r.rowCount;
+          if (r.rowCount > 0) detalle[t + '.' + c] = r.rowCount;
         } catch(e) { console.log(`Renombrar: no se pudo actualizar ${t}: ${e.message}`); }
       }
-      // Configs JSON con el nombre como clave
-      try {
-        const raw = await getConfigApp('meta_ventas', null);
-        if (raw) {
-          const cfg = JSON.parse(raw);
-          if (cfg.metas && (viejo in cfg.metas)) { cfg.metas[nuevo] = cfg.metas[viejo]; delete cfg.metas[viejo]; await setConfigApp('meta_ventas', JSON.stringify(cfg)); detalle.meta_ventas = 1; }
-        }
-      } catch(e) {}
-      try {
-        const rM = await pool.query("SELECT datos FROM contifico_clientes_metas WHERE id_unico='principal'");
-        if (rM.rows.length) {
-          const d = JSON.parse(rM.rows[0].datos);
-          if (d && typeof d === 'object' && (viejo in d)) { d[nuevo] = d[viejo]; delete d[viejo]; await pool.query("UPDATE contifico_clientes_metas SET datos=$1, actualizado_at=NOW() WHERE id_unico='principal'", [JSON.stringify(d)]); detalle.metas_clientes = 1; }
-        }
-      } catch(e) {}
-      // Presupuesto de ventas: renombrar claves (pct, overrides y snapshots)
-      try {
-        const rawP = await getConfigApp('presupuesto_ventas', null);
-        if (rawP) {
-          const cfgP = JSON.parse(rawP);
-          let cambioP = false;
-          ['pct','overrides'].forEach(sec => {
-            if (cfgP[sec] && (viejo in cfgP[sec])) { cfgP[sec][nuevo] = cfgP[sec][viejo]; delete cfgP[sec][viejo]; cambioP = true; }
+
+      // ── Configuraciones en JSON ────────────────────────────────────────────
+      // El nombre aparece como CLAVE de un objeto (metas, porcentajes, overrides)
+      // y también como VALOR (miembros de equipo, dueña de un código, carteras
+      // heredadas). Antes se renombraban solo dos o tres secciones a mano, y todo
+      // lo demás —sobre todo la configuración por mes— se quedaba con el nombre
+      // viejo. Esta función recorre el objeto entero, a cualquier profundidad.
+      const renombrarJson = (obj, viejoN, nuevoN) => {
+        let cambios = 0;
+        const rec = (o) => {
+          if (Array.isArray(o)) {
+            o.forEach((v, i) => {
+              if (typeof v === 'string' && v === viejoN) { o[i] = nuevoN; cambios++; }
+              else if (v && typeof v === 'object') rec(v);
+            });
+            return;
+          }
+          if (!o || typeof o !== 'object') return;
+          Object.keys(o).forEach(k => {
+            const v = o[k];
+            if (typeof v === 'string' && v === viejoN) { o[k] = nuevoN; cambios++; }
+            else if (v && typeof v === 'object') rec(v);
+            if (k === viejoN) {                      // la clave misma es el nombre
+              if (!(nuevoN in o)) o[nuevoN] = o[k];
+              delete o[k];
+              cambios++;
+            }
           });
-          Object.values(cfgP.snapshots || {}).forEach(sn => {
-            if (sn && (viejo in sn)) { sn[nuevo] = sn[viejo]; delete sn[viejo]; cambioP = true; }
-          });
-          if (cambioP) { await setConfigApp('presupuesto_ventas', JSON.stringify(cfgP)); detalle.presupuesto = 1; }
-        }
-      } catch(e) {}
+        };
+        rec(obj);
+        return cambios;
+      };
+
+      // Todo lo que guarda el nombre dentro de app_config
+      for (const clave of ['presupuesto_ventas','meta_ventas','carteras_heredadas',
+                           'categorias_asesora','kpis_pesos','asignacion_giras']) {
+        try {
+          const raw = await getConfigApp(clave, null);
+          if (!raw) continue;
+          const obj = JSON.parse(raw);
+          const n = renombrarJson(obj, viejo, nuevo);
+          if (n > 0) { await setConfigApp(clave, JSON.stringify(obj)); detalle[clave] = n; }
+        } catch(e) { console.log(`Renombrar: ${clave}: ${e.message}`); }
+      }
+
+      // Tablas que guardan un JSON suelto con el nombre dentro
+      for (const [tabla, col] of [['contifico_clientes_metas','datos'], ['mercately_metas','datos']]) {
+        try {
+          const r = await pool.query(`SELECT ${col} FROM ${tabla} WHERE id_unico='principal'`);
+          if (!r.rows.length) continue;
+          const obj = JSON.parse(r.rows[0][col]);
+          const n = renombrarJson(obj, viejo, nuevo);
+          if (n > 0) {
+            await pool.query(`UPDATE ${tabla} SET ${col}=$1, actualizado_at=NOW() WHERE id_unico='principal'`, [JSON.stringify(obj)]);
+            detalle[tabla] = n;
+          }
+        } catch(e) { console.log(`Renombrar: ${tabla}: ${e.message}`); }
+      }
+
       console.log(`👤 Usuaria renombrada: "${viejo}" → "${nuevo}"`, detalle);
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, viejo, nuevo, detalle}));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }

@@ -4210,7 +4210,13 @@ async function renombrarUsuario(id, actual){
     // nuevo aparezca sin tener que recargar la app.
     window._asesorasKpiCache = null;
     if(window._kpiAsesora === actual) window._kpiAsesora = limpio;
-    alert('Listo — "'+actual+'" ahora es "'+limpio+'" en toda la app.');
+    // Se informa QUÉ se cambió y dónde: si algo queda con el nombre viejo, se ve aquí
+    const det = j.detalle || {};
+    const filas = Object.entries(det).map(([k,v])=>'  · '+k+': '+v).join('\n');
+    alert('Listo — "'+actual+'" ahora es "'+limpio+'".\n\n'
+      + (filas ? 'Se actualizó en:\n'+filas : 'No había registros con el nombre anterior.')
+      + '\n\nOjo: las VENTAS vienen de Contifico. Si esta persona también cambia allá, '
+      + 'renómbrala en Contifico; si es un reemplazo, el histórico se queda a nombre de quien facturó.');
     renderConfig();
   }catch(e){ alert('Error al renombrar: '+e.message); }
 }
