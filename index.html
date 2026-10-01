@@ -7239,7 +7239,9 @@ function equipoActivoVentas(){
   const puedeElegir = (u.rol === 'admin' || u.rol === 'jefa_ventas');
   const suyo = eqs.find(e => (e.lider && mismaPersona(e.lider, u.nombre))
                           || (e.miembros||[]).some(m => mismaPersona(m, u.nombre)));
-  if(!puedeElegir) return { eq: suyo || eqs[0], puedeElegir:false, equipos:eqs };
+  // Si no se le reconoce el equipo, NO se cae al primero de la lista: eso le mostraba
+  // en silencio los números del otro equipo. Se avisa y se le deja solo lo suyo.
+  if(!puedeElegir) return { eq: suyo || null, puedeElegir:false, equipos:eqs, sinEquipo: !suyo };
   let sel = eqs.find(e => String(e.id) === String(window._ventasEquipoId));
   if(!sel) sel = suyo || eqs[0];
   window._ventasEquipoId = sel.id;
@@ -7289,6 +7291,26 @@ function renderVentasPanel(){
     .toUpperCase().split(/\s+/).slice(0,2).join(' ');
   const uV = window.usuarioActual || {};
   const mandaTodo = (uV.rol === 'admin' || uV.rol === 'jefa_ventas');
+  // Aviso claro cuando no se puede saber a qué equipo pertenece: antes se quedaba
+  // viendo solo sus propias ventas sin ninguna explicación.
+  let avisoEquipo = '';
+  if(!mandaTodo){
+    if(!infoEq){
+      avisoEquipo = `<div class="card" style="margin-bottom:12px;border-left:3px solid #d97706;background:#fffbeb">
+        <div style="font-size:13px;font-weight:600;color:#92400e"><i class="ti ti-alert-triangle" style="margin-right:6px"></i>No se pudo cargar la configuración de equipos</div>
+        <div style="font-size:12px;color:#92400e;margin-top:5px;line-height:1.55">Por eso solo ves tus propias ventas. Recarga la página; si sigue igual, avísale a Fernando.</div>
+      </div>`;
+    } else if(infoEq.sinEquipo){
+      avisoEquipo = `<div class="card" style="margin-bottom:12px;border-left:3px solid #d97706;background:#fffbeb">
+        <div style="font-size:13px;font-weight:600;color:#92400e"><i class="ti ti-users-group" style="margin-right:6px"></i>No estás asignada a ningún equipo</div>
+        <div style="font-size:12px;color:#92400e;margin-top:5px;line-height:1.55">
+          Por eso solo ves tus propias ventas y no las del resto del equipo.
+          Pídele a Fernando que te agregue en <b>Configuración → Equipos</b>.
+        </div>
+      </div>`;
+    }
+  }
+
   let vendedoras = vendedorasTodas;
   if(infoEq && infoEq.eq){
     const nombresEq = [];
@@ -7377,6 +7399,7 @@ function renderVentasPanel(){
   }).join('');
 
   document.getElementById('main').innerHTML=`
+    ${avisoEquipo}
     <!-- Objetivo mensual por equipo (misma tarjeta que ve Giovanna en sus KPIs) -->
     ${(infoEq && infoEq.puedeElegir && infoEq.equipos.length > 1) ? `
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
