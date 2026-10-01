@@ -7254,6 +7254,19 @@ function ventasEquipoSel(id){
 }
 
 function renderVentasPanel(){
+  try { _renderVentasPanel(); }
+  catch(e){
+    console.error('Panel de ventas:', e);
+    const m = document.getElementById('main');
+    if(m) m.innerHTML = '<div class="card" style="padding:16px;border-left:3px solid #dc2626">'
+      + '<div style="font-weight:700;color:#dc2626;margin-bottom:6px">No se pudo mostrar el panel de ventas</div>'
+      + '<div style="font-size:12px;color:var(--muted);line-height:1.5">'
+      + String(e && e.message ? e.message : e).replace(/</g,'&lt;')
+      + '</div><div style="font-size:11px;color:var(--muted);margin-top:8px">Mándale esta línea a Fernando.</div></div>';
+  }
+}
+
+function _renderVentasPanel(){
   subtabActual='ventas';
   const anioActual = new Date().getFullYear();
   const MESES_LABELS=['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
@@ -10285,7 +10298,9 @@ async function cajaEsperarCartera(intento){
   if(intento > 60) return;               // hasta ~6 minutos
   window._cartEspera = intento;
   await new Promise(r=>setTimeout(r, 6000));
-  if(window._reportesTab !== 'caja') return;
+  // Se corta también si ya no se está viendo Reportes: antes el bucle seguía vivo
+  // intentando pintar un panel que ya no existía.
+  if(window._reportesTab !== 'caja' || !document.getElementById('reportes-content')) return;
   try{
     const r = await fetch('/api/cartera');
     const d = await r.json();
@@ -10353,6 +10368,7 @@ function cajaRefrescar(modo){
 
 function pintarCaja(){
   const cont = document.getElementById('reportes-content');
+  if(!cont) return;          // se salió de Reportes: no hay dónde pintar
   const D = window._cajaData || {saldos:[],pagos:[]};
   const [anioC, mesC] = window._cajaMes.split('-').map(Number);
   const hoyC = new Date(new Date().toLocaleString('en-US',{timeZone:'America/Guayaquil'}));
