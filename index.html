@@ -10253,7 +10253,7 @@ function cajaNavMes(delta){
 
 async function cajaGuardar(url, body){
   await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
-  renderCaja();
+  cajaRefrescar('recargar');
 }
 async function cajaBorrar(tipo, id){
   if(!confirm('¿Eliminar este '+(tipo==='pago'?'pago':'saldo')+'?')) return;
@@ -10290,7 +10290,7 @@ async function cajaEsperarCartera(intento){
     const r = await fetch('/api/cartera');
     const d = await r.json();
     window._cartera = d;
-    pintarCaja();
+    cajaRefrescar('pintar');
     if(d.sincronizando) cajaEsperarCartera(intento+1);
     else window._cartEspera = 0;
   }catch(e){ cajaEsperarCartera(intento+1); }
@@ -10318,6 +10318,37 @@ async function cajaCopiarMesAnterior(){
   if(d.ok && (d.pagos || d.saldos)) alert('Copiado de '+d.desde+': '+d.pagos+' pagos y '+d.saldos+' cuentas.');
   else alert('Este mes ya tiene información cargada — no se copió nada para no duplicar.');
   renderCaja();
+}
+
+// ─── NO REPINTAR MIENTRAS SE ESCRIBE ──────────────────────────────────────────
+// El panel se repinta solo cada 6 segundos mientras el servidor calcula la cartera,
+// y también después de cada guardado. Si eso ocurre con el cursor dentro de una
+// casilla, el campo se borra a medio llenar y el `onchange` que dispara el repintado
+// guarda ese valor parcial: parecía que el panel "se guardaba solo".
+function cajaEscribiendo(){
+  const a = document.activeElement;
+  if(!a || !['INPUT','SELECT','TEXTAREA'].includes(a.tagName)) return false;
+  return !!(a.closest && a.closest('#reportes-content'));
+}
+
+let _cajaRepintarPendiente = null;   // 'pintar' | 'recargar' | null
+
+// Repinta ya, o lo deja pendiente hasta que la persona termine de escribir
+function cajaRefrescar(modo){
+  const hacer = () => { if(window._reportesTab === 'caja'){ modo === 'recargar' ? renderCaja() : pintarCaja(); } };
+  if(!cajaEscribiendo()){ hacer(); return; }
+  // Recargar manda sobre pintar: trae datos nuevos del servidor
+  if(modo === 'recargar' || !_cajaRepintarPendiente) _cajaRepintarPendiente = modo;
+  if(window._cajaEsperandoFoco) return;
+  window._cajaEsperandoFoco = true;
+  const alSalir = () => setTimeout(() => {
+    if(cajaEscribiendo()) return;                      // pasó a otra casilla
+    document.removeEventListener('focusout', alSalir);
+    window._cajaEsperandoFoco = false;
+    const m = _cajaRepintarPendiente; _cajaRepintarPendiente = null;
+    if(window._reportesTab === 'caja'){ m === 'recargar' ? renderCaja() : pintarCaja(); }
+  }, 200);
+  document.addEventListener('focusout', alSalir);
 }
 
 function pintarCaja(){
