@@ -15065,21 +15065,39 @@ function ventasMesDeVendedora(nombreVend, mes, anio){
 // Los totales por marca que trae DATA son SIN IVA (salen de la base gravable de cada
 // línea de la factura), así que se pueden poner al lado de los demás números del
 // panel de KPIs sin convertir nada.
-function cardMarcasAsesora(nombreVend, anioRef){
+function cardMarcasAsesora(nombreVend, anioRef, mesRef){
+  try { return _cardMarcasAsesora(nombreVend, anioRef, mesRef); }
+  catch(e){
+    console.error('Venta por marca:', e);
+    return '<div class="card" style="margin-bottom:12px;padding:14px;border-left:3px solid #dc2626">'
+      + '<div style="font-size:12px;font-weight:700;color:#dc2626">No se pudo armar la venta por marca</div>'
+      + '<div style="font-size:11px;color:var(--muted);margin-top:4px">'
+      + String(e && e.message ? e.message : e).replace(/</g,'&lt;') + '</div></div>';
+  }
+}
+
+function _cardMarcasAsesora(nombreVend, anioRef, mesRef){
+  const MESES_MC = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
   const clientes = DATA[claveVendedora(nombreVend)] || [];
   const porMarca = {};
+  let hubo = false;
+  // Del MES que se está viendo, para que acompañe al resto del panel (que es mensual)
   clientes.forEach(c => {
-    const lista = (c.marcas_anio || []).filter(x => x.anio === anioRef);
-    if (lista.length) lista.forEach(x => { if(x.marca) porMarca[x.marca] = (porMarca[x.marca]||0) + (x.total||0); });
+    const lista = (c.marcas_mes || []).filter(x => x.anio === anioRef && x.mes === mesRef);
+    if (lista.length) {
+      hubo = true;
+      lista.forEach(x => { if(x.marca) porMarca[x.marca] = (porMarca[x.marca]||0) + (x.total||0); });
+    }
   });
+  const etiqueta = (MESES_MC[mesRef] || '') + ' ' + anioRef;
   const filas = Object.entries(porMarca).filter(([,v]) => v > 0).sort((a,b) => b[1]-a[1]);
   const total = filas.reduce((a,x) => a + x[1], 0);
   const fmtM = x => '$' + Math.round(x).toLocaleString('en-US');
 
   if(!filas.length){
     return `<div class="card" style="margin-bottom:12px">
-      <div class="card-title"><i class="ti ti-tag"></i> Venta por marca · ${anioRef}</div>
-      <div style="font-size:12px;color:var(--muted)">Todavía no hay ventas registradas este año.</div>
+      <div class="card-title"><i class="ti ti-tag"></i> Venta por marca · ${etiqueta}</div>
+      <div style="font-size:12px;color:var(--muted)">Sin ventas registradas en ${etiqueta}.</div>
     </div>`;
   }
 
@@ -15087,10 +15105,10 @@ function cardMarcasAsesora(nombreVend, anioRef){
   return `
     <div class="card" style="margin-bottom:12px">
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:4px">
-        <div class="card-title" style="margin-bottom:0"><i class="ti ti-tag"></i> Venta por marca · ${anioRef}</div>
+        <div class="card-title" style="margin-bottom:0"><i class="ti ti-tag"></i> Venta por marca · ${etiqueta}</div>
         <div style="font-size:12px;color:var(--muted)">Total <b style="color:var(--brown)">${fmtM(total)}</b> sin IVA</div>
       </div>
-      <div style="font-size:11px;color:var(--muted);margin-bottom:12px">Cuánto ha vendido de cada marca en lo que va del año.</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:12px">Cuánto vendió de cada marca en ${etiqueta}.</div>
       ${filas.map(([m, v]) => {
         const col = (typeof getMarcaColor === 'function') ? getMarcaColor(m) : 'var(--brown)';
         const pctTot = total ? Math.round(v/total*1000)/10 : 0;
@@ -16056,7 +16074,7 @@ document.getElementById('main').innerHTML = `
 
     <!-- Ventas durante el año (propias) -->
     ${cardsVentasYMeta(asesoraKpi, anio, 'ventas')}
-    ${cardMarcasAsesora(asesoraKpi, anio)}
+    ${cardMarcasAsesora(asesoraKpi, anio, mes)}
 
     <!-- KPIS (facturas, ticket, ventas y comisión de equipo) -->
     <div class="card" style="margin-bottom:12px">
@@ -16922,7 +16940,7 @@ async function renderKpis(){
     <!-- La tarjeta "Meta de ventas" se retiró: la meta del mes vive en "Mi presupuesto",
          que es la que sale de Presupuesto ventas. Tener dos metas confundía. -->
     ${cardsVentasYMeta(asesoraKpi, anioFiltro, 'ventas')}
-    ${cardMarcasAsesora(asesoraKpi, anioFiltro)}
+    ${cardMarcasAsesora(asesoraKpi, anioFiltro, mesFiltro)}
 
     <!-- Comisiones del mes -->
     <div class="card" style="margin-bottom:12px">
