@@ -1678,13 +1678,7 @@ function bloquearSiNoRol(req, res, roles){
 async function bloquearSiNoPuedeDocumentos(req, res){
   const s = leerSesion(req);
   if (s && s.rol === 'admin') return false;
-  if (s && s.id) {
-    try {
-      const r = await pool.query('SELECT modulos FROM usuarios WHERE id=$1', [s.id]);
-      const mods = String((r.rows[0] || {}).modulos || '').split(',').map(x => x.trim());
-      if (mods.includes('subir_documentos')) return false;
-    } catch(e) {}
-  }
+  if (s && s.id && (await modulosDe(s.id)).includes('subir_documentos')) return false;
   res.writeHead(403, {'Content-Type':'application/json'});
   res.end(JSON.stringify({ ok:false,
     error: 'Tu usuario no tiene permiso para subir ni eliminar documentos. Pídeselo al administrador (Configuración → Permisos → "Subir documentos").' }));
@@ -3888,10 +3882,35 @@ const SOLO_ADMIN_ESCRIBE = [
   /^\/api\/clientes-reasignados/, /^\/api\/sku-por-marca/,
   /^\/api\/bodegas\/config/, /^\/api\/viaticos-tarifas/,
   // Subidas masivas: rehacen datos de toda la empresa
-  /^\/api\/inventario\/subir/, /^\/api\/provincias\/subir/, /^\/api\/personas\/subir/,
-  /^\/api\/nsos\/(bulk|subir)/, /^\/api\/testers\/bulk/, /^\/api\/articulos/,
-  /^\/api\/institutos\/sync/, /^\/api\/referidos\/sync/, /^\/api\/lotes/
+  /^\/api\/provincias\/subir/, /^\/api\/personas\/subir/,
+  /^\/api\/nsos\/(bulk|subir)/, /^\/api\/testers\/bulk/,
+  /^\/api\/institutos\/sync/, /^\/api\/referidos\/sync/
 ];
+
+// 4) Trabajo diario de un módulo: puede escribir quien tenga ese permiso en
+// Configuración → Permisos. No es cosa de roles sino de lo que hace cada quien:
+// las chicas de inventario necesitan registrar artículos y movimientos.
+const MODULO_POR_RUTA = [
+  [/^\/api\/articulos/,        'inventario'],
+  [/^\/api\/lotes/,            'inventario'],
+  [/^\/api\/testers-asesoras/, 'inventario'],
+  [/^\/api\/bodegas\/minimo/,  'inventario'],
+  [/^\/api\/inventario\//,     'inventario']
+];
+
+// Los módulos no viajan en la sesión (y las sesiones duran meses), así que se
+// consultan, con una caché corta para no pegarle a la base en cada petición.
+const CACHE_MODULOS = new Map();
+async function modulosDe(id){
+  const c = CACHE_MODULOS.get(id);
+  if (c && Date.now() - c.ts < 60000) return c.mods;
+  try {
+    const r = await pool.query('SELECT modulos FROM usuarios WHERE id=$1', [id]);
+    const mods = String((r.rows[0] || {}).modulos || '').split(',').map(x => x.trim()).filter(Boolean);
+    CACHE_MODULOS.set(id, { mods, ts: Date.now() });
+    return mods;
+  } catch(e) { return []; }
+}
 
 // 3) Cualquiera lee; el admin y la jefa de ventas pueden cambiarlo (es su trabajo).
 const ADMIN_O_JEFA_ESCRIBE = [
@@ -3905,7 +3924,7 @@ function esRutaPublica(metodo, ruta){
 }
 
 // Devuelve true si ya respondió y hay que cortar el procesamiento.
-function protegerPeticion(req, res, urlPath){
+async function protegerPeticion(req, res, urlPath){
   // Los archivos de la app (index.html, iconos…) se sirven sin sesión: el propio
   // index redirige al login si no hay usuario. Los DATOS sí van protegidos.
   const esApi = urlPath.startsWith('/api/') || urlPath === '/data.json';
@@ -3939,6 +3958,15 @@ function protegerPeticion(req, res, urlPath){
         ruta: urlPath }));
       return true;
     }
+    // Trabajo de un módulo: decide el permiso de la persona, no su rol
+    const porModulo = esEscritura ? MODULO_POR_RUTA.find(([re]) => re.test(urlPath)) : null;
+    if (porModulo && !(await modulosDe(s.id)).includes(porModulo[1])) {
+      res.writeHead(403, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:false,
+        error:'Para esto necesitas el permiso de "' + porModulo[1] + '". Pídeselo a Fernando en Configuración → Permisos.',
+        ruta: urlPath }));
+      return true;
+    }
   }
   req.sesion = s;
   return false;
@@ -3962,7 +3990,7 @@ const server = http.createServer(async (req, res) => {
   // Toda la API exige sesión, salvo lo que aquí se permita explícitamente. Antes
   // cada endpoint tenía que acordarse de comprobarlo y la mayoría no lo hacía:
   // cualquiera podía bajarse la base entera o crearse un usuario administrador.
-  if (protegerPeticion(req, res, urlPath)) return;
+  if (await protegerPeticion(req, res, urlPath)) return;
 
   // LOGIN
   if (urlPath === '/api/login' && req.method === 'POST') {
