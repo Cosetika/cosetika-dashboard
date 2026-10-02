@@ -10459,8 +10459,30 @@ function pintarCaja(){
     </div>`;
 
   // ── Veredicto ──
+  // Mientras la cartera se está calculando NO hay con qué dar un veredicto: faltan las
+  // cuentas por cobrar, que es justo lo que decide si la caja alcanza. Antes se pintaba
+  // igual, en rojo y con el descubierto máximo, como si fuera definitivo; en los primeros
+  // días del mes eso daba un susto que no correspondía a la realidad.
   const brechaReal = saldoFinal;              // lo que queda tras cobrar y pagar todo el mes
   const alcanza = brechaReal >= 0;
+  const sinCartera = cartSincronizando || !cartera;
+  if(sinCartera){
+    h += `<div class="card" style="margin-bottom:12px;background:#faf9f8;border:1px dashed var(--border)">
+      <div style="text-align:center;padding:10px 0">
+        <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1.2px">
+          <i class="ti ti-loader-2" style="animation:spin 1s linear infinite;margin-right:5px"></i>Calculando lo que vas a cobrar</div>
+        <div style="font-size:13px;color:var(--muted);margin-top:8px;line-height:1.6;max-width:520px;margin-left:auto;margin-right:auto">
+          Todavía no se puede decir si la caja alcanza: falta la cartera de Contifico,
+          que es la mitad de la cuenta. Aparece sola en cuanto termine.
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-top:10px">
+          Por ahora, solo con lo que hay en bancos y los pagos del mes:
+          <b style="color:${alcanza?'#16a34a':'#b45309'}">${cajaFmt(Math.abs(brechaReal))}</b>
+          ${alcanza?'de sobra':'de diferencia'}
+        </div>
+      </div>
+    </div>`;
+  } else {
   h += `<div class="card" style="margin-bottom:12px;background:${alcanza?'#f0fdf4':'#fef2f2'};border:1px solid ${alcanza?'#86efac':'#fca5a5'}">
       <div style="text-align:center;padding:6px 0">
         <div style="font-size:11px;font-weight:700;color:${alcanza?'#166534':'#991b1b'};text-transform:uppercase;letter-spacing:1.2px">${alcanza?'La caja alcanza':'Falta dinero para cerrar el mes'}</div>
@@ -10473,6 +10495,7 @@ function pintarCaja(){
           <i class="ti ti-alert-triangle" style="margin-right:4px"></i>La caja se rompe el <b>día ${primerRojo}</b>${faltanteMax?' · descubierto máximo '+cajaFmt(faltanteMax):''}</div>`:''}
       </div>
     </div>`;
+  }
 
   // ── Resumen ──
   const mini = (t,v,s,c)=>`<div style="background:#faf9f8;border:1px solid var(--border);border-radius:10px;padding:11px;text-align:center">
@@ -10481,10 +10504,10 @@ function pintarCaja(){
     <div style="font-size:9px;color:var(--muted)">${s}</div></div>`;
   h += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(105px,1fr));gap:8px;margin-bottom:12px">
       ${mini('En bancos', cajaFmt(totBancos), bancos.length+' cuenta'+(bancos.length!==1?'s':''), '#16a34a')}
-      ${mini('Por cobrar', cajaFmt(totCobros), cartera?'cartera Contifico + manual':'manual')}
-      ${mini('Disponible', cajaFmt(disponible), 'bancos + por cobrar', 'var(--brown)')}
+      ${mini('Por cobrar', sinCartera?'—':cajaFmt(totCobros), sinCartera?'calculando…':'cartera Contifico + manual')}
+      ${mini('Disponible', sinCartera?'—':cajaFmt(disponible), sinCartera?'calculando…':'bancos + por cobrar', 'var(--brown)')}
       ${mini('Por pagar', cajaFmt(totPendiente), pendientes.length+' pendiente'+(pendientes.length!==1?'s':''), '#d97706')}
-      ${mini('Vence este mes', cajaFmt(cobrosFuturosMes), 'facturas por cobrar', '#2563eb')}
+      ${mini('Vence este mes', sinCartera?'—':cajaFmt(cobrosFuturosMes), sinCartera?'calculando…':'facturas por cobrar', '#2563eb')}
       ${mini('Ya pagado', cajaFmt(totPagado), 'este mes', 'var(--muted)')}
     </div>`;
 
