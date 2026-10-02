@@ -3879,7 +3879,7 @@ const SOLO_ADMIN = [
 const SOLO_ADMIN_ESCRIBE = [
   /^\/api\/usuarios/, /^\/api\/presupuesto-config/, /^\/api\/comisiones/,
   /^\/api\/equipos/, /^\/api\/categorias-asesora/, /^\/api\/carteras-heredadas/,
-  /^\/api\/clientes-reasignados/, /^\/api\/sku-por-marca/,
+  /^\/api\/clientes-reasignados/, /^\/api\/sku-por-marca/, /^\/api\/equipos-historicos/,
   /^\/api\/bodegas\/config/, /^\/api\/viaticos-tarifas/,
   // Subidas masivas: rehacen datos de toda la empresa
   /^\/api\/provincias\/subir/, /^\/api\/personas\/subir/,
@@ -8751,6 +8751,38 @@ function metricasImportacion(r){
       Object.entries(m).forEach(([k,v]) => { if(k) out[String(k).trim().toUpperCase()] = v; });
       return out;
     } catch(e) { return {}; }
+  }
+
+  // ── Integrantes históricos de un equipo ─────────────────────────────────────
+  // Quien ya no trabaja aquí deja de ser miembro, pero sus ventas del año siguen
+  // existiendo en Contifico. Sin esto desaparecían del panel del equipo en cuanto
+  // se la quitaba de la lista o se renombraba su puesto, y los totales del año
+  // dejaban de cuadrar. Cuentan para el HISTÓRICO de ventas, no para metas ni
+  // mínimos ni comisiones: esas son de quien está hoy.
+  if (urlPath === '/api/equipos-historicos' && req.method === 'GET') {
+    try {
+      const raw = await getConfigApp('equipos_historicos', null);
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:true, mapa: raw ? JSON.parse(raw) : {} }));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
+  if (urlPath === '/api/equipos-historicos' && req.method === 'POST') {
+    if (bloquearSiNoAdmin(req, res)) return;
+    try {
+      const body = await bodyJSON(req);
+      const mapa = {};
+      Object.entries(body.mapa || {}).forEach(([equipo, lista]) => {
+        const eq = String(equipo||'').trim();
+        const nombres = (Array.isArray(lista) ? lista : [lista])
+          .map(x => String(x||'').trim()).filter(Boolean);
+        if (eq && nombres.length) mapa[eq] = [...new Set(nombres)];
+      });
+      await setConfigApp('equipos_historicos', JSON.stringify(mapa));
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ ok:true, mapa }));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
   }
 
   // ── Carteras heredadas ──────────────────────────────────────────────────────

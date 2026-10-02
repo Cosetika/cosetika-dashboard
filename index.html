@@ -7230,6 +7230,22 @@ let ventasFiltroAnio = new Date().getFullYear();
 
 // Equipo que se está viendo en Ventas. Una asesora ve el suyo y nada más; admin y
 // líderes pueden cambiar con las pestañas.
+// Integrantes históricos: ya no trabajan aquí, pero sus ventas del año siguen
+// contando para el histórico del equipo (no para metas ni comisiones).
+async function cargarHistoricosEquipo(){
+  if(window._historicosCache) return window._historicosCache;
+  try{
+    const r = await fetch('/api/equipos-historicos');
+    const d = await r.json();
+    window._historicosCache = (d && d.ok) ? (d.mapa || {}) : {};
+  }catch(e){ window._historicosCache = {}; }
+  return window._historicosCache;
+}
+
+function historicosDe(nombreEquipo){
+  return ((window._historicosCache || {})[nombreEquipo] || []);
+}
+
 function equipoActivoVentas(){
   const eqs = window._equiposCache || [];
   if(!eqs.length) return null;
@@ -7254,6 +7270,10 @@ function ventasEquipoSel(id){
 }
 
 function renderVentasPanel(){
+  // El mapa de históricos se pide una vez; si aún no está, se pinta y se repinta al llegar
+  if(!window._historicosCache){
+    cargarHistoricosEquipo().then(()=>{ if(subtabActual==='ventas') renderVentasPanel(); });
+  }
   try { _renderVentasPanel(); }
   catch(e){
     console.error('Panel de ventas:', e);
@@ -7329,6 +7349,8 @@ function _renderVentasPanel(){
     const nombresEq = [];
     if(infoEq.eq.lider) nombresEq.push(infoEq.eq.lider);
     (infoEq.eq.miembros||[]).forEach(m=>nombresEq.push(m));
+    // Las que ya no están siguen apareciendo con sus ventas del año
+    historicosDe(infoEq.eq.nombre).forEach(m=>nombresEq.push(m));
     // Se compara persona a persona, no por las dos primeras palabras: el nombre del
     // equipo puede omitir el segundo nombre que sí trae Contifico.
     vendedoras = vendedorasTodas.filter(v => nombresEq.some(n => mismaPersona(n, v)));
@@ -14854,6 +14876,8 @@ async function renderEquiposConfig(){
     if(rE.ok){ const d = await rE.json(); if(Array.isArray(d)) equipos = d; }
     if(rU.ok){ const d = await rU.json(); if(Array.isArray(d)) usuarios = d; }
   } catch(e){ cont.innerHTML = '<p style="color:#ef4444;font-size:12px">Error cargando equipos</p>'; return; }
+  window._historicosCache = null;
+  await cargarHistoricosEquipo();
 
   const candidatos = usuarios.filter(u=>['asesora','jefa_ventas'].includes(u.rol) && u.activo)
     .map(u=>u.nombre).sort((a,b)=>a.localeCompare(b));
@@ -14863,6 +14887,12 @@ async function renderEquiposConfig(){
     .toUpperCase().split(/\s+/).slice(0,2).join(' ');
   const esMiembro = (e, c) => (e.miembros||[]).some(m => mismaPersona(m, c));
   const esLider   = (e, c) => !!(e.lider && mismaPersona(e.lider, c));
+  // Quién tiene ventas en el histórico pero no está en ningún equipo: las candidatas
+  // a marcarse como "ya no está" (ahí es donde quedan las que salieron o fueron reemplazadas)
+  const enAlgunEquipo = v => equipos.some(e => esMiembro(e, v) || esLider(e, v));
+  const vendedorasSinEquipo = Object.keys((typeof DATA !== 'undefined' && DATA) ? DATA : {})
+    .filter(v => v && !enAlgunEquipo(v) && !/fernando|espindola|esp[ií]ndola/i.test(v))
+    .sort((a,b)=>a.localeCompare(b));
 
   cont.innerHTML = `
     ${equipos.map(e=>`
@@ -14893,6 +14923,25 @@ async function renderEquiposConfig(){
             }).join('')}
           </div>
         </div>
+        <div style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--border)">
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Ya no están en el equipo</div>
+          <div style="font-size:11px;color:var(--muted);line-height:1.5;margin-bottom:8px">
+            Sus ventas del año siguen contando para el histórico de este equipo, pero no para metas,
+            mínimos ni comisiones. Útil cuando alguien sale o la reemplazan.
+          </div>
+          <select onchange="agregarHistoricoEquipo('${String(e.nombre).replace(/'/g,"\\'")}', this.value); this.value='';"
+            style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:white;cursor:pointer;max-width:320px">
+            <option value="">— Agregar a alguien que ya no está —</option>
+            ${vendedorasSinEquipo.filter(v => !historicosDe(e.nombre).includes(v))
+              .map(v=>`<option value="${String(v).replace(/"/g,'&quot;')}">${String(v).replace(/</g,'&lt;')}</option>`).join('')}
+          </select>
+          ${historicosDe(e.nombre).length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
+            ${historicosDe(e.nombre).map(v=>`<span style="display:inline-flex;align-items:center;gap:6px;background:#f3f4f6;border:1px solid #e5e7eb;border-radius:14px;padding:4px 10px;font-size:11px;color:#6b7280">
+              ${String(v).replace(/</g,'&lt;')}
+              <i class="ti ti-x" style="cursor:pointer;font-size:12px;color:#dc2626" onclick="quitarHistoricoEquipo('${String(e.nombre).replace(/'/g,"\\'")}','${String(v).replace(/'/g,"\\'")}')"></i>
+            </span>`).join('')}
+          </div>` : ''}
+        </div>
       </div>`).join('') || '<p style="color:var(--muted);font-size:13px;padding:8px 0">No hay equipos creados aún</p>'}
 
     <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap">
@@ -14901,6 +14950,33 @@ async function renderEquiposConfig(){
         <i class="ti ti-plus"></i> Crear equipo
       </button>
     </div>`;
+}
+
+async function guardarHistoricosEquipo(mapa){
+  const r = await fetch('/api/equipos-historicos', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({mapa})});
+  const j = await r.json();
+  if(!j.ok) throw new Error(j.error||'error');
+  window._historicosCache = j.mapa || {};
+}
+
+async function agregarHistoricoEquipo(equipo, nombre){
+  if(!nombre) return;
+  try{
+    const mapa = JSON.parse(JSON.stringify(window._historicosCache || {}));
+    mapa[equipo] = [...new Set((mapa[equipo]||[]).concat([nombre]))];
+    await guardarHistoricosEquipo(mapa);
+    renderEquiposConfig();
+  }catch(e){ alert('No se pudo guardar: '+e.message); }
+}
+
+async function quitarHistoricoEquipo(equipo, nombre){
+  try{
+    const mapa = JSON.parse(JSON.stringify(window._historicosCache || {}));
+    mapa[equipo] = (mapa[equipo]||[]).filter(x=>x!==nombre);
+    if(!mapa[equipo].length) delete mapa[equipo];
+    await guardarHistoricosEquipo(mapa);
+    renderEquiposConfig();
+  }catch(e){ alert('No se pudo guardar: '+e.message); }
 }
 
 async function crearEquipo(){
@@ -14985,6 +15061,54 @@ function ventasMesDeVendedora(nombreVend, mes, anio){
 }
 
 // Par de tarjetas: "Ventas durante el año" + "Meta de ventas" (lado a lado)
+// ─── VENTA POR MARCA DE UNA ASESORA ───────────────────────────────────────────
+// Los totales por marca que trae DATA son SIN IVA (salen de la base gravable de cada
+// línea de la factura), así que se pueden poner al lado de los demás números del
+// panel de KPIs sin convertir nada.
+function cardMarcasAsesora(nombreVend, anioRef){
+  const clientes = DATA[claveVendedora(nombreVend)] || [];
+  const porMarca = {};
+  clientes.forEach(c => {
+    const lista = (c.marcas_anio || []).filter(x => x.anio === anioRef);
+    if (lista.length) lista.forEach(x => { if(x.marca) porMarca[x.marca] = (porMarca[x.marca]||0) + (x.total||0); });
+  });
+  const filas = Object.entries(porMarca).filter(([,v]) => v > 0).sort((a,b) => b[1]-a[1]);
+  const total = filas.reduce((a,x) => a + x[1], 0);
+  const fmtM = x => '$' + Math.round(x).toLocaleString('en-US');
+
+  if(!filas.length){
+    return `<div class="card" style="margin-bottom:12px">
+      <div class="card-title"><i class="ti ti-tag"></i> Venta por marca · ${anioRef}</div>
+      <div style="font-size:12px;color:var(--muted)">Todavía no hay ventas registradas este año.</div>
+    </div>`;
+  }
+
+  const maxV = filas[0][1];
+  return `
+    <div class="card" style="margin-bottom:12px">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:4px">
+        <div class="card-title" style="margin-bottom:0"><i class="ti ti-tag"></i> Venta por marca · ${anioRef}</div>
+        <div style="font-size:12px;color:var(--muted)">Total <b style="color:var(--brown)">${fmtM(total)}</b> sin IVA</div>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:12px">Cuánto ha vendido de cada marca en lo que va del año.</div>
+      ${filas.map(([m, v]) => {
+        const col = (typeof getMarcaColor === 'function') ? getMarcaColor(m) : 'var(--brown)';
+        const pctTot = total ? Math.round(v/total*1000)/10 : 0;
+        return `
+        <div style="margin-bottom:11px">
+          <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:4px">
+            <span style="font-size:12px;font-weight:700;color:${col}">${String(m).replace(/</g,'&lt;')}</span>
+            <span style="font-size:12px;white-space:nowrap"><b>${fmtM(v)}</b>
+              <span style="font-size:10px;color:var(--muted);margin-left:5px">${pctTot}%</span></span>
+          </div>
+          <div style="height:12px;background:#eee9e4;border-radius:6px;overflow:hidden">
+            <div style="width:${Math.max(2, Math.round(v/maxV*100))}%;height:100%;background:${col};border-radius:6px"></div>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`;
+}
+
 function cardsVentasYMeta(nombreVend, anioRef, soloParte){
   const hoyC = new Date();
   const mesMax = (anioRef === hoyC.getFullYear()) ? (hoyC.getMonth()+1) : 12;
@@ -15932,6 +16056,7 @@ document.getElementById('main').innerHTML = `
 
     <!-- Ventas durante el año (propias) -->
     ${cardsVentasYMeta(asesoraKpi, anio, 'ventas')}
+    ${cardMarcasAsesora(asesoraKpi, anio)}
 
     <!-- KPIS (facturas, ticket, ventas y comisión de equipo) -->
     <div class="card" style="margin-bottom:12px">
@@ -16797,6 +16922,7 @@ async function renderKpis(){
     <!-- La tarjeta "Meta de ventas" se retiró: la meta del mes vive en "Mi presupuesto",
          que es la que sale de Presupuesto ventas. Tener dos metas confundía. -->
     ${cardsVentasYMeta(asesoraKpi, anioFiltro, 'ventas')}
+    ${cardMarcasAsesora(asesoraKpi, anioFiltro)}
 
     <!-- Comisiones del mes -->
     <div class="card" style="margin-bottom:12px">
