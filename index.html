@@ -5002,11 +5002,93 @@ function toggleProductoAcordeon(idx, productoId, productoNombre, anio){
   fila?.querySelector('.acordeon-caret')?.classList.add('ti-chevron-up');
 }
 
+// ─── QUIÉN VENDE ESTA MARCA ───────────────────────────────────────────────────
+// Montos SIN IVA (salen de la base gravable de cada línea), que es como se mira
+// el desempeño en el resto de la app. Respeta el período elegido arriba: todo el
+// año o un mes concreto.
+function cardMarcaPorAsesora(marca, anio, mes, etiqueta, colorMarca){
+  try{
+    const porAsesora = {};
+    Object.keys(DATA || {}).forEach(vend => {
+      let t = 0;
+      (DATA[vend] || []).forEach(cli => {
+        if (marca === 'TODAS') {
+          const regs = mes
+            ? (cli.frecuencia || []).filter(f => f.anio === anio && f.mes === mes)
+            : (cli.frecuencia || []).filter(f => f.anio === anio);
+          regs.forEach(f => { t += (f.subtotal != null ? f.subtotal : (f.total || 0) / 1.15); });
+        } else if (mes) {
+          (cli.marcas_mes || []).filter(x => x.marca === marca && x.anio === anio && x.mes === mes)
+            .forEach(x => { t += x.total || 0; });
+        } else {
+          (cli.marcas_anio || []).filter(x => x.marca === marca && x.anio === anio)
+            .forEach(x => { t += x.total || 0; });
+        }
+      });
+      if (t > 0) porAsesora[vend] = t;
+    });
+
+    const filas = Object.entries(porAsesora).sort((a,b) => b[1]-a[1]);
+    const total = filas.reduce((a,x) => a + x[1], 0);
+    const fmtA = x => '$' + Math.round(x).toLocaleString('en-US');
+
+    if(!filas.length){
+      return `<div class="card" style="margin-bottom:12px">
+        <div class="card-title"><i class="ti ti-users"></i> Quién vende ${String(marca).replace(/</g,'&lt;')} · ${etiqueta}</div>
+        <div style="font-size:12px;color:var(--muted)">Sin ventas de esta marca en ${etiqueta}.</div>
+      </div>`;
+    }
+
+    const maxV = filas[0][1];
+    return `
+      <div class="card" style="margin-bottom:12px">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:4px">
+          <div class="card-title" style="margin-bottom:0"><i class="ti ti-users"></i> Quién vende
+            <span style="color:${colorMarca}">${String(marca).replace(/</g,'&lt;')}</span> · ${etiqueta}</div>
+          <div style="font-size:12px;color:var(--muted)">Total <b style="color:var(--brown)">${fmtA(total)}</b> sin IVA</div>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:12px">Cuánto vendió cada asesora de esta marca en el período elegido.</div>
+        ${filas.map(([v, val]) => {
+          const pctT = total ? Math.round(val/total*1000)/10 : 0;
+          const col = (typeof getVendColor === 'function') ? getVendColor(v) : colorMarca;
+          // Nombre completo: cortarlo a dos palabras deja "Gándara Lozada" en las
+          // fichas que Contifico guarda con los apellidos primero.
+          const corto = String(v);
+          return `
+          <div style="margin-bottom:11px">
+            <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:4px">
+              <span style="font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0">${corto.replace(/</g,'&lt;')}${(typeof etiquetaInactiva==='function')?etiquetaInactiva(v):''}</span>
+              <span style="font-size:12px;white-space:nowrap"><b>${fmtA(val)}</b>
+                <span style="font-size:10px;color:var(--muted);margin-left:5px">${pctT}%</span></span>
+            </div>
+            <div style="height:12px;background:#eee9e4;border-radius:6px;overflow:hidden">
+              <div style="width:${Math.max(2, Math.round(val/maxV*100))}%;height:100%;background:${col};border-radius:6px"></div>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>`;
+  }catch(e){
+    console.error('Marca por asesora:', e);
+    return '<div class="card" style="margin-bottom:12px;border-left:3px solid #dc2626;padding:14px">'
+      + '<div style="font-size:12px;font-weight:700;color:#dc2626">No se pudo armar "quién vende esta marca"</div>'
+      + '<div style="font-size:11px;color:var(--muted);margin-top:4px">'+String(e&&e.message?e.message:e).replace(/</g,'&lt;')+'</div></div>';
+  }
+}
+
+function prodSetPeriodo(v){
+  if(v === 'todo'){ window._prodTodoAnio = true; }
+  else { window._prodTodoAnio = false; window._prodMesFiltro = parseInt(v); }
+  renderProductosPorMarca();
+}
+
 function renderProductosPorMarca(marcaSeleccionada, totalMarcaIn){
   const anioActual = new Date().getFullYear();
   // Estado del filtro
 
-  let prodTodoAnio  = true; // se quitó el selector de mes: esta vista siempre muestra el año completo
+  // Período: todo el año o un mes concreto. El selector de mes se había quitado,
+  // pero el cálculo siempre lo soportó; se recupera.
+  let prodTodoAnio  = window._prodTodoAnio !== false;
+  let prodMesFiltro = window._prodMesFiltro || (new Date().getMonth() + 1);
   let prodAnioFiltro = window._prodAnioFiltro !== undefined ? window._prodAnioFiltro : anioActual;
 
   // Años disponibles en los datos
@@ -5066,8 +5148,8 @@ function renderProductosPorMarca(marcaSeleccionada, totalMarcaIn){
     return t;
   }
 
-  const lista = buildProductosRanking(marcaSel, null, prodTodoAnio, prodAnioFiltro);
-  const totalMarca = calcTotalMarca(marcaSel, null, prodTodoAnio, prodAnioFiltro);
+  const lista = buildProductosRanking(marcaSel, prodMesFiltro, prodTodoAnio, prodAnioFiltro);
+  const totalMarca = calcTotalMarca(marcaSel, prodMesFiltro, prodTodoAnio, prodAnioFiltro);
   const maxQ = lista[0]?.cantidad||1;
 
   // Cantidad de SKU del catálogo de esta marca: valor ingresado manualmente en
@@ -5079,6 +5161,8 @@ function renderProductosPorMarca(marcaSeleccionada, totalMarcaIn){
   const mesActual = new Date().getMonth() + 1;
   const anioActual2 = new Date().getFullYear();
   const MESES_NOMBRE = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  const etiquetaPeriodo = prodTodoAnio ? ('Todo ' + prodAnioFiltro)
+                                       : (MESES_NOMBRE[prodMesFiltro] + ' ' + prodAnioFiltro);
   const totalMesMarca = calcTotalMarca(marcaSel, mesActual, false, anioActual2);
 
 
@@ -5104,7 +5188,11 @@ function renderProductosPorMarca(marcaSeleccionada, totalMarcaIn){
       <select onchange="window._prodAnioFiltro=parseInt(this.value);renderProductosPorMarca()" style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;outline:none;background:white;cursor:pointer">
         ${aniosProdDisp.map(a=>`<option value="${a}" ${a===prodAnioFiltro?'selected':''}>${a}</option>`).join('')}
       </select>
-      <span style="font-size:13px;font-weight:600;color:var(--brown)">Todo ${prodAnioFiltro}</span>
+      <select onchange="prodSetPeriodo(this.value)" style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;outline:none;background:white;cursor:pointer">
+        <option value="todo" ${prodTodoAnio?'selected':''}>Todo el año</option>
+        ${MESES_NOMBRE.slice(1).map((nm,i)=>`<option value="${i+1}" ${!prodTodoAnio&&prodMesFiltro===i+1?'selected':''}>${nm}</option>`).join('')}
+      </select>
+      <span style="font-size:13px;font-weight:600;color:var(--brown)">${etiquetaPeriodo}</span>
     </div>
 
     <!-- FILTRO 2: Marca (segundo, depende del período) -->
@@ -5135,12 +5223,15 @@ function renderProductosPorMarca(marcaSeleccionada, totalMarcaIn){
       <div class="kpi"><div class="kpi-label">Rendimiento por NSOS</div><div class="kpi-val" style="color:var(--brown)">${fmt(totalSkuMarca>0?totalMarca/totalSkuMarca:0)}</div><div class="kpi-sub">${totalSkuMarca} productos</div></div>
     </div>
 
+    <!-- Quién vende esta marca -->
+    ${cardMarcaPorAsesora(marcaSel, prodAnioFiltro, prodTodoAnio ? null : prodMesFiltro, etiquetaPeriodo, MARCA_COLORS[marcaSel]||'var(--brown)')}
+
     <!-- Ranking — solo cantidades, sin montos -->
     <div class="card">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
         <div class="card-title" style="margin-bottom:0">
           <i class="ti ti-package"></i> Ranking de productos
-          ${marcaSel!=='TODAS'?`— <span style="color:${MARCA_COLORS[marcaSel]}">${marcaSel}</span> · Todo ${prodAnioFiltro}`:`— Todas las marcas · Todo ${prodAnioFiltro}`}
+          ${marcaSel!=='TODAS'?`— <span style="color:${MARCA_COLORS[marcaSel]}">${marcaSel}</span> · ${etiquetaPeriodo}`:`— Todas las marcas · ${etiquetaPeriodo}`}
         </div>
       </div>
       <div id="ranking-productos-lista">
