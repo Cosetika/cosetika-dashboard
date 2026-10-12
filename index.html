@@ -4270,7 +4270,29 @@ async function cargarReasignadosUI(){
   const sel = document.getElementById('reasig-vend');
   const lista = document.getElementById('reasig-lista');
   if(sel && sel.options.length === 0){
-    const vends = Object.keys(DATA||{}).sort();
+    // La lista sale de las usuarias ACTIVAS, no del histórico de ventas. Antes salía de
+    // DATA: aparecían vendedoras que ya no trabajan aquí y faltaba quien acaba de entrar
+    // y todavía no ha facturado nada.
+    let vends = [];
+    try{
+      const rU = await fetch('/api/usuarios');
+      const us = await rU.json();
+      if(Array.isArray(us)) vends = us
+        .filter(u => u.activo && ['asesora','jefa_ventas'].includes(u.rol))
+        .map(u => u.nombre);
+    }catch(e){}
+    // Respaldo por si la lista de usuarias no llega: al menos las que tienen ventas
+    if(!vends.length) vends = Object.keys(DATA||{});
+    // Si alguna reasignación apunta a un nombre que ya no está activo, se conserva en la
+    // lista para no perderlo de vista al editar.
+    try{
+      const rR = await fetch('/api/clientes-reasignados');
+      const rows = await rR.json();
+      if(Array.isArray(rows)) rows.forEach(x => {
+        if(x.vendedora_destino && !vends.some(v => mismaPersona(v, x.vendedora_destino))) vends.push(x.vendedora_destino);
+      });
+    }catch(e){}
+    vends = [...new Set(vends)].sort((a,b)=>a.localeCompare(b));
     sel.innerHTML = '<option value="">— Vendedora destino —</option>' + vends.map(v=>`<option value="${v.replace(/"/g,'')}">${v}</option>`).join('');
   }
   if(!lista) return;
