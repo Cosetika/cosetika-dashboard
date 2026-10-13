@@ -5383,13 +5383,33 @@ function enviosColDe(x){
   return c ? c.nombre : 'desconocido';
 }
 
+// Fecha del manifiesto. Tomar la primera cosa con pinta de fecha del PDF no servía:
+// según quién imprima, aparece antes un sello con la fecha en formato americano
+// (10.13.2026 = 13 de octubre) y salía "2026-13-10", un mes 13 que la base rechazaba.
+// Ahora se busca junto a la etiqueta "Fecha", se valida, y si el día y el mes están
+// cambiados se corrigen.
+function fechaDeManifiesto(texto){
+  const armar = (d, m, a) => {
+    d = parseInt(d, 10); m = parseInt(m, 10); a = parseInt(a, 10);
+    if (m > 12 && d <= 12) { const t = d; d = m; m = t; }     // venía MM.DD.AAAA
+    if (!(m >= 1 && m <= 12 && d >= 1 && d <= 31 && a >= 2000 && a <= 2100)) return null;
+    return a + '-' + String(m).padStart(2,'0') + '-' + String(d).padStart(2,'0');
+  };
+  const conEtiqueta = texto.match(/Fecha[^0-9]{0,15}(\d{1,2})[./-](\d{1,2})[./-](\d{4})/i);
+  if (conEtiqueta) { const f = armar(conEtiqueta[1], conEtiqueta[2], conEtiqueta[3]); if (f) return f; }
+  const iso = texto.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (iso) { const f = armar(iso[3], iso[2], iso[1]); if (f) return f; }
+  const re = /(\d{1,2})[./-](\d{1,2})[./-](\d{4})/g;
+  let m;
+  while ((m = re.exec(texto))) { const f = armar(m[1], m[2], m[3]); if (f) return f; }
+  return null;
+}
+
 function parsearLineasEnvio(items){
   const envios = [];
 
-  // Fecha del manifiesto: línea "Fecha: DD.MM.YYYY"
   const textoCompleto = items.map(it => it.texto).join(' ');
-  const mFecha = textoCompleto.match(/(\d{2})[./](\d{2})[./](\d{4})/);
-  const fechaManifiesto = mFecha ? `${mFecha[3]}-${mFecha[2]}-${mFecha[1]}` : enviosFechaActual();
+  const fechaManifiesto = fechaDeManifiesto(textoCompleto) || enviosFechaActual();
 
   // Cada número de guía (9 dígitos) en la columna 'guia' marca el inicio de una fila
   // lógica. Las filas pueden ocupar 2 líneas de PDF (texto multi-línea en celdas largas

@@ -4675,6 +4675,15 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:'fecha y envios son requeridos'}));
         return;
       }
+      // Validar antes de tocar la base: así un PDF con la fecha rara devuelve un mensaje
+      // entendible y no el error crudo de Postgres ("date/time field value out of range").
+      const mF = String(fecha).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      const okFecha = mF && +mF[2] >= 1 && +mF[2] <= 12 && +mF[3] >= 1 && +mF[3] <= 31;
+      if(!okFecha){
+        res.writeHead(400,{'Content-Type':'application/json'});
+        res.end(JSON.stringify({error:'No se entendió la fecha del manifiesto ("'+fecha+'"). Avísale a Fernando con el nombre del archivo.'}));
+        return;
+      }
       await pool.query('DELETE FROM envios_servientrega WHERE fecha=$1', [fecha]);
       for(const e of envios){
         await pool.query(
