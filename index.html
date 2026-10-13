@@ -5331,7 +5331,10 @@ async function parsearPdfEnvios(file){
           await new Promise((res, rej) => {
             const s = document.createElement('script');
             s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-            s.onload = res; s.onerror = rej;
+            s.onload = res;
+            // El lector de PDF se descarga de internet. Si la red lo bloquea, antes el
+            // error salía vacío y parecía que el botón "no hacía nada".
+            s.onerror = () => rej(new Error('No se pudo cargar el lector de PDF. Revisa tu conexión a internet o prueba desde otra red.'));
             document.head.appendChild(s);
           });
           window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -5486,8 +5489,7 @@ async function parsearPdfYGuardar(file, statusEl){
   const { fecha, envios } = parsearLineasEnvio(items);
 
   if(envios.length === 0){
-    if(statusEl) statusEl.textContent = '⚠️ No se encontraron guías en el PDF';
-    return null;
+    throw new Error('El PDF no trae ninguna guía. Asegúrate de subir el "Manifiesto de guías impresas y anuladas" de Servientrega, no la guía suelta ni una foto.');
   }
 
   // Guardar en la base de datos (reemplaza el manifiesto de ese día si ya existía)
@@ -5497,8 +5499,10 @@ async function parsearPdfYGuardar(file, statusEl){
     body: JSON.stringify({ fecha, envios })
   });
   if(!r.ok){
-    const err = await r.json().catch(()=>({error:'Error desconocido'}));
-    throw new Error(err.error || 'Error al guardar en la base de datos');
+    const err = await r.json().catch(()=>({}));
+    if(r.status === 401) throw new Error('Tu sesión caducó. Cierra sesión y vuelve a entrar.');
+    if(r.status === 403) throw new Error(err.error || 'Tu usuario no tiene permiso para guardar envíos.');
+    throw new Error(err.error || ('El servidor respondió ' + r.status));
   }
 
   return { fecha, total: envios.length };
@@ -5508,19 +5512,29 @@ async function subirPdfEnvios(event){
   const file = event.target.files[0];
   if(!file) return;
   const statusEl = document.getElementById('envios-upload-status');
-  if(statusEl) statusEl.textContent = 'Procesando PDF...';
+  const aviso = (txt, color) => {
+    if(!statusEl) return;
+    statusEl.innerHTML = txt;
+    statusEl.style.color = color || 'var(--muted)';
+    statusEl.style.fontWeight = color ? '600' : '400';
+  };
+  aviso('<i class="ti ti-loader-2" style="animation:spin 1s linear infinite;margin-right:4px"></i>Leyendo ' + file.name + '…');
 
   try {
     const resultado = await parsearPdfYGuardar(file, statusEl);
     if(!resultado){ event.target.value = ''; return; }
 
     ENVIOS_FECHA_SEL = resultado.fecha;
-    if(statusEl) statusEl.textContent = `✓ ${resultado.total} envíos guardados — ${enviosFmtFecha(resultado.fecha)}`;
+    aviso(`✓ ${resultado.total} envíos guardados — ${enviosFmtFecha(resultado.fecha)}`, '#16a34a');
     await cargarEnviosFechasDisponibles();
     await renderEnviosContenido();
   } catch(err){
-    if(statusEl) statusEl.textContent = '✗ Error: ' + err.message;
+    const msg = (err && err.message) ? err.message : 'No se pudo leer el archivo';
+    aviso('✗ ' + msg, '#dc2626');
     console.error('PDF error:', err);
+    // Además del texto, un aviso que no se pueda pasar por alto: antes el error quedaba
+    // en una línea pequeña al lado del botón y parecía que no había pasado nada.
+    alert('No se pudo subir el manifiesto.\n\n' + msg);
   }
   event.target.value = '';
 }

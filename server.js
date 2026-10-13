@@ -3891,7 +3891,9 @@ const SOLO_ADMIN_ESCRIBE = [
 // Configuración → Permisos. No es cosa de roles sino de lo que hace cada quien:
 // las chicas de inventario necesitan registrar artículos y movimientos.
 const MODULO_POR_RUTA = [
-  [/^\/api\/articulos/,        'inventario'],
+  // Artículos (suministros de oficina) NO pide módulo: lo llevan las chicas de
+  // administración, que no tienen por qué tener el permiso de inventario. Basta con
+  // tener sesión; el riesgo de lo que se guarda ahí es mínimo.
   [/^\/api\/lotes/,            'inventario'],
   [/^\/api\/testers-asesoras/, 'inventario'],
   [/^\/api\/bodegas\/minimo/,  'inventario'],
@@ -5671,6 +5673,8 @@ const server = http.createServer(async (req, res) => {
           rastreo_servientrega: idx.includes('urlRastreoGuia'),
           comportamiento_de_pago: idx.includes('badgePago'),
           panel_importaciones: idx.includes('renderImportaciones'),
+          venta_por_marca_kpis: idx.includes('cardMarcasAsesora'),
+          equipos_historicos: idx.includes('cargarHistoricosEquipo'),
           // Si sale true, el botón Configurar de los KPIs de asesoras TODAVÍA está
           boton_configurar_kpis_asesora: idx.includes('configurarKpiAsesora(\'')
         }
