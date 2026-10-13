@@ -14390,6 +14390,7 @@ async function renderComisiones(){
   const anioActual = new Date().getFullYear();
   const mesActual = new Date().getMonth()+1;
   const mesFiltro = window._comisionesMes || mesActual;
+  const MESES_COM = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 
   // Resolver nombre de usuario → clave real en DATA (Contifico usa nombres completos)
   function resolverVend(nombre){
@@ -14466,7 +14467,10 @@ async function renderComisiones(){
     const miembros = (eq.miembros||[]).filter(m => m !== jefaNombre && resolverVend(m) !== resolverVend(jefaNombre));
     const shC = (a,m,d)=>{ m+=d; while(m>12){m-=12;a++;} while(m<1){m+=12;a--;} return {a,m}; };
     const mkCom = mesKeyDe(anioActual, mesFiltro);
-    const incCom = incentivoCfg();   // generales; cada fila usa además los suyos
+    // Los parámetros del MES que se está liquidando, no los generales. Antes este
+    // encabezado leía los generales mientras las filas usaban los del mes: el texto
+    // decía "$50 de bono" y la fila de al lado sumaba $100, los dos en la misma tarjeta.
+    const incCom = incentivoCfg(mkCom);
     // Mínimo de una persona: su mes anterior menos el colchón, con el piso de $4.000.
     // Idéntico a lo que ve en sus KPIs.
     const minimoDe = nom => {
@@ -14532,6 +14536,8 @@ async function renderComisiones(){
         Mismo cálculo que ve cada asesora en sus KPIs. El <b>mínimo</b> es su mes anterior menos ${colchonMinimo(mkCom)}% (nunca menor a su "comisión desde") y la <b>meta</b> sale de Reportes → Presupuesto ventas.
         La <b>base</b> es lo que pasa de su piso: debajo de eso no hay comisión. El porcentaje de cada una está en su tramo (no todas cobran igual) y se configura en Presupuesto ventas.
         Al cumplir la meta la base se corta ahí y lo de arriba paga <b>${incCom.pct_exceso}%</b>, más <b>$${incCom.bono}</b> de bono.
+        Esos dos valores son los guardados para <b>${MESES_COM[mesFiltro]} ${anioActual}</b>; para cambiarlos ve a
+        Reportes → Presupuesto ventas, sitúate en ese mes y edítalos ahí.
         En "Editar parámetros" solo se ajusta el transporte.${mesFiltro===mesActual?' <b>El mes sigue abierto</b>, así que estas cifras se mueven hasta el cierre.':''}
       </div>
       <div style="overflow-x:auto">
