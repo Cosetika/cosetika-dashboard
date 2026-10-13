@@ -12187,7 +12187,10 @@ async function renderPresupuestoVentas(){
         if(metaCom === null){ const mAct = f.metas[evalKey]; if(mAct) metaCom = mAct.valor; }
         if(metaCom === null && f.ovMesAct !== undefined && f.ovMesAct !== null && f.ovMesAct !== '') metaCom = Math.round(parseFloat(f.ovMesAct)||0);
         if(metaCom === null && f.pct !== null && f.ventasMesAnt) metaCom = Math.round(f.ventasMesAnt * (1 + f.pct/100));
-        return (metaCom && metaCom > 0) ? Object.assign({}, f, { metaCom }) : null;
+        // Sin meta NO se la saca de la tabla. La comisión no depende de tener meta:
+        // quien entró este mes cobra igual su tramo. Antes desaparecía de la liquidación
+        // sin aviso, que en una tabla de pagos es el peor error posible.
+        return Object.assign({}, f, { metaCom: (metaCom && metaCom > 0) ? metaCom : null });
       }).filter(Boolean);
       if(filasCom.length === 0) return '';
       // Misma función que usa la tarjeta de KPIs de cada asesora
@@ -12240,7 +12243,7 @@ async function renderPresupuestoVentas(){
             <td style="padding:8px 6px;text-align:center;white-space:nowrap"><span style="font-size:10px;color:var(--muted)">$</span>${inpPiso(ip.piso)}</td>
             <td style="padding:8px 8px;text-align:center;color:var(--muted)">${fmtP(r.minimo)}</td>
             <td style="padding:8px 8px;text-align:center;font-weight:700">${fmtP(f.ventasEval)}</td>
-            <td style="padding:8px 8px;text-align:center;color:var(--muted)">${fmtP(meta)}</td>
+            <td style="padding:8px 8px;text-align:center;color:var(--muted)">${meta ? fmtP(meta) : '<span title="Todavía no tiene meta: es su primer mes o no se le ha fijado">—</span>'}</td>
             <td style="padding:8px 6px;text-align:center;white-space:nowrap">${inpPct('bajo', ip.pct_bajo)}<span style="font-size:10px;color:var(--muted)">%</span></td>
             <td style="padding:8px 6px;text-align:center;white-space:nowrap">${inpPct('normal', ip.pct_normal)}<span style="font-size:10px;color:var(--muted)">%</span></td>
             <td style="padding:8px 8px;text-align:center"><span style="font-size:10px;font-weight:700;color:${NIVEL_COLOR[r.nivel]};border:1px solid ${NIVEL_COLOR[r.nivel]};border-radius:10px;padding:2px 8px;white-space:nowrap">${NIVELES[r.nivel]}</span></td>
