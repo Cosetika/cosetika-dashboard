@@ -541,8 +541,41 @@ const NOMBRE_CORTO = {
   'Giovanna Portilla':          'Giovanna Portilla',
   'Liseth Gavilanes':           'Liseth Gavilanes',
 };
+// ─── NOMBRE COMO ESTÁ INSCRITO ────────────────────────────────────────────────
+// Contifico guarda algunas fichas con los apellidos primero ("Gándara Lozada María
+// Fernanda"). En la app tiene que verse como está en Credenciales ("María Fernanda
+// Gandara"), que es como la conoce todo el mundo. Esta traducción se hace al MOSTRAR;
+// por dentro se sigue trabajando con el nombre de Contifico, que es el que cruza las ventas.
+let _NOMBRES_INSCRITOS = null;
+const _CACHE_INSCRITO = new Map();
+
+async function cargarNombresInscritos(){
+  if(_NOMBRES_INSCRITOS) return _NOMBRES_INSCRITOS;
+  try{
+    const r = await fetch('/api/usuarios');
+    const us = await r.json();
+    _NOMBRES_INSCRITOS = Array.isArray(us) ? us.map(u => u.nombre).filter(Boolean) : [];
+  }catch(e){ _NOMBRES_INSCRITOS = []; }
+  _CACHE_INSCRITO.clear();
+  return _NOMBRES_INSCRITOS;
+}
+
+function nombreInscrito(n){
+  const t = String(n || '').trim();
+  if(!t) return '';
+  if(_CACHE_INSCRITO.has(t)) return _CACHE_INSCRITO.get(t);
+  const lista = _NOMBRES_INSCRITOS || [];
+  let out = t;
+  if(lista.length && typeof mismaPersona === 'function'){
+    const hit = lista.find(u => mismaPersona(u, t));
+    if(hit) out = hit;
+  }
+  _CACHE_INSCRITO.set(t, out);
+  return out;
+}
+
 function nombreCorto(nombreCompleto){
-  const n = String(nombreCompleto || '').trim();
+  const n = nombreInscrito(nombreCompleto);
   if(!n) return '';
   return NOMBRE_CORTO[n] || (n.split(' ')[0] + ' ' + (n.split(' ')[1] || '')).trim();
 }
@@ -4406,6 +4439,7 @@ function cargarMapaCreditos(intento){
     }).catch(()=>{});
 
     // Composición de los equipos: la usan el panel de Ventas y los KPIs de la líder
+    cargarNombresInscritos().then(()=>{ if(subtabActual==='ventas' && typeof renderVentasPanel==='function') renderVentasPanel(); });
     fetch('/api/equipos').then(r3=>r3.json()).then(e=>{
       if(Array.isArray(e) && e.length){
         window._equiposCache = e;
@@ -5075,7 +5109,7 @@ function cardMarcaPorAsesora(marca, anio, mes, etiqueta, colorMarca){
           const col = (typeof getVendColor === 'function') ? getVendColor(v) : colorMarca;
           // Nombre completo: cortarlo a dos palabras deja "Gándara Lozada" en las
           // fichas que Contifico guarda con los apellidos primero.
-          const corto = String(v);
+          const corto = nombreInscrito(v);
           return `
           <div style="margin-bottom:11px">
             <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:4px">
@@ -8101,7 +8135,7 @@ function renderHome(){
       ${ranking.map(v=>`
         <div class="hbar" onclick="${modoCli==='asignado'?`verCarteraDe('${v.nombre.replace(/'/g,"\\'")}')`:`selVendedorPorNombre('${v.nombre.replace(/'/g,"\\'")}')`}" style="display:flex;align-items:center;gap:8px">
           ${vendAvatar(v.nombre,26)}
-          <span class="hbar-lbl" title="${v.nombre}">${nombreCorto(v.nombre)}</span>${modoCli==='facturado'?etiquetaInactiva(v.nombre):''}
+          <span class="hbar-lbl" title="${nombreInscrito(v.nombre)}">${nombreCorto(v.nombre)}</span>${modoCli==='facturado'?etiquetaInactiva(v.nombre):''}
           <div class="hbar-track"><div class="hbar-fill" style="width:${pct(v.total,maxVend)}%;background:${getVendColor(v.nombre)}"></div></div>
           <span class="hbar-val" style="display:flex;flex-direction:column;align-items:flex-end;line-height:1.25;min-width:80px;max-width:100px;white-space:normal;overflow:visible">
             <span style="font-weight:600;color:var(--brown)">${fmt(v.total/1.15)}</span>
@@ -8242,7 +8276,7 @@ function renderVendedor(nombre){
     <div class="breadcrumb">
       <span class="crumb" onclick="renderHome()"><i class="ti ti-home" style="font-size:12px"></i> Inicio</span>
       <span> › </span>
-      <span style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${nombre}</span>
+      <span style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${nombreInscrito(nombre)}</span>
     </div>
     ${barraCarteras}
     <div class="kpi-row">
