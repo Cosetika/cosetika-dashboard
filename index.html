@@ -10444,7 +10444,34 @@ async function cajaBorrar(tipo, id){
 }
 async function cajaTogglePagado(id, valor){ await cajaGuardar('/api/caja/pago', {id, pagado: valor}); }
 async function cajaEditar(id, campo, valor){ await cajaGuardar('/api/caja/pago', {id, [campo]: valor}); }
+// Mientras se escribe un saldo: se actualizan los totales al instante y se guarda
+// con un pequeño retraso. Antes había que salir de la casilla para que algo pasara,
+// y los números de arriba quedaban contradiciendo lo que ya estaba escrito abajo.
+function cajaMontoEscribiendo(id, valor){
+  const v = window._cajaVivo;
+  if(v){
+    let bancos = 0;
+    document.querySelectorAll('.caja-monto').forEach(el => {
+      if(el.dataset.tipo === 'banco') bancos += parseFloat(el.value) || 0;
+    });
+    const delta = bancos - v.totBancos;
+    const elB = document.getElementById('caja-tot-bancos');
+    const elD = document.getElementById('caja-tot-disponible');
+    const elV = document.getElementById('caja-veredicto-monto');
+    if(elB) elB.textContent = cajaFmt(bancos);
+    if(elD && !v.sinCartera) elD.textContent = cajaFmt(bancos + v.totCobros);
+    if(elV){
+      const nuevo = v.saldoFinal + delta;
+      elV.textContent = cajaFmt(Math.abs(nuevo));
+      elV.style.color = nuevo >= 0 ? '#16a34a' : '#dc2626';
+    }
+  }
+  clearTimeout(window._cajaGuardarTimer);
+  window._cajaGuardarTimer = setTimeout(() => cajaEditarSaldo(id, 'monto', valor), 800);
+}
+
 async function cajaEditarSaldo(id, campo, valor){
+  clearTimeout(window._cajaGuardarTimer);
   const s = (window._cajaData.saldos||[]).find(x=>x.id===id); if(!s) return;
   await cajaGuardar('/api/caja/saldo', {id, nombre: campo==='nombre'?valor:s.nombre, monto: campo==='monto'?valor:s.monto});
 }
@@ -10591,6 +10618,10 @@ function pintarCaja(){
   faltanteMax = Math.abs(faltanteMax);
   const saldoFinal = saldo;
 
+  // Referencias para recalcular en vivo mientras se escribe, sin repintar nada:
+  // el saldo final se mueve exactamente lo mismo que se mueva el dinero en bancos.
+  window._cajaVivo = { totBancos, totCobros, saldoFinal, sinCartera };
+
   const inp = (val, oninput, extra) => `<input value="${cajaEsc(val)}" onchange="${oninput}" style="${extra||''}">`;
 
   let h = '';
@@ -10633,7 +10664,7 @@ function pintarCaja(){
   h += `<div class="card" style="margin-bottom:12px;background:${alcanza?'#f0fdf4':'#fef2f2'};border:1px solid ${alcanza?'#86efac':'#fca5a5'}">
       <div style="text-align:center;padding:6px 0">
         <div style="font-size:11px;font-weight:700;color:${alcanza?'#166534':'#991b1b'};text-transform:uppercase;letter-spacing:1.2px">${alcanza?'La caja alcanza':'Falta dinero para cerrar el mes'}</div>
-        <div style="font-size:34px;font-weight:800;color:${alcanza?'#16a34a':'#dc2626'};line-height:1.15;margin:4px 0">${cajaFmt(Math.abs(brechaReal))}</div>
+        <div id="caja-veredicto-monto" style="font-size:34px;font-weight:800;color:${alcanza?'#16a34a':'#dc2626'};line-height:1.15;margin:4px 0">${cajaFmt(Math.abs(brechaReal))}</div>
         <div style="font-size:12px;color:${alcanza?'#166534':'#991b1b'}">${alcanza
           ? 'te sobra al cierre, contando lo que cobras y lo que pagas'
           : 'te falta al cierre, ya contando lo que vas a cobrar'}</div>
@@ -10645,14 +10676,14 @@ function pintarCaja(){
   }
 
   // ── Resumen ──
-  const mini = (t,v,s,c)=>`<div style="background:#faf9f8;border:1px solid var(--border);border-radius:10px;padding:11px;text-align:center">
+  const mini = (t,v,s,c,id)=>`<div style="background:#faf9f8;border:1px solid var(--border);border-radius:10px;padding:11px;text-align:center">
     <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px">${t}</div>
-    <div style="font-size:17px;font-weight:800;color:${c||'var(--text)'};margin-top:2px">${v}</div>
+    <div ${id?`id="${id}" `:''}style="font-size:17px;font-weight:800;color:${c||'var(--text)'};margin-top:2px">${v}</div>
     <div style="font-size:9px;color:var(--muted)">${s}</div></div>`;
   h += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(105px,1fr));gap:8px;margin-bottom:12px">
-      ${mini('En bancos', cajaFmt(totBancos), bancos.length+' cuenta'+(bancos.length!==1?'s':''), '#16a34a')}
+      ${mini('En bancos', cajaFmt(totBancos), bancos.length+' cuenta'+(bancos.length!==1?'s':''), '#16a34a', 'caja-tot-bancos')}
       ${mini('Por cobrar', sinCartera?'—':cajaFmt(totCobros), sinCartera?'calculando…':'cartera Contifico + manual')}
-      ${mini('Disponible', sinCartera?'—':cajaFmt(disponible), sinCartera?'calculando…':'bancos + por cobrar', 'var(--brown)')}
+      ${mini('Disponible', sinCartera?'—':cajaFmt(disponible), sinCartera?'calculando…':'bancos + por cobrar', 'var(--brown)', 'caja-tot-disponible')}
       ${mini('Por pagar', cajaFmt(totPendiente), pendientes.length+' pendiente'+(pendientes.length!==1?'s':''), '#d97706')}
       ${mini('Vence este mes', sinCartera?'—':cajaFmt(cobrosFuturosMes), sinCartera?'calculando…':'facturas por cobrar', '#2563eb')}
       ${mini('Ya pagado', cajaFmt(totPagado), 'este mes', 'var(--muted)')}
@@ -10670,7 +10701,10 @@ function pintarCaja(){
         <div style="display:flex;align-items:center;gap:8px;padding:8px 15px;border-top:0.5px solid var(--border)">
           <input value="${cajaEsc(s.nombre)}" onchange="cajaEditarSaldo(${s.id},'nombre',this.value)"
             style="flex:1;min-width:0;border:none;background:transparent;font-size:13px;font-weight:500;outline:none;padding:4px 0">
-          <input type="number" inputmode="decimal" step="0.01" value="${N(s.monto)}" onchange="cajaEditarSaldo(${s.id},'monto',this.value)"
+          <input type="number" inputmode="decimal" step="0.01" value="${N(s.monto)}"
+                 class="caja-monto" data-tipo="${s.tipo}"
+                 oninput="cajaMontoEscribiendo(${s.id}, this.value)"
+                 onchange="cajaEditarSaldo(${s.id},'monto',this.value)"
             style="width:110px;text-align:right;border:1px solid var(--border);border-radius:8px;padding:7px 9px;font-size:15px;font-weight:700;color:var(--brown);outline:none">
           <button onclick="cajaBorrar('saldo',${s.id})" style="border:none;background:transparent;color:#dc2626;cursor:pointer;font-size:15px;padding:4px"><i class="ti ti-trash"></i></button>
         </div>`).join('')}
