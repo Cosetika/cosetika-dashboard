@@ -10615,6 +10615,10 @@ function pintarCaja(){
   const cartSincronizando = !!(cartRaw && cartRaw.sincronizando);
   const cartCalculando = !!(cartSincronizando && !cartRaw.at);   // primera vez, sin datos previos
   const cartera = (cartRaw && cartRaw.at) ? cartRaw : null;
+  // Se declara aquí, antes de cualquier uso: estaba más abajo y el bloque que guarda
+  // las referencias para el cálculo en vivo la leía antes de existir — eso rompía
+  // el panel entero con "No se pudo mostrar este reporte".
+  const sinCartera = cartSincronizando || !cartera;
   // 0 = no contar · 1 = solo la vencida · 2 = toda la cartera
   const modoCart = window._cajaCartera === undefined ? 1 : window._cajaCartera;
   const cartAporta = !cartera ? 0 : (modoCart===2 ? cartera.total : (modoCart===1 ? cartera.vencida : 0));
@@ -10677,7 +10681,6 @@ function pintarCaja(){
   // días del mes eso daba un susto que no correspondía a la realidad.
   const brechaReal = saldoFinal;              // lo que queda tras cobrar y pagar todo el mes
   const alcanza = brechaReal >= 0;
-  const sinCartera = cartSincronizando || !cartera;
   if(sinCartera){
     h += `<div class="card" style="margin-bottom:12px;background:#faf9f8;border:1px dashed var(--border)">
       <div style="text-align:center;padding:10px 0">
