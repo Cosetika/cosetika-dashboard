@@ -1425,9 +1425,22 @@ async function sincronizarPedidosWeb(opciones){
     }
     return { ok: true, procesados, errores };
   } catch (e) {
-    console.error('Error conectando a pedidos@cosetika.com:', e.message);
+    // Mismo detalle que ya teníamos en la casilla de referidos: ImapFlow lanza
+    // "Command failed" a secas, que no dice nada. El motivo real viene en
+    // authenticationFailed / responseText / code.
+    let detalle = e.message || 'Error desconocido';
+    if (e.authenticationFailed) {
+      detalle = 'Login rechazado intentando como "' + PEDIDOS_EMAIL_USER + '" en ' + PEDIDOS_EMAIL_HOST + ':' + PEDIDOS_EMAIL_PORT
+        + (e.responseText ? ' — el servidor dijo: ' + e.responseText : '')
+        + '. Verifica PEDIDOS_EMAIL_PASS en Railway (sin espacios ni comillas) y prueba entrar en webmail.dreamhost.com con esas mismas credenciales.';
+    } else if (e.responseText) {
+      detalle = detalle + ' — respuesta del servidor: ' + e.responseText;
+    } else if (e.code) {
+      detalle = detalle + ' (código: ' + e.code + ', host: ' + PEDIDOS_EMAIL_HOST + ':' + PEDIDOS_EMAIL_PORT + ')';
+    }
+    console.error('Error conectando a pedidos@cosetika.com:', detalle);
     try { if (client) await client.logout(); } catch(e2){}
-    return { ok: false, error: e.message };
+    return { ok: false, error: detalle };
   }
 }
 
@@ -1835,15 +1848,19 @@ async function sincronizarCreditos(){
     }
   } catch(e) { CREDITO_SYNC_LOG = { estado:'excepción', paginas:0, personas:0, error:e.message }; console.error('Error sincronizando créditos:', e.message); }
 }
-// Las contraseñas estuvieron guardadas en texto plano y la base fue descargable sin
-// sesión, así que hay que darlas por comprometidas: se obliga a renovarlas una vez.
-// El marcador impide que se repita en cada despliegue.
+// Obliga a todo el equipo a renovar su contraseña una vez. Para repetirlo, se sube
+// el número del marcador: así no se dispara en cada despliegue, solo cuando hace falta.
+//   v1 — 23/09/2026: las claves estaban en texto plano y la base era descargable sin sesión.
+//   v2 — 23/10/2026: incidente de Railway del 21/10. Los respaldos en Drive y Backblaze
+//        anteriores al 23/09 contienen la tabla de usuarios con las contraseñas legibles,
+//        y las claves de esos dos servicios estaban guardadas en Railway.
+const MARCADOR_CAMBIO_CLAVE = 'forzar_cambio_clave_v2';
 setTimeout(async () => {
   try {
-    const hecho = await getConfigApp('forzar_cambio_clave_v1', null);
+    const hecho = await getConfigApp(MARCADOR_CAMBIO_CLAVE, null);
     if (hecho) return;
     const r = await pool.query('UPDATE usuarios SET debe_cambiar_clave = true WHERE activo = true');
-    await setConfigApp('forzar_cambio_clave_v1', new Date().toISOString());
+    await setConfigApp(MARCADOR_CAMBIO_CLAVE, new Date().toISOString());
     console.log('🔐 Se pidió renovar la contraseña a ' + r.rowCount + ' usuarios.');
   } catch(e) { console.error('No se pudo marcar el cambio de clave:', e.message); }
 }, 8 * 1000);
@@ -3855,6 +3872,24 @@ function parseMultipartFile(buffer, contentType) {
   return null;
 }
 
+// ─── LLAMADAS ENTRE NUESTROS PROPIOS SERVICIOS ────────────────────────────────
+// El plan de recompensas consulta el inventario de este panel para saber qué
+// productos están en verde. No tiene sesión —es un servidor, no una persona—, así
+// que desde que se puso el portero recibía 401 y se quedaba sin semáforos: el
+// catálogo de canje salía vacío para las clientas.
+// Se le da una llave propia, válida SOLO para leer, y SOLO en estas rutas.
+const SERVICIO_TOKEN = process.env.SERVICIO_TOKEN || '';
+const RUTAS_SERVICIO = [/^\/api\/inventario$/];
+
+function esLlamadaDeServicio(req, urlPath){
+  if (!SERVICIO_TOKEN) return false;
+  if (req.method !== 'GET') return false;
+  const t = String(req.headers['x-servicio'] || '');
+  if (t.length !== SERVICIO_TOKEN.length) return false;
+  if (!crypto.timingSafeEqual(Buffer.from(t), Buffer.from(SERVICIO_TOKEN))) return false;
+  return RUTAS_SERVICIO.some(re => re.test(urlPath));
+}
+
 // Rutas que funcionan sin haber entrado. Es la lista COMPLETA: cualquier cosa
 // que no esté aquí necesita sesión válida.
 const RUTAS_PUBLICAS = [
@@ -3932,6 +3967,7 @@ async function protegerPeticion(req, res, urlPath){
   const esApi = urlPath.startsWith('/api/') || urlPath === '/data.json';
   if (!esApi) return false;
   if (esRutaPublica(req.method, urlPath)) return false;
+  if (esLlamadaDeServicio(req, urlPath)) return false;
 
   const s = leerSesion(req);
   if (!s) {
@@ -5685,7 +5721,10 @@ const server = http.createServer(async (req, res) => {
           venta_por_marca_kpis: idx.includes('cardMarcasAsesora'),
           equipos_historicos: idx.includes('cargarHistoricosEquipo'),
           // Si sale true, el botón Configurar de los KPIs de asesoras TODAVÍA está
-          boton_configurar_kpis_asesora: idx.includes('configurarKpiAsesora(\'')
+          boton_configurar_kpis_asesora: idx.includes('configurarKpiAsesora(\''),
+          // Arreglo de la fecha del manifiesto (4 nov se guardaba como 11 abr).
+          // Si sale false, el index.html desplegado es anterior al arreglo.
+          fecha_manifiesto_corregida: idx.includes('se usó la fecha de hoy')
         }
       }, null, 2));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }

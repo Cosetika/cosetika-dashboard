@@ -5417,26 +5417,42 @@ function enviosColDe(x){
   return c ? c.nombre : 'desconocido';
 }
 
-// Fecha del manifiesto. Tomar la primera cosa con pinta de fecha del PDF no servía:
-// según quién imprima, aparece antes un sello con la fecha en formato americano
-// (10.13.2026 = 13 de octubre) y salía "2026-13-10", un mes 13 que la base rechazaba.
-// Ahora se busca junto a la etiqueta "Fecha", se valida, y si el día y el mes están
-// cambiados se corrigen.
+// Fecha del manifiesto. El PDF de Servientrega trae DOS fechas en la cabecera:
+//     Fecha:             04.11.2026     ← la del manifiesto, DD.MM.AAAA
+//     Fecha impresión:   11/4/2026      ← cuándo se imprimió, formato americano M/D/AAAA
+// y pdf.js devuelve los textos en el orden interno del PDF, que pone primero todas las
+// etiquetas y después todos los valores:
+//     "Cliente: Sucursal: Fecha: Fecha impresión: 11/4/2026 CORPORACION ... 04.11.2026"
+// Por eso buscar la fecha "junto a la etiqueta Fecha" agarraba la de impresión, y el
+// manifiesto del 4 de noviembre se guardó como 11 de abril.
+//
+// Ahora no se confía en la posición. Se arman TODAS las lecturas posibles de TODAS las
+// fechas del PDF (día-mes y mes-día) y se elige por dos criterios, en este orden:
+//   1) la fecha del manifiesto siempre va con puntos y en DD.MM.AAAA → esa lectura manda;
+//   2) a igualdad de formato, la más cercana a hoy.
 function fechaDeManifiesto(texto){
-  const armar = (d, m, a) => {
-    d = parseInt(d, 10); m = parseInt(m, 10); a = parseInt(a, 10);
-    if (m > 12 && d <= 12) { const t = d; d = m; m = t; }     // venía MM.DD.AAAA
-    if (!(m >= 1 && m <= 12 && d >= 1 && d <= 31 && a >= 2000 && a <= 2100)) return null;
-    return a + '-' + String(m).padStart(2,'0') + '-' + String(d).padStart(2,'0');
-  };
-  const conEtiqueta = texto.match(/Fecha[^0-9]{0,15}(\d{1,2})[./-](\d{1,2})[./-](\d{4})/i);
-  if (conEtiqueta) { const f = armar(conEtiqueta[1], conEtiqueta[2], conEtiqueta[3]); if (f) return f; }
-  const iso = texto.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
-  if (iso) { const f = armar(iso[3], iso[2], iso[1]); if (f) return f; }
-  const re = /(\d{1,2})[./-](\d{1,2})[./-](\d{4})/g;
+  const h = new Date();
+  const hoyMs = Date.UTC(h.getFullYear(), h.getMonth(), h.getDate());
+  const cand = [];
+  const re = /(\d{1,2})([./-])(\d{1,2})\2(\d{4})/g;
   let m;
-  while ((m = re.exec(texto))) { const f = armar(m[1], m[2], m[3]); if (f) return f; }
-  return null;
+  while ((m = re.exec(texto))){
+    const p1 = parseInt(m[1], 10), sep = m[2], p2 = parseInt(m[3], 10), anio = parseInt(m[4], 10);
+    if (anio < 2000 || anio > 2100) continue;
+    [[p1, p2, false], [p2, p1, true]].forEach(([d, mes, invertida]) => {
+      if (mes < 1 || mes > 12 || d < 1 || d > 31) return;
+      const ms = Date.UTC(anio, mes - 1, d);
+      if (new Date(ms).getUTCMonth() !== mes - 1) return;   // 31 de febrero y parecidos
+      cand.push({
+        iso: anio + '-' + String(mes).padStart(2,'0') + '-' + String(d).padStart(2,'0'),
+        dias: Math.abs(ms - hoyMs) / 86400000,
+        prioridad: (sep === '.' && !invertida) ? 0 : 1
+      });
+    });
+  }
+  if (!cand.length) return null;
+  cand.sort((a, b) => (a.prioridad - b.prioridad) || (a.dias - b.dias));
+  return cand[0].iso;
 }
 
 function parsearLineasEnvio(items){
@@ -5540,10 +5556,22 @@ async function cargarEnviosDeFecha(fecha){
 
 async function parsearPdfYGuardar(file, statusEl){
   const items = await parsearPdfEnvios(file);
-  const { fecha, envios } = parsearLineasEnvio(items);
+  let { fecha, envios } = parsearLineasEnvio(items);
 
   if(envios.length === 0){
     throw new Error('El PDF no trae ninguna guía. Asegúrate de subir el "Manifiesto de guías impresas y anuladas" de Servientrega, no la guía suelta ni una foto.');
+  }
+
+  // Red de seguridad: el manifiesto se sube el mismo día que se despacha. Si la fecha
+  // leída del PDF queda lejos de hoy, es que se leyó mal (día y mes cambiados) y antes
+  // los envíos se guardaban en silencio en una fecha equivocada y "desaparecían".
+  // Ahora, en ese caso, manda la fecha de hoy.
+  const hoy = enviosFechaActual();
+  const aMs = f => Date.UTC(+f.substring(0,4), +f.substring(5,7)-1, +f.substring(8,10));
+  let fechaCorregida = null;
+  if(!fecha || Math.abs(aMs(fecha) - aMs(hoy)) / 86400000 > 7){
+    fechaCorregida = fecha;
+    fecha = hoy;
   }
 
   // Guardar en la base de datos (reemplaza el manifiesto de ese día si ya existía)
@@ -5559,7 +5587,7 @@ async function parsearPdfYGuardar(file, statusEl){
     throw new Error(err.error || ('El servidor respondió ' + r.status));
   }
 
-  return { fecha, total: envios.length };
+  return { fecha, total: envios.length, fechaCorregida };
 }
 
 async function subirPdfEnvios(event){
@@ -5579,7 +5607,10 @@ async function subirPdfEnvios(event){
     if(!resultado){ event.target.value = ''; return; }
 
     ENVIOS_FECHA_SEL = resultado.fecha;
-    aviso(`✓ ${resultado.total} envíos guardados — ${enviosFmtFecha(resultado.fecha)}`, '#16a34a');
+    const nota = resultado.fechaCorregida
+      ? ` <span style="font-weight:400;color:var(--muted)">(el PDF decía ${enviosFmtFecha(resultado.fechaCorregida)}; se usó la fecha de hoy)</span>`
+      : '';
+    aviso(`✓ ${resultado.total} envíos guardados — ${enviosFmtFecha(resultado.fecha)}${nota}`, '#16a34a');
     await cargarEnviosFechasDisponibles();
     await renderEnviosContenido();
   } catch(err){
@@ -6165,6 +6196,9 @@ async function renderEnvios(){
 
   document.getElementById('doc-tab-content').innerHTML = `
     <div style="display:flex;align-items:center;justify-content:flex-end;margin-bottom:14px;gap:10px">
+      <!-- Marcador de versión: sirve para saber de un vistazo si el navegador está
+           usando el archivo nuevo o uno viejo en caché. -->
+      <span style="font-size:10px;color:var(--muted);opacity:0.6;margin-right:auto">envíos v4 · fecha corregida</span>
       <input type="file" id="envios-file-input" accept=".pdf" style="display:none" onchange="subirPdfEnvios(event)">
       <button onclick="document.getElementById('envios-file-input').click()"
         style="padding:7px 14px;font-size:12px;border-radius:8px;border:1px solid var(--brown);background:rgba(160,104,74,0.08);color:var(--brown);cursor:pointer;display:flex;align-items:center;gap:6px;font-weight:500;white-space:nowrap">
