@@ -5724,7 +5724,7 @@ const server = http.createServer(async (req, res) => {
           boton_configurar_kpis_asesora: idx.includes('configurarKpiAsesora(\''),
           // Arreglo de la fecha del manifiesto (4 nov se guardaba como 11 abr).
           // Si sale false, el index.html desplegado es anterior al arreglo.
-          fecha_manifiesto_corregida: idx.includes('se usó la fecha de hoy')
+          fecha_manifiesto_corregida: idx.includes('moverManifiestoAFecha')
         }
       }, null, 2));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }

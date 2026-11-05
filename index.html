@@ -5562,19 +5562,30 @@ async function parsearPdfYGuardar(file, statusEl){
     throw new Error('El PDF no trae ninguna guía. Asegúrate de subir el "Manifiesto de guías impresas y anuladas" de Servientrega, no la guía suelta ni una foto.');
   }
 
-  // Red de seguridad: el manifiesto se sube el mismo día que se despacha. Si la fecha
-  // leída del PDF queda lejos de hoy, es que se leyó mal (día y mes cambiados) y antes
-  // los envíos se guardaban en silencio en una fecha equivocada y "desaparecían".
-  // Ahora, en ese caso, manda la fecha de hoy.
-  const hoy = enviosFechaActual();
-  const aMs = f => Date.UTC(+f.substring(0,4), +f.substring(5,7)-1, +f.substring(8,10));
-  let fechaCorregida = null;
-  if(!fecha || Math.abs(aMs(fecha) - aMs(hoy)) / 86400000 > 7){
-    fechaCorregida = fecha;
-    fecha = hoy;
-  }
+  // DECISIÓN DE FECHA — leer la fecha del PDF resultó imposible de hacer fiable:
+  // el manifiesto trae dos fechas, en formatos distintos (DD.MM.AAAA la del manifiesto,
+  // M/D/AAAA la de impresión), y pdf.js las devuelve desordenadas. Cada vez que un día
+  // tiene día y mes ambos menores a 13 (4/11, 5/11, 11/4…) las dos lecturas son válidas
+  // y cualquier heurística puede equivocarse. Pasó con el 4 y con el 5 de noviembre.
+  //
+  // Así que se deja de adivinar: el manifiesto SIEMPRE se guarda con la fecha de hoy,
+  // que es cuando se despacha y se sube. La fecha del PDF queda solo como dato, y si
+  // alguna vez hace falta (subir el manifiesto del viernes un lunes) hay un enlace para
+  // mover el manifiesto a esa fecha con un clic.
+  const fechaPdf = fecha || null;
+  fecha = enviosFechaActual();
 
-  // Guardar en la base de datos (reemplaza el manifiesto de ese día si ya existía)
+  await guardarManifiesto(fecha, envios);
+
+  // Se guardan los datos del último manifiesto por si hay que moverlo de fecha
+  window._ultimoManifiesto = { envios, fechaGuardada: fecha, fechaPdf };
+
+  return { fecha, total: envios.length, fechaPdf };
+}
+
+// Guarda (o reemplaza) el manifiesto de un día. Se usa al subir el PDF y al moverlo
+// de fecha, para que la traducción de errores del servidor esté en un solo sitio.
+async function guardarManifiesto(fecha, envios){
   const r = await fetch('/api/envios', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -5586,8 +5597,28 @@ async function parsearPdfYGuardar(file, statusEl){
     if(r.status === 403) throw new Error(err.error || 'Tu usuario no tiene permiso para guardar envíos.');
     throw new Error(err.error || ('El servidor respondió ' + r.status));
   }
+}
 
-  return { fecha, total: envios.length, fechaCorregida };
+// Mueve el manifiesto recién subido a otra fecha (la que venía en el PDF).
+async function moverManifiestoAFecha(destino){
+  const m = window._ultimoManifiesto;
+  if(!m || !m.envios || !m.envios.length){
+    alert('Ya no tengo los datos de ese manifiesto. Vuelve a subir el PDF.');
+    return;
+  }
+  if(!confirm('¿Mover los '+m.envios.length+' envíos del '+enviosFmtFecha(m.fechaGuardada)+' al '+enviosFmtFecha(destino)+'?')) return;
+  try{
+    await guardarManifiesto(destino, m.envios);
+    await fetch('/api/envios?fecha=' + encodeURIComponent(m.fechaGuardada), { method: 'DELETE' });
+    m.fechaGuardada = destino;
+    ENVIOS_FECHA_SEL = destino;
+    const st = document.getElementById('envios-upload-status');
+    if(st){ st.innerHTML = '✓ Manifiesto movido a ' + enviosFmtFecha(destino); st.style.color = '#16a34a'; }
+    await cargarEnviosFechasDisponibles();
+    await renderEnviosContenido();
+  }catch(e){
+    alert('No se pudo mover el manifiesto: ' + e.message);
+  }
 }
 
 async function subirPdfEnvios(event){
@@ -5607,8 +5638,8 @@ async function subirPdfEnvios(event){
     if(!resultado){ event.target.value = ''; return; }
 
     ENVIOS_FECHA_SEL = resultado.fecha;
-    const nota = resultado.fechaCorregida
-      ? ` <span style="font-weight:400;color:var(--muted)">(el PDF decía ${enviosFmtFecha(resultado.fechaCorregida)}; se usó la fecha de hoy)</span>`
+    const nota = (resultado.fechaPdf && resultado.fechaPdf !== resultado.fecha)
+      ? ` <span style="font-weight:400;color:var(--muted)">· el PDF decía ${enviosFmtFecha(resultado.fechaPdf)} — <a href="#" onclick="event.preventDefault();moverManifiestoAFecha('${resultado.fechaPdf}')" style="color:var(--brown);text-decoration:underline">mover a esa fecha</a></span>`
       : '';
     aviso(`✓ ${resultado.total} envíos guardados — ${enviosFmtFecha(resultado.fecha)}${nota}`, '#16a34a');
     await cargarEnviosFechasDisponibles();
@@ -6198,7 +6229,7 @@ async function renderEnvios(){
     <div style="display:flex;align-items:center;justify-content:flex-end;margin-bottom:14px;gap:10px">
       <!-- Marcador de versión: sirve para saber de un vistazo si el navegador está
            usando el archivo nuevo o uno viejo en caché. -->
-      <span style="font-size:10px;color:var(--muted);opacity:0.6;margin-right:auto">envíos v4 · fecha corregida</span>
+      <span style="font-size:10px;color:var(--muted);opacity:0.6;margin-right:auto">envíos v5 · el manifiesto se guarda con la fecha de hoy</span>
       <input type="file" id="envios-file-input" accept=".pdf" style="display:none" onchange="subirPdfEnvios(event)">
       <button onclick="document.getElementById('envios-file-input').click()"
         style="padding:7px 14px;font-size:12px;border-radius:8px;border:1px solid var(--brown);background:rgba(160,104,74,0.08);color:var(--brown);cursor:pointer;display:flex;align-items:center;gap:6px;font-weight:500;white-space:nowrap">
