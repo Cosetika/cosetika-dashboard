@@ -6538,6 +6538,15 @@ async function renderPedidosWeb(fechaSel){
     + '<button onclick="renderPedidosWeb(\'' + mananaNavStr + '\')" '+(sinSiguiente?'disabled style="opacity:0.3;cursor:default;"':'')+' style="width:34px;height:34px;border-radius:50%;border:1px solid var(--border);background:white;display:flex;align-items:center;justify-content:center"><i class="ti ti-chevron-right" style="font-size:16px;color:var(--muted)"></i></button>'
     + '</div>';
 
+  // Reiniciar TODAS las prefacturas del día de golpe. La función existía desde hace
+  // semanas pero nunca tuvo botón, así que no había forma de usarla desde la app.
+  if(['admin','administrativo','jefa_ventas'].includes((window.usuarioActual||{}).rol)
+     && pedidos.some(p=>p.prefactura_doc)){
+    html += '<div style="display:flex;justify-content:center;margin:-10px 0 18px">'
+      + '<button onclick="resetPrefacturasDia(\''+fechaSel+'\')" style="font-size:11px;color:var(--muted);border:1px solid var(--border);background:white;border-radius:8px;padding:5px 11px;cursor:pointer;display:inline-flex;align-items:center;gap:5px" title="Quita la marca PRE ✓ de todos los pedidos de este día para poder volver a enviarlos">'
+      + '<i class="ti ti-refresh" style="font-size:13px"></i>Reiniciar prefacturas de este día</button></div>';
+  }
+
 
   if(pedidos.length === 0){
     html += '<div style="text-align:center;padding:40px;color:var(--muted)"><i class="ti ti-inbox" style="font-size:36px;opacity:0.3"></i><p style="margin-top:10px">Sin pedidos este día</p></div>';
@@ -6578,7 +6587,12 @@ async function renderPedidosWeb(fechaSel){
         + (function(){
             const rolPre = (window.usuarioActual||{}).rol;
             if(!['admin','administrativo','jefa_ventas'].includes(rolPre)) return '';
-            if(p.prefactura_doc) return '<span onclick="event.stopPropagation()" style="font-size:10px;font-weight:700;color:#16a34a;border:1px solid #86efac;background:#f0fdf4;border-radius:8px;padding:3px 8px;flex-shrink:0;white-space:nowrap" title="Prefactura creada en Contifico">PRE ✓</span>';
+            const numPre = String(p.numero_pedido).replace(/'/g,'');
+            // Con prefactura ya creada: el sello verde + un botón para volver a enviarla.
+            // Hacía falta cuando la prefactura sale mal (POS equivocado, productos sin
+            // cruzar) y hay que borrarla en Contifico y mandarla de nuevo.
+            if(p.prefactura_doc) return '<span onclick="event.stopPropagation()" style="font-size:10px;font-weight:700;color:#16a34a;border:1px solid #86efac;background:#f0fdf4;border-radius:8px;padding:3px 8px;flex-shrink:0;white-space:nowrap" title="Prefactura creada en Contifico: '+String(p.prefactura_doc).replace(/"/g,'')+'">PRE ✓</span>'
+              + '<button onclick="event.stopPropagation();reenviarPrefacturaPedido(\''+numPre+'\', this)" title="Volver a enviar esta prefactura a Contifico" style="font-size:10px;font-weight:700;color:var(--brown);border:1px solid var(--border);background:white;border-radius:8px;padding:4px 7px;cursor:pointer;flex-shrink:0;white-space:nowrap;display:inline-flex;align-items:center;gap:4px"><i class="ti ti-refresh" style="font-size:12px"></i>Reenviar</button>';
             return '<button onclick="event.stopPropagation();crearPrefacturaPedido(\''+String(p.numero_pedido).replace(/'/g,'')+'\', this)" style="font-size:10px;font-weight:700;color:var(--brown);border:1px solid var(--border);background:white;border-radius:8px;padding:4px 9px;cursor:pointer;flex-shrink:0;white-space:nowrap" title="Crear prefactura en Contifico con los productos del pedido">Prefactura</button>';
           })()
         + '<button onclick="event.stopPropagation();imprimirPedido(\''+String(p.numero_pedido).replace(/'/g,'')+'\')" title="Imprimir este pedido" style="font-size:10px;font-weight:700;color:var(--brown);border:1px solid var(--border);background:white;border-radius:8px;padding:4px 9px;cursor:pointer;flex-shrink:0;white-space:nowrap;display:inline-flex;align-items:center;gap:4px"><i class="ti ti-printer" style="font-size:12px"></i>Imprimir</button>'
@@ -6834,8 +6848,28 @@ function copiarDatoPedido(btn, texto){
   }catch(e){ fin(false); }
 }
 
-async function crearPrefacturaPedido(numero, btn){
-  if(!confirm('¿Crear la prefactura del pedido #'+numero+' en Contifico?\n\nSe cruzarán los productos por SKU y se asignará la clienta por cédula (si no existe, se crea automáticamente).')) return;
+// Vuelve a mandar a Contifico una prefactura que ya estaba creada. Primero quita la
+// marca de ESE pedido (si no, el servidor responde "ya existía" y no manda nada) y
+// después la crea de nuevo. Ojo: no borra nada en Contifico — eso se hace allá.
+async function reenviarPrefacturaPedido(numero, btn){
+  if(!confirm('¿Volver a enviar la prefactura del pedido #'+numero+' a Contifico?\n\nSe creará una prefactura NUEVA. La anterior NO se borra de Contifico: si no la quieres, elimínala allá antes o después.')) return;
+  const htmlOrig = btn ? btn.innerHTML : '';
+  if(btn){ btn.disabled = true; btn.innerHTML = 'Reenviando...'; }
+  try{
+    const r = await fetch('/api/pedidos-web/reset-prefactura?numero='+encodeURIComponent(numero), { method:'POST' });
+    const j = await r.json();
+    if(!j.ok) throw new Error(j.error||'no se pudo quitar la marca anterior');
+  }catch(e){
+    alert('Error al reiniciar la prefactura: '+e.message);
+    if(btn){ btn.disabled = false; btn.innerHTML = htmlOrig; }
+    return;
+  }
+  if(btn){ btn.disabled = false; btn.innerHTML = htmlOrig; }   // que el botón vuelva a "Reenviar" si algo falla más adelante
+  await crearPrefacturaPedido(numero, btn, true);
+}
+
+async function crearPrefacturaPedido(numero, btn, saltarConfirm){
+  if(!saltarConfirm && !confirm('¿Crear la prefactura del pedido #'+numero+' en Contifico?\n\nSe cruzarán los productos por SKU y se asignará la clienta por cédula (si no existe, se crea automáticamente).')) return;
   const txtOrig = btn ? btn.textContent : '';
   if(btn){ btn.disabled = true; btn.textContent = 'Creando...'; }
   try{
