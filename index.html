@@ -549,12 +549,33 @@ const NOMBRE_CORTO = {
 let _NOMBRES_INSCRITOS = null;
 const _CACHE_INSCRITO = new Map();
 
+// Tabla de alias: por cada persona que tiene puesto "Nombre en Contifico" en
+// Credenciales, se apuntan SUS DOS nombres al mismo identificador. Así cualquier parte
+// de la app que compare nombres (ventas, equipos, KPIs, comisiones) sabe que son la
+// misma persona, sin tener que adivinar por parecido.
+const _ALIAS_PERSONA = new Map();
+
+function _nzPersona(s){
+  return String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase().trim().replace(/\s+/g,' ');
+}
+
+function canonicoPersona(n){
+  return _ALIAS_PERSONA.get(_nzPersona(n)) || null;
+}
+
 async function cargarNombresInscritos(){
   if(_NOMBRES_INSCRITOS) return _NOMBRES_INSCRITOS;
   try{
     const r = await fetch('/api/usuarios');
     const us = await r.json();
     _NOMBRES_INSCRITOS = Array.isArray(us) ? us.map(u => u.nombre).filter(Boolean) : [];
+    _ALIAS_PERSONA.clear();
+    (Array.isArray(us) ? us : []).forEach(u => {
+      if(!u.nombre || !u.nombre_contifico) return;
+      const id = 'U' + u.id;
+      _ALIAS_PERSONA.set(_nzPersona(u.nombre), id);
+      _ALIAS_PERSONA.set(_nzPersona(u.nombre_contifico), id);
+    });
   }catch(e){ _NOMBRES_INSCRITOS = []; }
   _CACHE_INSCRITO.clear();
   return _NOMBRES_INSCRITOS;
@@ -601,6 +622,15 @@ function resolverNombreReal(nombreParcial, objetoConClaves){
   const buscado = normalizar(nombreParcial);
   if(objetoConClaves[nombreParcial]) return nombreParcial; // coincidencia exacta, camino rápido
   const claves = Object.keys(objetoConClaves);
+  // Alias de Credenciales primero: si esta persona tiene puesto "Nombre en Contifico",
+  // esa es la clave correcta y no hay nada que adivinar.
+  if(typeof canonicoPersona === 'function'){
+    const idBuscado = canonicoPersona(nombreParcial);
+    if(idBuscado){
+      const porAlias = claves.find(k => canonicoPersona(k) === idBuscado);
+      if(porAlias) return porAlias;
+    }
+  }
   // 1) buscar coincidencia donde una contiene a la otra completamente
   let match = claves.find(k => { const kn=normalizar(k); return kn.includes(buscado) || buscado.includes(kn); });
   if(match) return match;
@@ -3935,6 +3965,13 @@ async function renderConfig(){
                 <button onclick="renombrarUsuario(${u.id},'${u.nombre.replace(/'/g,"\\'")}')" title="Cambiar nombre (reemplazo de personal)" style="width:22px;height:22px;border:1px solid var(--border);background:white;border-radius:5px;cursor:pointer;margin-left:6px;vertical-align:middle;padding:0"><i class="ti ti-pencil" style="font-size:11px;color:var(--muted)"></i></button>
               </div>
               <div style="font-size:11px;color:var(--muted)">@${u.usuario}</div>
+              <div style="font-size:11px;color:${u.nombre_contifico?'var(--brown)':'var(--muted)'};margin-top:3px;display:flex;align-items:center;gap:5px">
+                <i class="ti ti-arrow-right-circle" style="font-size:11px"></i>
+                <span title="Si Contifico la tiene grabada con otro nombre, escríbelo aquí tal cual para que sus ventas se crucen bien. Vacío = se cruza por el nombre de arriba.">En Contifico:</span>
+                <input type="text" id="cfc-${u.id}" value="${(u.nombre_contifico||'').replace(/"/g,'&quot;')}" placeholder="igual que arriba"
+                  onchange="guardarNombreContifico(${u.id}, this.value, this)"
+                  style="flex:1;max-width:280px;padding:3px 7px;border:0.5px solid var(--border);border-radius:5px;font-size:11px;outline:none"/>
+              </div>
             </div>
             ${u.id!==usuario.id?`
             <select id="rol-${u.id}" onchange="cambiarRol(${u.id},this.value)" style="padding:5px 8px;border:0.5px solid var(--border);border-radius:6px;font-size:12px;outline:none;background:white;cursor:pointer">
@@ -4218,6 +4255,23 @@ async function cambiarClave(id, inputId){
     alert('Contraseña actualizada ✓');
     document.getElementById(inputId).value='';
   }catch(e){ alert('Error al actualizar'); }
+}
+
+// Guarda el "Nombre en Contifico" de una persona. Cambia cómo se cruzan sus ventas en
+// toda la app, así que después hay que recargar los nombres y repintar.
+async function guardarNombreContifico(id, valor, input){
+  const bordeOrig = input ? input.style.borderColor : '';
+  try{
+    const r = await fetch('/api/usuarios/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({nombre_contifico:String(valor||'').trim()})});
+    const data = await r.json();
+    if(!data.ok) throw new Error(data.error||'no se pudo guardar');
+    if(input){ input.style.borderColor = '#16a34a'; setTimeout(()=>{ input.style.borderColor = bordeOrig; }, 1200); }
+    _NOMBRES_INSCRITOS = null;          // obliga a releer la tabla de alias
+    await cargarNombresInscritos();
+  }catch(e){
+    if(input) input.style.borderColor = '#dc2626';
+    alert('No se pudo guardar el nombre de Contifico: '+e.message);
+  }
 }
 
 async function cambiarRol(id, nuevoRol){
@@ -15798,6 +15852,13 @@ function mismaPersona(a, b){
   const A = nz(a), B = nz(b);
   if(!A || !B) return false;
   if(A === B) return true;
+  // Alias expl\u00edcito de Credenciales ("Nombre en Contifico"). Va ANTES que las reglas
+  // autom\u00e1ticas porque es el \u00fanico dato confiable cuando los nombres no se parecen:
+  // "Jeanneth Espinoza" y "Alexandra Jeaneneth Espinoza Gallardo" no comparten ni el
+  // primer nombre, as\u00ed que ninguna heur\u00edstica las pod\u00eda cruzar sin arriesgarse a
+  // confundir personas distintas.
+  const cA = canonicoPersona(A), cB = canonicoPersona(B);
+  if(cA && cB && cA === cB) return true;
   if(A.includes(B) || B.includes(A)) return true;
   const wa = A.split(' ').filter(w=>w.length>2), wb = B.split(' ').filter(w=>w.length>2);
   if(!wa.length || !wb.length) return false;
