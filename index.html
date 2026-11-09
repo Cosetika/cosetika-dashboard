@@ -5946,6 +5946,27 @@ function clientePorCedula(ced){
 }
 
 // Versión compacta para la fila del pedido: una etiqueta con el cupo que le tocaría
+// Cómo pagó la clienta en la web. El texto llega de WooCommerce tal cual lo ve ella
+// ("Tarjeta de crédito/débito", "Transferencia bancaria directa", "Payphone"…), así que
+// aquí se traduce a una etiqueta corta. Lo que no se reconozca se muestra tal cual, para
+// no esconder una pasarela nueva: mejor un texto raro que un pedido sin dato.
+function chipMetodoPago(metodo){
+  const m = String(metodo||'').trim();
+  if(!m) return '';
+  const n = m.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+  const base = 'font-weight:700;border-radius:8px;padding:2px 8px;white-space:nowrap;display:inline-flex;align-items:center;gap:5px';
+  let etiqueta = m, icono = 'ti-cash', color = '#6b7280', fondo = '#f3f4f6', borde = '#e5e7eb';
+  if(/tarjeta|credit|debit|card|payphone|datafast|stripe|paypal|visa|mastercard|de ?una/.test(n)){
+    etiqueta = 'Tarjeta'; icono = 'ti-credit-card'; color = '#6d28d9'; fondo = '#f5f3ff'; borde = '#ddd6fe';
+  } else if(/transferencia|bacs|deposito|bank|banco/.test(n)){
+    etiqueta = 'Transferencia'; icono = 'ti-building-bank'; color = '#0369a1'; fondo = '#f0f9ff'; borde = '#bae6fd';
+  } else if(/contra ?entrega|contrareembolso|\bcod\b|efectivo|cash/.test(n)){
+    etiqueta = 'Efectivo'; icono = 'ti-cash'; color = '#047857'; fondo = '#ecfdf5'; borde = '#a7f3d0';
+  }
+  return '<span style="'+base+';color:'+color+';background:'+fondo+';border:1px solid '+borde+'" title="Forma de pago en la web: '+m.replace(/"/g,'')+'">'
+    + '<i class="ti '+icono+'" style="font-size:10px"></i>'+etiqueta+'</span>';
+}
+
 function chipCreditoSugerido(ced){
   try{
     const c = clientePorCedula(ced);
@@ -6613,6 +6634,7 @@ async function renderPedidosWeb(fechaSel){
             return '<span style="'+base+';color:#92400e;background:#fffbeb;border:1px solid #fde68a"><i class="ti ti-credit-card-off" style="font-size:10px"></i>Sin crédito</span>';
           })()
         + chipCreditoSugerido(p.cedula_ruc)
+        + chipMetodoPago(p.metodo_pago)
         + '</div></div>'
         + '<div style="font-size:15px;font-weight:700;color:var(--brown);flex-shrink:0;min-width:80px;text-align:right">$'+parseFloat(p.total||0).toFixed(2)+'</div>'
         + (function(){

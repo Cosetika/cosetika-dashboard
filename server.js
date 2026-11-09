@@ -1293,7 +1293,15 @@ function parsearPedidoWooCommerce(html, asuntoCorreo, fechaCorreo){
     ? `${fechaCorreo.getFullYear()}-${String(fechaCorreo.getMonth()+1).padStart(2,'0')}-${String(fechaCorreo.getDate()).padStart(2,'0')}`
     : null;
 
-  return { numeroPedido, cliente, cedulaRuc, telefono, subtotal, total, productos, fecha };
+  // Forma de pago. El correo de WooCommerce la trae con etiquetas distintas según la
+  // plantilla ("Método de pago:", "Forma de pago:", "Pagado mediante"), así que se
+  // aceptan todas. Es solo un respaldo: la fuente buena es la API de WooCommerce
+  // (payment_method_title), que completa este dato un minuto después.
+  let metodoPago = null;
+  const mPago = texto.match(/(?:M[ée]todo de pago|Forma de pago|Pagado mediante|Payment method)\s*:?\s*([^\n\r·|]{3,80})/i);
+  if (mPago) metodoPago = mPago[1].trim().replace(/\s{2,}/g,' ').substring(0,115);
+
+  return { numeroPedido, cliente, cedulaRuc, telefono, subtotal, total, productos, fecha, metodoPago };
 }
 
 // Conecta a la casilla pedidos@cosetika.com vía IMAP, revisa correos no leídos de
@@ -1374,15 +1382,17 @@ async function sincronizarPedidosWeb(opciones){
             const esNuevo = yaExiste.rows.length === 0;
 
             await pool.query(
-              `INSERT INTO pedidos_web(numero_pedido, fecha, cliente_nombre, cedula_ruc, telefono, subtotal, total, productos, email_uid, html_crudo)
-               VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+              `INSERT INTO pedidos_web(numero_pedido, fecha, cliente_nombre, cedula_ruc, telefono, subtotal, total, productos, email_uid, html_crudo, metodo_pago)
+               VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
                ON CONFLICT (numero_pedido) DO UPDATE SET
-                 cliente_nombre=$3, cedula_ruc=$4, telefono=$5, subtotal=$6, total=$7, productos=$8, html_crudo=$10`,
+                 cliente_nombre=$3, cedula_ruc=$4, telefono=$5, subtotal=$6, total=$7, productos=$8, html_crudo=$10,
+                 metodo_pago=COALESCE(NULLIF($11,''), pedidos_web.metodo_pago)`,
               [
                 pedido.numeroPedido, pedido.fecha, pedido.cliente || '—',
                 pedido.cedulaRuc || null, pedido.telefono || null,
                 pedido.subtotal || 0, pedido.total || 0,
-                JSON.stringify(pedido.productos || []), String(seq), html
+                JSON.stringify(pedido.productos || []), String(seq), html,
+                pedido.metodoPago || null
               ]
             );
             procesados++;
@@ -1740,7 +1750,8 @@ async function completarPedidosDesdeWoo(limite = 25){
     const r = await pool.query(
       `SELECT numero_pedido FROM pedidos_web
        WHERE ((cedula_ruc IS NULL OR LENGTH(REGEXP_REPLACE(cedula_ruc,'\\D','','g')) NOT IN (10,13))
-              OR direccion IS NULL OR direccion = '')
+              OR direccion IS NULL OR direccion = ''
+              OR metodo_pago IS NULL OR metodo_pago = '')
          AND fecha >= CURRENT_DATE ORDER BY id DESC LIMIT $1`, [limite]);
     let actualizados = 0;
     for (const row of r.rows) {
@@ -1763,6 +1774,10 @@ async function completarPedidosDesdeWoo(limite = 25){
         const prov = String(sh.state || b.state || '').substring(0,140);
         const mail = String(b.email || '').substring(0,190);
         const nota = String(orden.customer_note || '').substring(0,900);
+        // Forma de pago: payment_method_title es el nombre que ve la clienta en la web
+        // ("Tarjeta de crédito/débito", "Transferencia bancaria"); payment_method es el
+        // código interno de la pasarela y sirve de respaldo.
+        const pago = String(orden.payment_method_title || orden.payment_method || '').substring(0,115);
         await pool.query(
           `UPDATE pedidos_web SET cedula_ruc   = COALESCE(NULLIF($1,''), cedula_ruc),
                                   telefono     = COALESCE(NULLIF($2,''), telefono),
@@ -1771,9 +1786,10 @@ async function completarPedidosDesdeWoo(limite = 25){
                                   direccion    = COALESCE(NULLIF($6,''), direccion),
                                   ciudad       = COALESCE(NULLIF($7,''), ciudad),
                                   provincia_env= COALESCE(NULLIF($8,''), provincia_env),
-                                  nota_cliente = COALESCE(NULLIF($9,''), nota_cliente)
+                                  nota_cliente = COALESCE(NULLIF($9,''), nota_cliente),
+                                  metodo_pago  = COALESCE(NULLIF($10,''), metodo_pago)
            WHERE numero_pedido = $4`,
-          [ced, tel, JSON.stringify(prods), num, mail, dir, ciu, prov, nota]);
+          [ced, tel, JSON.stringify(prods), num, mail, dir, ciu, prov, nota, pago]);
         if (ced) actualizados++;
       } catch(e) {}
     }
@@ -3394,6 +3410,9 @@ async function initDB() {
       ALTER TABLE pedidos_web ADD COLUMN IF NOT EXISTS nota_cliente TEXT;
       ALTER TABLE pedidos_web ADD COLUMN IF NOT EXISTS prefactura_doc VARCHAR(100);
       ALTER TABLE pedidos_web ADD COLUMN IF NOT EXISTS prefactura_at TIMESTAMP;
+      -- Cómo pagó la clienta (tarjeta, transferencia…). Se guarda el texto tal cual lo
+      -- da WooCommerce y la app lo traduce a una etiqueta corta al mostrarlo.
+      ALTER TABLE pedidos_web ADD COLUMN IF NOT EXISTS metodo_pago VARCHAR(120);
       CREATE TABLE IF NOT EXISTS metas_visitas (
         id SERIAL PRIMARY KEY,
         asesora VARCHAR(255) NOT NULL UNIQUE,
@@ -3801,6 +3820,11 @@ async function initDB() {
       );
       ALTER TABLE personas ALTER COLUMN ruc TYPE VARCHAR(50);
       ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS debe_cambiar_clave BOOLEAN DEFAULT false;
+      -- Cómo está grabada esta persona como vendedora en Contifico, cuando no coincide
+      -- con su nombre de Credenciales. Pasa seguido: Contifico usa el nombre legal
+      -- completo ("Alexandra Jeaneneth Espinoza Gallardo") y en la empresa se la conoce
+      -- por otro ("Jeanneth Espinoza"). Sin este dato sus ventas salían en cero.
+      ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS nombre_contifico VARCHAR(255);
     `);
     const usuarios = [
       { nombre: 'Fernando Espíndola', usuario: 'Fernando', password: '1234', rol: 'admin', modulos: 'ventas,visitas,kpis,inventario,config' },
@@ -4112,7 +4136,7 @@ const server = http.createServer(async (req, res) => {
 
   // USUARIOS
   if (urlPath === '/api/usuarios' && req.method === 'GET') {
-    try { const r = await pool.query('SELECT id,nombre,usuario,rol,modulos,activo FROM usuarios ORDER BY id'); res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.rows)); }
+    try { const r = await pool.query('SELECT id,nombre,usuario,rol,modulos,activo,nombre_contifico FROM usuarios ORDER BY id'); res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(r.rows)); }
     catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
     return;
   }
@@ -4233,6 +4257,8 @@ const server = http.createServer(async (req, res) => {
       if (body.modulos!==undefined) await pool.query('UPDATE usuarios SET modulos=$1 WHERE id=$2',[body.modulos,id]);
       if (body.activo!==undefined) await pool.query('UPDATE usuarios SET activo=$1 WHERE id=$2',[body.activo,id]);
       if (body.rol!==undefined) await pool.query('UPDATE usuarios SET rol=$1 WHERE id=$2',[body.rol,id]);
+      // Vacío = borrar el alias y volver a cruzar solo por el nombre de Credenciales
+      if (body.nombre_contifico!==undefined) await pool.query('UPDATE usuarios SET nombre_contifico=NULLIF($1,\'\') WHERE id=$2',[String(body.nombre_contifico||'').trim().substring(0,250),id]);
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
     return;
