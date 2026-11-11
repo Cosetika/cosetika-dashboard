@@ -1068,6 +1068,8 @@ function pintarListaNsos(filtro){
   // Una NSO está "sin marca" si el campo viene vacío o trae algo que no es una de las
   // cuatro marcas. Esas son las que el panel deja editar.
   const sinMarca = n => !MARCAS_NSO.includes(String(n.marca||'').trim().toUpperCase());
+  // El nombre lo pueden corregir admin y jefa de ventas; el resto lo ve como texto.
+  const puedeEditarNombre = ['admin','jefa_ventas'].includes((window.usuarioActual||{}).rol);
   const q = (filtro||'').toUpperCase().trim();
   const todas = (window._nsosData||[]);
   const faltan = todas.filter(sinMarca).length;
@@ -1094,15 +1096,22 @@ function pintarListaNsos(filtro){
     + Object.entries(porMarca).sort((a,b)=>a[0].localeCompare(b[0])).map(([marca, items])=>{
       const mc = NSO_COLORS[marca]||'#9ca3af';
       return `<div class="card" style="margin-bottom:10px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
           <span style="font-size:10px;padding:3px 10px;border-radius:10px;background:${mc}18;color:${mc};font-weight:700;border:1px solid ${mc}40">${marca}</span>
-          <span style="font-size:11px;color:var(--muted)">${items.length} producto${items.length!==1?'s':''}</span>
+          <span title="NSOs de esta marca" style="font-size:10px;font-weight:700;padding:3px 9px;border-radius:10px;background:${mc};color:white">${items.length}</span>
+          <span style="font-size:11px;color:var(--muted)">NSO${items.length!==1?'s':''}</span>
         </div>
         ${items.map(n=>{
           const nsoSeguro = String(n.nso||'').replace(/[^A-Za-z0-9\-]/g,'');
           return `
           <div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:0.5px solid var(--border);flex-wrap:wrap">
-            <span style="flex:1;font-size:12px;min-width:140px">${String(n.nombre||'').replace(/</g,'&lt;')}</span>
+            ${puedeEditarNombre
+              ? `<input type="text" value="${String(n.nombre||'').replace(/"/g,'&quot;')}" title="Nombre del producto — se guarda al salir del campo"
+                  onchange="guardarNombreNso(${n.id}, this)"
+                  style="flex:1;min-width:140px;font-size:12px;padding:5px 8px;border:1px solid transparent;border-radius:6px;outline:none;background:transparent"
+                  onfocus="this.style.borderColor='var(--brown)';this.style.background='white'"
+                  onblur="this.style.borderColor='transparent';this.style.background='transparent'">`
+              : `<span style="flex:1;font-size:12px;min-width:140px">${String(n.nombre||'').replace(/</g,'&lt;')}</span>`}
             ${sinMarca(n) ? `<select onchange="guardarMarcaNso(${n.id}, this)" title="Elige la marca de este producto"
               style="font-size:11px;padding:4px 7px;border:1px solid #f59e0b;background:#fffbeb;border-radius:6px;outline:none;cursor:pointer;flex-shrink:0">
               <option value="">— elegir marca —</option>
@@ -1150,6 +1159,35 @@ async function guardarMarcaNso(id, select){
     select.style.borderColor = '#dc2626';
     setTimeout(()=>{ select.style.borderColor = original || '#f59e0b'; }, 1500);
     alert('No se pudo guardar la marca: '+e.message);
+  }
+}
+
+// Corrige el nombre del producto de una NSO. No se repinta la lista al guardar: el
+// campo se queda donde está para poder seguir corrigiendo varios seguidos.
+async function guardarNombreNso(id, input){
+  const nuevo = String(input.value||'').trim();
+  const fila = (window._nsosData||[]).find(x=>x.id===id);
+  if(!nuevo){
+    alert('El nombre no puede quedar vacío.');
+    if(fila) input.value = fila.nombre || '';
+    return;
+  }
+  if(fila && nuevo === String(fila.nombre||'').trim()) return;   // no cambió nada
+  try{
+    const r = await fetch('/api/nsos/'+id+'/nombre', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ nombre: nuevo })
+    });
+    const d = await r.json();
+    if(!d.ok) throw new Error(d.error||'error');
+    if(fila) fila.nombre = d.nombre;
+    input.value = d.nombre;
+    input.style.background = '#f0fdf4';
+    setTimeout(()=>{ input.style.background = 'transparent'; }, 900);
+  }catch(e){
+    input.style.background = '#fef2f2';
+    if(fila) input.value = fila.nombre || '';
+    alert('No se pudo guardar el nombre: '+e.message);
   }
 }
 

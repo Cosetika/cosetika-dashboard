@@ -7493,6 +7493,24 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // POST /api/nsos/:id/nombre → corregir el nombre del producto de una NSO.
+  // Los nombres vinieron de un Excel y algunos están mal escritos o incompletos.
+  if (/^\/api\/nsos\/\d+\/nombre$/.test(urlPath) && req.method === 'POST') {
+    try {
+      const id = parseInt(urlPath.split('/')[3]);
+      const b = await bodyJSON(req);
+      const nombre = String(b.nombre||'').trim().substring(0,490);
+      if (!nombre) {
+        res.writeHead(400,{'Content-Type':'application/json'});
+        res.end(JSON.stringify({ok:false, error:'El nombre no puede quedar vacío'}));
+        return;
+      }
+      await pool.query('UPDATE nsos SET nombre=$1 WHERE id=$2', [nombre, id]);
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, nombre}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
   // ─── ETIQUETA: comentario y PDF por producto ──────────────────────────────────
   // La etiqueta es otro documento distinto del certificado de NSO, así que vive aparte.
   if (/^\/api\/nsos\/\d+\/etiqueta$/.test(urlPath) && req.method === 'POST') {
