@@ -3942,7 +3942,7 @@ const SOLO_ADMIN_ESCRIBE = [
   /^\/api\/bodegas\/config/, /^\/api\/viaticos-tarifas/,
   // Subidas masivas: rehacen datos de toda la empresa
   /^\/api\/provincias\/subir/, /^\/api\/personas\/subir/,
-  /^\/api\/nsos\/(bulk|subir)/, /^\/api\/testers\/bulk/,
+  /^\/api\/nsos\/(bulk|subir|completar-marcas)/, /^\/api\/testers\/bulk/,
   /^\/api\/institutos\/sync/, /^\/api\/referidos\/sync/
 ];
 
@@ -7480,6 +7480,19 @@ const server = http.createServer(async (req, res) => {
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
     return;
   }
+  // POST /api/nsos/:id/marca → asignar a mano la marca de una NSO.
+  // Muchas filas se cargaron desde Excel sin marca y quedaban agrupadas en "OTRAS".
+  if (/^\/api\/nsos\/\d+\/marca$/.test(urlPath) && req.method === 'POST') {
+    try {
+      const id = parseInt(urlPath.split('/')[3]);
+      const b = await bodyJSON(req);
+      const marca = String(b.marca||'').trim().toUpperCase().substring(0,90);
+      await pool.query('UPDATE nsos SET marca=NULLIF($1,\'\') WHERE id=$2', [marca, id]);
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, marca: marca || null}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
   // ─── ETIQUETA: comentario y PDF por producto ──────────────────────────────────
   // La etiqueta es otro documento distinto del certificado de NSO, así que vive aparte.
   if (/^\/api\/nsos\/\d+\/etiqueta$/.test(urlPath) && req.method === 'POST') {
@@ -7635,6 +7648,115 @@ const server = http.createServer(async (req, res) => {
       await pool.query('UPDATE nsos SET certificado=NULL, cert_nombre=NULL, cert_bytes=NULL, cert_subido_at=NULL WHERE id=$1', [id]);
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+
+  // POST /api/nsos/completar-marcas → rellena la marca de las NSOS que no la tienen.
+  // Las ventas sí saben la marca (viene en cada factura de Contifico), pero la tabla de
+  // NSOS se cargó desde un Excel y muchas filas quedaron sin marca. Aquí se cruzan esas
+  // filas contra dos catálogos que sí la tienen: el de Contifico (ya en memoria) y el de
+  // la tienda web, donde cada producto está en una categoría con el nombre de la marca.
+  // ?todas=1 vuelve a evaluar también las que ya tienen marca.
+  if (urlPath === '/api/nsos/completar-marcas' && req.method === 'POST') {
+    try {
+      const todas = urlObj.searchParams.get('todas') === '1';
+      const MARCAS = ['BIOSKIN','ERAYBA','ZIAJA PRO','ZIAJA'];   // ZIAJA PRO antes que ZIAJA: "ZiajaPRO" también contiene "ZIAJA"
+      const limpiar = s => String(s||'')
+        .replace(/&#(\d+);/g, (m,d)=>String.fromCharCode(+d)).replace(/&amp;/g,'&')
+        .normalize('NFD').replace(/[̀-ͯ]/g,'')
+        .toUpperCase().replace(/[^A-Z0-9 ]+/g,' ').replace(/\s+/g,' ').trim();
+      const marcaDeTexto = t => { const n = limpiar(t).replace(/ /g,''); return MARCAS.find(m => n === m.replace(/ /g,'')) || null; };
+
+      // ── Catálogo 1: Contifico (en memoria) ──
+      const catalogo = [];   // {codigo, nombre, marca}
+      Object.values(catalogoProductos || {}).forEach(p => {
+        const m = marcaDeTexto(p.marca);
+        if (m && p.nombre) catalogo.push({ codigo: limpiar(p.codigo), nombre: limpiar(p.nombre), marca: m, origen: 'contifico' });
+      });
+
+      // ── Catálogo 2: tienda web (Store API, pública, no necesita llaves) ──
+      let webOk = 0, webError = null;
+      try {
+        let base = (process.env.WOO_URL || 'https://cosetika.com').trim();
+        const mU = base.match(/https?:\/\/[^\s"']+/); base = (mU ? mU[0] : base).replace(/\/+$/, '');
+        for (let pagina = 1; pagina <= 10; pagina++) {
+          const r = await fetch(`${base}/wp-json/wc/store/v1/products?per_page=100&page=${pagina}`, { headers:{'Accept':'application/json'} });
+          if (!r.ok) { if (pagina === 1) webError = 'La tienda respondió ' + r.status; break; }
+          const lista = await r.json();
+          if (!Array.isArray(lista) || !lista.length) break;
+          lista.forEach(p => {
+            let m = null;
+            (p.categories || []).forEach(c => { if (!m) m = marcaDeTexto(c.name); });
+            if (m && p.name) { catalogo.push({ codigo: limpiar(p.sku), nombre: limpiar(p.name), marca: m, origen: 'web' }); webOk++; }
+          });
+          if (lista.length < 100) break;
+        }
+      } catch(e) { webError = e.message; }
+
+      if (!catalogo.length) {
+        res.writeHead(200,{'Content-Type':'application/json'});
+        res.end(JSON.stringify({ok:false, error:'No se pudo leer ningún catálogo con marcas' + (webError ? ' (web: '+webError+')' : '')}));
+        return;
+      }
+
+      // ── Filas de NSOS a resolver ──
+      const rN = await pool.query(todas
+        ? 'SELECT id, nombre, marca FROM nsos ORDER BY id'
+        : "SELECT id, nombre, marca FROM nsos WHERE marca IS NULL OR TRIM(marca) = '' ORDER BY id");
+
+      // Decide la marca de un nombre de NSO. Solo asigna cuando NO hay ambigüedad:
+      // dejar una NSO sin marca es molesto, ponerle la marca equivocada es peor.
+      const resolver = (nombreNso) => {
+        const n = limpiar(nombreNso);
+        if (!n) return null;
+        const palabras = n.split(' ').filter(w => w.length > 2);
+        const primera = n.split(' ')[0] || '';
+        const porMarca = new Map();   // marca → cómo se encontró
+        const anotar = (m, via) => { if (!porMarca.has(m)) porMarca.set(m, via); };
+
+        // 1) Por código: casi todas las NSOS empiezan por el SKU ("BSK2 - FIRMPRO", "M12 …")
+        catalogo.forEach(p => { if (p.codigo && p.codigo === primera) anotar(p.marca, 'código ' + p.codigo); });
+        if (porMarca.size === 1) return { marca:[...porMarca.keys()][0], via:[...porMarca.values()][0] };
+        if (porMarca.size > 1) return null;
+
+        // 2) Por nombre, cuando uno contiene al otro entero
+        catalogo.forEach(p => { if (p.nombre && (p.nombre.includes(n) || n.includes(p.nombre))) anotar(p.marca, 'nombre «' + p.nombre + '»'); });
+        if (porMarca.size === 1) return { marca:[...porMarca.keys()][0], via:[...porMarca.values()][0] };
+        if (porMarca.size > 1) return null;
+
+        // 3) Por coincidencia fuerte de palabras (al menos 3, y más de la mitad del nombre)
+        if (palabras.length >= 3){
+          catalogo.forEach(p => {
+            const pw = (p.nombre||'').split(' ').filter(w => w.length > 2);
+            if (!pw.length) return;
+            const comunes = palabras.filter(w => pw.includes(w)).length;
+            if (comunes >= 3 && comunes >= Math.ceil(palabras.length * 0.6)) anotar(p.marca, comunes + ' palabras de «' + p.nombre + '»');
+          });
+          if (porMarca.size === 1) return { marca:[...porMarca.keys()][0], via:[...porMarca.values()][0] };
+        }
+        return null;
+      };
+
+      const asignadas = [], sinResolver = [];
+      for (const fila of rN.rows) {
+        const hit = resolver(fila.nombre);
+        if (!hit) { sinResolver.push({ id: fila.id, nombre: fila.nombre }); continue; }
+        if (todas && String(fila.marca||'').trim().toUpperCase() === hit.marca) continue;   // ya estaba bien
+        await pool.query('UPDATE nsos SET marca=$1 WHERE id=$2', [hit.marca, fila.id]);
+        asignadas.push({ id: fila.id, nombre: fila.nombre, marca: hit.marca, por: hit.via, antes: fila.marca || null });
+      }
+
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({
+        ok: true,
+        revisadas: rN.rows.length,
+        asignadas: asignadas.length,
+        sin_resolver: sinResolver.length,
+        catalogo: { contifico: catalogo.filter(c=>c.origen==='contifico').length, web: webOk, web_error: webError },
+        detalle: asignadas,
+        pendientes: sinResolver
+      }));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
   }
 

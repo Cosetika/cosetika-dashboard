@@ -972,6 +972,38 @@ async function borrarDocumento(id, nombre){
 // ─── MÓDULO NSOs ─────────────────────────────────────────────────────────────
 const NSOS_DATOS_INICIALES = [{"marca":"BIOSKIN","nombre":"BSK3 BOTOPEPTIDES","nso":"NSOC02103-25EC"},{"marca":"BIOSKIN","nombre":"BSK5-HYALURONIC ACID","nso":"NSOC02129-25EC"},{"marca":"BIOSKIN","nombre":"BSK6 PDRN PRO","nso":"NSOC02128-25EC"},{"marca":"BIOSKIN","nombre":"BSK7 BRIGHTPRO","nso":"NSOC02126-25EC"},{"marca":"BIOSKIN","nombre":"BSK9 HAIRPRO","nso":"NSOC02489-25EC"},{"marca":"BIOSKIN","nombre":"BSK10 LIPOPRO","nso":"NSOC02450-25EC"},{"marca":"BIOSKIN","nombre":"BSK14-TRANEX PRO","nso":"NSOC02351-25EC"},{"marca":"BIOSKIN","nombre":"BSK23 - ARTICHOKE EXTRACT","nso":"NSOC02220-25EC"},{"marca":"BIOSKIN","nombre":"BSK31 LIPS SHINE PRO","nso":"NSOC02350-25EC"},{"marca":"BIOSKIN","nombre":"BSK32 - EYE PRO CONTOUR","nso":"NSOC02338-25EC"},{"marca":"BIOSKIN","nombre":"BSK35 HYALURONIDASE PRO LIQUID","nso":"NSOC02229-25EC"},{"marca":"BIOSKIN","nombre":"BSK36 COLLAGEN-HA PRO","nso":"NSOC02203-25EC"},{"marca":"BIOSKIN","nombre":"BSK37 BOOSTER PRO","nso":"NSOC02349-25EC"},{"marca":"BIOSKIN","nombre":"BSK81 - PEELPRO COCKTAIL MEDIUM","nso":"NSOC02482-25EC"},{"marca":"BIOSKIN","nombre":"BSK82 PEELPRO COCKTAIL SOFT","nso":"NSOC02477-25EC"},{"marca":"BIOSKIN","nombre":"BSK83 - PEELPRO CLEAR","nso":"NSOC02449-25EC"},{"marca":"BIOSKIN","nombre":"BSK87 PEELPRO BRIGHTENING","nso":"NSOC02491-25EC"},{"marca":"BIOSKIN","nombre":"BSK29 - BIOPLAX PRO","nso":"NSOC02621-25EC"},{"marca":"BIOSKIN","nombre":"BSK88 PEELPRO NEUTRALIZING LOTION","nso":"NSOC02564-25EC"},{"marca":"BIOSKIN","nombre":"BSK2 - FIRMPRO","nso":"NSOC02543-25EC"},{"marca":"BIOSKIN","nombre":"BSK8 - SCARPRO","nso":"NSOC01880-26EC"},{"marca":"BIOSKIN","nombre":"BSK93 POST MESO CREAM","nso":"NSOC00982-26EC"},{"marca":"ZIAJA PRO","nombre":"PRO ANTI-WRINKLE LIFTING PROGRAMMES ANTI-WRINKLE SERUM MICROCOLLAGEN AND URSOLIC ACID","nso":"NSOC04544-25EC"},{"marca":"ZIAJA PRO","nombre":"PRO CLEANSING PROGRAMME DUO-PEEL PAPAIN + AHA PH 4.0","nso":"NSOC04539-25EC"},{"marca":"ZIAJA PRO","nombre":"PRO SKIN CARE PROGRAMMES ULTRALIGHT MOISTURISING FACE CREAM SPF 50+ UVA+UVB VERY HIGH PROTECTION","nso":"NSOC04428-25EC"},{"marca":"ZIAJA PRO","nombre":"PRO LIFTING PROGRAMME LIFTING-ILLUMINATING ESSENCE","nso":"NSOC04294-25EC"},{"marca":"ZIAJA PRO","nombre":"PRO LIFTING PROGRAMME LIFTING-ILLUMINATING EXPRESS FACE MASK","nso":"NSOC04247-25EC"},{"marca":"ZIAJA PRO","nombre":"PRO CLEANSING PROGRAMME SERUM FOR SKIN IMPERFECTIONS SEA MINERALS+TRIPEPTIDE+HYALURON","nso":"NSOC04248-25EC"},{"marca":"ZIAJA PRO","nombre":"PRO CLEANSING PROGRAMME NORMALISING CREAM","nso":"NSOC04229-25EC"},{"marca":"ZIAJA PRO","nombre":"PRO SKIN CARE PROGRAMMES CALMING MASK","nso":"NSOC04228-25EC"},{"marca":"ZIAJA PRO","nombre":"PRO REGENERATING PROGRAMME SERUM WITH CERAMIDES 1,3,6","nso":"NSOC04227-25EC"},{"marca":"ZIAJA PRO","nombre":"PRO REGENERATING PROGRAMME NOURISHING CREAM WITH CERAMIDES 1,3,6","nso":"NSOC04226-25EC"},{"marca":"ZIAJA PRO","nombre":"PRO REGENERATING PROGRAMME INTENSELY REGENERATING FACE MASK WITH CERAMIDES 1,3,6","nso":"NSOC04225-25EC"},{"marca":"ZIAJA PRO","nombre":"PRO CLEANSING PROGRAMME CLEANSING MILK","nso":"NSOC04179-25EC"},{"marca":"ZIAJA PRO","nombre":"PRO CLEANSING PROGRAMME ASTRINGENT FACE MASK WITH GREEN CLAY","nso":"NSOC04180-25EC"},{"marca":"ZIAJA PRO","nombre":"PRO BRIGHTENING ANTI-WRINKLE PROGRAMMES VITAMIN C IN SERUM AA2G","nso":"NSOC04178-25EC"},{"marca":"ZIAJA PRO","nombre":"PRO ANTI - AGEING HYDRATING PROGRAMME SERUM HYDRO-TRIO HYALURONIC ACID + VITAMIN C + NIACINAMIDE","nso":"NSOC04177-25EC"},{"marca":"ZIAJA PRO","nombre":"PRO CLEANSING PROGRAMME SEBUM CONTROL FACE WASH GEL FOR SKIN IMPERFECTIONS","nso":"NSOC04176-25EC"},{"marca":"ZIAJA PRO","nombre":"PRO ANTI-WRINKLE PROGRAMME LIFTING CREAM","nso":"NSOC04155-25EC"},{"marca":"ZIAJA PRO","nombre":"PRO CLEANSING PROGRAMME SEBUM CONTROL FACE TONER FOR SKIN IMPERFECTIONS","nso":"NSOC04156-25EC"},{"marca":"ZIAJA PRO","nombre":"PRO CLEANSING PROGRAMME ENZYME PEEL","nso":"NSOC04157-25EC"},{"marca":"ZIAJA PRO","nombre":"PRO CLEANSING PROGRAMME REFRESHING FACE TONER","nso":"NSOC04158-25EC"},{"marca":"ZIAJA","nombre":"NIACINAMIDA GLOW FACE TONER 1% [AHA+PHA]","nso":"NSOC00623-24EC"},{"marca":"ZIAJA","nombre":"NIACINAMIDA FACE WASH GEL","nso":"NSOC00624-24EC"},{"marca":"ZIAJA","nombre":"NIACINAMIDA FACE SCRUB GEL","nso":"NSOC00625-24EC"},{"marca":"ZIAJA","nombre":"NIACINAMIDA BODY BALM","nso":"NSOC00626-24EC"},{"marca":"ZIAJA","nombre":"NIACINAMIDA WAKE ME UP FACE CREAM","nso":"NSOC01009-24EC"},{"marca":"ZIAJA","nombre":"NIACINAMIDA NIGHT CREAM","nso":"NSOC01010-24EC"},{"marca":"ZIAJA","nombre":"NIACINAMIDA ACTIVE FACE SERUM","nso":"NSOC01011-24EC"},{"marca":"ZIAJA","nombre":"MANUKA TREE EXFOLIANTE FACIAL 75 ML","nso":"NSOC01986-21EC"},{"marca":"ZIAJA","nombre":"MANUKA TREE CREMA DE DÍA 50 ML","nso":"NSOC01987-21EC"},{"marca":"ZIAJA","nombre":"MANUKA TREE CREMA DE NOCHE 50 ML","nso":"NSOC01985-21EC"},{"marca":"ZIAJA","nombre":"MANUKA TREE TÓNICO FACIAL 200 ML","nso":"NSOC01988-21EC"},{"marca":"ZIAJA","nombre":"MANUKA TREE GEL FACIAL LIMPIADOR  200 ML","nso":"NSOC01989-21EC"},{"marca":"ZIAJA","nombre":"JAZMÍN CREMA DE DÍA ANTIARRUGAS 50 ML","nso":"NSOC02073-21EC"},{"marca":"ZIAJA","nombre":"JAZMÍN CREMA DE NOCHE ANTIARRUGAS 50 ML","nso":"NSOC02072-21EC"},{"marca":"ZIAJA","nombre":"JAZMÍN SERUM ANTIARRUGAS 30 ML","nso":"NSOC02187-21EC"},{"marca":"ZIAJA","nombre":"JAZMÍN CONTORNO DE OJOS ANTIARRUGAS 15 ML","nso":"NSOC02037-21EC"},{"marca":"ZIAJA","nombre":"JAZMÍN AGUA MICELAR 200 ML","nso":"NSOC02036-21EC"},{"marca":"ZIAJA","nombre":"ACAI BERRY CREMA FACIAL REGENERADORA 50 ML","nso":"NSOC02310-21EC"},{"marca":"ZIAJA","nombre":"ACAI BERRY SERÚM 50 ML","nso":"NSOC02299-21EC"},{"marca":"ZIAJA","nombre":"ACAI BERRY GEL FACIAL EXFOLIANTE MICELAR 200 ML","nso":"NSOC02311-21EC"},{"marca":"ZIAJA","nombre":"ACAI BERRY TÓNICO FACIAL CON ÁCIDO HIALURÓNICO 200 ML","nso":"NSOC02300-21EC"},{"marca":"ZIAJA","nombre":"MANTECA DE CACAO GEL DE DUCHA CREMOSO 500 ML","nso":"NSOC02188-21EC"},{"marca":"ZIAJA","nombre":"MANTECA DE CACAO CREMA DE MANOS REGENERANTE 80 ML","nso":"NSOC02304-21EC"},{"marca":"ZIAJA","nombre":"MANTECA DE CACAO LOCIÓN CORPORAL HIDRATANTE 400 ML","nso":"NSOC02189-21EC"},{"marca":"ZIAJA","nombre":"ESPUMA FACIAL LIMPIADORA 150 ML","nso":"NSOC02081-21EC"},{"marca":"ZIAJA","nombre":"DESMAQUILLADOR DUO-PHASE 120 ML","nso":"NSOC02075-21EC"},{"marca":"ZIAJA","nombre":"CREMA BB","nso":"NSOC03451-23EC"},{"marca":"ZIAJA","nombre":"PROTECTOR SOLAR MATIFICANTE","nso":"NSOC00092-23EC"},{"marca":"ZIAJA","nombre":"PROTECTOR SOLAR TINTE NATURAL","nso":"NSOC00095-23EC"},{"marca":"ZIAJA","nombre":"PANTALLA SOLAR VITAMINA C","nso":"NSOC02324-21EC"},{"marca":"ZIAJA","nombre":"VITAMINA C CREMA DE DIA","nso":"NSOC00133-23EC"},{"marca":"ZIAJA","nombre":"VITAMINA C CREMA DE NOCHE","nso":"NSOC00107-23EC"},{"marca":"ZIAJA","nombre":"VITAMINA C CREMA DE EMULSIÓN","nso":"NSOC00106-23EC"},{"marca":"ZIAJA","nombre":"ILUMINADORA / ANTIMANCHAS CREMA DE DÍA","nso":"NSOC00109-23EC"},{"marca":"ZIAJA","nombre":"ILUMINADORA / ANTIMANCHAS CREMA DE NOCHE","nso":"NSOC00108-23EC"},{"marca":"ZIAJA","nombre":"ILUMINADORA / ANTIMANCHAS CORRECTOR","nso":"NSOC00086-23EC"},{"marca":"ZIAJA","nombre":"MED ANTI-IMPERFECCIONES","nso":"NSOC00945-24EC"},{"marca":"ZIAJA","nombre":"CREMA DERMOCALMANTE","nso":"NSOC01763-23EC"},{"marca":"ZIAJA","nombre":"CONTORNO DE OJOS HIDRATANTE","nso":"NSOC01008-24EC"},{"marca":"ERAYBA","nombre":"ABH-Curls Shampoo","nso":"NSOC01809-25EC"},{"marca":"ERAYBA","nombre":"ABH-Curls Mask","nso":"NSOC01808-25EC"},{"marca":"ERAYBA","nombre":"ABH-Curls Definer Balm","nso":"NSOC01806-25EC"},{"marca":"ERAYBA","nombre":"Always Beautiful Hair Ayurvedic Mask","nso":"NSOC02124-25EC"},{"marca":"ERAYBA","nombre":"Ayurvedic Essential Oil","nso":"NSOC25190-23CO"},{"marca":"ERAYBA","nombre":"Ayurvedic Shampoo","nso":"NSOC25285-23CO"},{"marca":"ERAYBA","nombre":"Ayurvedic multi-treatment scalp lotion","nso":"NSOC25740-23CO"},{"marca":"ERAYBA","nombre":"BIOSMOOTH BS12 SMOOTHING SHAMPOO","nso":"NSOC02120-25EC"},{"marca":"ERAYBA","nombre":"BIOSMOOTH BS16 SMOOTHING CONDITIONER","nso":"NSOC02121-25EC"},{"marca":"ERAYBA","nombre":"BIOSMOOTH-Smoothing Treatment","nso":"NSOC01825-25EC"},{"marca":"ERAYBA","nombre":"BS10 SMOOTHING MASK","nso":"NSOC25085-23CO"},{"marca":"ERAYBA","nombre":"BS18 SMOOTHING 2-PHASE","nso":"NSOC25088-23CO"},{"marca":"ERAYBA","nombre":"HYDRAKER-K10 KERATIN TOTAL MASK","nso":"NSOC01810-25EC"},{"marca":"ERAYBA","nombre":"HYDRAKER-K12 Keratine Shampoo","nso":"NSOC01818-25EC"},{"marca":"ERAYBA","nombre":"HYDRAKER-K15-Argan Mystic Oil","nso":"NSOC01838-25EC"},{"marca":"ERAYBA","nombre":"HYDRAKER-K16 Keratin Conditioner","nso":"NSOC01845-25EC"},{"marca":"ERAYBA","nombre":"NUTRIACTIVE-N10 Collastin Mask *Intense","nso":"NSOC01833-25EC"},{"marca":"ERAYBA","nombre":"NUTRIACTIVE-N12 Collastin Shampoo","nso":"NSOC01832-25EC"},{"marca":"ERAYBA","nombre":"NUTRIACTIVE-N15 Instant Serum","nso":"NSOC01846-25EC"},{"marca":"ERAYBA","nombre":"NUTRIACTIVE-N18 Collastin 2-Phase-nutriactive","nso":"NSOC01847-25EC"},{"marca":"ERAYBA","nombre":"Silver 2-Phase Conditioner No-Yellow","nso":"NSOC02082-25EC"},{"marca":"ERAYBA","nombre":"Silver Mask No-Yellow","nso":"NSOC02059-25EC"},{"marca":"ERAYBA","nombre":"Silver Shampoo No-Yellow","nso":"NSOC02063-25EC"}];
 
+// Rellena la marca de las NSOS que están sin ella, cruzándolas contra el catálogo de
+// Contifico y el de la tienda web (donde cada producto vive en una categoría con el
+// nombre de su marca). Solo asigna cuando no hay ambigüedad; lo que queda dudoso se
+// lista para resolverlo a mano, que es mejor que ponerle una marca equivocada.
+async function completarMarcasNso(btn){
+  if(!confirm('¿Buscar la marca de las NSOS que están sin marca?\n\nSe cruzan contra el catálogo de Contifico y contra la tienda web. Las dudosas se quedan como están y te las listo al final.')) return;
+  const orig = btn ? btn.innerHTML : '';
+  if(btn){ btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2" style="animation:spin 1s linear infinite;margin-right:5px"></i>Buscando…'; }
+  try{
+    const r = await fetch('/api/nsos/completar-marcas', { method:'POST' });
+    const j = await r.json();
+    if(!j.ok) throw new Error(j.error || 'no se pudo completar');
+    let msg = `Revisadas: ${j.revisadas}\nMarca asignada: ${j.asignadas}\nSin resolver: ${j.sin_resolver}\n\n`
+      + `Catálogos leídos — Contifico: ${j.catalogo.contifico} productos · Web: ${j.catalogo.web}`
+      + (j.catalogo.web_error ? ' (web falló: '+j.catalogo.web_error+')' : '');
+    if(j.detalle && j.detalle.length){
+      msg += '\n\nASIGNADAS:\n' + j.detalle.slice(0,25).map(d=>'· '+d.nombre+' → '+d.marca+'  ('+d.por+')').join('\n');
+      if(j.detalle.length > 25) msg += `\n… y ${j.detalle.length - 25} más`;
+    }
+    if(j.pendientes && j.pendientes.length){
+      msg += '\n\nSIN RESOLVER (ponlas a mano):\n' + j.pendientes.slice(0,20).map(d=>'· '+d.nombre).join('\n');
+      if(j.pendientes.length > 20) msg += `\n… y ${j.pendientes.length - 20} más`;
+    }
+    alert(msg);
+    await renderNsos();
+  }catch(e){
+    alert('No se pudieron completar las marcas: ' + e.message);
+  }finally{
+    if(btn){ btn.disabled = false; btn.innerHTML = orig; }
+  }
+}
+
 async function renderNsos(){
   const main = document.getElementById('main');
   main.innerHTML = `
@@ -1032,12 +1064,19 @@ function pintarListaNsos(filtro){
   const cont = document.getElementById('nsos-lista');
   if(!cont) return;
   const NSO_COLORS = {'BIOSKIN':'#a5b4fc','ERAYBA':'#fcd34d','ZIAJA':'#6ee7b7','ZIAJA PRO':'#f9a8d4'};
+  const MARCAS_NSO = ['BIOSKIN','ERAYBA','ZIAJA','ZIAJA PRO'];
+  // Una NSO está "sin marca" si el campo viene vacío o trae algo que no es una de las
+  // cuatro marcas. Esas son las que el panel deja editar.
+  const sinMarca = n => !MARCAS_NSO.includes(String(n.marca||'').trim().toUpperCase());
   const q = (filtro||'').toUpperCase().trim();
-  const datos = (window._nsosData||[]).filter(n =>
+  const todas = (window._nsosData||[]);
+  const faltan = todas.filter(sinMarca).length;
+  let datos = todas.filter(n =>
     !q || String(n.nombre||'').toUpperCase().includes(q)
       || String(n.nso||'').toUpperCase().includes(q)
       || String(n.marca||'').toUpperCase().includes(q)
   );
+  if(window._nsoSoloSinMarca) datos = datos.filter(sinMarca);
   if(datos.length === 0){
     cont.style.textAlign='center';
     cont.innerHTML = '<div style="padding:30px;color:var(--muted);font-size:13px">Sin resultados para la búsqueda</div>';
@@ -1046,7 +1085,12 @@ function pintarListaNsos(filtro){
   const porMarca = {};
   datos.forEach(n => { const m = n.marca||'OTRAS'; if(!porMarca[m]) porMarca[m]=[]; porMarca[m].push(n); });
   cont.style.textAlign='left'; cont.style.padding='0';
-  cont.innerHTML = `<div style="font-size:12px;color:var(--muted);margin-bottom:10px">${datos.length} producto${datos.length!==1?'s':''}</div>`
+  cont.innerHTML = `<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">
+      <span style="font-size:12px;color:var(--muted)">${datos.length} producto${datos.length!==1?'s':''}</span>
+      ${faltan ? `<button onclick="window._nsoSoloSinMarca=!window._nsoSoloSinMarca;pintarListaNsos(document.getElementById('nsos-buscar')?.value||'')"
+        style="font-size:11px;font-weight:600;padding:4px 10px;border-radius:8px;cursor:pointer;border:1px solid #fcd34d;background:${window._nsoSoloSinMarca?'#f59e0b':'#fffbeb'};color:${window._nsoSoloSinMarca?'white':'#92400e'}">
+        <i class="ti ti-alert-triangle" style="font-size:11px;margin-right:4px"></i>${faltan} sin marca${window._nsoSoloSinMarca?' · ver todas':''}</button>` : ''}
+    </div>`
     + Object.entries(porMarca).sort((a,b)=>a[0].localeCompare(b[0])).map(([marca, items])=>{
       const mc = NSO_COLORS[marca]||'#9ca3af';
       return `<div class="card" style="margin-bottom:10px">
@@ -1059,6 +1103,11 @@ function pintarListaNsos(filtro){
           return `
           <div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:0.5px solid var(--border);flex-wrap:wrap">
             <span style="flex:1;font-size:12px;min-width:140px">${String(n.nombre||'').replace(/</g,'&lt;')}</span>
+            ${sinMarca(n) ? `<select onchange="guardarMarcaNso(${n.id}, this)" title="Elige la marca de este producto"
+              style="font-size:11px;padding:4px 7px;border:1px solid #f59e0b;background:#fffbeb;border-radius:6px;outline:none;cursor:pointer;flex-shrink:0">
+              <option value="">— elegir marca —</option>
+              ${MARCAS_NSO.map(m=>`<option value="${m}">${m}</option>`).join('')}
+            </select>` : ''}
             <input type="text" value="${String(n.etiqueta||'').replace(/"/g,'&quot;')}" placeholder="Etiqueta / comentario"
               onchange="guardarEtiquetaNso(${n.id}, this)"
               style="flex:1;min-width:130px;font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;outline:none;background:#fdfcfb"
@@ -1079,6 +1128,30 @@ function pintarListaNsos(filtro){
 }
 
 function filtrarNsos(q){ pintarListaNsos(q); }
+
+// Asigna a mano la marca de una NSO que vino sin ella. Al guardar se repinta la lista
+// para que la fila salte al grupo de su marca y el contador de "sin marca" baje.
+async function guardarMarcaNso(id, select){
+  const marca = select.value;
+  if(!marca) return;
+  const original = select.style.borderColor;
+  try{
+    const r = await fetch('/api/nsos/'+id+'/marca', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ marca })
+    });
+    const d = await r.json();
+    if(!d.ok) throw new Error(d.error||'error');
+    const fila = (window._nsosData||[]).find(x=>x.id===id);
+    if(fila) fila.marca = marca;
+    select.style.borderColor = '#16a34a';
+    setTimeout(()=>{ pintarListaNsos(document.getElementById('nsos-buscar')?.value||''); }, 350);
+  }catch(e){
+    select.style.borderColor = '#dc2626';
+    setTimeout(()=>{ select.style.borderColor = original || '#f59e0b'; }, 1500);
+    alert('No se pudo guardar la marca: '+e.message);
+  }
+}
 
 async function guardarEtiquetaNso(id, input){
   const original = input.style.borderColor;
