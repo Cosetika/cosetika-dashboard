@@ -1881,6 +1881,26 @@ setTimeout(async () => {
   } catch(e) { console.error('No se pudo marcar el cambio de clave:', e.message); }
 }, 8 * 1000);
 
+// El acceso a Configuración pasó de ser implícito por ser admin a ser un permiso más
+// ("configuracion"), para poder tener un admin que ve toda la operación pero no entra a
+// la configuración de la app. Esta migración se lo da UNA SOLA VEZ a los admin que ya
+// existían, para que nadie pierda el acceso al desplegar. Va con marcador porque si
+// corriera en cada arranque devolvería el permiso a quien se lo hayan quitado.
+const MARCADOR_PERMISO_CONFIG = 'permiso_configuracion_v1';
+setTimeout(async () => {
+  try {
+    if (await getConfigApp(MARCADOR_PERMISO_CONFIG, null)) return;
+    const r = await pool.query(`
+      UPDATE usuarios
+         SET modulos = CASE WHEN COALESCE(modulos,'') = '' THEN 'configuracion'
+                            ELSE modulos || ',configuracion' END
+       WHERE rol = 'admin'
+         AND (',' || COALESCE(modulos,'') || ',') NOT LIKE '%,configuracion,%'`);
+    await setConfigApp(MARCADOR_PERMISO_CONFIG, new Date().toISOString());
+    console.log('🔧 Permiso "configuracion" otorgado a ' + r.rowCount + ' admin(s) existentes.');
+  } catch(e) { console.error('No se pudo migrar el permiso de configuración:', e.message); }
+}, 10 * 1000);
+
 setTimeout(() => sincronizarCreditos(), 15 * 1000);
 setInterval(() => sincronizarCreditos(), 60 * 60 * 1000);
 
@@ -3943,6 +3963,7 @@ const SOLO_ADMIN_ESCRIBE = [
   // Subidas masivas: rehacen datos de toda la empresa
   /^\/api\/provincias\/subir/, /^\/api\/personas\/subir/,
   /^\/api\/nsos\/(bulk|subir|completar-marcas)/, /^\/api\/testers\/bulk/,
+  // ↓ ver RUTAS_CONFIG más abajo
   /^\/api\/institutos\/sync/, /^\/api\/referidos\/sync/
 ];
 
@@ -3957,6 +3978,20 @@ const MODULO_POR_RUTA = [
   [/^\/api\/testers-asesoras/, 'inventario'],
   [/^\/api\/bodegas\/minimo/,  'inventario'],
   [/^\/api\/inventario\//,     'inventario']
+];
+
+// ─── PERMISO "configuracion" ──────────────────────────────────────────────────
+// Un admin puede ver toda la operación sin poder entrar a la configuración de la app.
+// RUTAS_CONFIG se bloquean enteras; RUTAS_CONFIG_ESCRIBE solo en escritura, porque su
+// lectura la usa el resto de la app (los nombres inscritos, los equipos de ventas…).
+const RUTAS_CONFIG = [
+  /^\/api\/backup/, /^\/api\/restaurar/,
+  /^\/api\/personas\/subir/, /^\/api\/provincias\/subir/
+];
+const RUTAS_CONFIG_ESCRIBE = [
+  /^\/api\/usuarios/, /^\/api\/equipos/, /^\/api\/equipos-historicos/,
+  /^\/api\/clientes-reasignados/, /^\/api\/carteras-heredadas/,
+  /^\/api\/categorias-asesora/, /^\/api\/sku-por-marca/
 ];
 
 // Los módulos no viajan en la sesión (y las sesiones duran meses), así que se
@@ -4006,6 +4041,22 @@ async function protegerPeticion(req, res, urlPath){
       error:'Tienes que cambiar tu contraseña antes de seguir usando la aplicación.' }));
     return true;
   }
+  // Admin SIN el permiso "configuracion": ve toda la operación pero no entra a la
+  // configuración de la app. Sirve para dar un admin "de solo operación" sin que pueda
+  // tocar usuarios, equipos ni respaldos. Las lecturas de /api/usuarios se dejan pasar
+  // porque toda la app las usa para mostrar los nombres inscritos.
+  if (s.rol === 'admin') {
+    const esConfig = RUTAS_CONFIG.some(re => re.test(urlPath))
+      || (req.method !== 'GET' && RUTAS_CONFIG_ESCRIBE.some(re => re.test(urlPath)));
+    if (esConfig && !(await modulosDe(s.id)).includes('configuracion')) {
+      res.writeHead(403, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:false,
+        error:'Tu usuario no tiene acceso a la configuración de la aplicación.',
+        ruta: urlPath }));
+      return true;
+    }
+  }
+
   if (s.rol !== 'admin') {
     const esEscritura = req.method !== 'GET';
     const esJefa = s.rol === 'jefa_ventas';
@@ -4143,7 +4194,11 @@ const server = http.createServer(async (req, res) => {
   if (urlPath === '/api/usuarios' && req.method === 'POST') {
     try {
       const {nombre,usuario,password,rol,modulos} = await bodyJSON(req);
-      await pool.query('INSERT INTO usuarios(nombre,usuario,password,rol,modulos) VALUES($1,$2,$3,$4,$5)',[nombre,usuario,hashClave(password||'1234'),rol||'asesora',modulos||'ventas,visitas,kpis,inventario']);
+      let mods = modulos || 'ventas,visitas,kpis,inventario';
+      // Un admin nuevo nace con acceso a Configuración; se le quita desde Permisos si
+      // se quiere un admin que solo opere.
+      if ((rol||'asesora') === 'admin' && !(','+mods+',').includes(',configuracion,')) mods += ',configuracion';
+      await pool.query('INSERT INTO usuarios(nombre,usuario,password,rol,modulos) VALUES($1,$2,$3,$4,$5)',[nombre,usuario,hashClave(password||'1234'),rol||'asesora',mods]);
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
     return;

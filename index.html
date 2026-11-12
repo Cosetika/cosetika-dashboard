@@ -4056,8 +4056,9 @@ function navGoConfig(tab){
 
 async function renderConfig(){
   const usuario = window.usuarioActual || {};
-  if(usuario.rol !== 'admin'){
-    document.getElementById('main').innerHTML='<div class="coming"><i class="ti ti-lock"></i><p>Acceso restringido</p></div>';
+  if(usuario.rol !== 'admin' || !String(usuario.modulos||'').split(',').includes('configuracion')){
+    document.getElementById('main').innerHTML='<div class="coming"><i class="ti ti-lock"></i><p>Acceso restringido</p>'
+      + '<span style="font-size:12px">No tienes el permiso de Configuración. Pídeselo a Fernando.</span></div>';
     return;
   }
   let usuarios=[];
@@ -4120,6 +4121,7 @@ async function renderConfig(){
               ${MODS_LISTA.map(m=>`<th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);text-transform:uppercase">${m}</th>`).join('')}<th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);white-space:nowrap;text-transform:uppercase">Ver visitas<br>de todas</th>
               <th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);text-transform:uppercase">Editar Plan.</th>
               <th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);white-space:nowrap;text-transform:uppercase" title="Puede subir y eliminar PDFs en el panel de Documentos">Subir<br>documentos</th>
+              <th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);white-space:nowrap;text-transform:uppercase" title="Entra al panel de Configuración (credenciales, permisos, equipos, respaldos). Solo aplica a los admin.">Configu-<br>ración</th>
             </tr></thead>
             <tbody>
               ${usuarios.map(u=>{
@@ -4128,11 +4130,21 @@ async function renderConfig(){
                 const verTodas=esAdmin||esJefa||mods.includes('ver_visitas_todas');
                 window._permModsActuales = window._permModsActuales || {};
                 window._permModsActuales[u.id] = mods;
+                window._permRoles = window._permRoles || {};
+                window._permRoles[u.id] = u.rol;
+                // Configuración: al revés que el resto. Solo se puede marcar a los admin
+                // (los demás roles nunca entran ahí), y nunca a uno mismo, para que
+                // nadie se deje fuera de la configuración por error.
+                const esYo = u.id === usuario.id;
+                const celdaConfig = esAdmin
+                  ? "<td style=\"text-align:center;padding:10px\"><input type=\"checkbox\" id=\"perm-" + u.id + "-configuracion\" " + (mods.includes('configuracion')?'checked':'') + " " + (esYo?'disabled':'') + " title=\"" + (esYo?'No puedes quitarte a ti mismo el acceso a Configuración':'Acceso al panel de Configuración') + "\" style=\"accent-color:#A0684A;width:16px;height:16px;cursor:" + (esYo?'default':'pointer') + ";" + (esYo?'opacity:0.5':'') + "\"/></td>"
+                  : "<td style=\"text-align:center;padding:10px;color:var(--muted);font-size:11px\" title=\"Solo los admin pueden entrar a Configuración\">—</td>";
                 return "<tr style=\"border-bottom:0.5px solid var(--border)\"><td style=\"padding:10px\"><div style=\"font-size:13px;font-weight:500\">" + u.nombre.split(' ')[0] + "</div><div style=\"font-size:11px;color:var(--muted)\">" + u.rol + "</div></td>" +
                   MODS_LISTA.map(m=>"<td style=\"text-align:center;padding:10px\"><input type=\"checkbox\" " + (mods.includes(m)||esAdmin?'checked':'') + " " + (esAdmin?'disabled':'') + " id=\"perm-" + u.id + "-" + m + "\" style=\"accent-color:#A0684A;width:16px;height:16px;cursor:pointer\"/></td>").join('') +
                   "<td style=\"text-align:center;padding:10px\"><input type=\"checkbox\" id=\"perm-" + u.id + "-ver_visitas_todas\" " + (verTodas?'checked':'') + " " + (esAdmin||esJefa?'disabled':'') + " style=\"accent-color:#A0684A;width:16px;height:16px;cursor:pointer\"/></td>" +
                   "<td style=\"text-align:center;padding:10px\"><input type=\"checkbox\" id=\"perm-" + u.id + "-editar_planificacion\" " + (mods.includes('editar_planificacion')||esAdmin||esJefa?'checked':'') + " " + (esAdmin?'disabled':'') + " style=\"accent-color:#A0684A;width:16px;height:16px;cursor:pointer\"/></td>" +
-                  "<td style=\"text-align:center;padding:10px\"><input type=\"checkbox\" id=\"perm-" + u.id + "-subir_documentos\" " + (mods.includes('subir_documentos')||esAdmin?'checked':'') + " " + (esAdmin?'disabled':'') + " style=\"accent-color:#A0684A;width:16px;height:16px;cursor:pointer\"/></td></tr>";
+                  "<td style=\"text-align:center;padding:10px\"><input type=\"checkbox\" id=\"perm-" + u.id + "-subir_documentos\" " + (mods.includes('subir_documentos')||esAdmin?'checked':'') + " " + (esAdmin?'disabled':'') + " style=\"accent-color:#A0684A;width:16px;height:16px;cursor:pointer\"/></td>" +
+                  celdaConfig + "</tr>";
               }).join('')}
             </tbody>
           </table>
@@ -4441,8 +4453,17 @@ async function guardarTodosPermisos(){
   if(statusEl) statusEl.textContent = 'Guardando...';
   try{
     await Promise.all([...idsUsuarios].map(async id=>{
-      // Si el usuario es admin, todos sus checkboxes salen "disabled" y no aplica guardarle
-      // módulos (su acceso es total e implícito), así que se omite para no sobreescribir nada.
+      // Los admin tienen todos los checkboxes de módulos en "disabled" (su acceso es
+      // total e implícito), pero sí pueden perder el de Configuración. Para ellos se
+      // guarda únicamente ese, conservando intactos los demás permisos que ya tengan.
+      if(((window._permRoles||{})[id]) === 'admin'){
+        const chk = document.getElementById('perm-'+id+'-configuracion');
+        if(!chk || chk.disabled) return;                       // la fila propia no se toca
+        const mods = ((window._permModsActuales||{})[id]||[]).filter(m=>m!=='configuracion');
+        if(chk.checked) mods.push('configuracion');
+        await fetch('/api/usuarios/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({modulos:mods.join(',')})});
+        return;
+      }
       const algunCheckboxEditable = MODS.some(m=>{
         const el = document.getElementById('perm-'+id+'-'+m);
         return el && !el.disabled;
@@ -10120,18 +10141,24 @@ document.addEventListener('DOMContentLoaded', function() {
   if(navUserName) navUserName.textContent = usuarioActual.nombre;
   if(navUserRol) navUserRol.textContent = usuarioActual.rol || '';
 
-  // Botón config + módulo Reportes solo para admin
+  // Botón config + módulo Reportes solo para admin. Configuración, además, pide el
+  // permiso "configuracion": así se puede tener un admin que ve toda la operación pero
+  // no entra a credenciales, permisos, equipos ni respaldos.
   if(usuarioActual.rol === 'admin'){
-    const btnCfg = document.getElementById('btn-config');
-    if(btnCfg) btnCfg.style.display = 'flex';
     const modRep = document.getElementById('mod-reportes');
     if(modRep) modRep.style.display = 'flex';
     const navRep = document.getElementById('nav-reportes');
     if(navRep) navRep.style.display = 'flex';
-    const navCfg = document.getElementById('nav-config');
-    if(navCfg) navCfg.style.display = 'flex';
-    const btnBackup = document.getElementById('btn-backup');
-    if(btnBackup){ btnBackup.style.display = 'flex'; actualizarEstadoBotonBackup(); }
+
+    const puedeConfigurar = String(usuarioActual.modulos||'').split(',').includes('configuracion');
+    if(puedeConfigurar){
+      const btnCfg = document.getElementById('btn-config');
+      if(btnCfg) btnCfg.style.display = 'flex';
+      const navCfg = document.getElementById('nav-config');
+      if(navCfg) navCfg.style.display = 'flex';
+      const btnBackup = document.getElementById('btn-backup');
+      if(btnBackup){ btnBackup.style.display = 'flex'; actualizarEstadoBotonBackup(); }
+    }
   }
 
   // Módulos según permisos (admin ve todo — su acceso es total e implícito)
