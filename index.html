@@ -17316,10 +17316,18 @@ async function renderKpis(){
       const porSemK = {};
       (dV.semanas||[]).filter(s => matchA(s.asesora)).forEach(s => {
         const k = String(s.semana).substring(0,10);
-        porSemK[k] = (porSemK[k]||0) + (parseInt(s.visitadas)||0);
+        if(!porSemK[k]) porSemK[k] = { visitadas:0, primeras:0, recompras:0 };
+        porSemK[k].visitadas += (parseInt(s.visitadas)||0);
+        porSemK[k].primeras  += (parseInt(s.primeras)||0);
+        porSemK[k].recompras += (parseInt(s.recompras)||0);
       });
       const clavesMes = semanasDelMesKpi(anioFiltro, mesFiltro).map(claveLunes);
-      visitasSemanasMes = clavesMes.map(k => ({ semana: k, visitadas: porSemK[k] || 0 }));
+      visitasSemanasMes = clavesMes.map(k => ({
+        semana: k,
+        visitadas: (porSemK[k]||{}).visitadas || 0,
+        primeras:  (porSemK[k]||{}).primeras  || 0,
+        recompras: (porSemK[k]||{}).recompras || 0
+      }));
       visitasMesTotal = visitasSemanasMes.reduce((a,x)=>a+x.visitadas, 0);
       // Semanas justificadas (vacaciones): cuentan como meta cumplida
       try{
@@ -17623,6 +17631,9 @@ async function renderKpis(){
               <div style="font-size:24px;font-weight:800;color:${col}">${s.excepcion?'✓':s.visitadas}</div>
               <div style="font-size:9px;color:var(--muted)">${s.excepcion?(s.motivo||'Justificada'):'de '+visitasMeta}</div>
               <div style="margin-top:5px;font-size:11px;font-weight:800;color:${col}">${cumple?'+'+pesoSem+'%':'0%'}</div>
+              ${(s.primeras||s.recompras)?`<div title="De las ${s.visitadas} visitas de esta semana: ${s.primeras} primera(s) compra(s) y ${s.recompras} recompra(s)" style="margin-top:6px;padding-top:5px;border-top:1px dashed ${bd};font-size:9px;font-weight:700;display:flex;justify-content:center;gap:6px">
+                <span style="color:#2563eb">1ª ${s.primeras}</span><span style="color:#d97706">Re ${s.recompras}</span>
+              </div>`:''}
               ${esAdminVis?`<div onclick="toggleSemanaJustificada('${asesoraKpi.replace(/'/g,"")}','${s.semana}',${s.excepcion?'true':'false'})" style="margin-top:6px;font-size:9px;color:${s.excepcion?'#dc2626':'var(--muted)'};cursor:pointer;text-decoration:underline">${s.excepcion?'quitar':'justificar'}</div>`:''}
             </div>`;
           }).join('')}
@@ -17632,6 +17643,38 @@ async function renderKpis(){
             <div style="font-size:9px;color:var(--muted)">visitadas</div>
           </div>
         </div>
+        ${(()=>{
+          // Conversión de las visitas: de las que marcó como visitadas, cuántas
+          // terminaron en primera compra y cuántas en recompra. Por ahora es solo
+          // informativo — no entra en el cálculo de cumplimiento.
+          const p = visitasSemanasMes.reduce((a,s)=>a+(s.primeras||0), 0);
+          const re = visitasSemanasMes.reduce((a,s)=>a+(s.recompras||0), 0);
+          const base = visitasMesTotal;
+          const pc = v => base ? Math.round(v / base * 1000) / 10 : 0;
+          const bloque = (etq, val, pct, color, fondo, borde) => `
+            <div style="flex:1;min-width:120px;background:${fondo};border:1px solid ${borde};border-radius:10px;padding:10px 12px">
+              <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">${etq}</div>
+              <div style="display:flex;align-items:baseline;gap:6px">
+                <span style="font-size:22px;font-weight:800;color:${color}">${pct}%</span>
+                <span style="font-size:11px;color:var(--muted)">${val} de ${base}</span>
+              </div>
+            </div>`;
+          return `
+          <div style="margin-top:12px;background:#faf9f8;border-radius:10px;padding:12px 14px">
+            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:8px">
+              <span style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Conversión de visitas del mes</span>
+              <span style="font-size:10px;color:var(--muted)">informativo · no afecta la nota</span>
+            </div>
+            ${base === 0
+              ? '<p style="font-size:12px;color:var(--muted);margin:0">Sin visitas registradas este mes.</p>'
+              : `<div style="display:flex;gap:8px;flex-wrap:wrap">
+                   ${bloque('Primera compra', p,  pc(p),  '#2563eb', '#eff6ff', '#bfdbfe')}
+                   ${bloque('Recompra',       re, pc(re), '#d97706', '#fffbeb', '#fde68a')}
+                   ${bloque('Total que compró', p+re, pc(p+re), '#166534', '#f0fdf4', '#86efac')}
+                 </div>
+                 <div style="font-size:11px;color:var(--muted);margin-top:8px">Sale de las casillas <b>1era compra</b> y <b>Recompra</b> de Visitas → Planificación, sobre las visitas marcadas como visitadas.</div>`}
+          </div>`;
+        })()}
         <div style="margin-top:12px;background:#faf9f8;border-radius:10px;padding:12px 14px">
           <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:6px">
             <span style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Cumplimiento de visitas del mes</span>
