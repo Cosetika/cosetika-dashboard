@@ -13192,8 +13192,25 @@ async function renderSeguimientoClientes(){
     }
   }
   window._segVendSel = vendSel;
+  // "Clientes antiguas" = clientas de vendedoras que ya no están, para recuperarlas.
+  // Pero una misma clienta puede haber comprado hace años a una vendedora que se fue y
+  // hoy ser de una asesora activa: así aparecía en las dos listas, y otra asesora podía
+  // marcarla como contactada desde el grupo abierto. Aquí se descartan las que ya tienen
+  // dueña activa, y se quita el duplicado de quien figure bajo dos vendedoras antiguas.
+  const idClienteSeg = c => String(c.ruc||'').replace(/\D/g,'')
+    || ('n:' + String(c.nombre||'').toUpperCase().replace(/\s+/g,' ').trim());
   const clientesSeg = vendSel === ANTIGUAS
-    ? keysAntiguas.reduce((acc, k) => acc.concat(DATA[k] || []), [])
+    ? (function(){
+        const conDuena = new Set();
+        keysActivas.forEach(k => (DATA[k]||[]).forEach(c => conDuena.add(idClienteSeg(c))));
+        const vistas = new Set(), fuera = [];
+        keysAntiguas.forEach(k => (DATA[k]||[]).forEach(c => {
+          const id = idClienteSeg(c);
+          if (conDuena.has(id) || vistas.has(id)) return;
+          vistas.add(id); fuera.push(c);
+        }));
+        return fuera;
+      })()
     : (DATA[vendSel] || []);
   const tituloSel = vendSel === ANTIGUAS ? 'Clientes antiguas' : ((typeof NOMBRE_CORTO!=='undefined'&&NOMBRE_CORTO[vendSel])||vendSel);
 
