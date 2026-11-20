@@ -13612,10 +13612,6 @@ async function renderImportaciones(){
         ${deMarca.map(x=>`<option value="${x.id}" ${x.id===window._impId?'selected':''}>Importación ${escI(x.numero)}${x.fecha?' · '+String(x.fecha).substring(0,10):''}</option>`).join('')}
       </select>
       ${act && act.anterior?`<span style="font-size:11px;color:var(--muted)">comparada con la ${escI(act.anterior.numero)}${act.anterior.fecha?' · '+String(act.anterior.fecha).substring(0,10):''}</span>`:''}
-      ${act?`<button onclick="borrarImportacion(${act.id},'${escI(act.marca).replace(/'/g,'')}','${escI(act.numero).replace(/'/g,'')}')"
-        title="Borrar esta importación — para cuando se subió un archivo equivocado"
-        style="margin-left:auto;padding:6px 11px;border:1px solid #fca5a5;background:#fef2f2;color:#b91c1c;border-radius:8px;font-size:11px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:5px">
-        <i class="ti ti-trash" style="font-size:13px"></i>Borrar esta importación</button>`:''}
     </div>`;
 
   const tarjetas = !m ? '' : `
@@ -13829,7 +13825,7 @@ async function renderImportaciones(){
   const acciones = !act ? '' : `
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
       <button onclick="verDetalleImportacion(${act.id})" style="padding:8px 16px;border:1px solid var(--border);background:white;border-radius:9px;font-size:12px;cursor:pointer"><i class="ti ti-list" style="margin-right:5px"></i>Ver detalle por producto</button>
-      <button onclick="borrarImportacion(${act.id},'${escI(act.marca)} ${escI(act.numero)}')" style="padding:8px 16px;border:1px solid #fca5a5;background:white;color:#dc2626;border-radius:9px;font-size:12px;cursor:pointer"><i class="ti ti-trash" style="margin-right:5px"></i>Eliminar</button>
+      <button onclick="borrarImportacion(${act.id},'${escI(act.marca).replace(/'/g,'')}','${escI(act.numero).replace(/'/g,'')}')" style="padding:8px 16px;border:1px solid #fca5a5;background:white;color:#dc2626;border-radius:9px;font-size:12px;cursor:pointer"><i class="ti ti-trash" style="margin-right:5px"></i>Eliminar</button>
     </div>`;
 
   cont.innerHTML = window._impVista === 'comparar'
@@ -13917,17 +13913,6 @@ async function verDetalleImportacion(id){
         }).join('')}</tbody>
       </table></div></div>`;
   }catch(e){ c.innerHTML = '<div class="card" style="padding:16px;color:#dc2626;font-size:12px">No se pudo cargar el detalle.</div>'; }
-}
-
-async function borrarImportacion(id, etiqueta){
-  if(!confirm('¿Eliminar la importación '+etiqueta+'? Se borra también su detalle.')) return;
-  try{
-    const r = await fetch('/api/importaciones/'+id, { method:'DELETE' });
-    const d = await r.json();
-    if(!d.ok) throw new Error(d.error||'error');
-    window._impId = undefined;
-    renderImportaciones();
-  }catch(e){ alert('No se pudo eliminar: '+e.message); }
 }
 
 function mostrarErrorReporte(tab, e){
