@@ -13710,7 +13710,7 @@ async function renderImportaciones(){
           <div style="font-size:10px;color:var(--muted)">$${x.u.toFixed(2)}/u</div>
         </div>`).join('')}
       </div>
-      <div style="font-size:11px;color:var(--muted);margin-top:10px">Altura = % de encarecimiento sobre el FOB. Debajo, el costo por unidad de cada embarque.</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:10px">Altura = lo que cuesta traerlo, en % sobre el producto en dólares. Debajo, el costo por unidad de cada embarque.</div>
     </div>`;
 
   // Gastos que el parser no reconoció: se clasifican aquí una sola vez y quedan aprendidos
@@ -13898,24 +13898,36 @@ async function verDetalleImportacion(id){
     const r = await fetch('/api/importaciones/'+id+'/detalle');
     const d = await r.json();
     const esc2 = v => String(v||'').replace(/</g,'&lt;');
+    // Tipo de cambio de esta importación: sin él se compararía el costo unitario en
+    // dólares contra el FOB unitario en euros, que es justo el error que había arriba.
+    const tcD = (+d.tipo_cambio) || 0;
     c.innerHTML = `<div class="card" style="padding:0">
-      <div style="padding:14px 16px 10px;font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1.2px">Detalle por producto · ${(d.detalle||[]).length} ítems</div>
-      <div style="overflow-x:auto;max-height:520px"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:620px">
+      <div style="padding:14px 16px 4px;font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1.2px">Detalle por producto · ${(d.detalle||[]).length} ítems</div>
+      <div style="padding:0 16px 10px;font-size:11px;color:var(--muted)">
+        ${tcD ? `"Cuesta traerlo" compara el costo en bodega contra el FOB del producto ya pasado a dólares al cambio de <b>${tcD.toFixed(4)}</b>.`
+              : 'Sin tipo de cambio en esta liquidación: no se puede calcular el sobrecosto por producto.'}
+      </div>
+      <div style="overflow-x:auto;max-height:520px"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:700px">
         <thead><tr style="background:#faf9f8;border-bottom:1px solid var(--border);position:sticky;top:0">
           <th style="padding:8px 14px;text-align:left;font-size:10px;color:var(--muted)">Producto</th>
           <th style="padding:8px 10px;text-align:right;font-size:10px;color:var(--muted)">Unid.</th>
           <th style="padding:8px 10px;text-align:right;font-size:10px;color:var(--muted)">FOB unit. €</th>
+          <th style="padding:8px 10px;text-align:right;font-size:10px;color:var(--muted)">FOB unit. $</th>
           <th style="padding:8px 10px;text-align:right;font-size:10px;color:var(--muted)">Costo unit. $</th>
-          <th style="padding:8px 10px;text-align:right;font-size:10px;color:var(--muted)">Encarece</th>
+          <th style="padding:8px 10px;text-align:right;font-size:10px;color:var(--muted)">Cuesta traerlo</th>
         </tr></thead>
         <tbody>${(d.detalle||[]).map((x,i)=>{
-          const f = (+x.fob_unit_eur) ? ((+x.costo_unit_usd)/(+x.fob_unit_eur)-1)*100 : 0;
+          // Dólares contra dólares: el FOB unitario se pasa a dólares con el tipo de
+          // cambio de la liquidación antes de compararlo con el costo en bodega.
+          const fobUsd = (+x.fob_unit_eur) * tcD;
+          const f = fobUsd ? ((+x.costo_unit_usd)/fobUsd-1)*100 : null;
           return `<tr style="border-bottom:0.5px solid var(--border);background:${i%2?'#f6f3ef':'white'}">
             <td style="padding:8px 14px"><div style="font-weight:500">${esc2(x.descripcion)}</div><div style="font-size:10px;color:var(--muted)">${esc2(x.codigo)}</div></td>
             <td style="padding:8px 10px;text-align:right">${Math.round(+x.unidades).toLocaleString('en-US')}</td>
             <td style="padding:8px 10px;text-align:right;color:var(--muted)">€${(+x.fob_unit_eur).toFixed(2)}</td>
+            <td style="padding:8px 10px;text-align:right;color:var(--muted)">${fobUsd?'$'+fobUsd.toFixed(3):'—'}</td>
             <td style="padding:8px 10px;text-align:right;font-weight:600;color:var(--brown)">$${(+x.costo_unit_usd).toFixed(3)}</td>
-            <td style="padding:8px 10px;text-align:right;font-weight:600;color:#b45309">+${f.toFixed(0)}%</td>
+            <td style="padding:8px 10px;text-align:right;font-weight:600;color:#b45309">${f===null?'—':(f>=0?'+':'')+f.toFixed(0)+'%'}</td>
           </tr>`;
         }).join('')}</tbody>
       </table></div></div>`;

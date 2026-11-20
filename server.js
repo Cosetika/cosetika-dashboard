@@ -9338,16 +9338,19 @@ function metricasImportacion(r){
       const id = parseInt(urlPath.split('/')[3]);
       const r = await pool.query(
         'SELECT * FROM importaciones_detalle WHERE importacion_id=$1 ORDER BY costo_total_usd DESC', [id]);
-      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, detalle:r.rows}));
-    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
-    return;
-  }
-
-  if (/^\/api\/importaciones\/\d+$/.test(urlPath) && req.method === 'DELETE') {
-    if (bloquearSiNoAdmin(req, res)) return;
-    try {
-      await pool.query('DELETE FROM importaciones WHERE id=$1', [parseInt(urlPath.split('/')[3])]);
-      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true}));
+      // El tipo de cambio de ESTA importación, para poder comparar el costo unitario
+      // (dólares) contra el FOB unitario (euros) sin mezclar monedas.
+      const rI = await pool.query('SELECT * FROM importaciones WHERE id=$1', [id]);
+      let tc = 0;
+      if (rI.rows.length) {
+        const mapa = await mapaCatImpo();
+        const fila = Object.assign({}, rI.rows[0]);
+        const rec = categoriasDesdeGastos(fila.gastos, mapa);
+        if ((fila.gastos||[]).length) fila.categorias = rec.categorias;
+        rebasarImportacion(fila, mapa);
+        tc = metricasImportacion(fila).tipo_cambio || 0;
+      }
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, detalle:r.rows, tipo_cambio: tc}));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
   }
