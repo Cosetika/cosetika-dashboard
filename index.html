@@ -13509,6 +13509,29 @@ function setReportesTab(tab){ window._reportesTab=tab; renderReportes(); }
 // ─── REPORTES → IMPORTACIONES ─────────────────────────────────────────────────────
 // Responde tres cosas: si esta importación salió más cara o más barata por unidad que la
 // anterior, qué gasto se movió, y cuánto se encarece el producto desde origen hasta bodega.
+// Borra una liquidación que se subió mal. Pide escribir el número para confirmar:
+// con el embarque equivocado seleccionado, un clic de más borraría el bueno.
+async function borrarImportacion(id, marca, numero){
+  const resp = prompt('Vas a BORRAR la importación ' + numero + ' de ' + marca + ', con todo su detalle por producto.\n\n'
+    + 'Esto no se puede deshacer; para recuperarla hay que volver a subir el Excel.\n\n'
+    + 'Escribe el número de la importación (' + numero + ') para confirmar:');
+  if(resp === null) return;
+  if(String(resp).trim() !== String(numero).trim()){
+    alert('El número no coincide. No se borró nada.');
+    return;
+  }
+  try{
+    const r = await fetch('/api/importaciones/' + id, { method:'DELETE' });
+    const d = await r.json();
+    if(!d.ok) throw new Error(d.error || ('el servidor respondió ' + r.status));
+    window._impId = null;            // el embarque seleccionado ya no existe: se repinta con otro
+    alert('Importación ' + d.numero + ' de ' + d.marca + ' borrada.');
+    await renderImportaciones();
+  }catch(e){
+    alert('No se pudo borrar: ' + e.message);
+  }
+}
+
 async function renderImportaciones(){
   const cont = document.getElementById('reportes-content');
   if(!cont) return;
@@ -13589,6 +13612,10 @@ async function renderImportaciones(){
         ${deMarca.map(x=>`<option value="${x.id}" ${x.id===window._impId?'selected':''}>Importación ${escI(x.numero)}${x.fecha?' · '+String(x.fecha).substring(0,10):''}</option>`).join('')}
       </select>
       ${act && act.anterior?`<span style="font-size:11px;color:var(--muted)">comparada con la ${escI(act.anterior.numero)}${act.anterior.fecha?' · '+String(act.anterior.fecha).substring(0,10):''}</span>`:''}
+      ${act?`<button onclick="borrarImportacion(${act.id},'${escI(act.marca).replace(/'/g,'')}','${escI(act.numero).replace(/'/g,'')}')"
+        title="Borrar esta importación — para cuando se subió un archivo equivocado"
+        style="margin-left:auto;padding:6px 11px;border:1px solid #fca5a5;background:#fef2f2;color:#b91c1c;border-radius:8px;font-size:11px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:5px">
+        <i class="ti ti-trash" style="font-size:13px"></i>Borrar esta importación</button>`:''}
     </div>`;
 
   const tarjetas = !m ? '' : `

@@ -9222,6 +9222,24 @@ function metricasImportacion(r){
     return;
   }
 
+  // DELETE /api/importaciones/:id → borrar una liquidación subida mal.
+  // El detalle por producto se va solo (ON DELETE CASCADE).
+  if (/^\/api\/importaciones\/\d+$/.test(urlPath) && req.method === 'DELETE') {
+    if (bloquearSiNoAdmin(req, res)) return;
+    try {
+      const id = parseInt(urlPath.split('/')[3]);
+      const r = await pool.query('DELETE FROM importaciones WHERE id=$1 RETURNING marca, numero', [id]);
+      if (!r.rowCount) {
+        res.writeHead(404,{'Content-Type':'application/json'});
+        res.end(JSON.stringify({ok:false, error:'Esa importación ya no existe'}));
+        return;
+      }
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ok:true, marca:r.rows[0].marca, numero:r.rows[0].numero}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
   if (urlPath === '/api/importaciones' && req.method === 'GET') {
     if (bloquearSiNoAdmin(req, res)) return;
     try {
