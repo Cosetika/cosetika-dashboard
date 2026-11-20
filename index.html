@@ -13632,9 +13632,10 @@ async function renderImportaciones(){
         ${v?`<div style="font-size:10px;font-weight:700;color:${colDelta(v.costo_unitario.delta)}">${pct(v.costo_unitario.pct)} vs anterior</div>`:'<div style="font-size:10px;color:var(--muted)">primera importación</div>'}
       </div>
       <div style="background:#1a1108;border-radius:11px;padding:14px;text-align:center">
-        <div style="font-size:10px;color:rgba(255,255,255,0.7);text-transform:uppercase;letter-spacing:0.8px">Se encarece</div>
+        <div style="font-size:10px;color:rgba(255,255,255,0.7);text-transform:uppercase;letter-spacing:0.8px">Cuesta traerlo</div>
         <div style="font-size:22px;font-weight:800;color:white">${pct(m.encarecimiento_pct)}</div>
-        <div style="font-size:10px;color:rgba(255,255,255,0.6)">€1 origen → $${m.factor.toFixed(3)} en bodega</div>
+        <div style="font-size:10px;color:rgba(255,255,255,0.6)">$1 de producto → $${(m.factor_usd||0).toFixed(3)} en bodega</div>
+        <div style="font-size:9px;color:rgba(255,255,255,0.45);margin-top:3px">al cambio de ${m.tipo_cambio.toFixed(4)} $/€</div>
       </div>
     </div>`;
 
@@ -13642,9 +13643,11 @@ async function renderImportaciones(){
   const desglose = !m ? '' : `
     <div class="card" style="margin-bottom:12px">
       <div class="card-title"><i class="ti ti-arrow-narrow-up"></i> De dónde viene ese ${pct(m.encarecimiento_pct)}</div>
-      <div style="font-size:11px;color:var(--muted);margin-bottom:12px;line-height:1.5">Cada tramo medido en puntos sobre el precio FOB del producto. Suman el encarecimiento total.</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:12px;line-height:1.5">
+        Dólares contra dólares: cada tramo en puntos sobre el producto ya convertido a dólares
+        (${money(m.producto_usd)} al cambio de ${m.tipo_cambio.toFixed(4)}). Suman el total.
+      </div>
       ${[['Flete y embalaje exterior', m.puntos.flete_exterior],
-         ['Conversión EUR → USD (incluye ISD)', m.puntos.conversion],
          ['Gastos locales hasta bodega', m.puntos.gastos_locales]].map(([n,p])=>`
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
           <span style="font-size:12px;min-width:220px">${n}</span>
@@ -13653,7 +13656,11 @@ async function renderImportaciones(){
           </div>
           <span style="font-size:13px;font-weight:700;color:var(--brown);min-width:70px;text-align:right">${p.toFixed(1)} pts</span>
         </div>`).join('')}
-      <div style="font-size:11px;color:var(--muted);margin-top:10px">Tipo de cambio implícito: <b>${m.tipo_cambio.toFixed(4)}</b> USD por euro${v?` · antes ${v.tipo_cambio.anterior.toFixed(4)}`:''}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.6">
+        Tipo de cambio implícito: <b>${m.tipo_cambio.toFixed(4)}</b> USD por euro${v?` · antes ${v.tipo_cambio.anterior.toFixed(4)}`:''}<br>
+        <span style="opacity:0.85">Contado desde el euro —producto en origen contra bodega, mezclando monedas— sería ${pct(m.encarecimiento_con_cambio_pct)};
+        la diferencia es solo el cambio de moneda, no un sobrecosto.</span>
+      </div>
     </div>`;
 
   // Categorías de gasto, comparadas como % del FOB
@@ -13662,19 +13669,19 @@ async function renderImportaciones(){
     <div class="card" style="margin-bottom:12px;padding:0">
       <div style="padding:14px 16px 6px;font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1.2px"><i class="ti ti-list-details" style="margin-right:6px"></i>Costos por categoría</div>
       <div style="font-size:11px;color:var(--muted);padding:0 16px 12px;line-height:1.5">
-        Se comparan como porcentaje del FOB, no en dólares: así una importación más grande no parece más cara por ser más grande.
+        Se comparan como porcentaje del producto en dólares, no en dólares sueltos: así una importación más grande no parece más cara por ser más grande.
         ${v?'':'Esta es la primera importación de la marca, no hay con qué comparar.'}
       </div>
       <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:560px">
         <thead><tr style="background:#faf9f8;border-bottom:1px solid var(--border)">
           <th style="padding:8px 14px;text-align:left;font-size:10px;color:var(--muted)">Categoría</th>
           <th style="padding:8px 10px;text-align:right;font-size:10px;color:var(--muted)">USD</th>
-          <th style="padding:8px 10px;text-align:right;font-size:10px;color:var(--muted)">% del FOB</th>
+          <th style="padding:8px 10px;text-align:right;font-size:10px;color:var(--muted)">% del producto</th>
           ${v?'<th style="padding:8px 10px;text-align:right;font-size:10px;color:var(--muted)">Antes</th><th style="padding:8px 10px;text-align:right;font-size:10px;color:var(--muted)">Variación</th>':''}
         </tr></thead>
         <tbody>${cats.map(([n,val],i)=>{
           const cv = v && v.categorias[n];
-          const fob = +act.fob_eur || 1;
+          const fob = +m.producto_usd || +act.fob_neto_usd || 1;   // base en dólares, igual que el servidor
           return `<tr style="border-bottom:0.5px solid var(--border);background:${i%2?'#f6f3ef':'white'}">
             <td style="padding:9px 14px;font-weight:${n==='Sin clasificar'?'700':'500'};color:${n==='Sin clasificar'?'#dc2626':'var(--text)'}">${escI(n)}</td>
             <td style="padding:9px 10px;text-align:right;font-weight:600">${money(val)}</td>

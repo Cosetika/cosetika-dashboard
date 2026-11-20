@@ -9027,15 +9027,30 @@ function metricasImportacion(r){
   const usdDesp  = fobUsd  || Math.max(total - cif, 0); // el mismo costo ya en dólares
   const localesUsd = cif || Math.max(total - usdDesp, 0);
   const cambio = baseEur ? usdDesp / baseEur : 0;
+  // ENCARECIMIENTO = dólares contra dólares. Antes se dividía el costo total (USD) para
+  // el FOB (EUR), y eso metía dentro del porcentaje la conversión de moneda: un euro
+  // cuesta $1.20 y eso no es que el producto se encarezca, es otra moneda. Ahora la base
+  // es el mismo producto ya convertido a dólares al cambio real que se pagó, así que el
+  // porcentaje es solo lo que cuesta TRAERLO: aduana, agenciamiento, flete, ISD, puerto.
+  // Base: SOLO el producto, al cambio real que se pagó. El flete del exterior no va en
+  // la base porque es parte de lo que cuesta traerlo, igual que la aduana.
+  const prodUsd = fob * cambio;
+  const factorUsd = prodUsd ? total / prodUsd : 0;
   return {
-    factor, encarecimiento_pct: fob ? (factor - 1) * 100 : 0,
+    // Lo que mide la tarjeta: cuánto crece el costo del producto desde su precio en
+    // dólares hasta la bodega
+    factor_usd: factorUsd,
+    encarecimiento_pct: prodUsd ? (factorUsd - 1) * 100 : 0,
+    producto_usd: prodUsd,
+    // La vieja cuenta (dólares sobre euros) se conserva para poder mostrar aparte el
+    // efecto del tipo de cambio, pero ya no es la que manda
+    factor, encarecimiento_con_cambio_pct: fob ? (factor - 1) * 100 : 0,
     tipo_cambio: cambio,
     costo_unitario: uni ? total / uni : 0,
-    // De dónde viene cada punto del encarecimiento, medido sobre el FOB
+    // De dónde viene cada punto, medido sobre el producto en dólares. Suman el total.
     puntos: {
-      flete_exterior: fob ? flete / fob * 100 : 0,
-      conversion: fob ? (usdDesp - baseEur) / fob * 100 : 0,
-      gastos_locales: fob ? localesUsd / fob * 100 : 0
+      flete_exterior: prodUsd ? flete * cambio / prodUsd * 100 : 0,
+      gastos_locales: prodUsd ? localesUsd / prodUsd * 100 : 0
     }
   };
 }
@@ -9292,9 +9307,9 @@ function metricasImportacion(r){
         const catA = x.categorias || {}, catB = prev.categorias || {};
         const todas = new Set(Object.keys(catA).concat(Object.keys(catB)));
         todas.forEach(cn => {
-          // Cada categoría se mide como % del FOB: así la comparación no se distorsiona
-          // porque una importación sea más grande que la otra.
-          const fa = parseFloat(x.fob_eur)||0, fb = parseFloat(prev.fob_eur)||0;
+          // Cada categoría se mide como % del producto EN DÓLARES: así la comparación no
+          // se distorsiona por el tamaño de la importación ni por el tipo de cambio.
+          const fa = x.metricas.producto_usd||0, fb = prev.metricas.producto_usd||0;
           const pa = fa ? (catA[cn]||0) / fa * 100 : 0;
           const pb = fb ? (catB[cn]||0) / fb * 100 : 0;
           cats[cn] = { pct_actual: pa, pct_anterior: pb, delta_pts: pa - pb,
