@@ -8719,7 +8719,11 @@ function categoriasDesdeGastos(gastos, mapa){
   (gastos || []).forEach(g => {
     const cat = categoriaDeGasto(g.nombre, mapa);
     if (!cat) return;
-    if (cat === 'DESCUENTO') { descuento += (+g.total || 0); return; }
+    // El signo lo escribe cada contadora a su manera: unas ponen el descuento en
+    // positivo y otras en negativo ("DESCUENTO NSOs  -5943.33"). Un descuento SIEMPRE
+    // rebaja el producto, así que se toma su valor absoluto. Sin esto, un descuento
+    // negativo se sumaba al FOB y la importación salía por el doble de lo que costó.
+    if (cat === 'DESCUENTO') { descuento += Math.abs(+g.total || 0); return; }
     if (cat === 'IVA' || cat === 'IVA (crédito tributario)') { iva += (+g.iva || +g.valor || 0); return; }
     iva += (+g.iva || 0);
     const monto = (+g.total || 0) || (+g.valor || 0);
@@ -8822,8 +8826,12 @@ function parsearLiquidacion(buffer, mapaAprendido, nombreArchivo){
       const iva   = cols.iva != null ? _num(F[i][cols.iva]) : 0;
       ivaRec += iva;
       if (cat === 'DESCUENTO') {
-        descuentoEur += valor; descuentoUsd += total;
-        const ln = { nombre:nom, categoria: /GRATUIT|BONIFICAC/.test(claveGasto(nom)) ? 'Producto sin costo' : 'Descuento de factura', valor, total, iva:0 };
+        // En valor absoluto: hay liquidaciones que escriben el descuento en negativo
+        // (así viene de fábrica en las de ERAYBA) y otras en positivo. En los dos casos
+        // significa lo mismo — menos producto — y el signo solo confundía la cuenta.
+        const vD = Math.abs(valor), tD = Math.abs(total);
+        descuentoEur += vD; descuentoUsd += tD;
+        const ln = { nombre:nom, categoria: /GRATUIT|BONIFICAC/.test(claveGasto(nom)) ? 'Producto sin costo' : 'Descuento de factura', valor: vD, total: tD, iva:0 };
         lineasDesc.push(ln); gastos.push(ln); continue;
       }
       if (cat === 'IVA') { gastos.push({ nombre:nom, categoria:'IVA (crédito tributario)', valor, total:0, iva:valor }); continue; }
@@ -8884,6 +8892,7 @@ function parsearLiquidacion(buffer, mapaAprendido, nombreArchivo){
   });
 
   const detalle = []; const tot = { fob:0, transExt:0, fobNeto:0, fobUsd:0, cif:0, total:0, unidades:0 };
+  let unidadesSachet = 0;
   if (hd >= 0) {
     for (let i = hd + 1; i < F.length; i++) {
       const cod = txt(i, dc.cod);
@@ -8903,6 +8912,10 @@ function parsearLiquidacion(buffer, mapaAprendido, nombreArchivo){
       }
       // T9792 / T9795: transporte y seguro repartidos, no son producto
       if (/^T\d/i.test(cod)) continue;
+      // Sachets: son muestras, no mercadería que se venda. Vienen sin costo pero con
+      // cantidad (500, 500, 500…), así que inflaban las unidades del embarque y bajaban
+      // el costo por unidad. No cuentan en ninguna marca.
+      if (/SACHET/i.test(desc) || /SACHET/i.test(cod)) { unidadesSachet += uni; continue; }
       if (!uni) continue;
       // El unitario se calcula, no se lee: en algunas liquidaciones la columna
       // "COSTO UNITARIO" viene por caja y no por unidad, y el costo salía multiplicado.
@@ -8950,7 +8963,15 @@ function parsearLiquidacion(buffer, mapaAprendido, nombreArchivo){
   // exterior. Restándole el transporte al neto se llega al mismo número en los dos casos.
   if (tot.fobNeto > 0) tot.fob = Math.max(tot.fobNeto - tot.transExt, 0);
 
-  if (!cab.unidades) cab.unidades = Math.round(tot.unidades);
+  // Unidades del embarque, sin sachets. Normalmente la cabecera ya viene sin ellos
+  // (la contadora los deja fuera), pero si el número de arriba coincide con el detalle
+  // CON sachets, es que sí los contó y hay que descontarlos.
+  const unidadesProducto = detalle.reduce((a,x)=>a+x.unidades, 0);
+  if (!cab.unidades) cab.unidades = Math.round(unidadesProducto || tot.unidades);
+  else if (unidadesSachet > 0 && unidadesProducto > 0
+           && Math.abs(cab.unidades - (unidadesProducto + unidadesSachet)) < 1) {
+    cab.unidades = Math.round(unidadesProducto);
+  }
 
   return { cabecera:cab, gastos, categorias:porCat, iva_recuperable:Math.round(ivaRec*100)/100, totales:tot, detalle };
 }
