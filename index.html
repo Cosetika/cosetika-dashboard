@@ -13459,6 +13459,13 @@ async function renderCxc(){
   }
   const esc = v => String(v||'').replace(/</g,'&lt;');
   const money = v => '$' + (Math.round((+v||0)*100)/100).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+  // Tramos de antigüedad, con los mismos cortes del reporte de Contifico
+  const TRAMOS = [['por_vencer','Por vencer'],['d30','30 días'],['d60','60 días'],['d90','90 días'],['d120','120 días'],['mas120','+120']];
+  const MESC = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+  const fechaCorta = iso => {
+    const p = String(iso||'').split('-');
+    return p.length === 3 ? (+p[2]) + ' ' + MESC[(+p[1]) - 1] + ' ' + p[0].substring(2) : '—';
+  };
   const grupos = d.grupos || [];
 
   if(d.sincronizando && !grupos.length){
@@ -13507,17 +13514,39 @@ async function renderCxc(){
           </div>
           <div style="font-size:17px;font-weight:800;color:var(--brown);white-space:nowrap">${money(g.total)}</div>
         </div>
-        <div id="${id}" style="display:${abierto?'block':'none'};border-top:1px solid var(--border)">
-          <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <div id="${id}" style="display:${abierto?'block':'none'};border-top:1px solid var(--border);overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:720px">
             <thead><tr style="background:#faf9f8;border-bottom:1px solid var(--border)">
               <th style="padding:7px 16px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase">Clienta</th>
+              ${TRAMOS.map(([k,lbl])=>`<th style="padding:7px 8px;text-align:right;font-size:10px;color:var(--muted);text-transform:uppercase;white-space:nowrap">${lbl}</th>`).join('')}
               <th style="padding:7px 16px;text-align:right;font-size:10px;color:var(--muted);text-transform:uppercase">Debe</th>
             </tr></thead>
-            <tbody>${g.clientes.map((c,i)=>`
-              <tr style="border-bottom:0.5px solid var(--border);background:${i%2?'#f6f3ef':'white'}">
-                <td style="padding:8px 16px">${esc(c.nombre)}${c.atraso>0?`<span title="Lleva ${c.atraso} días de atraso" style="margin-left:7px;font-size:9px;font-weight:700;color:#b91c1c;background:#fef2f2;border:1px solid #fca5a5;border-radius:7px;padding:1px 6px">${c.atraso} d</span>`:''}</td>
-                <td style="padding:8px 16px;text-align:right;font-weight:600;color:${c.vencido>0?'#b91c1c':'var(--text)'}">${money(c.debe)}</td>
-              </tr>`).join('')}</tbody>
+            <tbody>${g.clientes.map((c,i)=>{
+              const t = c.tramos || {};
+              const fondo = i%2?'#f6f3ef':'white';
+              return `
+              <tr style="background:${fondo}">
+                <td style="padding:8px 16px 2px;font-weight:500">${esc(c.nombre)}${c.atraso>0?`<span title="Lleva ${c.atraso} días de atraso" style="margin-left:7px;font-size:9px;font-weight:700;color:#b91c1c;background:#fef2f2;border:1px solid #fca5a5;border-radius:7px;padding:1px 6px">${c.atraso} d</span>`:''}</td>
+                ${TRAMOS.map(([k])=>`<td style="padding:8px 8px 2px;text-align:right;color:${(+t[k]||0)>0?(k==='por_vencer'?'var(--text)':'#b91c1c'):'#d6d0c8'};white-space:nowrap">${(+t[k]||0)>0?money(t[k]):'—'}</td>`).join('')}
+                <td style="padding:8px 16px 2px;text-align:right;font-weight:700;color:${c.vencido>0?'#b91c1c':'var(--text)'}">${money(c.debe)}</td>
+              </tr>
+              <tr style="background:${fondo};border-bottom:0.5px solid var(--border)">
+                <td colspan="${TRAMOS.length+2}" style="padding:0 16px 8px">
+                  <div style="display:flex;flex-wrap:wrap;gap:6px">
+                    ${(c.facturas||[]).map(f=>`
+                      <span title="Factura ${esc(f.doc)} · emitida ${esc(f.emision)}${f.vence?' · vence '+esc(f.vence):''}"
+                        style="font-size:10px;color:var(--muted);background:#fff;border:1px solid var(--border);border-radius:7px;padding:2px 7px;white-space:nowrap">
+                        <b style="color:var(--brown)">#${esc(f.doc)||'····'}</b> · ${fechaCorta(f.emision)} · <b style="color:${f.tramo==='por_vencer'?'var(--text)':'#b91c1c'}">${money(f.saldo)}</b>
+                      </span>`).join('')}
+                  </div>
+                </td>
+              </tr>`;
+            }).join('')}</tbody>
+            <tfoot><tr style="background:#f3f0ec;border-top:1px solid var(--border)">
+              <td style="padding:8px 16px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase">Total</td>
+              ${TRAMOS.map(([k])=>`<td style="padding:8px 8px;text-align:right;font-weight:700;color:${k==='por_vencer'?'var(--text)':'#b91c1c'};white-space:nowrap">${((g.tramos||{})[k]||0)>0?money(g.tramos[k]):'—'}</td>`).join('')}
+              <td style="padding:8px 16px;text-align:right;font-weight:800;color:var(--brown)">${money(g.total)}</td>
+            </tr></tfoot>
           </table>
         </div>
       </div>`;

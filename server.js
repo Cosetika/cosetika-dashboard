@@ -935,10 +935,26 @@ async function sincronizarCartera(){
         else antig.d120_mas += saldo;
         total += saldo; docs++;
         if (estaVencida) vencida += saldo;
+        // Tramo de antigüedad de ESTA factura, con los mismos cortes que el reporte de
+        // Contifico. Es lo que deja ver en CXC cuánto de lo que debe una clienta es
+        // reciente y cuánto lleva meses parado.
+        const tramo = !estaVencida ? 'por_vencer'
+          : diasAtraso <= 30 ? 'd30' : diasAtraso <= 60 ? 'd60'
+          : diasAtraso <= 90 ? 'd90' : diasAtraso <= 120 ? 'd120' : 'mas120';
+
         const nom = (doc.cliente && (doc.cliente.razon_social || doc.cliente.nombre_comercial)) || '—';
-        if (!porCliente[nom]) porCliente[nom] = { nombre: nom, ident, total:0, vencido:0, docs:0, atraso:0 };
+        if (!porCliente[nom]) porCliente[nom] = { nombre: nom, ident, total:0, vencido:0, docs:0, atraso:0,
+          tramos: { por_vencer:0, d30:0, d60:0, d90:0, d120:0, mas120:0 }, facturas: [] };
         if (!porCliente[nom].ident && ident) porCliente[nom].ident = ident;
         porCliente[nom].total += saldo; porCliente[nom].docs++;
+        porCliente[nom].tramos[tramo] += saldo;
+        porCliente[nom].facturas.push({
+          // Solo los 4 últimos dígitos: es como las identifica el equipo al cobrar
+          doc: String(doc.documento || '').replace(/\D/g,'').slice(-4),
+          emision: fe.length === 3 ? `${fe[2]}-${fe[1]}-${fe[0]}` : '',
+          vence: claveVence || '',
+          saldo, tramo, atraso: diasAtraso
+        });
         if (estaVencida) { porCliente[nom].vencido += saldo; porCliente[nom].atraso = Math.max(porCliente[nom].atraso, diasAtraso); }
       });
       url = d.next || null; pg++;
@@ -952,7 +968,11 @@ async function sincronizarCartera(){
       // Lista COMPLETA de quién debe y cuánto. Es la que alimenta el panel CXC: ahí cada
       // asesora necesita ver toda su cartera, no solo las 25 clientas más grandes.
       todos_clientes: Object.values(porCliente).sort((a,b)=>b.total-a.total)
-        .map(c=>({ nombre:c.nombre, ident:c.ident||'', total:r2(c.total), vencido:r2(c.vencido), docs:c.docs, atraso:c.atraso })),
+        .map(c=>({ nombre:c.nombre, ident:c.ident||'', total:r2(c.total), vencido:r2(c.vencido),
+                   docs:c.docs, atraso:c.atraso,
+                   tramos: Object.fromEntries(Object.entries(c.tramos).map(([k,v])=>[k, r2(v)])),
+                   facturas: c.facturas.sort((a,b)=>(a.vence||'').localeCompare(b.vence||''))
+                     .map(f=>({ ...f, saldo: r2(f.saldo) })) })),
       // Calendario de vencimientos: qué se cobra cada día de aquí en adelante
       vencimientos: Object.values(porDia).sort((a,b)=>a.fecha.localeCompare(b.fecha))
         .map(d=>({ ...d, monto: r2(d.monto) })),
@@ -985,21 +1005,44 @@ setTimeout(async () => {
   if (!CARTERA.at) sincronizarCartera().catch(e=>console.error(e));
   try { await resumenComportamientoPago(); } catch(e) {}
 }, 60 * 1000);
-// Sincronización diaria a las 18:10 de Ecuador, cuando ya cerró el día de cobros.
-// Se revisa cada 5 minutos y se marca el día para que no corra dos veces.
-let CARTERA_ULTIMO_DIA_AUTO = null;
-setInterval(() => {
-  const n = nowEC();
+// Sincronización automática de la cartera, en hora de Ecuador.
+//   08:30 — para que el panel CXC esté al día cuando el equipo empieza a llamar.
+//   18:10 — cuando ya cerró el día de cobros; esta es la que deja la foto de saldos
+//           con la que se mide después quién pagó y en cuántos días.
+// Las horas se pueden cambiar sin tocar código con CARTERA_SYNC_HORAS="8:30,18:10".
+// Se revisa cada 5 minutos y cada hora se marca para que no corra dos veces el mismo día.
+const CARTERA_HORARIOS = (() => {
+  const crudo = String(process.env.CARTERA_SYNC_HORAS || '').trim();
+  if (crudo) {
+    const l = crudo.split(',').map(t => {
+      const [h, m] = String(t).trim().split(':');
+      const H = parseInt(h), M = parseInt(m);
+      return (isNaN(H) || H < 0 || H > 23) ? null : { H, M: isNaN(M) ? 0 : Math.min(59, Math.max(0, M)) };
+    }).filter(Boolean);
+    if (l.length) return l;
+  }
+  // Compatibilidad con las variables antiguas, que definían una sola corrida
   const hora = parseInt(process.env.CARTERA_SYNC_HORA);
   const min  = parseInt(process.env.CARTERA_SYNC_MIN);
-  const H = isNaN(hora) ? 18 : hora, M = isNaN(min) ? 10 : min;
-  const clave = n.getFullYear()+'-'+n.getMonth()+'-'+n.getDate();
+  if (!isNaN(hora)) return [{ H: hora, M: isNaN(min) ? 0 : min }];
+  return [{ H: 8, M: 30 }, { H: 18, M: 10 }];
+})();
+const CARTERA_ULTIMA_CORRIDA = {};   // "AAAA-M-D|H:M" ya ejecutada
+setInterval(() => {
+  const n = nowEC();
+  const dia = n.getFullYear()+'-'+n.getMonth()+'-'+n.getDate();
   const minutosAhora = n.getHours()*60 + n.getMinutes();
-  const minutosMeta  = H*60 + M;
-  if (CARTERA_ULTIMO_DIA_AUTO !== clave && minutosAhora >= minutosMeta && minutosAhora < minutosMeta + 30) {
-    CARTERA_ULTIMO_DIA_AUTO = clave;
-    console.log(`⏰ Cartera: sincronización automática de las ${String(H).padStart(2,'0')}:${String(M).padStart(2,'0')}`);
-    sincronizarCartera().catch(e=>console.error(e));
+  for (const { H, M } of CARTERA_HORARIOS) {
+    const clave = dia + '|' + H + ':' + M;
+    const minutosMeta = H*60 + M;
+    if (!CARTERA_ULTIMA_CORRIDA[clave] && minutosAhora >= minutosMeta && minutosAhora < minutosMeta + 30) {
+      CARTERA_ULTIMA_CORRIDA[clave] = true;
+      // Se olvidan las marcas de días anteriores para que el objeto no crezca sin fin
+      Object.keys(CARTERA_ULTIMA_CORRIDA).forEach(k => { if (!k.startsWith(dia + '|')) delete CARTERA_ULTIMA_CORRIDA[k]; });
+      console.log(`⏰ Cartera: sincronización automática de las ${String(H).padStart(2,'0')}:${String(M).padStart(2,'0')}`);
+      sincronizarCartera().catch(e=>console.error(e));
+      break;                                   // una sola corrida por vuelta
+    }
   }
 }, 5 * 60 * 1000);
 
@@ -9392,14 +9435,19 @@ function metricasImportacion(r){
         const d = String(c.ident||'').replace(/\D/g,'');
         const asesora = porDig[d] || (d.length === 13 ? porDig[d.substring(0,10)] : null)
                       || porNom[nz(c.nombre)] || SIN;
-        if (!grupos[asesora]) grupos[asesora] = { asesora, total:0, vencido:0, clientes:[] };
+        const vacio = () => ({ por_vencer:0, d30:0, d60:0, d90:0, d120:0, mas120:0 });
+        if (!grupos[asesora]) grupos[asesora] = { asesora, total:0, vencido:0, tramos:vacio(), clientes:[] };
         grupos[asesora].total += c.total;
         grupos[asesora].vencido += c.vencido;
-        grupos[asesora].clientes.push({ nombre:c.nombre, debe:c.total, vencido:c.vencido, atraso:c.atraso });
+        const t = c.tramos || vacio();
+        Object.keys(grupos[asesora].tramos).forEach(k => { grupos[asesora].tramos[k] += (+t[k] || 0); });
+        grupos[asesora].clientes.push({ nombre:c.nombre, debe:c.total, vencido:c.vencido,
+          atraso:c.atraso, tramos:t, facturas:c.facturas || [] });
       });
       const r2 = x => Math.round(x*100)/100;
       let lista = Object.values(grupos).map(g => ({
         asesora: g.asesora, total: r2(g.total), vencido: r2(g.vencido),
+        tramos: Object.fromEntries(Object.entries(g.tramos).map(([k,v])=>[k, r2(v)])),
         clientes: g.clientes.sort((a,b)=>b.debe-a.debe)
       })).sort((a,b) => a.asesora === SIN ? 1 : b.asesora === SIN ? -1 : b.total - a.total);
 
