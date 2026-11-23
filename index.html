@@ -13484,12 +13484,20 @@ async function renderCxc(){
   // Las lecturas de cartera anteriores a esta versión no traen el desglose por tramos ni
   // las facturas. Se detecta y se avisa, en vez de mostrar una tabla vacía sin explicación.
   const faltaDetalle = nClientes > 0 && !grupos.some(g => (g.clientes||[]).some(c => (c.facturas||[]).length));
+  // Mientras Contifico responde, el panel se repinta solo: así el usuario ve los datos
+  // llegar sin tener que recargar ni adivinar si el proceso sigue vivo.
+  clearTimeout(window._cxcTimer);
+  if(d.sincronizando) window._cxcTimer = setTimeout(()=>{ if(modActual==='cxc') renderCxc(); }, 12000);
 
   main.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px">
       <div style="font-size:16px;font-weight:600"><i class="ti ti-cash-banknote" style="margin-right:8px;color:var(--brown)"></i>Cuentas por cobrar</div>
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <span style="font-size:11px;color:var(--muted)">Actualizado ${esc(fecha)}${d.sincronizando?' · actualizando…':''}</span>
+        <span style="font-size:11px;color:var(--muted)">Actualizado ${esc(fecha)}${d.sincronizando
+          ? ' · <span style="color:var(--brown);font-weight:600">leyendo Contifico'
+            + (d.progreso ? ' · '+d.progreso.paginas+' páginas · '+d.progreso.facturas+' facturas · '+d.progreso.segundos+'s' : '')
+            + '</span>'
+          : ''}</span>
         ${(window.usuarioActual||{}).rol==='admin'?`<button onclick="actualizarCxc(this)" ${d.sincronizando?'disabled':''}
           title="Vuelve a leer la cartera desde Contifico. Tarda un par de minutos."
           style="padding:6px 12px;border:1px solid var(--border);background:white;border-radius:8px;font-size:11px;font-weight:600;cursor:${d.sincronizando?'default':'pointer'};opacity:${d.sincronizando?'0.5':'1'};display:inline-flex;align-items:center;gap:5px">

@@ -721,6 +721,9 @@ function plantillaCorreoGuia(nombre, guia, ciudad){
 // usando los días de crédito de cada clienta. Se refresca dos veces al día.
 let CARTERA = { total:0, vencida:0, por_vencer:0, docs:0, clientes:[], vencimientos:[], at:null, error:null };
 let CARTERA_EN_CURSO = false;
+// Avance del barrido en curso, para poder decirle al panel que está trabajando
+// y cuánto lleva, en vez de un «actualizando…» que no se sabe si avanza.
+let CARTERA_PROGRESO = { inicio: 0, paginas: 0, facturas: 0 };
 // ─── COMPORTAMIENTO DE PAGO ───────────────────────────────────────────────────────
 // Guarda la foto diaria del saldo de cada factura. Una factura que ayer tenía saldo y
 // hoy ya no, se pagó entre ayer y hoy: esa es la fecha de pago.
@@ -849,6 +852,7 @@ async function sincronizarCartera(){
   if (!API_KEY) return;
   if (CARTERA_EN_CURSO) return;      // evita que dos peticiones disparen el mismo barrido
   CARTERA_EN_CURSO = true;
+  CARTERA_PROGRESO = { inicio: Date.now(), paginas: 0, facturas: 0 };
   try {
     const hoyK = nowEC();
     // Contifico reporta TODA la cartera pendiente, sin importar la antigüedad. Con una
@@ -958,6 +962,7 @@ async function sincronizarCartera(){
         if (estaVencida) { porCliente[nom].vencido += saldo; porCliente[nom].atraso = Math.max(porCliente[nom].atraso, diasAtraso); }
       });
       url = d.next || null; pg++;
+      CARTERA_PROGRESO.paginas = pg; CARTERA_PROGRESO.facturas = docs;
       if (url) await new Promise(res => setTimeout(res, 200));   // respiro entre páginas
     }
     const r2 = x => Math.round(x*100)/100;
@@ -9467,6 +9472,9 @@ function metricasImportacion(r){
 
       res.writeHead(200,{'Content-Type':'application/json'});
       res.end(JSON.stringify({ ok:true, sincronizando: CARTERA_EN_CURSO, at: CARTERA.at,
+        progreso: CARTERA_EN_CURSO ? {
+          segundos: Math.round((Date.now() - (CARTERA_PROGRESO.inicio||Date.now()))/1000),
+          paginas: CARTERA_PROGRESO.paginas, facturas: CARTERA_PROGRESO.facturas } : null,
         total: totalVisible, vencida: vencidoVisible, todo: verTodo, grupos: lista }));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
