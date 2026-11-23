@@ -293,6 +293,7 @@
       <i class="ti ti-chevron-right" id="nav-clientes-chevron" style="margin-left:auto;font-size:12px;transition:transform 0.2s"></i>
     </div>
     <div id="nav-clientes-subs" style="max-height:0;overflow:hidden;transition:max-height 0.25s ease">
+      <div class="nav-sub-item" id="navsub-cxc" onclick="navGoCxc()"><i class="ti ti-cash-banknote" style="font-size:13px"></i>CXC</div>
       <div class="nav-sub-item" id="navsub-cpf" onclick="navSetSubtab('cpf')"><i class="ti ti-user-dollar" style="font-size:13px"></i>Compras</div>
       <div class="nav-sub-item" id="navsub-prov" onclick="navSetSubtab('prov')"><i class="ti ti-map-pin" style="font-size:13px"></i>Provincia</div>
       <div class="nav-sub-item" id="navsub-cartera" onclick="navGoCartera()"><i class="ti ti-address-book" style="font-size:13px"></i>Cartera</div>
@@ -791,7 +792,7 @@ function navSetMod(mod){
 const MOD_LABELS = {
   ventas:'Inicio', visitas:'Visitas', kpis:'KPIs',
   inventario:'Inventario', reportes:'Reportes', config:'Configuración', documentos:'Documentos', nsos:'NSOs', referidos:'Referidos', institutos_cli:'Institutos', bodegas:'Bodegas', lotes:'Caducidad', testers_inv:'Testers',
-  capacitaciones:'Capacitaciones', institutos:'Institutos', cartera_cli:'Cartera asignada', seguimiento_cli:'Seguimiento',
+  capacitaciones:'Capacitaciones', institutos:'Institutos', cxc:'CXC', cartera_cli:'Cartera asignada', seguimiento_cli:'Seguimiento',
   giras:'Giras a Provincias', casas_abiertas:'Casas Abiertas',
   'visitas-plan':'Planificación Visitas'
 };
@@ -848,6 +849,8 @@ function setMod(mod){
     renderReferidos();
   } else if(mod==='institutos_cli'){
     renderInstitutosCli();
+  } else if(mod==='cxc'){
+    renderCxc();
   } else if(mod==='cartera_cli'){
     renderCarteraAsignada();
   } else if(mod==='seguimiento_cli'){
@@ -13438,6 +13441,101 @@ async function marcarContactadaSeg(key, nombre, checked){
     else window._segContactos[key] = { fecha:'', asesora:'', comentario: prevC, contactado: false };
     renderSeguimientoClientes();
   }catch(e){ alert('Error al marcar: '+e.message); }
+}
+
+// CXC — lo que tiene que cobrar cada asesora. Sale de cruzar la cartera viva de
+// Contifico con el directorio de clientas, que es donde está el código de categoría
+// que dice de quién es cada una. No hay que subir ningún archivo.
+async function renderCxc(){
+  const main = document.getElementById('main');
+  if(!main) return;
+  main.innerHTML = '<div style="padding:30px;text-align:center;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:22px"></i></div>';
+  let d = null;
+  try{ const r = await fetch('/api/cxc'); d = await r.json(); }catch(e){}
+  if(!d || !d.ok){
+    main.innerHTML = '<div class="card" style="padding:18px;font-size:13px;color:var(--muted)">No se pudo cargar la cartera.'
+      + (d && d.error ? '<div style="margin-top:6px;color:#dc2626">'+String(d.error).replace(/</g,'&lt;')+'</div>' : '') + '</div>';
+    return;
+  }
+  const esc = v => String(v||'').replace(/</g,'&lt;');
+  const money = v => '$' + (Math.round((+v||0)*100)/100).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const grupos = d.grupos || [];
+
+  if(d.sincronizando && !grupos.length){
+    main.innerHTML = '<div class="card" style="padding:20px;font-size:13px;color:var(--muted);text-align:center">'
+      + '<i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:20px;display:block;margin-bottom:8px"></i>'
+      + 'Leyendo la cartera desde Contifico… tarda un par de minutos la primera vez.</div>';
+    setTimeout(()=>{ if(modActual==='cxc') renderCxc(); }, 15000);   // reintenta mientras Contifico responde
+    return;
+  }
+
+  const fecha = d.at ? new Date(d.at).toLocaleString('es-EC',{timeZone:'America/Guayaquil',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
+  const nClientes = grupos.reduce((a,g)=>a+g.clientes.length, 0);
+
+  main.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+      <div style="font-size:16px;font-weight:600"><i class="ti ti-cash-banknote" style="margin-right:8px;color:var(--brown)"></i>Cuentas por cobrar</div>
+      <div style="font-size:11px;color:var(--muted)">Actualizado ${esc(fecha)}${d.sincronizando?' · actualizando…':''}</div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px">
+      <div style="background:#faf9f8;border:1px solid var(--border);border-radius:11px;padding:14px;text-align:center">
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px">Por cobrar</div>
+        <div style="font-size:22px;font-weight:800;color:var(--brown)">${money(d.total)}</div>
+      </div>
+      <div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:11px;padding:14px;text-align:center">
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px">Vencido</div>
+        <div style="font-size:22px;font-weight:800;color:#b91c1c">${money(d.vencida)}</div>
+      </div>
+      <div style="background:#f3f0ec;border-radius:11px;padding:14px;text-align:center">
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px">Clientas que deben</div>
+        <div style="font-size:22px;font-weight:800">${nClientes.toLocaleString('en-US')}</div>
+      </div>
+    </div>
+    ${grupos.length === 0
+      ? '<div class="card" style="padding:20px;text-align:center;color:var(--muted);font-size:13px">No hay nada por cobrar.</div>'
+      : grupos.map((g,gi)=>{
+      const abierto = window._cxcAbierto === undefined ? gi === 0 : window._cxcAbierto === g.asesora;
+      const id = 'cxc-g-'+gi;
+      return `
+      <div class="card" style="margin-bottom:10px;padding:0;overflow:hidden">
+        <div onclick="window._cxcAbierto = (window._cxcAbierto==='${esc(g.asesora).replace(/'/g,'')}' ? '' : '${esc(g.asesora).replace(/'/g,'')}'); renderCxc()"
+          style="display:flex;align-items:center;gap:10px;padding:13px 16px;cursor:pointer;background:${abierto?'#faf9f8':'white'}">
+          <i class="ti ti-chevron-${abierto?'down':'right'}" style="font-size:14px;color:var(--muted)"></i>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;font-weight:600">${esc(g.asesora)}</div>
+            <div style="font-size:11px;color:var(--muted)">${g.clientes.length} clienta${g.clientes.length!==1?'s':''}${g.vencido>0?' · <span style="color:#b91c1c;font-weight:600">'+money(g.vencido)+' vencido</span>':''}</div>
+          </div>
+          <div style="font-size:17px;font-weight:800;color:var(--brown);white-space:nowrap">${money(g.total)}</div>
+        </div>
+        <div id="${id}" style="display:${abierto?'block':'none'};border-top:1px solid var(--border)">
+          <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead><tr style="background:#faf9f8;border-bottom:1px solid var(--border)">
+              <th style="padding:7px 16px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase">Clienta</th>
+              <th style="padding:7px 16px;text-align:right;font-size:10px;color:var(--muted);text-transform:uppercase">Debe</th>
+            </tr></thead>
+            <tbody>${g.clientes.map((c,i)=>`
+              <tr style="border-bottom:0.5px solid var(--border);background:${i%2?'#f6f3ef':'white'}">
+                <td style="padding:8px 16px">${esc(c.nombre)}${c.atraso>0?`<span title="Lleva ${c.atraso} días de atraso" style="margin-left:7px;font-size:9px;font-weight:700;color:#b91c1c;background:#fef2f2;border:1px solid #fca5a5;border-radius:7px;padding:1px 6px">${c.atraso} d</span>`:''}</td>
+                <td style="padding:8px 16px;text-align:right;font-weight:600;color:${c.vencido>0?'#b91c1c':'var(--text)'}">${money(c.debe)}</td>
+              </tr>`).join('')}</tbody>
+          </table>
+        </div>
+      </div>`;
+    }).join('')}
+    ${d.todo?'<div style="font-size:11px;color:var(--muted);padding:4px 2px 20px;line-height:1.6">Cada clienta se asigna por su código de categoría de Contifico (Ase. …), el mismo que usa Cartera asignada. Si alguna sale en «Sin asesora», es que su ficha en Contifico no tiene categoría o falta actualizar Personas.xls.</div>':''}`;
+}
+
+function navGoCxc(){
+  navSetMod('cxc');
+  setTimeout(()=>{
+    document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
+    document.getElementById('navsub-cxc')?.classList.add('active');
+    const subs = document.getElementById('nav-clientes-subs');
+    const chev = document.getElementById('nav-clientes-chevron');
+    if(subs) subs.style.maxHeight = '300px';
+    if(chev) chev.style.transform = 'rotate(90deg)';
+    document.getElementById('nav-clientes')?.classList.add('active');
+  }, 30);
 }
 
 function navGoCartera(){

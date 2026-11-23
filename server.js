@@ -936,7 +936,8 @@ async function sincronizarCartera(){
         total += saldo; docs++;
         if (estaVencida) vencida += saldo;
         const nom = (doc.cliente && (doc.cliente.razon_social || doc.cliente.nombre_comercial)) || '—';
-        if (!porCliente[nom]) porCliente[nom] = { nombre: nom, total:0, vencido:0, docs:0, atraso:0 };
+        if (!porCliente[nom]) porCliente[nom] = { nombre: nom, ident, total:0, vencido:0, docs:0, atraso:0 };
+        if (!porCliente[nom].ident && ident) porCliente[nom].ident = ident;
         porCliente[nom].total += saldo; porCliente[nom].docs++;
         if (estaVencida) { porCliente[nom].vencido += saldo; porCliente[nom].atraso = Math.max(porCliente[nom].atraso, diasAtraso); }
       });
@@ -948,6 +949,10 @@ async function sincronizarCartera(){
       total: r2(total), vencida: r2(vencida), por_vencer: r2(total - vencida), docs,
       clientes: Object.values(porCliente).sort((a,b)=>b.total-a.total).slice(0,25)
         .map(c=>({ ...c, total:r2(c.total), vencido:r2(c.vencido) })),
+      // Lista COMPLETA de quién debe y cuánto. Es la que alimenta el panel CXC: ahí cada
+      // asesora necesita ver toda su cartera, no solo las 25 clientas más grandes.
+      todos_clientes: Object.values(porCliente).sort((a,b)=>b.total-a.total)
+        .map(c=>({ nombre:c.nombre, ident:c.ident||'', total:r2(c.total), vencido:r2(c.vencido), docs:c.docs, atraso:c.atraso })),
       // Calendario de vencimientos: qué se cobra cada día de aquí en adelante
       vencimientos: Object.values(porDia).sort((a,b)=>a.fecha.localeCompare(b.fecha))
         .map(d=>({ ...d, monto: r2(d.monto) })),
@@ -9351,6 +9356,68 @@ function metricasImportacion(r){
         tc = metricasImportacion(fila).tipo_cambio || 0;
       }
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, detalle:r.rows, tipo_cambio: tc}));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
+  // ─── CXC: qué tiene que cobrar cada asesora ───────────────────────────────────
+  // Cruza la cartera viva de Contifico (quién debe y cuánto) con el directorio de
+  // personas (a qué asesora pertenece cada clienta, por su código de categoría).
+  // No pide subir ningún archivo: la cartera ya se sincroniza sola.
+  if (urlPath === '/api/cxc' && req.method === 'GET') {
+    try {
+      if (!CARTERA.at) sincronizarCartera().catch(e=>console.error(e));
+      const mapa = await mapaCategorias();
+      const r = await pool.query('SELECT cedula, ruc, razon_social, vendedor, categoria FROM personas');
+
+      // Índices para encontrar a la clienta por cédula/RUC y, si no, por nombre
+      const porDig = {}, porNom = {};
+      const nz = s => String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'')
+        .toUpperCase().replace(/[^A-Z0-9 ]+/g,' ').replace(/\s+/g,' ').trim();
+      r.rows.forEach(p => {
+        const cod = String(p.categoria||'').trim().toUpperCase();
+        const asesora = (cod && mapa[cod]) ? mapa[cod] : (p.vendedor || null);
+        if (!asesora) return;
+        [p.ruc, p.cedula].forEach(d => {
+          const k = String(d||'').replace(/\D/g,'');
+          if (k) { porDig[k] = asesora; if (k.length === 13) porDig[k.substring(0,10)] = asesora; }
+        });
+        const n = nz(p.razon_social);
+        if (n) porNom[n] = asesora;
+      });
+
+      const SIN = 'Sin asesora';
+      const grupos = {};
+      (CARTERA.todos_clientes || []).forEach(c => {
+        const d = String(c.ident||'').replace(/\D/g,'');
+        const asesora = porDig[d] || (d.length === 13 ? porDig[d.substring(0,10)] : null)
+                      || porNom[nz(c.nombre)] || SIN;
+        if (!grupos[asesora]) grupos[asesora] = { asesora, total:0, vencido:0, clientes:[] };
+        grupos[asesora].total += c.total;
+        grupos[asesora].vencido += c.vencido;
+        grupos[asesora].clientes.push({ nombre:c.nombre, debe:c.total, vencido:c.vencido, atraso:c.atraso });
+      });
+      const r2 = x => Math.round(x*100)/100;
+      let lista = Object.values(grupos).map(g => ({
+        asesora: g.asesora, total: r2(g.total), vencido: r2(g.vencido),
+        clientes: g.clientes.sort((a,b)=>b.debe-a.debe)
+      })).sort((a,b) => a.asesora === SIN ? 1 : b.asesora === SIN ? -1 : b.total - a.total);
+
+      // Una asesora solo ve SU cartera, y el filtro se hace aquí: si se hiciera en el
+      // navegador, la lista completa igual habría viajado hasta su equipo.
+      const s = req.sesion || {};
+      const verTodo = ['admin','jefa_ventas','administrativo'].includes(s.rol);
+      if (!verTodo) {
+        const ancla = x => nz(x).split(' ').slice(0,2).join(' ');
+        const mia = ancla(s.nombre || '');
+        lista = lista.filter(g => mia && ancla(g.asesora) === mia);
+      }
+      const totalVisible = r2(lista.reduce((a,g)=>a+g.total, 0));
+      const vencidoVisible = r2(lista.reduce((a,g)=>a+g.vencido, 0));
+
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:true, sincronizando: CARTERA_EN_CURSO, at: CARTERA.at,
+        total: totalVisible, vencida: vencidoVisible, todo: verTodo, grupos: lista }));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
   }
