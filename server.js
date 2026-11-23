@@ -9454,7 +9454,9 @@ function metricasImportacion(r){
       // Una asesora solo ve SU cartera, y el filtro se hace aquí: si se hiciera en el
       // navegador, la lista completa igual habría viajado hasta su equipo.
       const s = req.sesion || {};
-      const verTodo = ['admin','jefa_ventas','administrativo'].includes(s.rol);
+      // Ver toda la cartera es un permiso, no un rol: así se le puede dar a quien cobra
+      // sin tener que hacerla admin. El admin lo tiene siempre.
+      const verTodo = s.rol === 'admin' || (await modulosDe(s.id)).includes('cxc_todo');
       if (!verTodo) {
         const ancla = x => nz(x).split(' ').slice(0,2).join(' ');
         const mia = ancla(s.nombre || '');

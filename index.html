@@ -4124,6 +4124,7 @@ async function renderConfig(){
               ${MODS_LISTA.map(m=>`<th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);text-transform:uppercase">${m}</th>`).join('')}<th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);white-space:nowrap;text-transform:uppercase">Ver visitas<br>de todas</th>
               <th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);text-transform:uppercase">Editar Plan.</th>
               <th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);white-space:nowrap;text-transform:uppercase" title="Puede subir y eliminar PDFs en el panel de Documentos">Subir<br>documentos</th>
+              <th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);white-space:nowrap;text-transform:uppercase" title="Ve la cartera por cobrar de TODAS las asesoras en el panel CXC. Sin esto, cada quien ve solo la suya.">Toda<br>la CXC</th>
               <th style="text-align:center;padding:8px 10px;font-size:11px;color:var(--muted);white-space:nowrap;text-transform:uppercase" title="Entra al panel de Configuración (credenciales, permisos, equipos, respaldos). Solo aplica a los admin.">Configu-<br>ración</th>
             </tr></thead>
             <tbody>
@@ -4147,6 +4148,7 @@ async function renderConfig(){
                   "<td style=\"text-align:center;padding:10px\"><input type=\"checkbox\" id=\"perm-" + u.id + "-ver_visitas_todas\" " + (verTodas?'checked':'') + " " + (esAdmin||esJefa?'disabled':'') + " style=\"accent-color:#A0684A;width:16px;height:16px;cursor:pointer\"/></td>" +
                   "<td style=\"text-align:center;padding:10px\"><input type=\"checkbox\" id=\"perm-" + u.id + "-editar_planificacion\" " + (mods.includes('editar_planificacion')||esAdmin||esJefa?'checked':'') + " " + (esAdmin?'disabled':'') + " style=\"accent-color:#A0684A;width:16px;height:16px;cursor:pointer\"/></td>" +
                   "<td style=\"text-align:center;padding:10px\"><input type=\"checkbox\" id=\"perm-" + u.id + "-subir_documentos\" " + (mods.includes('subir_documentos')||esAdmin?'checked':'') + " " + (esAdmin?'disabled':'') + " style=\"accent-color:#A0684A;width:16px;height:16px;cursor:pointer\"/></td>" +
+                  "<td style=\"text-align:center;padding:10px\"><input type=\"checkbox\" id=\"perm-" + u.id + "-cxc_todo\" " + (mods.includes('cxc_todo')||esAdmin?'checked':'') + " " + (esAdmin?'disabled':'') + " title=\"" + (esAdmin?'Los admin ven siempre toda la cartera':'Ver la cartera de todas las asesoras') + "\" style=\"accent-color:#A0684A;width:16px;height:16px;cursor:pointer\"/></td>" +
                   celdaConfig + "</tr>";
               }).join('')}
             </tbody>
@@ -4478,6 +4480,7 @@ async function guardarTodosPermisos(){
       if(((window._permModsActuales||{})[id]||[]).includes('editar_visitas')) mods.push('editar_visitas');
       if(document.getElementById('perm-'+id+'-editar_planificacion')?.checked) mods.push('editar_planificacion');
       if(document.getElementById('perm-'+id+'-subir_documentos')?.checked) mods.push('subir_documentos');
+      if(document.getElementById('perm-'+id+'-cxc_todo')?.checked) mods.push('cxc_todo');
       await fetch('/api/usuarios/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({modulos:mods.join(',')})});
     }));
     if(statusEl) statusEl.innerHTML = '<span style="color:#166534">✓ Permisos guardados</span>';
@@ -13478,12 +13481,25 @@ async function renderCxc(){
 
   const fecha = d.at ? new Date(d.at).toLocaleString('es-EC',{timeZone:'America/Guayaquil',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
   const nClientes = grupos.reduce((a,g)=>a+g.clientes.length, 0);
+  // Las lecturas de cartera anteriores a esta versión no traen el desglose por tramos ni
+  // las facturas. Se detecta y se avisa, en vez de mostrar una tabla vacía sin explicación.
+  const faltaDetalle = nClientes > 0 && !grupos.some(g => (g.clientes||[]).some(c => (c.facturas||[]).length));
 
   main.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px">
       <div style="font-size:16px;font-weight:600"><i class="ti ti-cash-banknote" style="margin-right:8px;color:var(--brown)"></i>Cuentas por cobrar</div>
-      <div style="font-size:11px;color:var(--muted)">Actualizado ${esc(fecha)}${d.sincronizando?' · actualizando…':''}</div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span style="font-size:11px;color:var(--muted)">Actualizado ${esc(fecha)}${d.sincronizando?' · actualizando…':''}</span>
+        ${(window.usuarioActual||{}).rol==='admin'?`<button onclick="actualizarCxc(this)" ${d.sincronizando?'disabled':''}
+          title="Vuelve a leer la cartera desde Contifico. Tarda un par de minutos."
+          style="padding:6px 12px;border:1px solid var(--border);background:white;border-radius:8px;font-size:11px;font-weight:600;cursor:${d.sincronizando?'default':'pointer'};opacity:${d.sincronizando?'0.5':'1'};display:inline-flex;align-items:center;gap:5px">
+          <i class="ti ti-refresh" style="font-size:13px"></i>Actualizar ahora</button>`:''}
+      </div>
     </div>
+    ${faltaDetalle ? `<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:#92400e;line-height:1.5">
+      Esta lectura de la cartera es anterior al desglose por tramos, por eso las columnas de 30/60/90 y los números de factura salen vacíos.
+      ${(window.usuarioActual||{}).rol==='admin'?'Pulsa <b>Actualizar ahora</b> y en un par de minutos aparecen.':'Se llenan solas en la próxima sincronización.'}
+    </div>` : ''}
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px">
       <div style="background:#faf9f8;border:1px solid var(--border);border-radius:11px;padding:14px;text-align:center">
         <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px">Por cobrar</div>
@@ -13552,6 +13568,26 @@ async function renderCxc(){
       </div>`;
     }).join('')}
     ${d.todo?'<div style="font-size:11px;color:var(--muted);padding:4px 2px 20px;line-height:1.6">Cada clienta se asigna por su código de categoría de Contifico (Ase. …), el mismo que usa Cartera asignada. Si alguna sale en «Sin asesora», es que su ficha en Contifico no tiene categoría o falta actualizar Personas.xls.</div>':''}`;
+}
+
+// Fuerza una relectura de la cartera desde Contifico. Tarda, así que el panel se queda
+// reintentando solo hasta que termina, en vez de dejar al usuario pulsando el botón.
+async function actualizarCxc(btn){
+  if(btn){ btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:13px"></i>Actualizando…'; }
+  try{
+    await fetch('/api/cartera?forzar=1');
+  }catch(e){}
+  let intentos = 0;
+  const revisar = async () => {
+    if(modActual !== 'cxc') return;
+    try{
+      const r = await fetch('/api/cxc'); const j = await r.json();
+      if(j && j.ok && !j.sincronizando){ renderCxc(); return; }
+    }catch(e){}
+    if(++intentos < 40) setTimeout(revisar, 10000);   // hasta ~7 minutos
+    else renderCxc();
+  };
+  setTimeout(revisar, 10000);
 }
 
 function navGoCxc(){
