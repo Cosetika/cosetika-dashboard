@@ -1010,11 +1010,11 @@ setTimeout(async () => {
   if (!CARTERA.at) sincronizarCartera().catch(e=>console.error(e));
   try { await resumenComportamientoPago(); } catch(e) {}
 }, 60 * 1000);
-// Sincronización automática de la cartera, en hora de Ecuador.
-//   08:30 — para que el panel CXC esté al día cuando el equipo empieza a llamar.
-//   18:10 — cuando ya cerró el día de cobros; esta es la que deja la foto de saldos
-//           con la que se mide después quién pagó y en cuántos días.
-// Las horas se pueden cambiar sin tocar código con CARTERA_SYNC_HORAS="8:30,18:10".
+// Sincronización automática de la cartera: UNA VEZ AL DÍA, a las 08:30 de Ecuador, para
+// que el panel CXC esté al día cuando el equipo empieza a llamar. Antes corría también a
+// las 18:10; se quitó a pedido, así que la foto diaria de saldos —con la que se mide
+// quién pagó y en cuántos días— se toma ahora por la mañana en vez de al cierre.
+// Se puede volver a poner más de una corrida con CARTERA_SYNC_HORAS="8:30,18:10".
 // Se revisa cada 5 minutos y cada hora se marca para que no corra dos veces el mismo día.
 const CARTERA_HORARIOS = (() => {
   const crudo = String(process.env.CARTERA_SYNC_HORAS || '').trim();
@@ -1030,7 +1030,7 @@ const CARTERA_HORARIOS = (() => {
   const hora = parseInt(process.env.CARTERA_SYNC_HORA);
   const min  = parseInt(process.env.CARTERA_SYNC_MIN);
   if (!isNaN(hora)) return [{ H: hora, M: isNaN(min) ? 0 : min }];
-  return [{ H: 8, M: 30 }, { H: 18, M: 10 }];
+  return [{ H: 8, M: 30 }];
 })();
 const CARTERA_ULTIMA_CORRIDA = {};   // "AAAA-M-D|H:M" ya ejecutada
 setInterval(() => {
@@ -8034,6 +8034,79 @@ const server = http.createServer(async (req, res) => {
       });
       res.end(buf);
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
+    return;
+  }
+
+  // ─── COMPRAS CLIENTES: las mejores clientas del año ───────────────────────────
+  // GET /api/compras-clientes?anio=2026&minimo=3000[&excel=1]
+  // Suma lo que compró cada clienta en el año, juntando las compras que pueda tener
+  // bajo dos asesoras distintas (una misma cédula aparece en las dos carteras si cambió
+  // de manos). El corte se aplica sobre la venta SIN IVA, que es como se mide la venta
+  // en todo el resto de la aplicación.
+  if (urlPath === '/api/compras-clientes' && req.method === 'GET') {
+    if (bloquearSiNoAdmin(req, res)) return;
+    try {
+      const anio = parseInt(urlObj.searchParams.get('anio')) || nowEC().getFullYear();
+      const minimo = Math.max(0, parseFloat(urlObj.searchParams.get('minimo')) || 0);
+
+      const porCliente = {};
+      Object.entries(DATA_CACHE || {}).forEach(([vend, clientes]) => {
+        (clientes || []).forEach(c => {
+          const anual = (c.frecuencia || []).filter(f => f.anio === anio);
+          if (!anual.length) return;
+          const total    = anual.reduce((a,f) => a + (+f.total||0), 0);
+          const subtotal = anual.reduce((a,f) => a + (+f.subtotal||0), 0);
+          const compras  = anual.reduce((a,f) => a + (+f.compras||0), 0);
+          if (total <= 0 && subtotal <= 0) return;
+          // Clave por cédula/RUC; si no la hay, por nombre normalizado
+          const dig = String(c.ruc || '').replace(/\D/g,'');
+          const k = dig || ('n:' + String(c.nombre||'').toUpperCase().replace(/\s+/g,' ').trim());
+          if (!porCliente[k]) porCliente[k] = { nombre: c.nombre, ruc: c.ruc || '',
+            provincia: c.provincia || '', total:0, subtotal:0, compras:0, porVend:{} };
+          const p = porCliente[k];
+          p.total += total; p.subtotal += subtotal; p.compras += compras;
+          p.porVend[vend] = (p.porVend[vend] || 0) + subtotal;
+          if (!p.ruc && c.ruc) p.ruc = c.ruc;
+          if (!p.provincia && c.provincia) p.provincia = c.provincia;
+        });
+      });
+
+      const r2 = x => Math.round(x*100)/100;
+      const lista = Object.values(porCliente)
+        .map(p => {
+          // La asesora que le vendió más en el año es la que se muestra
+          const asesora = Object.entries(p.porVend).sort((a,b)=>b[1]-a[1])[0];
+          return { nombre: p.nombre, ruc: p.ruc, provincia: p.provincia,
+                   asesora: asesora ? asesora[0] : '—',
+                   compras: p.compras, total: r2(p.total), subtotal: r2(p.subtotal) };
+        })
+        .filter(p => p.subtotal >= minimo)
+        .sort((a,b) => b.subtotal - a.subtotal);
+
+      if (urlObj.searchParams.get('excel') === '1') {
+        const filas = [['#','Cliente','Cédula / RUC','Provincia','Asesora','Compras','Venta sin IVA','Total con IVA']];
+        lista.forEach((p,i) => filas.push([i+1, p.nombre, p.ruc, p.provincia, p.asesora, p.compras, p.subtotal, p.total]));
+        const sumS = lista.reduce((a,p)=>a+p.subtotal,0), sumT = lista.reduce((a,p)=>a+p.total,0);
+        filas.push([]); filas.push(['', 'TOTAL — ' + lista.length + ' clientas', '', '', '', '', r2(sumS), r2(sumT)]);
+        const ws = XLSX.utils.aoa_to_sheet(filas);
+        ws['!cols'] = [{wch:5},{wch:42},{wch:16},{wch:16},{wch:24},{wch:9},{wch:15},{wch:15}];
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Compras ' + anio);
+        const buf = XLSX.write(wb, { type:'buffer', bookType:'xlsx' });
+        res.writeHead(200,{
+          'Content-Type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'Content-Disposition':`attachment; filename="COMPRAS_CLIENTES_${anio}.xlsx"`,
+          'Cache-Control':'no-cache'
+        });
+        res.end(buf);
+        return;
+      }
+
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:true, anio, minimo, clientes: lista,
+        total: r2(lista.reduce((a,p)=>a+p.total,0)),
+        subtotal: r2(lista.reduce((a,p)=>a+p.subtotal,0)) }));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
   }
 
