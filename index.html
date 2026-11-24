@@ -2364,7 +2364,7 @@ function pintarLotes(filtro){
                 <th style="text-align:left;padding:4px 8px;font-size:9px;color:var(--muted);text-transform:uppercase">Lote</th>
                 <th style="text-align:left;padding:4px 8px;font-size:9px;color:var(--muted);text-transform:uppercase">Caduca</th>
                 <th style="text-align:center;padding:4px 8px;font-size:9px;color:var(--muted);text-transform:uppercase">Ingresado</th>
-                <th style="text-align:center;padding:4px 8px;font-size:9px;color:var(--muted);text-transform:uppercase" title="Unidades vendidas desde que se registró el lote (o desde la última corrección de cantidad), descontadas primero del lote que caduca antes">Vendido</th>
+                <th style="text-align:center;padding:4px 8px;font-size:9px;color:var(--muted);text-transform:uppercase" title="Unidades vendidas desde que se registró el lote (o desde la última corrección de cantidad). FIFO: se descuentan primero del lote que entró antes">Vendido</th>
                 <th style="text-align:center;padding:4px 8px;font-size:9px;color:var(--muted);text-transform:uppercase">Quedan</th>
                 <th style="text-align:center;padding:4px 8px;font-size:9px;color:var(--muted);text-transform:uppercase">Inventario en meses</th>
                 <th style="text-align:center;padding:4px 8px;font-size:9px;color:var(--muted);text-transform:uppercase">Meses disponibles para la venta</th>
@@ -2377,7 +2377,7 @@ function pintarLotes(filtro){
                   <td style="padding:4px 8px;font-family:monospace;font-weight:600">${esc(l.lote)}</td>
                   <td style="padding:4px 8px;color:${c};font-weight:600">${fmtF(l.caduca)}</td>
                   <td style="padding:4px 8px;text-align:center;color:var(--muted)">${l.cantidad}<div style="font-size:9px">${l.desde?'desde '+fmtF(l.desde):''}</div></td>
-                  <td style="padding:4px 8px;text-align:center;color:var(--muted)">${l.vendido?'−'+l.vendido:'—'}</td>
+                  <td style="padding:4px 8px;text-align:center;color:var(--muted)">${l.vendido?'−'+l.vendido:'—'}${l.ajuste?`<div style="font-size:9px;color:#b45309" title="En bodega hay menos unidades de las que quedarían según las ventas (testers, muestras, ajustes). La diferencia se descuenta del lote más antiguo.">ajuste bodega −${l.ajuste}</div>`:''}</td>
                   <td style="padding:4px 8px;text-align:center;font-weight:700">${l.restante}</td>
                   <td style="padding:4px 8px;text-align:center;font-weight:700;color:${l.restante>0&&l.meses_limite<l.meses_agotar?'#dc2626':'var(--text)'}">${l.restante>0?(l.meses_agotar>=99?'∞':l.meses_agotar+' m'):'—'}</td>
                   <td style="padding:4px 8px;text-align:center;font-weight:700;color:${l.restante>0&&l.meses_limite<l.meses_agotar?'#dc2626':'var(--text)'}">${l.meses_limite>=0?l.meses_limite+' m':'pasó hace '+Math.abs(l.meses_limite)+' m'}</td>
@@ -2390,7 +2390,7 @@ function pintarLotes(filtro){
       </tbody>
     </table>
   </div>
-  <div style="font-size:11px;color:var(--muted);margin-top:8px">${productos.length} producto${productos.length!==1?'s':''} · clic en una fila para ver el detalle de sus lotes · las ventas se descuentan día a día desde que se registró cada lote, primero del que caduca antes, y se cuadra contra el stock real de Bodegas · <b>límite de venta = caducidad − 4 meses (margen comercial)</b>: el semáforo compara los meses para agotar contra ese límite</div>`;
+  <div style="font-size:11px;color:var(--muted);margin-top:8px">${productos.length} producto${productos.length!==1?'s':''} · clic en una fila para ver el detalle de sus lotes · FIFO: las ventas se descuentan día a día, primero del lote que entró antes, y se cuadra contra el stock real de Bodegas · <b>límite de venta = caducidad − 4 meses (margen comercial)</b>: el semáforo compara los meses para agotar contra ese límite</div>`;
 }
 
 function seleccionarMarcaLotes(m){

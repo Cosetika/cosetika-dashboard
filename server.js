@@ -8514,8 +8514,13 @@ const server = http.createServer(async (req, res) => {
     try {
       const rl = await pool.query(
         `SELECT id, producto_id, codigo, nombre, marca, lote, TO_CHAR(fecha_caducidad,'YYYY-MM-DD') AS caduca, cantidad,
-                TO_CHAR(COALESCE(cantidad_desde, created_at) AT TIME ZONE 'America/Guayaquil','YYYY-MM-DD') AS desde
-         FROM lotes ORDER BY producto_id, fecha_caducidad ASC, id ASC`);
+                TO_CHAR(COALESCE(cantidad_desde, created_at) AT TIME ZONE 'America/Guayaquil','YYYY-MM-DD') AS desde,
+                TO_CHAR(created_at AT TIME ZONE 'America/Guayaquil','YYYY-MM-DD') AS ingreso
+         FROM lotes
+         -- FIFO: el lote que ENTRÓ primero es el que sale primero. Se ordena por la fecha en
+         -- que se registró (no por la de la última corrección de cantidad, que no lo hace
+         -- más nuevo); a igual fecha de entrada, el que caduca antes.
+         ORDER BY producto_id, created_at ASC, fecha_caducidad ASC, id ASC`);
       // Stock actual por producto (POS + Casa)
       const rs = await pool.query('SELECT producto_id, cantidad FROM stock_bodegas');
       const stockPor = {};
@@ -8563,13 +8568,15 @@ const server = http.createServer(async (req, res) => {
         const lts = porLote[pid] || [];
         const stock = Math.max(0, stockPor[pid] || 0);
         const rot = rotacion[pid] || 0;
-        // BAJA DÍA A DÍA (FEFO: sale primero lo que caduca primero).
+        // BAJA DÍA A DÍA (FIFO: sale primero el lote que entró primero; los lotes ya vienen
+        // en ese orden desde la consulta).
         // Antes el stock se repartía del lote más nuevo al más viejo y lo que sobraba se
         // daba por "sin lote". Cuando había stock sin lote, ESO absorbía todas las ventas
         // y los lotes registrados nunca bajaban (BSK23: lote 983 siempre en 210).
         // Ahora cada lote empieza con su cantidad en la fecha en que se registró y, día a
         // día, las ventas posteriores salen del lote que caduca primero. Las ventas de cada
         // mes se reparten parejo entre sus días (Contifico las da por mes y producto).
+        // (Primera versión usaba FEFO —el que caduca primero—; se cambió a FIFO a pedido.)
         // Al final se cuadra contra el stock real de Bodegas, que es la verdad física.
         const restantes = lts.map(l => parseFloat(l.cantidad) || 0);
         const vendidoLote = new Array(lts.length).fill(0);
@@ -8586,7 +8593,7 @@ const server = http.createServer(async (req, res) => {
             const diasActivos = esMesActual ? hD : new Date(d.getFullYear(), d.getMonth()+1, 0).getDate();
             let delDia = (vm[mk] || 0) / diasActivos;
             for (let i = 0; i < lts.length && delDia > 1e-9; i++) {
-              if (!(lts[i].desde < iso) || restantes[i] <= 0) continue;     // aún no existía, o ya se acabó
+              if (!(lts[i].desde < iso) || restantes[i] <= 0) continue;     // aún no existía, o ya se acabó (FIFO: i=0 es el más antiguo)
               const s = Math.min(restantes[i], delDia);
               restantes[i] -= s; vendidoLote[i] += s; delDia -= s;
             }
@@ -8594,12 +8601,13 @@ const server = http.createServer(async (req, res) => {
           }
         }
         // Cuadre con el stock físico: si quedan más unidades en los lotes que en bodega,
-        // la diferencia salió (muestras, testers, ajustes) y se descuenta también de lo que
-        // caduca primero. Si en bodega hay más, ese excedente es stock sin lote registrado.
+        // la diferencia salió (muestras, testers, ajustes) y se descuenta también del lote
+        // más antiguo. Si en bodega hay más, ese excedente es stock sin lote registrado.
         let enLotes = restantes.reduce((a,b)=>a+b, 0);
         let exceso = enLotes - stock;
+        const ajusteLote = new Array(lts.length).fill(0);   // lo que se quitó para cuadrar con bodega
         for (let i = 0; i < lts.length && exceso > 1e-9; i++) {
-          const s = Math.min(restantes[i], exceso); restantes[i] -= s; exceso -= s;
+          const s = Math.min(restantes[i], exceso); restantes[i] -= s; exceso -= s; ajusteLote[i] += s;
         }
         enLotes = restantes.reduce((a,b)=>a+b, 0);
         const porAsignar = Math.max(0, stock - enLotes);
@@ -8624,8 +8632,9 @@ const server = http.createServer(async (req, res) => {
             id: l.id, lote: l.lote, caduca: l.caduca,
             limite_venta: fechaLimite.toISOString().substring(0,10),
             cantidad: parseFloat(l.cantidad)||0,
-            desde: l.desde,
+            desde: l.desde, ingreso: l.ingreso,
             vendido: Math.round(vendidoLote[i]),
+            ajuste: Math.round(ajusteLote[i]),
             restante: Math.round(restante),                 // unidades enteras
             meses_agotar: Math.round(mesesAgotar*10)/10,
             meses_caducidad: Math.round(mesesCaducidad*10)/10,
