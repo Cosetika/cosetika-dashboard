@@ -731,6 +731,9 @@ function plantillaCorreoGuia(nombre, guia, ciudad){
 // usando los días de crédito de cada clienta. Se refresca dos veces al día.
 let CARTERA = { total:0, vencida:0, por_vencer:0, docs:0, clientes:[], vencimientos:[], at:null, error:null };
 let CARTERA_EN_CURSO = false;
+// Trabajo masivo de reasignación en Contifico (vista previa o aplicación de un Excel).
+// Vive fuera de la petición porque con cientos de clientas tarda minutos.
+let ASIG_JOB = { enCurso:false, modo:null, archivo:'', total:0, hechos:0, filas:[], detenido:null, inicio:null, fin:null };
 // Avance del barrido en curso, para poder decirle al panel que está trabajando
 // y cuánto lleva, en vez de un «actualizando…» que no se sabe si avanza.
 let CARTERA_PROGRESO = { inicio: 0, paginas: 0, facturas: 0 };
@@ -4082,7 +4085,9 @@ const RUTAS_CONFIG = [
 const RUTAS_CONFIG_ESCRIBE = [
   /^\/api\/usuarios/, /^\/api\/equipos/, /^\/api\/equipos-historicos/,
   /^\/api\/clientes-reasignados/, /^\/api\/carteras-heredadas/,
-  /^\/api\/categorias-asesora/, /^\/api\/sku-por-marca/
+  /^\/api\/categorias-asesora/, /^\/api\/sku-por-marca/,
+  // Escribir en Contifico la reasignación de clientas: solo quien tiene Configuración
+  /^\/api\/asignacion\/(excel|aplicar|contifico)/
 ];
 
 // Los módulos no viajan en la sesión (y las sesiones duran meses), así que se
@@ -9577,19 +9582,33 @@ function metricasImportacion(r){
   // POST /api/asignacion/contifico  {ident, categoria, vendedora, confirmar:true} → aplica
   const CTF = 'https://api.contifico.com/sistema/api/v1/persona/';
   const hdrCtf = { 'Authorization': API_KEY, 'Accept': 'application/json' };
+  // Contifico limita las peticiones seguidas: con cientos de clientas, sin reintentos,
+  // una parte fallaría solo por velocidad. Se reintenta con espera creciente.
+  async function fetchCtf(url, opt){
+    let ultimo = null;
+    for (let i = 0; i < 3; i++) {
+      if (i) await new Promise(r => setTimeout(r, [0, 1500, 4000][i]));
+      try {
+        const r = await fetch(url, opt || { headers: hdrCtf });
+        if (r.ok || (r.status >= 400 && r.status < 429)) return r;   // 4xx real: no se reintenta
+        ultimo = r;
+      } catch(e) { ultimo = { ok:false, status:0, text: async()=>e.message, json: async()=>({}) }; }
+    }
+    return ultimo;
+  }
   async function leerPersonaCtf(ident){
     const d = String(ident||'').replace(/\D/g,'');
     if (!d) return null;
     const intentos = d.length === 13 ? [['ruc', d], ['cedula', d.substring(0,10)]] : [['cedula', d], ['ruc', d + '001']];
     for (const [campo, val] of intentos) {
-      const r = await fetch(`${CTF}?${campo}=${val}&page_size=5`, { headers: hdrCtf });
+      const r = await fetchCtf(`${CTF}?${campo}=${val}&page_size=5`);
       if (!r.ok) continue;
       const j = await r.json();
       const lista = Array.isArray(j) ? j : (j.results || []);
       if (lista.length > 1) return { error: 'Hay ' + lista.length + ' fichas con la identificación ' + val + ' en Contifico. No se toca nada hasta que quede una sola.' };
       if (lista.length === 1) {
         // La ficha individual suele traer más campos que la búsqueda: se usa esa
-        const rI = await fetch(`${CTF}${lista[0].id}/`, { headers: hdrCtf });
+        const rI = await fetchCtf(`${CTF}${lista[0].id}/`);
         if (rI.ok) { const jI = await rI.json(); const f = Array.isArray(jI) ? jI[0] : jI; if (f && f.id) return f; }
         return lista[0];
       }
@@ -9605,7 +9624,7 @@ function metricasImportacion(r){
     return claves.filter(k => JSON.stringify((a||{})[k] ?? null) !== JSON.stringify((b||{})[k] ?? null))
       .map(k => ({ campo: k, antes: (a||{})[k] ?? null, despues: (b||{})[k] ?? null }));
   };
-  async function planCambioCtf(ident, categoriaNueva, vendedoraNueva){
+  async function planCambioCtf(ident, categoriaNueva, vendedoraNueva, cacheRef){
     const problemas = [];
     const actual = await leerPersonaCtf(ident);
     if (!actual) return { problemas: ['No encontré en Contifico una ficha con la identificación ' + ident] };
@@ -9621,12 +9640,25 @@ function metricasImportacion(r){
         WHERE UPPER(TRIM(categoria)) = UPPER($1) AND COALESCE(ruc, cedula, '') <> ''
         ORDER BY (CASE WHEN $2 <> '' AND vendedor ILIKE ('%' || $2 || '%') THEN 0 ELSE 1 END),
                  updated_at DESC NULLS LAST LIMIT 8`, [catN, venN]);
-    let ref = null;
-    for (const p of rRef.rows) {
-      const f = await leerPersonaCtf(p.ruc || p.cedula);
-      if (f && !f.error && String(f.categoria_nombre||'').trim().toUpperCase() === catN.toUpperCase()) { ref = f; break; }
+    // La referencia debe tener la categoría Y la vendedora pedidas. Si la vendedora del
+    // Excel no coincide con ninguna clienta de esa categoría, no se adivina: se reporta.
+    const nzV = x => String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
+    const vendedorDe = f => Object.keys(f).filter(esCampoVendedor).map(k => f[k])
+      .filter(v => typeof v === 'string' && /[A-Za-z]/.test(v)).join(' ');
+    const claveRef = catN.toUpperCase() + '|' + nzV(venN);
+    let ref = cacheRef && cacheRef[claveRef] !== undefined ? cacheRef[claveRef] : undefined;
+    if (ref === undefined) {
+      ref = null;
+      for (const p of rRef.rows) {
+        const f = await leerPersonaCtf(p.ruc || p.cedula);
+        if (!f || f.error || String(f.categoria_nombre||'').trim().toUpperCase() !== catN.toUpperCase()) continue;
+        if (venN && !nzV(vendedorDe(f)).includes(nzV(venN))) continue;
+        ref = f; break;
+      }
+      if (cacheRef) cacheRef[claveRef] = ref;
     }
-    if (!ref) return { actual, problemas: ['No encontré en Contifico ninguna clienta que ya tenga la categoría "' + catN + '" para copiar sus valores exactos.'] };
+    if (!ref) return { actual, problemas: ['No encontré en Contifico ninguna clienta con categoría "' + catN + '"'
+      + (venN ? ' y vendedora "' + vendedoraNueva + '"' : '') + ' para copiar sus valores exactos. Revisa que la categoría y la vendedora vayan juntas.'] };
     if (String(ref.id) === String(actual.id)) problemas.push('La clienta ya tiene esa categoría.');
 
     const camposCat = Object.keys(ref).filter(esCampoCategoria);
@@ -9660,50 +9692,173 @@ function metricasImportacion(r){
     return;
   }
 
+  // Aplica el cambio a UNA clienta: respaldo → escribe → relee → compara → restaura si
+  // algo indebido cambió. Lo usan tanto la prueba individual como el Excel masivo.
+  async function aplicarUnaCtf(ident, categoria, vendedora, cacheRef){
+    const plan = await planCambioCtf(ident, categoria, vendedora, cacheRef);
+    if (!plan.nueva || (plan.problemas||[]).length)
+      return { escrito:false, ok:false, problemas: plan.problemas || ['No se pudo armar el cambio'] };
+    let log = [];
+    try { log = JSON.parse(await getConfigApp('asignacion_contifico_log', '[]')) || []; } catch(e) {}
+    log.push({ at: new Date().toISOString(), id: plan.actual.id, ident, original: plan.actual, cambios: plan.cambios });
+    await setConfigApp('asignacion_contifico_log', JSON.stringify(log.slice(-2000)));
+
+    const pos = String(process.env.CONTIFICO_POS || process.env.CONTIFICO_POS_ID || '').trim();
+    const url = CTF + (pos ? '?pos=' + encodeURIComponent(pos) : '');
+    const rP = await fetchCtf(url, { method:'PUT', headers: { 'Authorization': API_KEY, 'Content-Type':'application/json' },
+      body: JSON.stringify(plan.nueva) });
+    if (!rP || !rP.ok) {
+      const txt = rP ? await rP.text() : 'sin respuesta';
+      return { escrito:false, ok:false, http: rP ? rP.status : 0, problemas: ['Contifico rechazó el cambio: ' + String(txt).substring(0,300)] };
+    }
+    const despues = await leerPersonaCtf(ident);
+    const real = diferencias(plan.actual, despues);
+    const indebidos = real.filter(c => !esCampoCategoria(c.campo) && !esCampoVendedor(c.campo));
+    let restaurado = null;
+    if (indebidos.length) {
+      const rR = await fetchCtf(url, { method:'PUT', headers: { 'Authorization': API_KEY, 'Content-Type':'application/json' },
+        body: JSON.stringify(plan.actual) });
+      restaurado = !!(rR && rR.ok);
+    }
+    return { escrito:true, ok: !indebidos.length && real.length > 0,
+      ignorado: !indebidos.length && real.length === 0,
+      resultado: indebidos.length
+        ? 'CAMBIARON CAMPOS QUE NO DEBÍAN. Ficha original ' + (restaurado ? 'restaurada.' : 'NO se pudo restaurar: revisar a mano.')
+        : (real.length ? 'Listo: solo cambiaron categoría/vendedora.' : 'Contifico respondió bien pero la ficha no cambió (no acepta estos campos por la API).'),
+      cambios_reales: real, campos_indebidos: indebidos, restaurado, ficha_despues: despues };
+  }
+
   if (urlPath === '/api/asignacion/contifico' && req.method === 'POST') {
     if (bloquearSiNoAdmin(req, res)) return;
     try {
       const b = await bodyJSON(req);
       if (b.confirmar !== true) throw new Error('Falta confirmar:true. Revisa antes la vista previa.');
-      const plan = await planCambioCtf(b.ident, b.categoria, b.vendedora);
-      if (!plan.nueva || (plan.problemas||[]).length) {
-        res.writeHead(200,{'Content-Type':'application/json'});
-        res.end(JSON.stringify({ ok:false, escrito:false, problemas: plan.problemas || ['No se pudo armar el cambio'] }));
-        return;
-      }
-      // Respaldo de la ficha original ANTES de escribir
-      let log = [];
-      try { log = JSON.parse(await getConfigApp('asignacion_contifico_log', '[]')) || []; } catch(e) {}
-      log.push({ at: new Date().toISOString(), id: plan.actual.id, ident: b.ident, original: plan.actual, cambios: plan.cambios });
-      await setConfigApp('asignacion_contifico_log', JSON.stringify(log.slice(-500)));
-
-      const pos = String(process.env.CONTIFICO_POS || process.env.CONTIFICO_POS_ID || '').trim();
-      const url = CTF + (pos ? '?pos=' + encodeURIComponent(pos) : '');
-      const rP = await fetch(url, { method:'PUT', headers: { 'Authorization': API_KEY, 'Content-Type':'application/json' },
-        body: JSON.stringify(plan.nueva) });
-      const txt = await rP.text();
-      if (!rP.ok) {
-        res.writeHead(200,{'Content-Type':'application/json'});
-        res.end(JSON.stringify({ ok:false, escrito:false, http: rP.status, respuesta_contifico: txt.substring(0,600) }));
-        return;
-      }
-      // Verificación: se vuelve a leer la ficha y se compara campo por campo
-      const despues = await leerPersonaCtf(b.ident);
-      const real = diferencias(plan.actual, despues);
-      const indebidos = real.filter(c => !esCampoCategoria(c.campo) && !esCampoVendedor(c.campo));
-      let restaurado = null;
-      if (indebidos.length) {
-        const rR = await fetch(url, { method:'PUT', headers: { 'Authorization': API_KEY, 'Content-Type':'application/json' },
-          body: JSON.stringify(plan.actual) });
-        restaurado = rR.ok;
-      }
+      const r = await aplicarUnaCtf(b.ident, b.categoria, b.vendedora, {});
       res.writeHead(200,{'Content-Type':'application/json'});
-      res.end(JSON.stringify({ ok: !indebidos.length, escrito:true,
-        resultado: indebidos.length
-          ? 'CAMBIARON CAMPOS QUE NO DEBÍAN. Se intentó devolver la ficha original: ' + (restaurado ? 'restaurada.' : 'NO se pudo restaurar, revisar a mano.')
-          : (real.length ? 'Listo: solo cambiaron categoría/vendedora.' : 'Contifico respondió bien pero la ficha no cambió (no acepta estos campos por la API).'),
-        cambios_reales: real, campos_indebidos: indebidos, ficha_despues: despues }, null, 2));
+      res.end(JSON.stringify(r, null, 2));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
+  // ─── REASIGNACIÓN MASIVA DESDE EXCEL ───────────────────────────────────────────
+  // POST /api/asignacion/excel   (multipart, campo file) → lee el Excel y hace la VISTA
+  //                                PREVIA de todas las filas. No escribe nada.
+  // POST /api/asignacion/aplicar {confirmar:true}        → aplica las filas que salieron
+  //                                listas en la última vista previa.
+  // GET  /api/asignacion/estado                          → avance y resultado por fila.
+  // Frenos de seguridad al aplicar: si en UNA clienta cambia un campo que no debía, o si
+  // Contifico ignora el cambio en la primera, o rechaza tres seguidas, se detiene todo.
+  if (urlPath === '/api/asignacion/estado' && req.method === 'GET') {
+    if (bloquearSiNoAdmin(req, res)) return;
+    const cuenta = { listas: ASIG_JOB.filas.filter(f=>f.estado==='lista').length,
+      problemas: ASIG_JOB.filas.filter(f=>f.estado==='problema').length,
+      aplicadas: ASIG_JOB.filas.filter(f=>f.estado==='aplicada').length,
+      fallidas: ASIG_JOB.filas.filter(f=>f.estado==='fallida').length,
+      pendientes: ASIG_JOB.filas.filter(f=>f.estado==='pendiente').length };
+    res.writeHead(200,{'Content-Type':'application/json'});
+    res.end(JSON.stringify({ ok:true, ...ASIG_JOB, cuenta }));
+    return;
+  }
+
+  if (urlPath === '/api/asignacion/excel' && req.method === 'POST') {
+    if (bloquearSiNoAdmin(req, res)) return;
+    try {
+      if (ASIG_JOB.enCurso) throw new Error('Ya hay un proceso en curso. Espera a que termine.');
+      const buf = await bodyBuffer(req);
+      const archivo = parseMultipartFile(buf, req.headers['content-type']);
+      if (!archivo) throw new Error('No llegó el archivo');
+      const wb = XLSX.read(archivo.buffer, { type:'buffer' });
+      const hoja = wb.Sheets['Clientas'] || wb.Sheets[wb.SheetNames[0]];
+      const F = XLSX.utils.sheet_to_json(hoja, { header:1, defval:'' });
+      const nzH = x => String(x||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase().replace(/\s+/g,' ').trim();
+      const cab = (F[0]||[]).map(nzH);
+      const col = re => cab.findIndex(h => re.test(h));
+      const cId = col(/CEDULA|RUC/), cNom = col(/^CLIENTE/), cCat = col(/NUEVA CATEGORIA/), cVen = col(/NUEVA VENDEDORA/);
+      if (cId < 0 || cCat < 0) throw new Error('El Excel debe traer las columnas "Cédula / RUC" y "NUEVA CATEGORÍA" (usa el que descarga la app).');
+      const vistos = {};
+      const filas = [];
+      F.slice(1).forEach((r, i) => {
+        const cat = String(r[cCat]||'').trim();
+        if (!cat) return;                                   // solo las filas con cambio
+        const ident = String(r[cId]||'').trim();
+        const fila = { n: i + 2, ident, nombre: String(r[cNom]||'').trim(), categoria: cat,
+          vendedora: cVen >= 0 ? String(r[cVen]||'').trim() : '', estado:'pendiente', detalle:'' };
+        const d = ident.replace(/\D/g,'');
+        if (!d) { fila.estado = 'problema'; fila.detalle = 'Sin cédula/RUC'; }
+        else if (vistos[d]) { fila.estado = 'problema'; fila.detalle = 'Repetida en la fila ' + vistos[d]; }
+        else if (cVen >= 0 && !fila.vendedora) { fila.estado = 'problema'; fila.detalle = 'Tiene nueva categoría pero falta la nueva vendedora'; }
+        vistos[d] = vistos[d] || fila.n;
+        filas.push(fila);
+      });
+      if (!filas.length) throw new Error('No hay ninguna fila con NUEVA CATEGORÍA llena.');
+      ASIG_JOB = { enCurso:true, modo:'previa', archivo: archivo.filename || '', total: filas.length, hechos:0,
+        filas, detenido:null, inicio: new Date().toISOString(), fin:null };
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:true, total: filas.length }));
+
+      // Vista previa en segundo plano: solo LEE Contifico
+      (async () => {
+        const cache = {};
+        for (const f of ASIG_JOB.filas) {
+          if (f.estado === 'pendiente') {
+            try {
+              const plan = await planCambioCtf(f.ident, f.categoria, f.vendedora, cache);
+              f.actual = plan.actual ? { nombre: plan.actual.razon_social, categoria: plan.actual.categoria_nombre,
+                vendedor: Object.keys(plan.actual).filter(esCampoVendedor).map(k=>plan.actual[k]).filter(v=>typeof v==='string'&&/[A-Za-z]/.test(v)).join(' ') } : null;
+              f.cambios = (plan.cambios||[]).map(c => c.campo);
+              if ((plan.problemas||[]).length) { f.estado = 'problema'; f.detalle = plan.problemas.join(' / '); }
+              else { f.estado = 'lista'; f.detalle = 'Cambiaría: ' + f.cambios.join(', '); }
+            } catch(e) { f.estado = 'problema'; f.detalle = 'Error leyendo Contifico: ' + e.message; }
+            await new Promise(r => setTimeout(r, 200));
+          }
+          ASIG_JOB.hechos++;
+        }
+        ASIG_JOB.enCurso = false; ASIG_JOB.fin = new Date().toISOString();
+      })().catch(e => { ASIG_JOB.enCurso = false; ASIG_JOB.detenido = 'Error: ' + e.message; });
+    } catch(e) { res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
+  if (urlPath === '/api/asignacion/aplicar' && req.method === 'POST') {
+    if (bloquearSiNoAdmin(req, res)) return;
+    try {
+      const b = await bodyJSON(req);
+      if (b.confirmar !== true) throw new Error('Falta confirmar.');
+      if (ASIG_JOB.enCurso) throw new Error('Ya hay un proceso en curso.');
+      if (ASIG_JOB.modo !== 'previa' || !ASIG_JOB.fin) throw new Error('Primero sube el Excel y espera la vista previa.');
+      if (Date.now() - new Date(ASIG_JOB.fin).getTime() > 2*60*60*1000) throw new Error('La vista previa tiene más de 2 horas. Vuelve a subir el Excel.');
+      const listas = ASIG_JOB.filas.filter(f => f.estado === 'lista');
+      if (!listas.length) throw new Error('No hay filas listas para aplicar.');
+      ASIG_JOB.enCurso = true; ASIG_JOB.modo = 'aplicar'; ASIG_JOB.hechos = 0; ASIG_JOB.total = listas.length;
+      ASIG_JOB.detenido = null; ASIG_JOB.inicio = new Date().toISOString(); ASIG_JOB.fin = null;
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:true, total: listas.length }));
+
+      (async () => {
+        const cache = {};
+        let rechazosSeguidos = 0, primera = true;
+        for (const f of listas) {
+          let r;
+          // Cada fila se vuelve a planificar con datos frescos: si alguien tocó la ficha
+          // en Contifico después de la vista previa, se trabaja sobre lo de ahora.
+          try { r = await aplicarUnaCtf(f.ident, f.categoria, f.vendedora, cache); }
+          catch(e) { r = { escrito:false, ok:false, problemas:['Error: ' + e.message] }; }
+          ASIG_JOB.hechos++;
+          if (r.ok) { f.estado = 'aplicada'; f.detalle = 'Cambió: ' + r.cambios_reales.map(c=>c.campo).join(', '); rechazosSeguidos = 0; }
+          else {
+            f.estado = 'fallida';
+            f.detalle = r.resultado || (r.problemas||[]).join(' / ');
+            if (!r.escrito) rechazosSeguidos++;
+          }
+          if ((r.campos_indebidos||[]).length) { ASIG_JOB.detenido = 'Se detuvo: en ' + (f.nombre || f.ident) + ' cambiaron campos que no debían (' + r.campos_indebidos.map(c=>c.campo).join(', ') + '). ' + r.resultado; break; }
+          if (primera && r.ignorado) { ASIG_JOB.detenido = 'Se detuvo en la primera clienta: Contifico no aceptó el cambio por la API. Habrá que hacerlo a mano.'; break; }
+          if (rechazosSeguidos >= 3) { ASIG_JOB.detenido = 'Se detuvo: Contifico rechazó tres clientas seguidas. ' + f.detalle; break; }
+          primera = false;
+          await new Promise(r => setTimeout(r, 300));
+        }
+        ASIG_JOB.enCurso = false; ASIG_JOB.fin = new Date().toISOString();
+      })().catch(e => { ASIG_JOB.enCurso = false; ASIG_JOB.detenido = 'Error: ' + e.message; });
+    } catch(e) { res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
   }
 

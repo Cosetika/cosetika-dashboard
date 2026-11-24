@@ -13716,58 +13716,88 @@ async function actualizarCxc(btn){
 // ─── ASIGNACIÓN: mapa provincia × asesora, para reorganizar la cartera ──────────
 // Solo lectura por ahora: es el material para que el equipo decida el reparto. Los
 // cambios se harán después, y solo en la categoría y la vendedora de cada clienta.
-// Prueba de cambio en Contifico. Dos pasos obligatorios: vista previa (no escribe) y
-// aplicar (solo si la vista previa salió limpia, y escribiendo APLICAR para confirmar).
-function ctfPintar(html){
-  window._ctfSalida = html;
-  const s = document.getElementById('ctf-salida'); if(s) s.innerHTML = html;
-}
-async function ctfVistaPrevia(){
-  const ident = document.getElementById('ctf-ident').value.trim();
-  const cat = document.getElementById('ctf-cat').value.trim();
-  const ven = document.getElementById('ctf-ven').value.trim();
-  window._ctfIdent = ident; window._ctfCat = cat; window._ctfVen = ven;
-  if(!ident || !cat){ alert('Pon la cédula/RUC y la nueva categoría.'); return; }
-  ctfPintar('<span style="font-size:12px;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i> Leyendo la ficha en Contifico…</span>');
-  const esc = v => String(v==null?'—':typeof v==='object'?JSON.stringify(v):v).replace(/</g,'&lt;');
+// Reasignación masiva en Contifico desde Excel. Dos pasos obligatorios: la vista previa
+// (lee Contifico, no escribe) y la aplicación (solo filas listas, escribiendo APLICAR).
+async function asigSubirExcel(input){
+  const f = input.files && input.files[0]; input.value = '';
+  if(!f) return;
+  const fd = new FormData(); fd.append('file', f);
+  asigPintarJob({ enCurso:true, modo:'previa', hechos:0, total:0, filas:[], cuenta:{} });
   try{
-    const r = await fetch('/api/asignacion/contifico?ident='+encodeURIComponent(ident)+'&categoria='+encodeURIComponent(cat)+'&vendedora='+encodeURIComponent(ven));
+    const r = await fetch('/api/asignacion/excel', { method:'POST', body: fd });
     const d = await r.json();
     if(!d.ok) throw new Error(d.error||'error');
-    window._ctfPlan = d.se_puede_aplicar ? { ident, categoria:cat, vendedora:ven } : null;
-    ctfPintar(`
-      <div style="border:1px solid ${d.se_puede_aplicar?'#86efac':'#fca5a5'};background:${d.se_puede_aplicar?'#f0fdf4':'#fef2f2'};border-radius:10px;padding:12px 14px;font-size:12px;line-height:1.6">
-        <div style="font-weight:700;margin-bottom:4px">${d.clienta?esc(d.clienta.nombre)+' · categoría actual: '+esc(d.clienta.categoria_actual):'Clienta no encontrada'}</div>
-        ${d.copiando_de?`<div style="color:var(--muted)">Valores copiados de <b>${esc(d.copiando_de.nombre)}</b>, que ya es ${esc(d.copiando_de.categoria)} · ${esc(d.copiando_de.vendedor)}</div>`:''}
-        ${(d.campos_que_cambiarian||[]).length?`<table style="margin-top:8px;border-collapse:collapse;font-size:11px">
-          <tr><th style="text-align:left;padding:3px 10px 3px 0;color:var(--muted)">Campo</th><th style="text-align:left;padding:3px 10px;color:var(--muted)">Ahora</th><th style="text-align:left;padding:3px 10px;color:var(--muted)">Quedaría</th></tr>
-          ${d.campos_que_cambiarian.map(c=>`<tr><td style="padding:3px 10px 3px 0;font-family:monospace">${esc(c.campo)}</td><td style="padding:3px 10px">${esc(c.antes)}</td><td style="padding:3px 10px;font-weight:700">${esc(c.despues)}</td></tr>`).join('')}
-        </table><div style="margin-top:6px;color:var(--muted)">Ningún otro campo de la ficha se modifica.</div>`:''}
-        ${(d.problemas||[]).length?`<div style="margin-top:8px;color:#b91c1c;font-weight:600">${d.problemas.map(esc).join('<br>')}</div>`:''}
-        ${d.se_puede_aplicar?`<button onclick="ctfAplicar()" style="margin-top:10px;padding:7px 14px;background:#b91c1c;color:white;border:none;border-radius:8px;font-size:12px;cursor:pointer;font-weight:600">Aplicar en Contifico</button>`:''}
-      </div>`);
-  }catch(e){ ctfPintar('<span style="color:#b91c1c;font-size:12px">No se pudo: '+esc(e.message)+'</span>'); }
+    asigSeguir();
+  }catch(e){ document.getElementById('asig-job').innerHTML = '<div style="color:#b91c1c;font-size:12px">'+String(e.message).replace(/</g,'&lt;')+'</div>'; }
 }
-async function ctfAplicar(){
-  const p = window._ctfPlan; if(!p) return;
-  const ok = prompt('Esto MODIFICA la ficha en Contifico (solo categoría y vendedora).\n¿Tomaste captura de la ficha completa?\n\nEscribe APLICAR para continuar:');
+
+async function asigAplicar(){
+  const j = window._asigJob || {};
+  const n = (j.cuenta||{}).listas || 0;
+  const ok = prompt('Vas a MODIFICAR ' + n + ' clienta' + (n!==1?'s':'') + ' en Contifico (solo categoría y vendedora).\n'
+    + '¿Tomaste captura de al menos una ficha para comparar después?\n\nEscribe APLICAR para continuar:');
   if(String(ok||'').trim().toUpperCase() !== 'APLICAR') return;
-  const esc = v => String(v==null?'—':typeof v==='object'?JSON.stringify(v):v).replace(/</g,'&lt;');
-  ctfPintar('<span style="font-size:12px;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i> Escribiendo y verificando…</span>');
   try{
-    const r = await fetch('/api/asignacion/contifico', { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify(Object.assign({ confirmar:true }, p)) });
+    const r = await fetch('/api/asignacion/aplicar', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ confirmar:true }) });
     const d = await r.json();
-    window._ctfPlan = null;
-    const bien = d.ok && d.escrito && (d.cambios_reales||[]).length;
-    ctfPintar(`
-      <div style="border:1px solid ${bien?'#86efac':'#fca5a5'};background:${bien?'#f0fdf4':'#fef2f2'};border-radius:10px;padding:12px 14px;font-size:12px;line-height:1.6">
-        <div style="font-weight:700">${esc(d.resultado || (d.problemas||[]).join(' / ') || d.respuesta_contifico || d.error || 'Sin respuesta')}</div>
-        ${(d.cambios_reales||[]).length?'<div style="margin-top:6px">Cambió: '+d.cambios_reales.map(c=>'<b>'+esc(c.campo)+'</b>').join(', ')+'</div>':''}
-        ${(d.campos_indebidos||[]).length?'<div style="margin-top:6px;color:#b91c1c">Campos que cambiaron sin deber: '+d.campos_indebidos.map(c=>esc(c.campo)).join(', ')+'</div>':''}
-        <div style="margin-top:8px;color:var(--muted)">Ahora compara la ficha en Contifico con tu captura.</div>
-      </div>`);
-  }catch(e){ ctfPintar('<span style="color:#b91c1c;font-size:12px">Error: '+esc(e.message)+'</span>'); }
+    if(!d.ok) throw new Error(d.error||'error');
+    asigSeguir();
+  }catch(e){ alert('No se pudo aplicar: ' + e.message); }
+}
+
+async function asigSeguir(){
+  clearTimeout(window._asigTimer);
+  try{
+    const r = await fetch('/api/asignacion/estado'); const d = await r.json();
+    window._asigJob = d; asigPintarJob(d);
+    if(d.enCurso && modActual === 'asignacion') window._asigTimer = setTimeout(asigSeguir, 2500);
+    else if(!d.enCurso && d.modo === 'aplicar'){ window._asigData = null; }   // el mapa cambió: recargar al volver
+  }catch(e){}
+}
+
+function asigPintarJob(d){
+  const c = document.getElementById('asig-job'); if(!c) return;
+  if(!d || !d.modo){ c.innerHTML = ''; return; }
+  const esc = v => String(v==null?'':v).replace(/</g,'&lt;');
+  const k = d.cuenta || {};
+  const pct = d.total ? Math.round(d.hechos / d.total * 100) : 0;
+  const COL = { lista:['#166534','#f0fdf4','Lista'], problema:['#b91c1c','#fef2f2','Problema'], aplicada:['#166534','#dcfce7','Aplicada ✓'],
+                fallida:['#b91c1c','#fee2e2','Falló'], pendiente:['#6b7280','#f3f4f6','Pendiente'] };
+  const titulo = d.modo === 'previa'
+    ? (d.enCurso ? 'Revisando en Contifico… (no se escribe nada)' : 'Vista previa terminada — no se ha escrito nada todavía')
+    : (d.enCurso ? 'Aplicando en Contifico…' : 'Aplicación terminada');
+  c.innerHTML = `
+    <div style="border:1px solid var(--border);border-radius:10px;padding:12px 14px;background:#faf9f8">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <div style="font-size:12px;font-weight:700">${esc(titulo)}${d.archivo?' · <span style="font-weight:400;color:var(--muted)">'+esc(d.archivo)+'</span>':''}</div>
+        <div style="font-size:11px;color:var(--muted)">${d.hechos||0} de ${d.total||0}</div>
+      </div>
+      <div style="height:6px;background:#e5e0d8;border-radius:4px;margin:8px 0;overflow:hidden"><div style="height:100%;width:${pct}%;background:var(--brown)"></div></div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:11px;margin-bottom:6px">
+        ${k.listas?'<span style="color:#166534">● '+k.listas+' listas</span>':''}
+        ${k.problemas?'<span style="color:#b91c1c">● '+k.problemas+' con problema</span>':''}
+        ${k.aplicadas?'<span style="color:#166534;font-weight:700">● '+k.aplicadas+' aplicadas</span>':''}
+        ${k.fallidas?'<span style="color:#b91c1c;font-weight:700">● '+k.fallidas+' fallidas</span>':''}
+      </div>
+      ${d.detenido?'<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:8px 10px;font-size:12px;color:#b91c1c;font-weight:600;margin-bottom:8px">'+esc(d.detenido)+'</div>':''}
+      ${(!d.enCurso && d.modo==='previa' && k.listas)?`<button onclick="asigAplicar()" style="margin-bottom:8px;padding:7px 14px;background:#b91c1c;color:white;border:none;border-radius:8px;font-size:12px;cursor:pointer;font-weight:600">Aplicar ${k.listas} en Contifico</button>
+        ${k.problemas?'<span style="font-size:11px;color:var(--muted);margin-left:8px">Las que tienen problema no se tocan.</span>':''}`:''}
+      ${(d.filas||[]).length?`<div style="max-height:320px;overflow:auto;border-top:1px solid var(--border)">
+        <table style="width:100%;border-collapse:collapse;font-size:11px">
+          <thead><tr style="position:sticky;top:0;background:#faf9f8">
+            <th style="text-align:left;padding:6px 8px;color:var(--muted)">Fila</th><th style="text-align:left;padding:6px 8px;color:var(--muted)">Clienta</th>
+            <th style="text-align:left;padding:6px 8px;color:var(--muted)">Ahora</th><th style="text-align:left;padding:6px 8px;color:var(--muted)">Pasa a</th>
+            <th style="text-align:left;padding:6px 8px;color:var(--muted)">Estado</th></tr></thead>
+          <tbody>${d.filas.map(f=>{ const s = COL[f.estado]||COL.pendiente; return `
+            <tr style="border-top:0.5px solid var(--border)">
+              <td style="padding:5px 8px;color:var(--muted)">${f.n}</td>
+              <td style="padding:5px 8px"><b>${esc((f.actual&&f.actual.nombre)||f.nombre)}</b><div style="color:var(--muted)">${esc(f.ident)}</div></td>
+              <td style="padding:5px 8px;color:var(--muted)">${esc(f.actual?f.actual.categoria:'')}<div>${esc(f.actual?f.actual.vendedor:'')}</div></td>
+              <td style="padding:5px 8px">${esc(f.categoria)}<div style="color:var(--muted)">${esc(f.vendedora)}</div></td>
+              <td style="padding:5px 8px"><span style="background:${s[1]};color:${s[0]};border-radius:6px;padding:1px 7px;font-weight:700;white-space:nowrap">${s[2]}</span>
+                ${f.detalle?'<div style="color:var(--muted);margin-top:2px;max-width:320px">'+esc(f.detalle)+'</div>':''}</td>
+            </tr>`; }).join('')}</tbody></table></div>`:''}
+    </div>`;
 }
 
 function navGoAsignacion(){
@@ -13862,20 +13892,18 @@ async function renderAsignacion(){
       En rojo, las asesoras que ya no trabajan${pendientes?` — <b>${pendientes} clientas por reasignar</b>`:''}.
       Toca un número para ver qué clientas son. El Excel trae las columnas <b>Nueva categoría</b> y <b>Nueva vendedora</b> vacías para llenarlas.
     </div>
-    <details class="card" style="margin-bottom:12px" ${window._ctfAbierto?'open':''} ontoggle="window._ctfAbierto=this.open">
-      <summary style="cursor:pointer;font-size:13px;font-weight:600"><i class="ti ti-flask" style="margin-right:6px;color:var(--brown)"></i>Prueba: cambiar una clienta en Contifico</summary>
-      <div style="font-size:11px;color:var(--muted);margin:10px 0;line-height:1.55">
-        Solo cambia <b>categoría</b> y <b>vendedora</b>. Primero muestra exactamente qué campos tocaría, sin escribir nada.
-        Antes de aplicar, <b>toma captura de la ficha completa en Contifico</b> para compararla después.
+    <div class="card" style="margin-bottom:12px">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+        <div>
+          <div style="font-size:13px;font-weight:600"><i class="ti ti-upload" style="margin-right:6px;color:var(--brown)"></i>Aplicar la reasignación en Contifico</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:3px;line-height:1.5">Sube el Excel con <b>NUEVA CATEGORÍA</b> y <b>NUEVA VENDEDORA</b> llenas. Primero se revisan todas las filas sin escribir nada; después tú decides aplicar.<br>
+          En Contifico solo cambian categoría y vendedora; el resto de la ficha queda igual.</div>
+        </div>
+        <input type="file" id="asig-file" accept=".xlsx,.xls" style="display:none" onchange="asigSubirExcel(this)">
+        <button onclick="document.getElementById('asig-file').click()" style="padding:8px 15px;border:1px solid var(--brown);background:white;color:var(--brown);border-radius:8px;font-size:12px;cursor:pointer;font-weight:600"><i class="ti ti-file-upload" style="margin-right:5px"></i>Subir Excel</button>
       </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-        <input id="ctf-ident" placeholder="Cédula / RUC" value="${esc(window._ctfIdent||'')}" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;width:150px">
-        <input id="ctf-cat" placeholder="Nueva categoría (ej. Ase. DanielaV)" value="${esc(window._ctfCat||'')}" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;width:220px">
-        <input id="ctf-ven" placeholder="Nueva vendedora" value="${esc(window._ctfVen||'')}" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;width:180px">
-        <button onclick="ctfVistaPrevia()" style="padding:7px 13px;border:1px solid var(--brown);background:white;color:var(--brown);border-radius:8px;font-size:12px;cursor:pointer;font-weight:600">Ver vista previa</button>
-      </div>
-      <div id="ctf-salida" style="margin-top:10px">${window._ctfSalida||''}</div>
-    </details>
+      <div id="asig-job" style="margin-top:10px"></div>
+    </div>
     <div class="card" style="padding:0;overflow:hidden">
       <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
         <thead><tr style="background:#faf9f8;border-bottom:1px solid var(--border)">
@@ -13906,6 +13934,8 @@ async function renderAsignacion(){
       </table></div>
     </div>
     ${detalle}`;
+  // Si hay una revisión o aplicación en curso (o terminada), se muestra al volver
+  asigSeguir();
 }
 
 function navGoCxc(){
