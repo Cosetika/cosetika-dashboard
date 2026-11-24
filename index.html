@@ -1419,7 +1419,7 @@ async function renderBodegas(){
   }
   if(window._bodPoll){ clearInterval(window._bodPoll); window._bodPoll = null; }
   main.innerHTML = '<div style="padding:30px;text-align:center;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:22px"></i></div>';
-  let data = { productos:[], ultima_sync:null, sync:{enCurso:false} };
+  let data = { productos:[], ultima_sync:null, sync:{enCurso:false}, resultado:null };
   try{ const r = await fetch('/api/bodegas-stock'); data = await r.json(); }catch(e){}
   window._bodData = data;
   if(window._bodMarcaSel === undefined) window._bodMarcaSel = 'TODAS';
@@ -1443,9 +1443,19 @@ async function renderBodegas(){
     </div>
     <div id="bod-status" style="font-size:12px;color:var(--muted);margin-bottom:12px">
       ${data.sync&&data.sync.enCurso
-        ? '<i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i> Sincronizando... '+(data.sync.procesados||0)+' de '+(data.sync.total||0)+' productos'
+        ? '<i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i> Sincronizando... '+(data.sync.procesados||0)+' de '+(data.sync.total||0)+' productos'+((data.sync.errores||0)?' · '+data.sync.errores+' sin respuesta':'')
         : 'Última actualización: '+ult+' · se sincroniza automáticamente una vez al día'}
     </div>
+    ${(() => {
+      // Una sincronización con productos fallidos deja cantidades viejas en pantalla.
+      // Antes no se decía en ningún lado y el panel parecía estar al día.
+      const r = data.resultado;
+      if(!r || !r.errores || (data.sync && data.sync.enCurso)) return '';
+      return `<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:#92400e;line-height:1.5">
+        En la última sincronización <b>${r.errores} de ${r.productos} productos</b> no respondieron (Contifico limita las peticiones seguidas).
+        Esos siguen mostrando la cantidad de la vez anterior. Pulsa <b>Actualizar ahora</b> para reintentarlos.
+      </div>`;
+    })()}
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
       ${marcas.map(m=>`<button class="bod-marca-chip" data-m="${m}" onclick="seleccionarMarcaBodegas(this.dataset.m)" style="padding:5px 12px;font-size:11px;border-radius:20px;cursor:pointer;border:1px solid ${m===window._bodMarcaSel?'var(--brown)':'var(--border)'};background:${m===window._bodMarcaSel?'#f7f0ea':'white'};font-weight:${m===window._bodMarcaSel?'600':'400'}">${m}</button>`).join('')}
     </div>

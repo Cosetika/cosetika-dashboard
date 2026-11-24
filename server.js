@@ -2088,12 +2088,26 @@ async function sincronizarBodegas(){
     for (const pid of ids) {
       BODEGAS_SYNC.procesados++;
       try {
-        const resp = await fetch(`https://api.contifico.com/sistema/api/v1/producto/${pid}/stock/`, {
-          headers: { 'Authorization': API_KEY, 'Accept': 'application/json' }
-        });
-        if (!resp.ok) { errores++; continue; }
-        const bodegas = await resp.json();
-        if (!Array.isArray(bodegas)) { errores++; continue; }
+        // Contifico limita las peticiones seguidas. Antes se pedía el stock de los ~200
+        // productos de golpe y, en cuanto empezaba a estrangular, el resto fallaba en
+        // silencio: esos productos se quedaban con la cantidad de la última vez que sí
+        // respondió, a veces de semanas atrás, y la app mostraba un número inventado
+        // mientras decía "sincronizado hoy". Ahora se reintenta y se respira entre uno
+        // y otro, y lo que falla queda contado y a la vista en el panel.
+        let bodegas = null;
+        for (let intento = 0; intento < 3 && bodegas === null; intento++) {
+          if (intento) await new Promise(r => setTimeout(r, [0, 1500, 4000][intento]));
+          try {
+            const resp = await fetch(`https://api.contifico.com/sistema/api/v1/producto/${pid}/stock/`, {
+              headers: { 'Authorization': API_KEY, 'Accept': 'application/json' }
+            });
+            if (!resp.ok) continue;
+            const j = await resp.json();
+            if (Array.isArray(j)) bodegas = j;
+          } catch(e) { /* se reintenta */ }
+        }
+        await new Promise(r => setTimeout(r, 120));   // respiro entre productos
+        if (bodegas === null) { errores++; BODEGAS_SYNC.errores = errores; continue; }
         // Solo interesan Bodega POS y Bodega Casa
         const relevantes = bodegas.filter(b => /pos|casa/i.test(String(b.bodega_nombre||'')));
         const info = catalogoProductos[pid] || {};
@@ -2117,9 +2131,13 @@ async function sincronizarBodegas(){
           );
           guardados++;
         }
-      } catch(e) { errores++; }
+      } catch(e) { errores++; BODEGAS_SYNC.errores = errores; }
     }
     await setConfigApp('bodegas_ultima_sync', new Date().toISOString());
+    // Se guarda también cuántos productos no se pudieron leer, para poder avisarlo en el
+    // panel: una sincronización con fallos no es una sincronización buena.
+    await setConfigApp('bodegas_ultimo_resultado', JSON.stringify({
+      at: new Date().toISOString(), productos: ids.length, guardados, errores }));
     // La Proyección (Inventario) se alimenta de estas mismas cantidades: reconstruir
     await reconstruirInventarioDesdeBodegas();
     console.log(`✓ Bodegas sync: ${ids.length} productos, ${guardados} registros, ${errores} errores`);
@@ -8196,8 +8214,11 @@ const server = http.createServer(async (req, res) => {
         pr.minimo = rot > 0 ? Math.ceil(rot * diasProv / 30) : 0;
       });
       const ultima = await getConfigApp('bodegas_ultima_sync', null);
+      let resultado = null;
+      try { const raw = await getConfigApp('bodegas_ultimo_resultado', null); if (raw) resultado = JSON.parse(raw); } catch(e) {}
       res.writeHead(200,{'Content-Type':'application/json'});
-      res.end(JSON.stringify({ productos: productosFiltrados, ultima_sync: ultima, sync: BODEGAS_SYNC, dias_provision: diasProv }));
+      res.end(JSON.stringify({ productos: productosFiltrados, ultima_sync: ultima, sync: BODEGAS_SYNC,
+        resultado, dias_provision: diasProv }));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({error:e.message})); }
     return;
   }
