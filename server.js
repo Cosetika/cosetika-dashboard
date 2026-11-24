@@ -2097,6 +2097,16 @@ async function sincronizarBodegas(){
         // Solo interesan Bodega POS y Bodega Casa
         const relevantes = bodegas.filter(b => /pos|casa/i.test(String(b.bodega_nombre||'')));
         const info = catalogoProductos[pid] || {};
+        // Borrar lo que Contifico ya NO reporta para este producto. Sin esto, cuando un
+        // producto desaparecía de una bodega (se agotaba, quedaba en negativo o dejaba de
+        // listarse), la fila vieja se quedaba viva para siempre y la app seguía mostrando
+        // una cantidad que ya no existía. Era el caso de BSK09.
+        const nombres = relevantes.map(b => String(b.bodega_nombre||'').substring(0,190));
+        await pool.query(
+          `DELETE FROM stock_bodegas
+            WHERE producto_id=$1
+              AND (bodega ILIKE '%pos%' OR bodega ILIKE '%casa%')
+              AND NOT (bodega = ANY($2::text[]))`, [pid, nombres]);
         for (const b of relevantes) {
           await pool.query(
             `INSERT INTO stock_bodegas(producto_id, codigo, nombre, marca, bodega, cantidad, actualizado_at)
@@ -8217,6 +8227,31 @@ const server = http.createServer(async (req, res) => {
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
   }
+  // GET /api/bodegas/diagnostico?sku=BSK9 → qué devuelve Contifico para ese producto y
+  // qué tiene guardado la app. Sirve para resolver un descuadre sin adivinar.
+  if (urlPath === '/api/bodegas/diagnostico' && req.method === 'GET') {
+    if (bloquearSiNoAdmin(req, res)) return;
+    try {
+      const sku = String(urlObj.searchParams.get('sku')||'').trim().toUpperCase();
+      if (!sku) throw new Error('Falta ?sku=');
+      const hit = Object.entries(catalogoProductos||{})
+        .find(([,p]) => String(p.codigo||'').trim().toUpperCase() === sku);
+      if (!hit) throw new Error('No encontré el SKU ' + sku + ' en el catálogo de Contifico');
+      const [pid, info] = hit;
+      const r = await fetch(`https://api.contifico.com/sistema/api/v1/producto/${pid}/stock/`, {
+        headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
+      const crudo = r.ok ? await r.json() : null;
+      const g = await pool.query('SELECT bodega, cantidad, actualizado_at FROM stock_bodegas WHERE producto_id=$1 ORDER BY bodega', [pid]);
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:true, sku, producto_id: pid, nombre: info.nombre, marca: info.marca,
+        http: r.status,
+        contifico_todas_las_bodegas: crudo,
+        contifico_total: Array.isArray(crudo) ? crudo.reduce((a,b)=>a+(parseFloat(b.cantidad)||0),0) : null,
+        guardado_en_la_app: g.rows }, null, 2));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
   // POST /api/bodegas/sync → dispara la sincronización en segundo plano
   if (urlPath === '/api/bodegas/sync' && req.method === 'POST') {
     try {
