@@ -9562,6 +9562,151 @@ function metricasImportacion(r){
     return;
   }
 
+  // ─── ASIGNACIÓN → CONTIFICO: cambiar categoría y vendedora de UNA clienta ──────
+  // Regla innegociable: en la ficha de Contifico solo pueden cambiar la CATEGORÍA y la
+  // VENDEDORA. Todo lo demás (nombre, cupo, días, PVP, correo, dirección…) debe quedar
+  // idéntico. Por eso:
+  //   1. Se lee la ficha completa tal como la tiene Contifico.
+  //   2. Lo que se envía es ESA MISMA ficha, copiada, con solo esos dos campos tocados.
+  //   3. Los valores nuevos no se escriben a mano: se copian de una clienta que YA tiene
+  //      esa categoría y esa vendedora en Contifico, así son exactamente los que usa él.
+  //   4. Después de escribir se vuelve a leer y se compara campo por campo. Si cambió
+  //      cualquier otra cosa, se devuelve la ficha original de inmediato.
+  //   5. La ficha original queda guardada en la app, por si hay que restaurarla.
+  // GET  /api/asignacion/contifico?ident=…&categoria=…&vendedora=…   → vista previa, NO escribe
+  // POST /api/asignacion/contifico  {ident, categoria, vendedora, confirmar:true} → aplica
+  const CTF = 'https://api.contifico.com/sistema/api/v1/persona/';
+  const hdrCtf = { 'Authorization': API_KEY, 'Accept': 'application/json' };
+  async function leerPersonaCtf(ident){
+    const d = String(ident||'').replace(/\D/g,'');
+    if (!d) return null;
+    const intentos = d.length === 13 ? [['ruc', d], ['cedula', d.substring(0,10)]] : [['cedula', d], ['ruc', d + '001']];
+    for (const [campo, val] of intentos) {
+      const r = await fetch(`${CTF}?${campo}=${val}&page_size=5`, { headers: hdrCtf });
+      if (!r.ok) continue;
+      const j = await r.json();
+      const lista = Array.isArray(j) ? j : (j.results || []);
+      if (lista.length > 1) return { error: 'Hay ' + lista.length + ' fichas con la identificación ' + val + ' en Contifico. No se toca nada hasta que quede una sola.' };
+      if (lista.length === 1) {
+        // La ficha individual suele traer más campos que la búsqueda: se usa esa
+        const rI = await fetch(`${CTF}${lista[0].id}/`, { headers: hdrCtf });
+        if (rI.ok) { const jI = await rI.json(); const f = Array.isArray(jI) ? jI[0] : jI; if (f && f.id) return f; }
+        return lista[0];
+      }
+    }
+    return null;
+  }
+  // Campos que se permite cambiar: los de categoría y los de vendedor, sea cual sea el
+  // nombre exacto con que Contifico los entregue
+  const esCampoCategoria = k => /categoria/i.test(k);
+  const esCampoVendedor  = k => /vendedor/i.test(k) && k !== 'es_vendedor';
+  const diferencias = (a, b) => {
+    const claves = [...new Set(Object.keys(a||{}).concat(Object.keys(b||{})))];
+    return claves.filter(k => JSON.stringify((a||{})[k] ?? null) !== JSON.stringify((b||{})[k] ?? null))
+      .map(k => ({ campo: k, antes: (a||{})[k] ?? null, despues: (b||{})[k] ?? null }));
+  };
+  async function planCambioCtf(ident, categoriaNueva, vendedoraNueva){
+    const problemas = [];
+    const actual = await leerPersonaCtf(ident);
+    if (!actual) return { problemas: ['No encontré en Contifico una ficha con la identificación ' + ident] };
+    if (actual.error) return { problemas: [actual.error] };
+    // Clienta de referencia: alguien que YA tiene la categoría destino en Contifico
+    const catN = String(categoriaNueva||'').trim();
+    if (!catN) return { problemas: ['Falta la categoría nueva'] };
+    // Se prefiere una clienta de referencia cuya vendedora sea la pedida: así la
+    // categoría y la vendedora que se copian son, las dos, las correctas.
+    const venN = String(vendedoraNueva||'').trim().split(/\s+/)[0] || '';
+    const rRef = await pool.query(
+      `SELECT ruc, cedula, razon_social, vendedor FROM personas
+        WHERE UPPER(TRIM(categoria)) = UPPER($1) AND COALESCE(ruc, cedula, '') <> ''
+        ORDER BY (CASE WHEN $2 <> '' AND vendedor ILIKE ('%' || $2 || '%') THEN 0 ELSE 1 END),
+                 updated_at DESC NULLS LAST LIMIT 8`, [catN, venN]);
+    let ref = null;
+    for (const p of rRef.rows) {
+      const f = await leerPersonaCtf(p.ruc || p.cedula);
+      if (f && !f.error && String(f.categoria_nombre||'').trim().toUpperCase() === catN.toUpperCase()) { ref = f; break; }
+    }
+    if (!ref) return { actual, problemas: ['No encontré en Contifico ninguna clienta que ya tenga la categoría "' + catN + '" para copiar sus valores exactos.'] };
+    if (String(ref.id) === String(actual.id)) problemas.push('La clienta ya tiene esa categoría.');
+
+    const camposCat = Object.keys(ref).filter(esCampoCategoria);
+    const camposVen = Object.keys(ref).filter(esCampoVendedor);
+    const nueva = JSON.parse(JSON.stringify(actual));            // copia EXACTA de la ficha
+    camposCat.concat(camposVen).forEach(k => { nueva[k] = ref[k]; });
+    const cambios = diferencias(actual, nueva);
+    const prohibidos = cambios.filter(c => !esCampoCategoria(c.campo) && !esCampoVendedor(c.campo));
+    if (prohibidos.length) problemas.push('El plan tocaría campos no permitidos: ' + prohibidos.map(c=>c.campo).join(', '));
+    if (!camposVen.length) problemas.push('Contifico no entrega el campo de VENDEDOR por la API: la vendedora no se podría cambiar automáticamente, solo la categoría.');
+    if (String(actual.razon_social||'').length > 50) problemas.push('El nombre tiene más de 50 caracteres y Contifico lo cortaría al modificar. No se toca.');
+    return { actual, nueva, referencia: { nombre: ref.razon_social, ident: ref.ruc || ref.cedula,
+      categoria: ref.categoria_nombre, vendedor: camposVen.map(k => k + ' = ' + JSON.stringify(ref[k])).join(' · ') || '(no disponible)' },
+      cambios, problemas };
+  }
+
+  if (urlPath === '/api/asignacion/contifico' && req.method === 'GET') {
+    if (bloquearSiNoAdmin(req, res)) return;
+    try {
+      const plan = await planCambioCtf(urlObj.searchParams.get('ident'), urlObj.searchParams.get('categoria'), urlObj.searchParams.get('vendedora'));
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:true, modo:'VISTA PREVIA — no se escribió nada en Contifico',
+        se_puede_aplicar: !!plan.nueva && !(plan.problemas||[]).length,
+        clienta: plan.actual ? { nombre: plan.actual.razon_social, id: plan.actual.id,
+          categoria_actual: plan.actual.categoria_nombre } : null,
+        copiando_de: plan.referencia || null,
+        campos_que_cambiarian: plan.cambios || [],
+        problemas: plan.problemas || [],
+        ficha_completa_actual: plan.actual || null }, null, 2));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
+  if (urlPath === '/api/asignacion/contifico' && req.method === 'POST') {
+    if (bloquearSiNoAdmin(req, res)) return;
+    try {
+      const b = await bodyJSON(req);
+      if (b.confirmar !== true) throw new Error('Falta confirmar:true. Revisa antes la vista previa.');
+      const plan = await planCambioCtf(b.ident, b.categoria, b.vendedora);
+      if (!plan.nueva || (plan.problemas||[]).length) {
+        res.writeHead(200,{'Content-Type':'application/json'});
+        res.end(JSON.stringify({ ok:false, escrito:false, problemas: plan.problemas || ['No se pudo armar el cambio'] }));
+        return;
+      }
+      // Respaldo de la ficha original ANTES de escribir
+      let log = [];
+      try { log = JSON.parse(await getConfigApp('asignacion_contifico_log', '[]')) || []; } catch(e) {}
+      log.push({ at: new Date().toISOString(), id: plan.actual.id, ident: b.ident, original: plan.actual, cambios: plan.cambios });
+      await setConfigApp('asignacion_contifico_log', JSON.stringify(log.slice(-500)));
+
+      const pos = String(process.env.CONTIFICO_POS || process.env.CONTIFICO_POS_ID || '').trim();
+      const url = CTF + (pos ? '?pos=' + encodeURIComponent(pos) : '');
+      const rP = await fetch(url, { method:'PUT', headers: { 'Authorization': API_KEY, 'Content-Type':'application/json' },
+        body: JSON.stringify(plan.nueva) });
+      const txt = await rP.text();
+      if (!rP.ok) {
+        res.writeHead(200,{'Content-Type':'application/json'});
+        res.end(JSON.stringify({ ok:false, escrito:false, http: rP.status, respuesta_contifico: txt.substring(0,600) }));
+        return;
+      }
+      // Verificación: se vuelve a leer la ficha y se compara campo por campo
+      const despues = await leerPersonaCtf(b.ident);
+      const real = diferencias(plan.actual, despues);
+      const indebidos = real.filter(c => !esCampoCategoria(c.campo) && !esCampoVendedor(c.campo));
+      let restaurado = null;
+      if (indebidos.length) {
+        const rR = await fetch(url, { method:'PUT', headers: { 'Authorization': API_KEY, 'Content-Type':'application/json' },
+          body: JSON.stringify(plan.actual) });
+        restaurado = rR.ok;
+      }
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok: !indebidos.length, escrito:true,
+        resultado: indebidos.length
+          ? 'CAMBIARON CAMPOS QUE NO DEBÍAN. Se intentó devolver la ficha original: ' + (restaurado ? 'restaurada.' : 'NO se pudo restaurar, revisar a mano.')
+          : (real.length ? 'Listo: solo cambiaron categoría/vendedora.' : 'Contifico respondió bien pero la ficha no cambió (no acepta estos campos por la API).'),
+        cambios_reales: real, campos_indebidos: indebidos, ficha_despues: despues }, null, 2));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
   // ─── ASIGNACIÓN: material para reorganizar la cartera entre asesoras ───────────
   // GET /api/asignacion[?excel=1]
   // SOLO LECTURA. No cambia nada en la app ni en Contifico: es la foto de hoy (quién
