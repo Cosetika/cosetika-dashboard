@@ -3915,6 +3915,10 @@ async function initDB() {
         created_at TIMESTAMP DEFAULT NOW()
       );
       CREATE INDEX IF NOT EXISTS idx_lotes_producto ON lotes(producto_id);
+      -- Fecha desde la que vale la cantidad registrada del lote: las ventas posteriores a
+      -- esta fecha se descuentan del lote. Se reinicia cuando alguien corrige la cantidad.
+      ALTER TABLE lotes ADD COLUMN IF NOT EXISTS cantidad_desde TIMESTAMP;
+      UPDATE lotes SET cantidad_desde = created_at WHERE cantidad_desde IS NULL;
       CREATE TABLE IF NOT EXISTS stock_minimos (
         producto_id VARCHAR(30) PRIMARY KEY,
         minimo NUMERIC(13,2) DEFAULT 0,
@@ -8509,7 +8513,8 @@ const server = http.createServer(async (req, res) => {
   if (urlPath === '/api/lotes' && req.method === 'GET') {
     try {
       const rl = await pool.query(
-        `SELECT id, producto_id, codigo, nombre, marca, lote, TO_CHAR(fecha_caducidad,'YYYY-MM-DD') AS caduca, cantidad
+        `SELECT id, producto_id, codigo, nombre, marca, lote, TO_CHAR(fecha_caducidad,'YYYY-MM-DD') AS caduca, cantidad,
+                TO_CHAR(COALESCE(cantidad_desde, created_at) AT TIME ZONE 'America/Guayaquil','YYYY-MM-DD') AS desde
          FROM lotes ORDER BY producto_id, fecha_caducidad ASC, id ASC`);
       // Stock actual por producto (POS + Casa)
       const rs = await pool.query('SELECT producto_id, cantidad FROM stock_bodegas');
@@ -8527,6 +8532,14 @@ const server = http.createServer(async (req, res) => {
         });
       } catch(e) {}
       const hoyMs = new Date(new Date().toLocaleDateString('en-CA',{timeZone:'America/Guayaquil'}) + 'T12:00:00').getTime();
+      // Unidades vendidas por producto y mes (las mismas ventas que usa la rotación)
+      const vendidoMes = {};
+      Object.values(DATA_CACHE||{}).forEach(cl => (cl||[]).forEach(c => (c.productos_mes||[]).forEach(pm => {
+        const k = pm.id || pm.nombre; if (!k) return;
+        const m = pm.anio + '-' + String(pm.mes).padStart(2,'0');
+        (vendidoMes[k] = vendidoMes[k] || {})[m] = (vendidoMes[k][m] || 0) + (+pm.cantidad || 0);
+      })));
+      const hoyISO = new Date().toLocaleDateString('en-CA',{timeZone:'America/Guayaquil'});
       // Agrupar lotes por producto
       const porLote = {};
       rl.rows.forEach(l => { (porLote[l.producto_id] = porLote[l.producto_id] || []).push(l); });
@@ -8550,15 +8563,46 @@ const server = http.createServer(async (req, res) => {
         const lts = porLote[pid] || [];
         const stock = Math.max(0, stockPor[pid] || 0);
         const rot = rotacion[pid] || 0;
-        // FIFO: el stock actual se asigna del lote MÁS NUEVO hacia el más viejo;
-        // lo que sobra tras llenar los nuevos es lo que queda del lote viejo
-        let porAsignar = stock;
-        const restantes = new Array(lts.length).fill(0);
-        for (let i = lts.length - 1; i >= 0; i--) {
-          const asig = Math.min(parseFloat(lts[i].cantidad)||0, porAsignar);
-          restantes[i] = asig;
-          porAsignar -= asig;
+        // BAJA DÍA A DÍA (FEFO: sale primero lo que caduca primero).
+        // Antes el stock se repartía del lote más nuevo al más viejo y lo que sobraba se
+        // daba por "sin lote". Cuando había stock sin lote, ESO absorbía todas las ventas
+        // y los lotes registrados nunca bajaban (BSK23: lote 983 siempre en 210).
+        // Ahora cada lote empieza con su cantidad en la fecha en que se registró y, día a
+        // día, las ventas posteriores salen del lote que caduca primero. Las ventas de cada
+        // mes se reparten parejo entre sus días (Contifico las da por mes y producto).
+        // Al final se cuadra contra el stock real de Bodegas, que es la verdad física.
+        const restantes = lts.map(l => parseFloat(l.cantidad) || 0);
+        const vendidoLote = new Array(lts.length).fill(0);
+        if (lts.length) {
+          const vm = vendidoMes[pid] || {};
+          const inicio = lts.reduce((a, l) => (l.desde && l.desde < a ? l.desde : a), hoyISO);
+          const d = new Date(inicio + 'T12:00:00'); d.setDate(d.getDate() + 1);   // desde el día siguiente al registro
+          const [hA, hM, hD] = hoyISO.split('-').map(Number);
+          while (true) {
+            const iso = d.toLocaleDateString('en-CA');
+            if (iso > hoyISO) break;
+            const mk = iso.substring(0,7);
+            const esMesActual = (d.getFullYear() === hA && d.getMonth()+1 === hM);
+            const diasActivos = esMesActual ? hD : new Date(d.getFullYear(), d.getMonth()+1, 0).getDate();
+            let delDia = (vm[mk] || 0) / diasActivos;
+            for (let i = 0; i < lts.length && delDia > 1e-9; i++) {
+              if (!(lts[i].desde < iso) || restantes[i] <= 0) continue;     // aún no existía, o ya se acabó
+              const s = Math.min(restantes[i], delDia);
+              restantes[i] -= s; vendidoLote[i] += s; delDia -= s;
+            }
+            d.setDate(d.getDate() + 1);
+          }
         }
+        // Cuadre con el stock físico: si quedan más unidades en los lotes que en bodega,
+        // la diferencia salió (muestras, testers, ajustes) y se descuenta también de lo que
+        // caduca primero. Si en bodega hay más, ese excedente es stock sin lote registrado.
+        let enLotes = restantes.reduce((a,b)=>a+b, 0);
+        let exceso = enLotes - stock;
+        for (let i = 0; i < lts.length && exceso > 1e-9; i++) {
+          const s = Math.min(restantes[i], exceso); restantes[i] -= s; exceso -= s;
+        }
+        enLotes = restantes.reduce((a,b)=>a+b, 0);
+        const porAsignar = Math.max(0, stock - enLotes);
         // porAsignar > 0 = hay stock sin lote registrado (se informa aparte)
         let acumulado = 0;
         const MARGEN_COMERCIAL_MESES = 4; // los productos deben venderse 4 meses antes de caducar
@@ -8580,7 +8624,9 @@ const server = http.createServer(async (req, res) => {
             id: l.id, lote: l.lote, caduca: l.caduca,
             limite_venta: fechaLimite.toISOString().substring(0,10),
             cantidad: parseFloat(l.cantidad)||0,
-            restante: Math.round(restante*100)/100,
+            desde: l.desde,
+            vendido: Math.round(vendidoLote[i]),
+            restante: Math.round(restante),                 // unidades enteras
             meses_agotar: Math.round(mesesAgotar*10)/10,
             meses_caducidad: Math.round(mesesCaducidad*10)/10,
             meses_limite: Math.round(mesesLimite*10)/10,
@@ -8590,7 +8636,7 @@ const server = http.createServer(async (req, res) => {
         return {
           producto_id: pid, codigo: base.codigo, nombre: base.nombre, marca: base.marca,
           stock, rotacion: Math.round(rot*100)/100,
-          sin_lote: lts.length ? Math.round(porAsignar*100)/100 : 0,
+          sin_lote: lts.length ? Math.round(porAsignar) : 0,
           lotes
         };
       }).sort((a,b) => String(a.nombre||'').localeCompare(String(b.nombre||'')));
@@ -8618,8 +8664,8 @@ const server = http.createServer(async (req, res) => {
       }
       const info = catalogoProductos[producto_id] || {};
       await pool.query(
-        `INSERT INTO lotes(producto_id, codigo, nombre, marca, lote, fecha_caducidad, cantidad)
-         VALUES($1,$2,$3,$4,$5,$6,$7)`,
+        `INSERT INTO lotes(producto_id, codigo, nombre, marca, lote, fecha_caducidad, cantidad, cantidad_desde)
+         VALUES($1,$2,$3,$4,$5,$6,$7,NOW())`,
         [String(producto_id).substring(0,29), info.codigo||'', info.nombre||'', info.marca||'',
          String(lote).trim().substring(0,90), normalizarFechaCaducidad(fecha_caducidad), cant]
       );
@@ -8642,6 +8688,8 @@ const server = http.createServer(async (req, res) => {
         const c = parseFloat(body.cantidad)||0;
         if (c <= 0) { res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'Cantidad inválida'})); return; }
         sets.push('cantidad=$'+(i++)); params.push(c);
+        // Corregir la cantidad = "hoy quedan estas": las ventas se vuelven a contar desde hoy
+        sets.push('cantidad_desde=NOW()');
       }
       if (sets.length === 0) { res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:'Sin campos'})); return; }
       params.push(id);
