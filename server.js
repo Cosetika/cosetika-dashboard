@@ -9638,13 +9638,15 @@ function metricasImportacion(r){
     const rRef = await pool.query(
       `SELECT ruc, cedula, razon_social, vendedor FROM personas
         WHERE UPPER(TRIM(categoria)) = UPPER($1) AND COALESCE(ruc, cedula, '') <> ''
-        ORDER BY (CASE WHEN $2 <> '' AND vendedor ILIKE ('%' || $2 || '%') THEN 0 ELSE 1 END),
-                 updated_at DESC NULLS LAST LIMIT 8`, [catN, venN]);
+          AND ($2::text = '' OR vendedor ILIKE ('%' || $2::text || '%'))
+        ORDER BY updated_at DESC NULLS LAST LIMIT 12`, [catN, venN]);
     // La referencia debe tener la categoría Y la vendedora pedidas. Si la vendedora del
     // Excel no coincide con ninguna clienta de esa categoría, no se adivina: se reporta.
     const nzV = x => String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
+    // Nombre de la vendedora tal como lo entrega Contifico, si lo entrega. Los ids de
+    // Contifico son códigos sin espacios ("1mBdJ5jKhlRXb0J6"); un nombre tiene espacios.
     const vendedorDe = f => Object.keys(f).filter(esCampoVendedor).map(k => f[k])
-      .filter(v => typeof v === 'string' && /[A-Za-z]/.test(v)).join(' ');
+      .filter(v => typeof v === 'string' && /\s/.test(v.trim())).join(' ');
     const claveRef = catN.toUpperCase() + '|' + nzV(venN);
     let ref = cacheRef && cacheRef[claveRef] !== undefined ? cacheRef[claveRef] : undefined;
     if (ref === undefined) {
@@ -9652,15 +9654,27 @@ function metricasImportacion(r){
       for (const p of rRef.rows) {
         const f = await leerPersonaCtf(p.ruc || p.cedula);
         if (!f || f.error || String(f.categoria_nombre||'').trim().toUpperCase() !== catN.toUpperCase()) continue;
-        if (venN && !nzV(vendedorDe(f)).includes(nzV(venN))) continue;
-        ref = f; break;
+        // La vendedora se comprueba con el nombre que da Contifico; si Contifico solo da
+        // el código (sin nombre), con el directorio de clientas de la app, que viene del
+        // propio Contifico (Personas.xls). Nunca se acepta una referencia sin comprobar.
+        const nomApi = vendedorDe(f);
+        const vendedoraOk = !venN
+          || (nomApi ? nzV(nomApi).includes(nzV(venN)) : nzV(p.vendedor).includes(nzV(venN)));
+        if (!vendedoraOk) continue;
+        ref = f; ref.__vendedora_local = p.vendedor || ''; break;
       }
       if (cacheRef) cacheRef[claveRef] = ref;
     }
-    if (!ref) return { actual, problemas: ['No encontré en Contifico ninguna clienta con categoría "' + catN + '"'
-      + (venN ? ' y vendedora "' + vendedoraNueva + '"' : '') + ' para copiar sus valores exactos. Revisa que la categoría y la vendedora vayan juntas.'] };
+    if (!ref) {
+      const camposV = Object.keys(actual).filter(esCampoVendedor);
+      return { actual, problemas: ['No encontré en Contifico ninguna clienta con categoría "' + catN + '"'
+        + (venN ? ' y vendedora "' + vendedoraNueva + '"' : '') + ' para copiar sus valores exactos (revisé '
+        + rRef.rows.length + ' candidatas del directorio). Revisa que la categoría y la vendedora vayan juntas.'
+        + ' Campos de vendedor que entrega Contifico: ' + (camposV.length ? camposV.map(k => k + '=' + JSON.stringify(actual[k])).join(', ') : 'NINGUNO')] };
+    }
     if (String(ref.id) === String(actual.id)) problemas.push('La clienta ya tiene esa categoría.');
 
+    const vendedoraLocal = ref.__vendedora_local; delete ref.__vendedora_local;
     const camposCat = Object.keys(ref).filter(esCampoCategoria);
     const camposVen = Object.keys(ref).filter(esCampoVendedor);
     const nueva = JSON.parse(JSON.stringify(actual));            // copia EXACTA de la ficha
@@ -9671,7 +9685,8 @@ function metricasImportacion(r){
     if (!camposVen.length) problemas.push('Contifico no entrega el campo de VENDEDOR por la API: la vendedora no se podría cambiar automáticamente, solo la categoría.');
     if (String(actual.razon_social||'').length > 50) problemas.push('El nombre tiene más de 50 caracteres y Contifico lo cortaría al modificar. No se toca.');
     return { actual, nueva, referencia: { nombre: ref.razon_social, ident: ref.ruc || ref.cedula,
-      categoria: ref.categoria_nombre, vendedor: camposVen.map(k => k + ' = ' + JSON.stringify(ref[k])).join(' · ') || '(no disponible)' },
+      categoria: ref.categoria_nombre, vendedora: vendedorDe(ref) || vendedoraLocal || '',
+      vendedor: camposVen.map(k => k + ' = ' + JSON.stringify(ref[k])).join(' · ') || '(no disponible)' },
       cambios, problemas };
   }
 
@@ -9968,10 +9983,21 @@ function metricasImportacion(r){
         ws2['!cols'] = [{wch:18}].concat(asesoras.map(()=>({wch:16}))).concat([{wch:8}]);
         XLSX.utils.book_append_sheet(wb, ws2, 'Mapa por provincia');
         // Hoja 3: los códigos de categoría válidos, para llenar la columna nueva sin errores
-        const res3 = [['Código de categoría (escribir así)','Asesora']];
-        Object.entries(mapa).sort((a,b)=>String(a[1]).localeCompare(String(b[1]))).forEach(([k,v]) => res3.push([k, v]));
+        // Para cada categoría, la vendedora con que Contifico la usa en la mayoría de sus
+        // clientas: es la pareja que hay que escribir en las dos columnas nuevas.
+        const parejas = {};
+        rP.rows.forEach(p => {
+          const k = String(p.categoria||'').trim(); const v = String(p.vendedor||'').trim();
+          if (!k || !v) return;
+          parejas[k] = parejas[k] || {}; parejas[k][v] = (parejas[k][v] || 0) + 1;
+        });
+        const res3 = [['NUEVA CATEGORÍA (escribir así)','NUEVA VENDEDORA (escribir así)','Asesora en la app','Clientas hoy']];
+        Object.keys(parejas).sort().forEach(k => {
+          const top = Object.entries(parejas[k]).sort((a,b)=>b[1]-a[1])[0];
+          res3.push([k, top ? top[0] : '', mapa[k.toUpperCase()] || '', Object.values(parejas[k]).reduce((a,b)=>a+b,0)]);
+        });
         const ws3 = XLSX.utils.aoa_to_sheet(res3);
-        ws3['!cols'] = [{wch:34},{wch:30}];
+        ws3['!cols'] = [{wch:30},{wch:36},{wch:26},{wch:12}];
         XLSX.utils.book_append_sheet(wb, ws3, 'Categorías válidas');
         const buf = XLSX.write(wb, { type:'buffer', bookType:'xlsx' });
         const hoyS = nowEC().toLocaleDateString('en-CA');
