@@ -9632,6 +9632,11 @@ function metricasImportacion(r){
     // Clienta de referencia: alguien que YA tiene la categoría destino en Contifico
     const catN = String(categoriaNueva||'').trim();
     if (!catN) return { problemas: ['Falta la categoría nueva'] };
+    // La API de Contifico NO entrega la vendedora de la ficha (comprobado con Doyse Ávila,
+    // nov-2026): ese campo solo existe en la pantalla. Lo que no se puede leer no se
+    // escribe a ciegas, así que en ese caso se cambia SOLO la categoría y la vendedora
+    // queda en una lista para ponerla a mano.
+    const soloCategoria = !Object.keys(actual).some(esCampoVendedor);
     // Se prefiere una clienta de referencia cuya vendedora sea la pedida: así la
     // categoría y la vendedora que se copian son, las dos, las correctas.
     const venN = String(vendedoraNueva||'').trim().split(/\s+/)[0] || '';
@@ -9639,7 +9644,7 @@ function metricasImportacion(r){
       `SELECT ruc, cedula, razon_social, vendedor FROM personas
         WHERE UPPER(TRIM(categoria)) = UPPER($1) AND COALESCE(ruc, cedula, '') <> ''
           AND ($2::text = '' OR vendedor ILIKE ('%' || $2::text || '%'))
-        ORDER BY updated_at DESC NULLS LAST LIMIT 12`, [catN, venN]);
+        ORDER BY updated_at DESC NULLS LAST LIMIT 12`, [catN, soloCategoria ? '' : venN]);
     // La referencia debe tener la categoría Y la vendedora pedidas. Si la vendedora del
     // Excel no coincide con ninguna clienta de esa categoría, no se adivina: se reporta.
     const nzV = x => String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
@@ -9647,7 +9652,7 @@ function metricasImportacion(r){
     // Contifico son códigos sin espacios ("1mBdJ5jKhlRXb0J6"); un nombre tiene espacios.
     const vendedorDe = f => Object.keys(f).filter(esCampoVendedor).map(k => f[k])
       .filter(v => typeof v === 'string' && /\s/.test(v.trim())).join(' ');
-    const claveRef = catN.toUpperCase() + '|' + nzV(venN);
+    const claveRef = catN.toUpperCase() + '|' + (soloCategoria ? '*' : nzV(venN));
     let ref = cacheRef && cacheRef[claveRef] !== undefined ? cacheRef[claveRef] : undefined;
     if (ref === undefined) {
       ref = null;
@@ -9658,7 +9663,7 @@ function metricasImportacion(r){
         // el código (sin nombre), con el directorio de clientas de la app, que viene del
         // propio Contifico (Personas.xls). Nunca se acepta una referencia sin comprobar.
         const nomApi = vendedorDe(f);
-        const vendedoraOk = !venN
+        const vendedoraOk = soloCategoria || !venN
           || (nomApi ? nzV(nomApi).includes(nzV(venN)) : nzV(p.vendedor).includes(nzV(venN)));
         if (!vendedoraOk) continue;
         ref = f; ref.__vendedora_local = p.vendedor || ''; break;
@@ -9668,7 +9673,7 @@ function metricasImportacion(r){
     if (!ref) {
       const camposV = Object.keys(actual).filter(esCampoVendedor);
       return { actual, problemas: ['No encontré en Contifico ninguna clienta con categoría "' + catN + '"'
-        + (venN ? ' y vendedora "' + vendedoraNueva + '"' : '') + ' para copiar sus valores exactos (revisé '
+        + (venN && !soloCategoria ? ' y vendedora "' + vendedoraNueva + '"' : '') + ' para copiar sus valores exactos (revisé '
         + rRef.rows.length + ' candidatas del directorio). Revisa que la categoría y la vendedora vayan juntas.'
         + ' Campos de vendedor que entrega Contifico: ' + (camposV.length ? camposV.map(k => k + '=' + JSON.stringify(actual[k])).join(', ') : 'NINGUNO')] };
     }
@@ -9682,12 +9687,12 @@ function metricasImportacion(r){
     const cambios = diferencias(actual, nueva);
     const prohibidos = cambios.filter(c => !esCampoCategoria(c.campo) && !esCampoVendedor(c.campo));
     if (prohibidos.length) problemas.push('El plan tocaría campos no permitidos: ' + prohibidos.map(c=>c.campo).join(', '));
-    if (!camposVen.length) problemas.push('Contifico no entrega el campo de VENDEDOR por la API: la vendedora no se podría cambiar automáticamente, solo la categoría.');
+    // (sin campos de vendedor: modo solo categoría, no es un problema)
     if (String(actual.razon_social||'').length > 50) problemas.push('El nombre tiene más de 50 caracteres y Contifico lo cortaría al modificar. No se toca.');
     return { actual, nueva, referencia: { nombre: ref.razon_social, ident: ref.ruc || ref.cedula,
       categoria: ref.categoria_nombre, vendedora: vendedorDe(ref) || vendedoraLocal || '',
       vendedor: camposVen.map(k => k + ' = ' + JSON.stringify(ref[k])).join(' · ') || '(no disponible)' },
-      cambios, problemas };
+      cambios, problemas, soloCategoria };
   }
 
   if (urlPath === '/api/asignacion/contifico' && req.method === 'GET') {
@@ -9735,7 +9740,7 @@ function metricasImportacion(r){
         body: JSON.stringify(plan.actual) });
       restaurado = !!(rR && rR.ok);
     }
-    return { escrito:true, ok: !indebidos.length && real.length > 0,
+    return { escrito:true, soloCategoria: plan.soloCategoria, ok: !indebidos.length && real.length > 0,
       ignorado: !indebidos.length && real.length === 0,
       resultado: indebidos.length
         ? 'CAMBIARON CAMPOS QUE NO DEBÍAN. Ficha original ' + (restaurado ? 'restaurada.' : 'NO se pudo restaurar: revisar a mano.')
@@ -9763,6 +9768,48 @@ function metricasImportacion(r){
   // GET  /api/asignacion/estado                          → avance y resultado por fila.
   // Frenos de seguridad al aplicar: si en UNA clienta cambia un campo que no debía, o si
   // Contifico ignora el cambio en la primera, o rechaza tres seguidas, se detiene todo.
+  // ─── VENDEDORA A MANO: las clientas a las que ya se les cambió la categoría y falta
+  // poner la vendedora en Contifico (la API no deja). Se guarda en la base para que la
+  // lista sobreviva a reinicios y nadie se quede sin hacer.
+  // GET  /api/asignacion/vendedora-pendiente[?excel=1]
+  // POST /api/asignacion/vendedora-pendiente {ident, hecha}
+  if (urlPath === '/api/asignacion/vendedora-pendiente' && req.method === 'GET') {
+    if (bloquearSiNoAdmin(req, res)) return;
+    try {
+      const lista = JSON.parse(await getConfigApp('asignacion_vendedora_pendiente', '[]')) || [];
+      if (urlObj.searchParams.get('excel') === '1') {
+        const filas = [['Cliente','Cédula / RUC','Categoría (ya cambiada)','VENDEDORA A PONER','Hecha']];
+        lista.slice().sort((a,b)=>String(a.vendedora).localeCompare(String(b.vendedora)) || String(a.nombre).localeCompare(String(b.nombre)))
+          .forEach(x => filas.push([x.nombre, x.ident, x.categoria, x.vendedora, x.hecha ? 'Sí' : '']));
+        const ws = XLSX.utils.aoa_to_sheet(filas);
+        ws['!cols'] = [{wch:40},{wch:16},{wch:22},{wch:30},{wch:8}];
+        ws['!autofilter'] = { ref: 'A1:E' + filas.length };
+        const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Vendedora a mano');
+        const buf = XLSX.write(wb, { type:'buffer', bookType:'xlsx' });
+        res.writeHead(200,{ 'Content-Type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'Content-Disposition':'attachment; filename="VENDEDORA_A_MANO_CONTIFICO.xlsx"', 'Cache-Control':'no-cache' });
+        res.end(buf); return;
+      }
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:true, lista, pendientes: lista.filter(x=>!x.hecha).length }));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+  if (urlPath === '/api/asignacion/vendedora-pendiente' && req.method === 'POST') {
+    if (bloquearSiNoAdmin(req, res)) return;
+    try {
+      const b = await bodyJSON(req);
+      const lista = JSON.parse(await getConfigApp('asignacion_vendedora_pendiente', '[]')) || [];
+      const d = String(b.ident||'').replace(/\D/g,'');
+      const x = lista.find(y => String(y.ident).replace(/\D/g,'') === d);
+      if (!x) throw new Error('No está en la lista');
+      x.hecha = !!b.hecha; x.hecha_at = b.hecha ? new Date().toISOString() : null;
+      await setConfigApp('asignacion_vendedora_pendiente', JSON.stringify(lista));
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ ok:true }));
+    } catch(e) { res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
   if (urlPath === '/api/asignacion/estado' && req.method === 'GET') {
     if (bloquearSiNoAdmin(req, res)) return;
     const cuenta = { listas: ASIG_JOB.filas.filter(f=>f.estado==='lista').length,
@@ -9822,7 +9869,12 @@ function metricasImportacion(r){
                 vendedor: Object.keys(plan.actual).filter(esCampoVendedor).map(k=>plan.actual[k]).filter(v=>typeof v==='string'&&/[A-Za-z]/.test(v)).join(' ') } : null;
               f.cambios = (plan.cambios||[]).map(c => c.campo);
               if ((plan.problemas||[]).length) { f.estado = 'problema'; f.detalle = plan.problemas.join(' / '); }
-              else { f.estado = 'lista'; f.detalle = 'Cambiaría: ' + f.cambios.join(', '); }
+              else {
+                f.estado = 'lista'; f.soloCategoria = !!plan.soloCategoria;
+                f.detalle = plan.soloCategoria
+                  ? 'Se cambiará la CATEGORÍA. La vendedora (' + (f.vendedora||'—') + ') queda para ponerla a mano.'
+                  : 'Cambiaría: ' + f.cambios.join(', ');
+              }
             } catch(e) { f.estado = 'problema'; f.detalle = 'Error leyendo Contifico: ' + e.message; }
             await new Promise(r => setTimeout(r, 200));
           }
@@ -9859,7 +9911,21 @@ function metricasImportacion(r){
           try { r = await aplicarUnaCtf(f.ident, f.categoria, f.vendedora, cache); }
           catch(e) { r = { escrito:false, ok:false, problemas:['Error: ' + e.message] }; }
           ASIG_JOB.hechos++;
-          if (r.ok) { f.estado = 'aplicada'; f.detalle = 'Cambió: ' + r.cambios_reales.map(c=>c.campo).join(', '); rechazosSeguidos = 0; }
+          if (r.ok) {
+            f.estado = 'aplicada'; rechazosSeguidos = 0;
+            f.detalle = 'Cambió: ' + r.cambios_reales.map(c=>c.campo).join(', ')
+              + (r.soloCategoria ? ' · FALTA poner la vendedora a mano' : '');
+            if (r.soloCategoria) {
+              try {
+                const pend = JSON.parse(await getConfigApp('asignacion_vendedora_pendiente', '[]')) || [];
+                const d = String(f.ident).replace(/\D/g,'');
+                const sinRepetir = pend.filter(x => String(x.ident).replace(/\D/g,'') !== d);
+                sinRepetir.push({ ident: f.ident, nombre: (f.actual && f.actual.nombre) || f.nombre,
+                  categoria: f.categoria, vendedora: f.vendedora, at: new Date().toISOString(), hecha: false });
+                await setConfigApp('asignacion_vendedora_pendiente', JSON.stringify(sinRepetir.slice(-5000)));
+              } catch(e) {}
+            }
+          }
           else {
             f.estado = 'fallida';
             f.detalle = r.resultado || (r.problemas||[]).join(' / ');
@@ -10072,7 +10138,8 @@ function metricasImportacion(r){
       const s = req.sesion || {};
       // Ver toda la cartera es un permiso, no un rol: así se le puede dar a quien cobra
       // sin tener que hacerla admin. El admin lo tiene siempre.
-      const verTodo = s.rol === 'admin' || (await modulosDe(s.id)).includes('cxc_todo');
+      const modsS = await modulosDe(s.id);
+      const verTodo = s.rol === 'admin' || modsS.includes('cxc_todo') || modsS.includes('ver_clientes_todas');
       if (!verTodo) {
         const ancla = x => nz(x).split(' ').slice(0,2).join(' ');
         const mia = ancla(s.nombre || '');
