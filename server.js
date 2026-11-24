@@ -8263,12 +8263,34 @@ const server = http.createServer(async (req, res) => {
         headers: { 'Authorization': API_KEY, 'Accept': 'application/json' } });
       const crudo = r.ok ? await r.json() : null;
       const g = await pool.query('SELECT bodega, cantidad, actualizado_at FROM stock_bodegas WHERE producto_id=$1 ORDER BY bodega', [pid]);
+
+      // Rotación: de dónde sale el número que muestra el panel. Se listan las unidades
+      // vendidas mes a mes de este producto, para poder ver si el problema es que no hay
+      // ventas registradas, que están bajo otro id, o que se están contando otros meses.
+      const porMes = {};
+      Object.values(DATA_CACHE||{}).forEach(clientes => (clientes||[]).forEach(cli => {
+        (cli.productos_mes||[]).forEach(pm => {
+          if ((pm.id || pm.nombre) !== pid) return;
+          const k = pm.anio + '-' + String(pm.mes).padStart(2,'0');
+          porMes[k] = (porMes[k]||0) + (pm.cantidad||0);
+        });
+      }));
+      const fcR = (INVENTARIO_CACHE && INVENTARIO_CACHE.fecha_corte)
+        || new Date().toLocaleDateString('en-CA',{timeZone:'America/Guayaquil'});
+      const rot = calcularRotacionMensual(fcR);
+
       res.writeHead(200,{'Content-Type':'application/json'});
       res.end(JSON.stringify({ ok:true, sku, producto_id: pid, nombre: info.nombre, marca: info.marca,
         http: r.status,
         contifico_todas_las_bodegas: crudo,
         contifico_total: Array.isArray(crudo) ? crudo.reduce((a,b)=>a+(parseFloat(b.cantidad)||0),0) : null,
-        guardado_en_la_app: g.rows }, null, 2));
+        guardado_en_la_app: g.rows,
+        rotacion: {
+          fecha_corte_usada: fcR,
+          valor_que_muestra_el_panel: Math.round((rot[pid]||0)*100)/100,
+          unidades_vendidas_por_mes: Object.fromEntries(Object.entries(porMes).sort()),
+          nota: 'La rotación es el promedio mensual de los 3 meses CERRADOS anteriores a la fecha de corte. El mes en curso no cuenta.'
+        } }, null, 2));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
   }
