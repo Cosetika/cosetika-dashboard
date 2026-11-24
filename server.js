@@ -9562,6 +9562,137 @@ function metricasImportacion(r){
     return;
   }
 
+  // ─── ASIGNACIÓN: material para reorganizar la cartera entre asesoras ───────────
+  // GET /api/asignacion[?excel=1]
+  // SOLO LECTURA. No cambia nada en la app ni en Contifico: es la foto de hoy (quién
+  // tiene a cada clienta, en qué provincia está, cuánto compra y cuánto debe) para que
+  // el equipo decida el reparto. El Excel trae dos columnas vacías —Nueva categoría y
+  // Nueva vendedora— que son las ÚNICAS que se usarán después para aplicar los cambios.
+  if (urlPath === '/api/asignacion' && req.method === 'GET') {
+    if (bloquearSiNoAdmin(req, res)) return;
+    try {
+      const mapa = await mapaCategorias();
+      const rP = await pool.query('SELECT cedula, ruc, razon_social, direccion, vendedor, categoria FROM personas ORDER BY razon_social');
+      const rU = await pool.query(`SELECT nombre FROM usuarios WHERE activo=true AND rol IN ('asesora','jefa_ventas')`);
+      const nz = s => String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase().replace(/\s+/g,' ').trim();
+      const ancla = s => nz(s).split(' ').slice(0,2).join(' ');
+      const activas = rU.rows.map(u => u.nombre);
+      // ¿Esta asesora sigue trabajando? Mismo nombre y apellido, o mismo primer nombre y
+      // algún apellido en común ("Liseth Gavilanes" vs "Liseth Alexandra Gavilanes Tituaña")
+      const palabras = s => nz(s).split(' ').filter(w => w.length > 2);
+      const esActiva = n => activas.some(a => {
+        const A = palabras(a), N = palabras(n);
+        if (!A.length || !N.length) return false;
+        if (ancla(a) === ancla(n)) return true;
+        return A[0] === N[0] && N.slice(1).some(w => A.slice(1).includes(w));
+      });
+
+      // Ventas del año y última compra, por cédula/RUC
+      const anio = nowEC().getFullYear();
+      const ventas = {};
+      Object.values(DATA_CACHE || {}).forEach(cl => (cl || []).forEach(c => {
+        const d = String(c.ruc || '').replace(/\D/g,''); if (!d) return;
+        const v = ventas[d] || (ventas[d] = { anio: 0, ultima: 0 });
+        (c.frecuencia || []).forEach(f => {
+          if (f.anio === anio) v.anio += (+f.subtotal || 0);
+          if ((+f.total || 0) > 0) v.ultima = Math.max(v.ultima, f.anio * 100 + f.mes);
+        });
+      }));
+      // Lo que debe hoy, por cédula/RUC (de la cartera ya sincronizada)
+      const deuda = {};
+      (CARTERA.todos_clientes || []).forEach(c => {
+        const d = String(c.ident || '').replace(/\D/g,''); if (d) deuda[d] = (deuda[d] || 0) + (+c.total || 0);
+      });
+
+      const r2 = x => Math.round(x*100)/100;
+      const MES = ['','ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+      const SIN = 'Sin asesora';
+      const clientas = rP.rows.map(p => {
+        const ident = String(p.ruc || p.cedula || '').trim();
+        const d = ident.replace(/\D/g,'');
+        const d10 = d.length === 13 ? d.substring(0,10) : d;
+        const cod = String(p.categoria || '').trim();
+        const asesora = (cod && mapa[cod.toUpperCase()]) || p.vendedor || SIN;
+        const v = ventas[d] || ventas[d10] || { anio: 0, ultima: 0 };
+        let provincia = '';
+        try { provincia = resolverProvinciaCliente(ident, null, p.direccion || '') || ''; } catch(e) {}
+        return {
+          nombre: p.razon_social || '—', ident,
+          provincia: String(provincia || 'Sin provincia').toUpperCase(),
+          categoria: cod, vendedor: p.vendedor || '', asesora,
+          activa: asesora !== SIN && esActiva(asesora),
+          ventas_anio: r2(v.anio),
+          ultima: v.ultima ? (MES[v.ultima % 100] + ' ' + String(Math.floor(v.ultima/100)).substring(2)) : '',
+          ultima_k: v.ultima || 0,
+          debe: r2(deuda[d] || deuda[d10] || 0)
+        };
+      });
+
+      // Resumen provincia × asesora
+      // Columnas: las asesoras que hoy tienen clientas, MÁS las activas que todavía no
+      // tienen ninguna (alguien recién llegada también tiene que poder recibir clientas)
+      const conClientas = [...new Set(clientas.map(c => c.asesora))];
+      activas.forEach(a => {
+        const yaEsta = conClientas.some(n => ancla(n) === ancla(a)
+          || (palabras(n)[0] === palabras(a)[0] && palabras(n).slice(1).some(w => palabras(a).includes(w))));
+        if (!yaEsta) conClientas.push(a);
+      });
+      const asesoras = conClientas
+        .sort((a,b) => (a===SIN) - (b===SIN) || (esActiva(b) - esActiva(a)) || a.localeCompare(b));
+      const provincias = [...new Set(clientas.map(c => c.provincia))].sort((a,b) => (a==='SIN PROVINCIA') - (b==='SIN PROVINCIA') || a.localeCompare(b));
+      const matriz = {};
+      clientas.forEach(c => { const k = c.provincia + '|' + c.asesora; matriz[k] = (matriz[k] || 0) + 1; });
+
+      if (urlObj.searchParams.get('excel') === '1') {
+        const wb = XLSX.utils.book_new();
+        // Hoja 1: una fila por clienta, ordenadas por provincia y asesora actual
+        const orden = clientas.slice().sort((a,b) => a.provincia.localeCompare(b.provincia) || a.asesora.localeCompare(b.asesora) || b.ventas_anio - a.ventas_anio);
+        const filas = [['Provincia','Cliente','Cédula / RUC','Categoría actual','Vendedora actual','Asesora (según categoría)',
+                        'Ventas '+anio+' sin IVA','Última compra','Debe hoy','NUEVA CATEGORÍA','NUEVA VENDEDORA']];
+        orden.forEach(c => filas.push([c.provincia, c.nombre, c.ident, c.categoria, c.vendedor,
+          c.asesora + (c.activa || c.asesora===SIN ? '' : ' (ya no trabaja)'), c.ventas_anio, c.ultima, c.debe, '', '']));
+        const ws1 = XLSX.utils.aoa_to_sheet(filas);
+        ws1['!cols'] = [{wch:16},{wch:40},{wch:15},{wch:16},{wch:30},{wch:30},{wch:14},{wch:12},{wch:11},{wch:18},{wch:30}];
+        ws1['!autofilter'] = { ref: 'A1:K' + filas.length };
+        XLSX.utils.book_append_sheet(wb, ws1, 'Clientas');
+        // Hoja 2: el mapa provincia × asesora
+        const res2 = [['Provincia'].concat(asesoras).concat(['TOTAL'])];
+        provincias.forEach(pv => {
+          const fila = [pv]; let t = 0;
+          asesoras.forEach(a => { const n = matriz[pv+'|'+a] || 0; fila.push(n || ''); t += n; });
+          fila.push(t); res2.push(fila);
+        });
+        const tot = ['TOTAL']; asesoras.forEach(a => tot.push(clientas.filter(c => c.asesora === a).length)); tot.push(clientas.length);
+        res2.push(tot);
+        const ws2 = XLSX.utils.aoa_to_sheet(res2);
+        ws2['!cols'] = [{wch:18}].concat(asesoras.map(()=>({wch:16}))).concat([{wch:8}]);
+        XLSX.utils.book_append_sheet(wb, ws2, 'Mapa por provincia');
+        // Hoja 3: los códigos de categoría válidos, para llenar la columna nueva sin errores
+        const res3 = [['Código de categoría (escribir así)','Asesora']];
+        Object.entries(mapa).sort((a,b)=>String(a[1]).localeCompare(String(b[1]))).forEach(([k,v]) => res3.push([k, v]));
+        const ws3 = XLSX.utils.aoa_to_sheet(res3);
+        ws3['!cols'] = [{wch:34},{wch:30}];
+        XLSX.utils.book_append_sheet(wb, ws3, 'Categorías válidas');
+        const buf = XLSX.write(wb, { type:'buffer', bookType:'xlsx' });
+        const hoyS = nowEC().toLocaleDateString('en-CA');
+        res.writeHead(200,{
+          'Content-Type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'Content-Disposition':`attachment; filename="ASIGNACION_CLIENTAS_${hoyS}.xlsx"`,
+          'Cache-Control':'no-cache'
+        });
+        res.end(buf);
+        return;
+      }
+
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({ ok:true, anio, total: clientas.length,
+        asesoras: asesoras.map(a => ({ nombre: a, activa: a !== SIN && esActiva(a), sin: a === SIN,
+          clientas: clientas.filter(c => c.asesora === a).length })),
+        provincias, matriz, clientas }));
+    } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
   // ─── CXC: qué tiene que cobrar cada asesora ───────────────────────────────────
   // Cruza la cartera viva de Contifico (quién debe y cuánto) con el directorio de
   // personas (a qué asesora pertenece cada clienta, por su código de categoría).

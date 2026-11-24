@@ -294,6 +294,7 @@
     </div>
     <div id="nav-clientes-subs" style="max-height:0;overflow:hidden;transition:max-height 0.25s ease">
       <div class="nav-sub-item" id="navsub-cxc" onclick="navGoCxc()"><i class="ti ti-cash-banknote" style="font-size:13px"></i>CXC</div>
+      <div class="nav-sub-item" id="navsub-asignacion" onclick="navGoAsignacion()"><i class="ti ti-arrows-shuffle" style="font-size:13px"></i>Asignación</div>
       <div class="nav-sub-item" id="navsub-cpf" onclick="navSetSubtab('cpf')"><i class="ti ti-user-dollar" style="font-size:13px"></i>Compras</div>
       <div class="nav-sub-item" id="navsub-prov" onclick="navSetSubtab('prov')"><i class="ti ti-map-pin" style="font-size:13px"></i>Provincia</div>
       <div class="nav-sub-item" id="navsub-cartera" onclick="navGoCartera()"><i class="ti ti-address-book" style="font-size:13px"></i>Cartera</div>
@@ -793,7 +794,7 @@ function navSetMod(mod){
 const MOD_LABELS = {
   ventas:'Inicio', visitas:'Visitas', kpis:'KPIs',
   inventario:'Inventario', reportes:'Reportes', config:'Configuración', documentos:'Documentos', nsos:'NSOs', referidos:'Referidos', institutos_cli:'Institutos', bodegas:'Bodegas', lotes:'Caducidad', testers_inv:'Testers',
-  capacitaciones:'Capacitaciones', institutos:'Institutos', cxc:'CXC', cartera_cli:'Cartera asignada', seguimiento_cli:'Seguimiento',
+  capacitaciones:'Capacitaciones', institutos:'Institutos', cxc:'CXC', asignacion:'Asignación', cartera_cli:'Cartera asignada', seguimiento_cli:'Seguimiento',
   giras:'Giras a Provincias', casas_abiertas:'Casas Abiertas',
   'visitas-plan':'Planificación Visitas'
 };
@@ -852,6 +853,8 @@ function setMod(mod){
     renderInstitutosCli();
   } else if(mod==='cxc'){
     renderCxc();
+  } else if(mod==='asignacion'){
+    renderAsignacion();
   } else if(mod==='cartera_cli'){
     renderCarteraAsignada();
   } else if(mod==='seguimiento_cli'){
@@ -13708,6 +13711,133 @@ async function actualizarCxc(btn){
     else renderCxc();
   };
   setTimeout(revisar, 10000);
+}
+
+// ─── ASIGNACIÓN: mapa provincia × asesora, para reorganizar la cartera ──────────
+// Solo lectura por ahora: es el material para que el equipo decida el reparto. Los
+// cambios se harán después, y solo en la categoría y la vendedora de cada clienta.
+function navGoAsignacion(){
+  navSetMod('asignacion');
+  setTimeout(()=>{
+    document.querySelectorAll('.nav-sub-item').forEach(s=>s.classList.remove('active'));
+    document.getElementById('navsub-asignacion')?.classList.add('active');
+    const subs = document.getElementById('nav-clientes-subs');
+    const chev = document.getElementById('nav-clientes-chevron');
+    if(subs) subs.style.maxHeight = '400px';
+    if(chev) chev.style.transform = 'rotate(90deg)';
+    document.getElementById('nav-clientes')?.classList.add('active');
+  }, 30);
+}
+
+async function renderAsignacion(){
+  const main = document.getElementById('main');
+  if(!main) return;
+  if((window.usuarioActual||{}).rol !== 'admin'){
+    main.innerHTML = '<div class="coming"><i class="ti ti-lock"></i><p>Solo para administración</p></div>';
+    return;
+  }
+  if(!window._asigData){
+    main.innerHTML = '<div style="padding:30px;text-align:center;color:var(--muted)"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:22px"></i></div>';
+    try{ const r = await fetch('/api/asignacion'); window._asigData = await r.json(); }catch(e){ window._asigData = null; }
+  }
+  const d = window._asigData;
+  if(!d || !d.ok){
+    main.innerHTML = '<div class="card" style="padding:18px;font-size:13px;color:var(--muted)">No se pudo cargar.'
+      + (d && d.error ? '<div style="margin-top:6px;color:#dc2626">'+String(d.error).replace(/</g,'&lt;')+'</div>' : '') + '</div>';
+    window._asigData = null;
+    return;
+  }
+  const esc = v => String(v||'').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  const money = v => '$' + Math.round(+v||0).toLocaleString('en-US');
+  const corto = n => (typeof nombreCorto === 'function' ? nombreCorto(n) : n) || n;
+  const sel = window._asigSel || null;                  // celda abierta: "PROVINCIA|Asesora"
+  const soloInactivas = !!window._asigSoloInactivas;
+
+  const cols = d.asesoras;
+  const provs = d.provincias.filter(pv => !soloInactivas
+    || cols.some(a => !a.activa && (d.matriz[pv+'|'+a.nombre]||0) > 0));
+  const colorCol = a => a.sin ? '#6b7280' : (a.activa ? 'var(--text)' : '#b91c1c');
+  const fondoCol = a => a.sin ? '#f3f4f6' : (a.activa ? '#faf9f8' : '#fef2f2');
+
+  const pendientes = cols.filter(a => !a.activa).reduce((s,a)=>s+a.clientas, 0);
+
+  let detalle = '';
+  if(sel){
+    const [pv, ase] = sel.split('|');
+    const lista = d.clientas.filter(c => c.provincia === pv && c.asesora === ase)
+      .sort((a,b) => b.ventas_anio - a.ventas_anio);
+    detalle = `
+    <div class="card" style="margin-top:12px;padding:0">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--border)">
+        <div style="font-size:13px;font-weight:600">${esc(pv)} · ${esc(corto(ase))} <span style="color:var(--muted);font-weight:400">· ${lista.length} clienta${lista.length!==1?'s':''}</span></div>
+        <button onclick="window._asigSel=null;renderAsignacion()" style="border:none;background:none;cursor:pointer;color:var(--muted);font-size:16px"><i class="ti ti-x"></i></button>
+      </div>
+      <div style="overflow-x:auto;max-height:420px"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:640px">
+        <thead><tr style="background:#faf9f8;position:sticky;top:0">
+          <th style="padding:7px 16px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase">Cliente</th>
+          <th style="padding:7px 10px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase">Categoría</th>
+          <th style="padding:7px 10px;text-align:right;font-size:10px;color:var(--muted);text-transform:uppercase">Ventas ${d.anio}</th>
+          <th style="padding:7px 10px;text-align:right;font-size:10px;color:var(--muted);text-transform:uppercase">Última</th>
+          <th style="padding:7px 16px;text-align:right;font-size:10px;color:var(--muted);text-transform:uppercase">Debe</th>
+        </tr></thead>
+        <tbody>${lista.map((c,i)=>`
+          <tr style="border-bottom:0.5px solid var(--border);background:${i%2?'#f6f3ef':'white'}">
+            <td style="padding:7px 16px"><div style="font-weight:500">${esc(c.nombre)}</div><div style="font-size:10px;color:var(--muted)">${esc(c.ident)}</div></td>
+            <td style="padding:7px 10px;color:var(--muted)">${esc(c.categoria)||'—'}</td>
+            <td style="padding:7px 10px;text-align:right;font-weight:${c.ventas_anio>0?'600':'400'};color:${c.ventas_anio>0?'var(--brown)':'#d6d0c8'}">${c.ventas_anio>0?money(c.ventas_anio):'—'}</td>
+            <td style="padding:7px 10px;text-align:right;color:var(--muted)">${esc(c.ultima)||'—'}</td>
+            <td style="padding:7px 16px;text-align:right;color:${c.debe>0?'#b91c1c':'#d6d0c8'}">${c.debe>0?money(c.debe):'—'}</td>
+          </tr>`).join('')}</tbody>
+      </table></div>
+    </div>`;
+  }
+
+  main.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px">
+      <div style="font-size:16px;font-weight:600"><i class="ti ti-arrows-shuffle" style="margin-right:8px;color:var(--brown)"></i>Asignación de clientas</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button onclick="window._asigSoloInactivas=!window._asigSoloInactivas;window._asigSel=null;renderAsignacion()"
+          style="padding:8px 13px;border:1px solid ${soloInactivas?'#fca5a5':'var(--border)'};background:${soloInactivas?'#fef2f2':'white'};color:${soloInactivas?'#b91c1c':'var(--text)'};border-radius:8px;font-size:12px;cursor:pointer;font-weight:500">
+          <i class="ti ti-filter" style="margin-right:4px"></i>${soloInactivas?'Ver todas las provincias':'Solo provincias por reasignar'}</button>
+        <button onclick="window._asigData=null;renderAsignacion()" style="padding:8px 13px;border:1px solid var(--border);background:white;border-radius:8px;font-size:12px;cursor:pointer"><i class="ti ti-refresh"></i></button>
+        <button onclick="window.open('/api/asignacion?excel=1','_blank')" style="padding:8px 15px;background:var(--brown);color:white;border:none;border-radius:8px;font-size:12px;cursor:pointer;font-weight:500"><i class="ti ti-file-spreadsheet" style="margin-right:5px"></i>Descargar Excel para reorganizar</button>
+      </div>
+    </div>
+    <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:#1e40af;line-height:1.55">
+      Esta vista <b>no cambia nada</b>: es la foto de hoy para decidir el reparto con las asesoras.
+      En rojo, las asesoras que ya no trabajan${pendientes?` — <b>${pendientes} clientas por reasignar</b>`:''}.
+      Toca un número para ver qué clientas son. El Excel trae las columnas <b>Nueva categoría</b> y <b>Nueva vendedora</b> vacías para llenarlas.
+    </div>
+    <div class="card" style="padding:0;overflow:hidden">
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="background:#faf9f8;border-bottom:1px solid var(--border)">
+          <th style="padding:9px 14px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;position:sticky;left:0;background:#faf9f8">Provincia</th>
+          ${cols.map(a=>`<th style="padding:9px 8px;text-align:center;font-size:10px;text-transform:uppercase;white-space:nowrap;color:${colorCol(a)};background:${fondoCol(a)}" title="${esc(a.nombre)}${a.activa||a.sin?'':' — ya no trabaja'}">${esc(corto(a.nombre))}${a.activa||a.sin?'':'<br><span style="font-size:8px;letter-spacing:0">ya no trabaja</span>'}</th>`).join('')}
+          <th style="padding:9px 14px;text-align:right;font-size:10px;color:var(--muted);text-transform:uppercase">Total</th>
+        </tr></thead>
+        <tbody>${provs.map((pv,i)=>{
+          let t = 0;
+          const celdas = cols.map(a=>{
+            const n = d.matriz[pv+'|'+a.nombre] || 0; t += n;
+            const k = pv+'|'+a.nombre, abierta = sel === k;
+            return `<td style="padding:6px 8px;text-align:center;background:${abierta?'#fde9dc':(n&&!a.activa&&!a.sin?'#fef2f2':'')}">
+              ${n?`<button onclick="window._asigSel=${abierta?'null':`'${esc(k).replace(/'/g,"\\'")}'`};renderAsignacion()" style="min-width:34px;padding:3px 8px;border-radius:7px;cursor:pointer;font-size:12px;font-weight:700;border:1px solid ${abierta?'var(--brown)':'var(--border)'};background:white;color:${colorCol(a)}">${n}</button>`:'<span style="color:#e5e0d8">·</span>'}
+            </td>`;
+          }).join('');
+          return `<tr style="border-bottom:0.5px solid var(--border);background:${i%2?'#fbfaf8':'white'}">
+            <td style="padding:7px 14px;font-weight:500;white-space:nowrap;position:sticky;left:0;background:${i%2?'#fbfaf8':'white'}">${esc(pv)}</td>
+            ${celdas}
+            <td style="padding:7px 14px;text-align:right;font-weight:700">${t}</td>
+          </tr>`;
+        }).join('')}</tbody>
+        <tfoot><tr style="background:#f3f0ec;border-top:1px solid var(--border)">
+          <td style="padding:9px 14px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;position:sticky;left:0;background:#f3f0ec">Clientas</td>
+          ${cols.map(a=>`<td style="padding:9px 8px;text-align:center;font-weight:800;color:${colorCol(a)}">${a.clientas}</td>`).join('')}
+          <td style="padding:9px 14px;text-align:right;font-weight:800">${d.total}</td>
+        </tr></tfoot>
+      </table></div>
+    </div>
+    ${detalle}`;
 }
 
 function navGoCxc(){
