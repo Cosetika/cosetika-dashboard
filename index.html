@@ -1539,7 +1539,8 @@ function pintarBodegas(filtro){
       </tbody>
     </table>
   </div>
-  <div style="font-size:11px;color:var(--muted);margin-top:8px">${productosFinal.length} producto${productosFinal.length!==1?'s':''}${window._bodSoloBajo?' con stock bajo':''} · <span style="color:#dc2626">rojo</span> = agotado o bajo el mínimo · mínimo automático = rotación mensual × ${(window._bodData||{}).dias_provision||15} días ÷ 30, por bodega</div>`;
+  <div style="font-size:11px;color:var(--muted);margin-top:8px">${productosFinal.length} producto${productosFinal.length!==1?'s':''}${window._bodSoloBajo?' con stock bajo':''} · <span style="color:#dc2626">rojo</span> = agotado o bajo el mínimo · mínimo automático = rotación mensual × ${(window._bodData||{}).dias_provision||15} días ÷ 30, por bodega<br>
+    rotación = promedio de 3 meses: los 2 cerrados anteriores más el mes en curso proyectado a mes completo</div>`;
 }
 
 async function cambiarProvisionBodegas(dias){

@@ -438,6 +438,16 @@ function resolverInventarioContraCatalogo(filasProducto) {
 //
 // La proyección solo se aplica después del día 8: antes, dos o tres días de ventas
 // multiplicados por diez producen cifras disparatadas.
+// Rotación para decidir el MÍNIMO de bodega. Se mide contra hoy e incluye el mes en
+// curso proyectado a mes completo. Sin esto, un producto que empezó a venderse este mes
+// aparecía con rotación casi cero: la CREMA ANTI-IMPERFECCIONES llevaba 81 unidades
+// vendidas en noviembre y el panel le calculaba un mínimo de 1, porque solo miraba los
+// meses cerrados (1 unidad en octubre, nada en agosto ni septiembre).
+function rotacionParaBodegas(){
+  const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Guayaquil' });
+  return calcularRotacionMensual(hoy, { incluirMesActual: true });
+}
+
 function calcularRotacionMensual(fechaCorte, opciones) {
   opciones = opciones || {};
   const nMeses = [2,3,4,6].includes(parseInt(opciones.meses)) ? parseInt(opciones.meses) : 3;
@@ -8204,10 +8214,7 @@ const server = http.createServer(async (req, res) => {
       // Mínimo AUTOMÁTICO: rotación mensual × (días de provisión ÷ 30) para cada bodega
       const diasProv = parseInt(await getConfigApp('bodegas_dias_provision', '15')) || 15;
       let rotBod = {};
-      try {
-        const fcB = (INVENTARIO_CACHE && INVENTARIO_CACHE.fecha_corte) || new Date().toLocaleDateString('en-CA',{timeZone:'America/Guayaquil'});
-        rotBod = calcularRotacionMensual(fcB);
-      } catch(e) {}
+      try { rotBod = rotacionParaBodegas(); } catch(e) {}
       productosFiltrados.forEach(pr => {
         const rot = rotBod[pr.producto_id] || 0;
         pr.rotacion = Math.round(rot*100)/100;
@@ -8275,9 +8282,8 @@ const server = http.createServer(async (req, res) => {
           porMes[k] = (porMes[k]||0) + (pm.cantidad||0);
         });
       }));
-      const fcR = (INVENTARIO_CACHE && INVENTARIO_CACHE.fecha_corte)
-        || new Date().toLocaleDateString('en-CA',{timeZone:'America/Guayaquil'});
-      const rot = calcularRotacionMensual(fcR);
+      const fcR = new Date().toLocaleDateString('en-CA',{timeZone:'America/Guayaquil'});
+      const rot = rotacionParaBodegas();
 
       res.writeHead(200,{'Content-Type':'application/json'});
       res.end(JSON.stringify({ ok:true, sku, producto_id: pid, nombre: info.nombre, marca: info.marca,
@@ -8289,7 +8295,7 @@ const server = http.createServer(async (req, res) => {
           fecha_corte_usada: fcR,
           valor_que_muestra_el_panel: Math.round((rot[pid]||0)*100)/100,
           unidades_vendidas_por_mes: Object.fromEntries(Object.entries(porMes).sort()),
-          nota: 'La rotación es el promedio mensual de los 3 meses CERRADOS anteriores a la fecha de corte. El mes en curso no cuenta.'
+          nota: 'Promedio mensual de 3 meses: los 2 cerrados anteriores más el mes en curso proyectado a mes completo (unidades vendidas x 30 / dia de hoy). Antes del dia 8 del mes no se proyecta y solo cuentan los meses cerrados.'
         } }, null, 2));
     } catch(e) { res.writeHead(500,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
     return;
@@ -8327,10 +8333,7 @@ const server = http.createServer(async (req, res) => {
       }
       const diasProvX = parseInt(await getConfigApp('bodegas_dias_provision', '15')) || 15;
       let rotX = {};
-      try {
-        const fcX = (INVENTARIO_CACHE && INVENTARIO_CACHE.fecha_corte) || new Date().toLocaleDateString('en-CA',{timeZone:'America/Guayaquil'});
-        rotX = calcularRotacionMensual(fcX);
-      } catch(e) {}
+      try { rotX = rotacionParaBodegas(); } catch(e) {}
       const filas = [['Código','Producto','Marca','Rotación /mes',`Mínimo (${diasProvX}d)`,'Bodega POS','Bodega Casa']];
       lista.forEach(pr => {
         const rot = rotX[pr.producto_id] || 0;
