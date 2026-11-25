@@ -577,7 +577,9 @@ async function cargarNombresInscritos(){
       if(!u.nombre || !u.nombre_contifico) return;
       const id = 'U' + u.id;
       _ALIAS_PERSONA.set(_nzPersona(u.nombre), id);
-      _ALIAS_PERSONA.set(_nzPersona(u.nombre_contifico), id);
+      // Varios nombres separados por coma: el viejo y el nuevo, cuando se renombra en Contifico
+      String(u.nombre_contifico).split(/[,;]/).map(x => x.trim()).filter(Boolean)
+        .forEach(n => _ALIAS_PERSONA.set(_nzPersona(n), id));
     });
   }catch(e){ _NOMBRES_INSCRITOS = []; }
   _CACHE_INSCRITO.clear();
@@ -4101,7 +4103,7 @@ async function renderConfig(){
               <div style="font-size:11px;color:var(--muted)">@${u.usuario}</div>
               <div style="font-size:11px;color:${u.nombre_contifico?'var(--brown)':'var(--muted)'};margin-top:3px;display:flex;align-items:center;gap:5px">
                 <i class="ti ti-arrow-right-circle" style="font-size:11px"></i>
-                <span title="Si Contifico la tiene grabada con otro nombre, escríbelo aquí tal cual para que sus ventas se crucen bien. Vacío = se cruza por el nombre de arriba.">En Contifico:</span>
+                <span title="Si Contifico la tiene grabada con otro nombre, escríbelo aquí tal cual para que sus ventas se crucen bien. Si cambió de nombre en Contifico, pon los dos separados por coma. Vacío = se cruza por el nombre de arriba.">En Contifico:</span>
                 <input type="text" id="cfc-${u.id}" value="${(u.nombre_contifico||'').replace(/"/g,'&quot;')}" placeholder="igual que arriba"
                   onchange="guardarNombreContifico(${u.id}, this.value, this)"
                   style="flex:1;max-width:280px;padding:3px 7px;border:0.5px solid var(--border);border-radius:5px;font-size:11px;outline:none"/>
@@ -12296,6 +12298,18 @@ async function renderPresupuestoVentas(){
   // SU ancla, no la del nombre escrito, o sus ventas no se encuentran.
   const _vendsData = Object.keys(DATA_P);
   const anclaDePersona = nom => pptoAncla(_vendsData.find(x => mismaPersona(x, nom)) || nom);
+  // Una persona puede estar en el histórico con su nombre viejo y con el nuevo (en
+  // nov-2026 se acortaron los nombres en Contifico: "Karen Rebeca Mora Cedeño" pasó a
+  // "Karen Mora"). Se juntan las ventas de TODOS sus nombres, no solo del primero.
+  const _vmPersona = {};
+  const ventasMesDePersona = nom => {
+    if(_vmPersona[nom]) return _vmPersona[nom];
+    const anclas = new Set([anclaDePersona(nom)]);
+    _vendsData.forEach(v => { if(mismaPersona(v, nom)) anclas.add(pptoAncla(v)); });
+    const out = {};
+    anclas.forEach(an => Object.entries(ventasMes[an]||{}).forEach(([mk,val]) => { out[mk] = (out[mk]||0) + val; }));
+    return (_vmPersona[nom] = out);
+  };
   Object.entries(DATA_P).forEach(([vend, clientes])=>{
     const k = pptoAncla(vend);
     if(!ventasMes[k]) ventasMes[k] = {};
@@ -12366,7 +12380,7 @@ async function renderPresupuestoVentas(){
   const evalKey = mkDe(evalSh.a, evalSh.m);
   const filas = asesoras.map(a=>{
     const k = anclaDePersona(a.nombre);
-    const vm = ventasMes[k] || {};
+    const vm = ventasMesDePersona(a.nombre);
     const ult3 = mesesCerrados.slice(-3).map(mk=>vm[mk]||0);
     const base = Math.round(ult3.reduce((x,y)=>x+y,0) / 3);
     // % sugerido: mediana del crecimiento mes a mes de los últimos 4 cerrados
@@ -12464,7 +12478,11 @@ async function renderPresupuestoVentas(){
     }
   }
   cfg.snapshots = cfg.snapshots || {};
-  if(JSON.stringify(cfg.snapshots[snapKey]||{}) !== JSON.stringify(snapAct)){
+  // En el panel del mes en curso, la meta de ese mes ya se congeló arriba con la MISMA
+  // fórmula que muestra la tabla y que ven las asesoras (mes anterior + %). Este bloque
+  // la volvía a escribir con la meta de la "ventana", que suma el empuje ERAYBA, y por eso
+  // la tarjeta de la líder decía $44,407 mientras la tabla sumaba $44,154.
+  if(!(compactoP && snapKey === selKey) && JSON.stringify(cfg.snapshots[snapKey]||{}) !== JSON.stringify(snapAct)){
     cfg.snapshots[snapKey] = snapAct;
     fetch('/api/presupuesto-config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({config:cfg})}).catch(()=>{});
   }
@@ -12488,7 +12506,7 @@ async function renderPresupuestoVentas(){
             ${cerradosSnap.map(mk=>{
               const meta = (cfg.snapshots[mk]||{})[f.nombre];
               if(!meta) return '<td style="padding:7px 10px;text-align:center;color:#ccc">—</td>';
-              const real = Math.round((ventasMes[f.k]||{})[mk]||0);
+              const real = Math.round(ventasMesDePersona(f.nombre)[mk]||0);
               const ok = real >= meta;
               return `<td style="padding:7px 10px;text-align:center"><div style="font-weight:700;color:${ok?'#16a34a':'#dc2626'}">${fmtP(real)}</div><div style="font-size:9px;color:var(--muted)">meta ${fmtP(meta)}</div></td>`;
             }).join('')}
@@ -16246,7 +16264,8 @@ function clavesDePersona(nombreVend){
   const c = _CACHE_CLAVES_PERSONA.get(k);
   if(c && c.d === DATA) return c.v;
   const ancla = pptoAncla(k);
-  const v = Object.keys(DATA||{}).filter(x => pptoAncla(x) === ancla);
+  const v = Object.keys(DATA||{}).filter(x => pptoAncla(x) === ancla
+    || (typeof mismaPersona === 'function' && (mismaPersona(x, nombreVend) || mismaPersona(x, k))));
   if(!v.includes(k) && DATA[k]) v.push(k);
   _CACHE_CLAVES_PERSONA.set(k, { d: DATA, v });
   return v;
