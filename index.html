@@ -16105,6 +16105,30 @@ async function renderEquiposConfig(){
           </div>
           <button onclick="eliminarEquipo(${e.id},'${e.nombre.replace(/'/g,"\\'")}')" style="background:none;border:none;color:#ef4444;cursor:pointer;font-size:14px"><i class="ti ti-trash"></i></button>
         </div>
+        ${(()=>{
+          // Nombres guardados en el equipo que ya no coinciden con ninguna usuaria activa.
+          // Pasa al renombrar a alguien (en la app o en Contifico): el equipo seguía
+          // apuntando al nombre viejo, que no aparecía en ninguna parte de esta pantalla
+          // pero sí en Ventas y KPIs, con $0 y sin meta. Aquí se ven y se re-enlazan.
+          const viejos = [...(e.miembros||[]), e.lider].filter(Boolean)
+            .filter((m,i,arr) => arr.indexOf(m) === i)
+            .filter(m => !candidatos.some(c => mismaPersona(m, c)));
+          if(!viejos.length) return '';
+          return `<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:10px;padding:10px 12px;margin-bottom:12px">
+            <div style="font-size:12px;font-weight:700;color:#b91c1c;margin-bottom:4px"><i class="ti ti-alert-triangle"></i> Nombres viejos en este equipo</div>
+            <div style="font-size:11px;color:#7f1d1d;margin-bottom:8px;line-height:1.5">No coinciden con ninguna usuaria activa (seguramente se renombró). Por eso en Ventas y KPIs salen con $0 y sin meta.
+              Elige a quién corresponden: se cambia el nombre en el equipo y en sus metas, porcentajes y demás configuraciones.</div>
+            ${viejos.map(v=>`<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:6px">
+              <span style="font-size:12px;font-weight:600;text-decoration:line-through;color:#7f1d1d">${String(v).replace(/</g,'&lt;')}</span>
+              <span style="font-size:11px;color:var(--muted)">→ es</span>
+              <select onchange="if(this.value==='__quitar__') toggleMiembroEquipo(${e.id}, '${String(v).replace(/'/g,"\\'")}', false); else if(this.value) reenlazarNombreViejo('${String(v).replace(/'/g,"\\'")}', this.value)" style="padding:5px 8px;border:1px solid #fca5a5;border-radius:7px;font-size:12px;background:white">
+                <option value="">— elegir usuaria —</option>
+                <option value="__quitar__">Ya no trabaja: quitar del equipo</option>
+                ${candidatos.map(c=>`<option value="${String(c).replace(/"/g,'&quot;')}">${String(c).replace(/</g,'&lt;')}</option>`).join('')}
+              </select>
+            </div>`).join('')}
+          </div>`;
+        })()}
         <div style="margin-bottom:10px">
           <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Líder del equipo</div>
           <select onchange="actualizarEquipo(${e.id},{lider:this.value})" style="width:100%;max-width:300px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;outline:none;background:white">
@@ -16203,6 +16227,22 @@ async function actualizarEquipo(id, cambios){
 function invalidarCacheEquipos(){
   window._equiposCache = null;
   window._asesorasKpiCache = null;
+}
+
+// Re-enlaza un nombre viejo (de antes de un renombrado) con la usuaria actual, en el
+// equipo y en todas las configuraciones donde aparezca (metas, %, carteras…).
+async function reenlazarNombreViejo(viejo, nuevo){
+  if(!confirm('¿"' + viejo + '" es "' + nuevo + '"?\n\nSe reemplaza el nombre viejo en el equipo y en sus metas, porcentajes y demás configuraciones. Las ventas no se tocan.')) { renderEquiposConfig(); return; }
+  try{
+    const r = await fetch('/api/renombrar-nombre', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ viejo, nuevo }) });
+    const d = await r.json();
+    if(!d.ok) throw new Error(d.error||'error');
+    invalidarCacheEquipos();
+    window._asesorasKpiCache = null; window._pptoCfgKpi = null;
+    const det = Object.entries(d.detalle||{}).map(([k,v])=>'  · '+k+': '+v).join('\n');
+    alert('Listo: "' + viejo + '" ahora es "' + nuevo + '".' + (det ? '\n\nSe actualizó en:\n' + det : ''));
+  }catch(e){ alert('No se pudo: ' + e.message); }
+  renderEquiposConfig();
 }
 
 async function toggleMiembroEquipo(id, nombre, agregar){

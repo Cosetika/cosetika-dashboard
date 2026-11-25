@@ -4091,7 +4091,7 @@ const RUTAS_CONFIG_ESCRIBE = [
   /^\/api\/clientes-reasignados/, /^\/api\/carteras-heredadas/,
   /^\/api\/categorias-asesora/, /^\/api\/sku-por-marca/,
   // Escribir en Contifico la reasignación de clientas: solo quien tiene Configuración
-  /^\/api\/asignacion\/(excel|aplicar|contifico)/
+  /^\/api\/asignacion\/(excel|aplicar|contifico)/, /^\/api\/renombrar-nombre/
 ];
 
 // Los módulos no viajan en la sesión (y las sesiones duran meses), así que se
@@ -4304,6 +4304,108 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   // Renombrar usuaria propagando el nombre a todas las tablas (reemplazo de personal)
+  // Cambia un nombre por otro en TODA la app (tablas y configuraciones), sin tocar la
+  // tabla de usuarios. Lo usan el renombrado de una usuaria y el arreglo de nombres
+  // viejos que quedaron en un equipo después de renombrar a alguien.
+  async function renombrarEnTodaLaApp(viejo, nuevo){
+  const TABLAS_NOMBRE = [
+    ['visitas','asesora'], ['planificacion','asesora'], ['giras','asesora'],
+    ['casas_abiertas','asesora'], ['asesor_zonas','asesora'], ['asesor_provincias','asesora'],
+    ['metas_visitas','asesora'], ['revisiones_lunes','asesora'], ['testers_asesoras','asesora'],
+    ['mercately_registros','asesora'], ['contifico_clientes_registros','asesora'],
+    ['casa_abierta_registros','asesora'], ['equipo_miembros','usuario_nombre'],
+    ['push_subscriptions','usuario_nombre'], ['pedidos_web','asesora'],
+    // Faltaban: por eso el nombre viejo seguía apareciendo en varios paneles
+    ['equipos','lider'], ['visitas_excepciones','asesora'], ['visitas_excepciones','creado_por'],
+    ['seguimiento_contactos','asesora'], ['documentos','subido_por'], ['nomina_meses','subido_por']
+  ];
+  const detalle = {};
+  for (const [t, c] of TABLAS_NOMBRE) {
+    try {
+      const r = await pool.query(`UPDATE ${t} SET ${c}=$1 WHERE ${c}=$2`, [nuevo, viejo]);
+      if (r.rowCount > 0) detalle[t + '.' + c] = r.rowCount;
+    } catch(e) { console.log(`Renombrar: no se pudo actualizar ${t}: ${e.message}`); }
+  }
+
+  // ── Configuraciones en JSON ────────────────────────────────────────────
+  // El nombre aparece como CLAVE de un objeto (metas, porcentajes, overrides)
+  // y también como VALOR (miembros de equipo, dueña de un código, carteras
+  // heredadas). Antes se renombraban solo dos o tres secciones a mano, y todo
+  // lo demás —sobre todo la configuración por mes— se quedaba con el nombre
+  // viejo. Esta función recorre el objeto entero, a cualquier profundidad.
+  const renombrarJson = (obj, viejoN, nuevoN) => {
+    let cambios = 0;
+    const rec = (o) => {
+      if (Array.isArray(o)) {
+        o.forEach((v, i) => {
+          if (typeof v === 'string' && v === viejoN) { o[i] = nuevoN; cambios++; }
+          else if (v && typeof v === 'object') rec(v);
+        });
+        return;
+      }
+      if (!o || typeof o !== 'object') return;
+      Object.keys(o).forEach(k => {
+        const v = o[k];
+        if (typeof v === 'string' && v === viejoN) { o[k] = nuevoN; cambios++; }
+        else if (v && typeof v === 'object') rec(v);
+        if (k === viejoN) {                      // la clave misma es el nombre
+          if (!(nuevoN in o)) o[nuevoN] = o[k];
+          delete o[k];
+          cambios++;
+        }
+      });
+    };
+    rec(obj);
+    return cambios;
+  };
+
+  // Todo lo que guarda el nombre dentro de app_config
+  for (const clave of ['presupuesto_ventas','meta_ventas','carteras_heredadas',
+                       'categorias_asesora','kpis_pesos','asignacion_giras']) {
+    try {
+      const raw = await getConfigApp(clave, null);
+      if (!raw) continue;
+      const obj = JSON.parse(raw);
+      const n = renombrarJson(obj, viejo, nuevo);
+      if (n > 0) { await setConfigApp(clave, JSON.stringify(obj)); detalle[clave] = n; }
+    } catch(e) { console.log(`Renombrar: ${clave}: ${e.message}`); }
+  }
+
+  // Tablas que guardan un JSON suelto con el nombre dentro
+  for (const [tabla, col] of [['contifico_clientes_metas','datos'], ['mercately_metas','datos']]) {
+    try {
+      const r = await pool.query(`SELECT ${col} FROM ${tabla} WHERE id_unico='principal'`);
+      if (!r.rows.length) continue;
+      const obj = JSON.parse(r.rows[0][col]);
+      const n = renombrarJson(obj, viejo, nuevo);
+      if (n > 0) {
+        await pool.query(`UPDATE ${tabla} SET ${col}=$1, actualizado_at=NOW() WHERE id_unico='principal'`, [JSON.stringify(obj)]);
+        detalle[tabla] = n;
+      }
+    } catch(e) { console.log(`Renombrar: ${tabla}: ${e.message}`); }
+  }
+    return detalle;
+  }
+
+  // POST /api/renombrar-nombre {viejo, nuevo} → reemplaza un nombre que quedó viejo
+  // (equipos, metas, porcentajes, carteras…) por el de una usuaria actual. No crea ni
+  // cambia usuarias: solo re-enlaza lo que quedó apuntando al nombre anterior.
+  if (urlPath === '/api/renombrar-nombre' && req.method === 'POST') {
+    if (bloquearSiNoAdmin(req, res)) return;
+    try {
+      const b = await bodyJSON(req);
+      const viejo = String(b.viejo||'').trim(), nuevo = String(b.nuevo||'').trim().substring(0,250);
+      if (!viejo || !nuevo) throw new Error('Faltan el nombre viejo y el nuevo');
+      if (viejo === nuevo) throw new Error('Son el mismo nombre');
+      const rU = await pool.query('SELECT 1 FROM usuarios WHERE nombre=$1 AND activo=true', [nuevo]);
+      if (!rU.rows.length) throw new Error('El nombre nuevo debe ser el de una usuaria activa');
+      const detalle = await renombrarEnTodaLaApp(viejo, nuevo);
+      console.log(`🔗 Nombre viejo re-enlazado: "${viejo}" → "${nuevo}"`, detalle);
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, detalle}));
+    } catch(e) { res.writeHead(400,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:false,error:e.message})); }
+    return;
+  }
+
   if (/^\/api\/usuarios\/\d+\/renombrar$/.test(urlPath) && req.method === 'POST') {
     try {
       const id = parseInt(urlPath.split('/')[3]);
@@ -4315,82 +4417,7 @@ const server = http.createServer(async (req, res) => {
       const viejo = rU.rows[0].nombre;
       if (viejo === nuevo) { res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, sin_cambios:true})); return; }
       await pool.query('UPDATE usuarios SET nombre=$1 WHERE id=$2',[nuevo,id]);
-      const TABLAS_NOMBRE = [
-        ['visitas','asesora'], ['planificacion','asesora'], ['giras','asesora'],
-        ['casas_abiertas','asesora'], ['asesor_zonas','asesora'], ['asesor_provincias','asesora'],
-        ['metas_visitas','asesora'], ['revisiones_lunes','asesora'], ['testers_asesoras','asesora'],
-        ['mercately_registros','asesora'], ['contifico_clientes_registros','asesora'],
-        ['casa_abierta_registros','asesora'], ['equipo_miembros','usuario_nombre'],
-        ['push_subscriptions','usuario_nombre'], ['pedidos_web','asesora'],
-        // Faltaban: por eso el nombre viejo seguía apareciendo en varios paneles
-        ['equipos','lider'], ['visitas_excepciones','asesora'], ['visitas_excepciones','creado_por'],
-        ['seguimiento_contactos','asesora'], ['documentos','subido_por'], ['nomina_meses','subido_por']
-      ];
-      const detalle = {};
-      for (const [t, c] of TABLAS_NOMBRE) {
-        try {
-          const r = await pool.query(`UPDATE ${t} SET ${c}=$1 WHERE ${c}=$2`, [nuevo, viejo]);
-          if (r.rowCount > 0) detalle[t + '.' + c] = r.rowCount;
-        } catch(e) { console.log(`Renombrar: no se pudo actualizar ${t}: ${e.message}`); }
-      }
-
-      // ── Configuraciones en JSON ────────────────────────────────────────────
-      // El nombre aparece como CLAVE de un objeto (metas, porcentajes, overrides)
-      // y también como VALOR (miembros de equipo, dueña de un código, carteras
-      // heredadas). Antes se renombraban solo dos o tres secciones a mano, y todo
-      // lo demás —sobre todo la configuración por mes— se quedaba con el nombre
-      // viejo. Esta función recorre el objeto entero, a cualquier profundidad.
-      const renombrarJson = (obj, viejoN, nuevoN) => {
-        let cambios = 0;
-        const rec = (o) => {
-          if (Array.isArray(o)) {
-            o.forEach((v, i) => {
-              if (typeof v === 'string' && v === viejoN) { o[i] = nuevoN; cambios++; }
-              else if (v && typeof v === 'object') rec(v);
-            });
-            return;
-          }
-          if (!o || typeof o !== 'object') return;
-          Object.keys(o).forEach(k => {
-            const v = o[k];
-            if (typeof v === 'string' && v === viejoN) { o[k] = nuevoN; cambios++; }
-            else if (v && typeof v === 'object') rec(v);
-            if (k === viejoN) {                      // la clave misma es el nombre
-              if (!(nuevoN in o)) o[nuevoN] = o[k];
-              delete o[k];
-              cambios++;
-            }
-          });
-        };
-        rec(obj);
-        return cambios;
-      };
-
-      // Todo lo que guarda el nombre dentro de app_config
-      for (const clave of ['presupuesto_ventas','meta_ventas','carteras_heredadas',
-                           'categorias_asesora','kpis_pesos','asignacion_giras']) {
-        try {
-          const raw = await getConfigApp(clave, null);
-          if (!raw) continue;
-          const obj = JSON.parse(raw);
-          const n = renombrarJson(obj, viejo, nuevo);
-          if (n > 0) { await setConfigApp(clave, JSON.stringify(obj)); detalle[clave] = n; }
-        } catch(e) { console.log(`Renombrar: ${clave}: ${e.message}`); }
-      }
-
-      // Tablas que guardan un JSON suelto con el nombre dentro
-      for (const [tabla, col] of [['contifico_clientes_metas','datos'], ['mercately_metas','datos']]) {
-        try {
-          const r = await pool.query(`SELECT ${col} FROM ${tabla} WHERE id_unico='principal'`);
-          if (!r.rows.length) continue;
-          const obj = JSON.parse(r.rows[0][col]);
-          const n = renombrarJson(obj, viejo, nuevo);
-          if (n > 0) {
-            await pool.query(`UPDATE ${tabla} SET ${col}=$1, actualizado_at=NOW() WHERE id_unico='principal'`, [JSON.stringify(obj)]);
-            detalle[tabla] = n;
-          }
-        } catch(e) { console.log(`Renombrar: ${tabla}: ${e.message}`); }
-      }
+      const detalle = await renombrarEnTodaLaApp(viejo, nuevo);
 
       console.log(`👤 Usuaria renombrada: "${viejo}" → "${nuevo}"`, detalle);
       res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true, viejo, nuevo, detalle}));
