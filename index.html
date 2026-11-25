@@ -16233,13 +16233,31 @@ function claveVendedora(nombre){
   return real;
 }
 
+// Una misma asesora puede aparecer en el histórico bajo MÁS DE UN nombre ("Karen Rebeca"
+// y "Karen Rebeca Mora Cedeño", según cómo quedó grabada en cada época). Antes aquí se
+// tomaba uno solo: si caía en el viejo, sus ventas del mes salían en $0 y se quedaba sin
+// meta en el panel de Ventas, mientras Presupuesto ventas —que suma todos— sí las veía.
+// Ahora se suman todos los nombres con el mismo nombre y primer apellido (la misma
+// regla de Presupuesto), para que los dos paneles den siempre el mismo número.
+const _CACHE_CLAVES_PERSONA = new Map();
+function clavesDePersona(nombreVend){
+  const k = claveVendedora(nombreVend);
+  if(!k) return [];
+  const c = _CACHE_CLAVES_PERSONA.get(k);
+  if(c && c.d === DATA) return c.v;
+  const ancla = pptoAncla(k);
+  const v = Object.keys(DATA||{}).filter(x => pptoAncla(x) === ancla);
+  if(!v.includes(k) && DATA[k]) v.push(k);
+  _CACHE_CLAVES_PERSONA.set(k, { d: DATA, v });
+  return v;
+}
+
 function ventasMesDeVendedora(nombreVend, mes, anio){
-  const clientes = DATA[claveVendedora(nombreVend)] || [];
   let sinIva = 0;
-  clientes.forEach(c=>{
-    const f = c.frecuencia.find(x=>x.mes===mes && (!anio || !x.anio || x.anio===anio));
+  clavesDePersona(nombreVend).forEach(clave => (DATA[clave] || []).forEach(c=>{
+    const f = (c.frecuencia||[]).find(x=>x.mes===mes && (!anio || !x.anio || x.anio===anio));
     if(f) sinIva += f.subtotal || (f.total/1.15) || 0;
-  });
+  }));
   return sinIva;
 }
 
