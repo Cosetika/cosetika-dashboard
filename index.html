@@ -1132,7 +1132,8 @@ function pintarListaNsos(filtro){
               onfocus="this.style.borderColor='var(--brown)';this.style.background='white'" onblur="this.style.borderColor='var(--border)'">
             <input type="file" id="etq-${n.id}" accept="application/pdf" style="display:none" onchange="subirEtiquetaPdf(${n.id}, this)">
             ${n.tiene_etiqueta_pdf
-              ? `<button onclick="window.open('/api/nsos/${n.id}/etiqueta-pdf','_blank')" title="Ver la etiqueta en PDF · doble clic para reemplazarla" ondblclick="document.getElementById('etq-${n.id}').click()" style="width:26px;height:26px;border:1px solid #93c5fd;background:#eff6ff;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-tag" style="font-size:13px;color:#2563eb"></i></button>`
+              ? `<button onclick="window.open('/api/nsos/${n.id}/etiqueta-pdf','_blank')" title="Ver la etiqueta en PDF" style="width:26px;height:26px;border:1px solid #93c5fd;background:#eff6ff;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-tag" style="font-size:13px;color:#2563eb"></i></button>
+                 <button onclick="document.getElementById('etq-${n.id}').click()" title="Reemplazar la etiqueta por un PDF nuevo" style="width:26px;height:26px;border:1px solid var(--border);background:white;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-refresh" style="font-size:12px;color:var(--muted)"></i></button>`
               : `<button onclick="document.getElementById('etq-${n.id}').click()" title="Subir la etiqueta en PDF" style="width:26px;height:26px;border:1px dashed var(--border);background:white;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-tag" style="font-size:12px;color:var(--muted)"></i></button>`}
             ${n.tiene_certificado
               ? `<button onclick="verCertificadoNso(${n.id})" title="Ver el certificado en PDF" style="width:26px;height:26px;border:1px solid #fca5a5;background:#fef2f2;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-file-type-pdf" style="font-size:13px;color:#dc2626"></i></button>`
@@ -1222,6 +1223,12 @@ async function guardarEtiquetaNso(id, input){
 async function subirEtiquetaPdf(id, input){
   const f = input.files && input.files[0];
   if(!f) return;
+  // Si ya tenía etiqueta, se confirma: el PDF anterior se reemplaza y no queda copia
+  const filaAnt = (window._nsosData||[]).find(x=>x.id===id);
+  if(filaAnt && filaAnt.tiene_etiqueta_pdf
+     && !confirm('¿Reemplazar la etiqueta de "' + (filaAnt.nombre||'') + '" por "' + f.name + '"?\n\nEl PDF anterior se sustituye.')){
+    input.value = ''; return;
+  }
   const st = document.getElementById('nsos-status');
   if(st) st.innerHTML = '<i class="ti ti-loader-2" style="animation:spin 1s linear infinite;margin-right:5px"></i>Subiendo etiqueta…';
   try{
@@ -1229,7 +1236,7 @@ async function subirEtiquetaPdf(id, input){
     const r = await fetch('/api/nsos/'+id+'/etiqueta-pdf', { method:'POST', body: fd });
     const d = await r.json();
     if(!d.ok) throw new Error(d.error||'error');
-    if(st) st.innerHTML = '<span style="color:#16a34a;font-weight:600">✓ Etiqueta cargada</span>';
+    if(st) st.innerHTML = '<span style="color:#16a34a;font-weight:600">✓ Etiqueta ' + (filaAnt && filaAnt.tiene_etiqueta_pdf ? 'reemplazada' : 'cargada') + '</span>';
     const fila = (window._nsosData||[]).find(x=>x.id===id);
     if(fila) fila.tiene_etiqueta_pdf = true;
     pintarListaNsos(document.getElementById('nsos-buscar')?.value||'');
@@ -4682,6 +4689,31 @@ function repintarPedidosSiVisible(){
   if(typeof renderPedidosWeb !== 'function') return;
   try { renderPedidosWeb(window._pedidosFecha); } catch(e){}
 }
+
+// Aviso cuando Contifico no responde: las cifras que se ven son las últimas guardadas y
+// no se actualizan hasta que vuelva. Antes no había ninguna señal y parecía que las
+// ventas "se caían".
+async function avisoContifico(){
+  try{
+    const r = await fetch('/api/version'); const v = await r.json();
+    const c = v.contifico || {};
+    const caido = c.error && (!c.ultimo_ok || c.ultimo_error > c.ultimo_ok);
+    let el = document.getElementById('aviso-contifico');
+    if(!caido){ if(el) el.remove(); return; }
+    if(!el){
+      el = document.createElement('div'); el.id = 'aviso-contifico';
+      el.style.cssText = 'position:sticky;top:0;z-index:50;background:#fef2f2;border-bottom:1px solid #fca5a5;color:#991b1b;font-size:12px;padding:8px 16px;text-align:center';
+      const main = document.getElementById('main');
+      (main && main.parentNode ? main.parentNode : document.body).insertBefore(el, main || document.body.firstChild);
+    }
+    const hora = x => x ? new Date(x).toLocaleTimeString('es-EC',{timeZone:'America/Guayaquil',hour:'2-digit',minute:'2-digit'}) : '—';
+    el.innerHTML = '<i class="ti ti-plug-connected-x"></i> <b>' + String(c.error).replace(/</g,'&lt;') + '</b> desde las ' + hora(c.ultimo_error)
+      + '. Las cifras que ves son las últimas guardadas' + (c.ultimo_ok ? ' (último dato bueno: ' + hora(c.ultimo_ok) + ')' : '')
+      + '. No se pierde nada: se actualizan solas cuando Contifico vuelva.';
+  }catch(e){}
+}
+setInterval(avisoContifico, 2 * 60 * 1000);
+setTimeout(avisoContifico, 5000);
 
 async function cargarData(){
   // ── Etapa 1: pintar Pedidos de inmediato ──────────────────────────────────────
