@@ -1095,6 +1095,11 @@ function pintarListaNsos(filtro){
   }
   const porMarca = {};
   datos.forEach(n => { const m = n.marca||'OTRAS'; if(!porMarca[m]) porMarca[m]=[]; porMarca[m].push(n); });
+  // Dentro de cada marca, de la A a la Z por nombre del producto. Se ordena aquí (y no
+  // solo en la base) para que siga en orden después de corregir un nombre o agregar una
+  // NSO, y sin que mayúsculas o tildes alteren el orden (Á va con A, no al final).
+  Object.values(porMarca).forEach(lista => lista.sort((a,b) =>
+    String(a.nombre||'').trim().localeCompare(String(b.nombre||'').trim(), 'es', { sensitivity:'base', numeric:true })));
   cont.style.textAlign='left'; cont.style.padding='0';
   cont.innerHTML = `<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">
       <span style="font-size:12px;color:var(--muted)">${datos.length} producto${datos.length!==1?'s':''}</span>
